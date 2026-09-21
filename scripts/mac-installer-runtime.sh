@@ -543,6 +543,47 @@ fi
 echo "openclaw CLI ready at ${OPENCLAW_BIN}"
 
 # ---------------------------------------------------------------------
+# Persist ~/.openclaw/tools/node/bin on PATH for future interactive shells.
+#
+# Everything above only puts openclaw on PATH for THIS script's own process
+# (see the PATH-priming block near the top). install.sh's own default (npm)
+# install path never persists anything to the user's shell rc files itself
+# -- ensure_openclaw_bin_link() (install.sh) just symlinks the wrapper into
+# whatever npm global prefix is active, which for us is always the Node we
+# provisioned in Step 2, i.e. ~/.openclaw/tools/node-v<version>/bin/openclaw
+# (reachable through the ~/.openclaw/tools/node/bin symlink). install.sh DOES
+# have PATH-persisting logic (persist_shell_path_prepend,
+# ensure_user_local_bin_on_path), but only its --install-method git path
+# calls it, targeting the unrelated ~/.local/bin -- not the plain npm
+# install path this script actually uses. Net effect without this block:
+# openclaw works fine inside this installer (and any other script that
+# explicitly PATHs it in) but "command not found" in a brand new Terminal
+# window, which is exactly the report this fixes.
+# ---------------------------------------------------------------------
+PATH_MARKER="# Added by OpenClaw.app installer"
+PATH_LINE="export PATH=\"\$HOME/.openclaw/tools/node/bin:\$PATH\"  ${PATH_MARKER}"
+PATH_RC_CANDIDATES=("$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.bash_profile" "$HOME/.bashrc")
+PATH_RC_ANY_EXISTS=0
+for rc in "${PATH_RC_CANDIDATES[@]}"; do
+  [[ -f "$rc" ]] && PATH_RC_ANY_EXISTS=1
+done
+if [[ "$PATH_RC_ANY_EXISTS" == "0" ]]; then
+  # Genuinely fresh account with no shell rc files at all yet -- create the
+  # one modern macOS Terminal.app actually sources for a login shell (zsh
+  # has been the default shell since Catalina).
+  echo "$PATH_LINE" >> "$HOME/.zprofile"
+  echo "Created ~/.zprofile with ~/.openclaw/tools/node/bin on PATH"
+else
+  for rc in "${PATH_RC_CANDIDATES[@]}"; do
+    [[ -f "$rc" ]] || continue
+    grep -qF "$PATH_MARKER" "$rc" 2>/dev/null && continue
+    { echo ""; echo "$PATH_LINE"; } >> "$rc"
+    echo "Added ~/.openclaw/tools/node/bin to PATH in $rc"
+  done
+fi
+# (fish users: add ~/.openclaw/tools/node/bin to ~/.config/fish/conf.d/ yourself -- not covered here.)
+
+# ---------------------------------------------------------------------
 # Step 4: finish onboarding non-interactively — local Gateway + launchd
 # daemon, workspace/bootstrap files.
 #
