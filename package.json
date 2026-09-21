@@ -1834,6 +1834,8 @@
     "lint:ui:styles": "stylelint --config config/stylelint.config.mjs \"ui/src/**/*.css\" \"ui/src/**/*.ts\" \"ui/public/themes/*.css\"",
     "lint:web-fetch-provider-boundaries": "node --import ./scripts/tsx.mjs scripts/check-web-fetch-provider-boundaries.mts",
     "lint:webhook:no-low-level-body-read": "node --import ./scripts/tsx.mjs scripts/check-webhook-auth-body-order.mts",
+    "mac:installer": "/bin/bash scripts/package-mac-installer.sh",
+    "mac:installer:wrap": "/bin/bash scripts/build-mac-installer.sh",
     "mac:open": "open dist/OpenClaw.app",
     "mac:package": "/bin/bash scripts/package-mac-app.sh",
     "mac:restart": "/bin/bash scripts/restart-mac.sh",

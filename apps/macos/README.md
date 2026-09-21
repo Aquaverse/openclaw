@@ -98,6 +98,34 @@ It is not a distribution artifact. For a notarized app ZIP and DMG, use:
 scripts/package-mac-dist.sh
 ```
 
+One-click, self-installing `OpenClaw.app` (builds from source, then
+transforms that SAME app bundle in place -- no separate installer app, no
+nested `OpenClaw.app` copy): double-clicking it on a Mac with no CLI/Gateway
+set up yet silently provisions a bundled Node.js runtime (no download) and
+the `openclaw` CLI, finishes `openclaw onboard --non-interactive`, and
+installs the local Gateway as a launchd daemon before launching into the
+app. Every later double-click is indistinguishable from a normal app
+launch -- see `scripts/mac-app-installer-dispatch.sh`'s fast-path check,
+which is what makes that possible without opening Terminal every time:
+
+```bash
+scripts/package-mac-installer.sh
+```
+
+Outputs `dist/OpenClaw.app` (mutated in place -- re-run
+`scripts/package-mac-app.sh` for a plain, untransformed build again) and,
+unless `SKIP_DMG=1`, `dist/OpenClaw-<version>-Install.dmg`. Same
+`ALLOW_ADHOC_SIGNING`/`SIGN_IDENTITY` signing story as `package-mac-app.sh`
+above applies, with an important caveat for a real (non-ad-hoc) signing
+identity -- see `scripts/build-mac-installer.sh`'s header comment on
+entitlements before reaching for `NOTARIZE=1`. To re-transform an
+already-built `dist/OpenClaw.app` without rebuilding it, run
+`scripts/build-mac-installer.sh` directly. See
+`scripts/mac-installer-runtime.sh` for the actual provisioning logic that
+runs on a genuine first launch, and `installer.env.example` for optionally
+baking in a default AI provider so the end user lands straight in a
+working chat.
+
 For an unattended Peekaboo elevation host, use the closed Foundation signing
 profile and source-addressed ZIP workflow. `package` is an internal release
 operator command: it requires the OpenClaw Foundation signing identity and
