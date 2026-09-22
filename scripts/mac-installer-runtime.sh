@@ -81,18 +81,20 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 
 # GUI double-click launches this with a minimal environment (no ~/.zshrc,
 # no ~/.zprofile PATH additions), so make sure we can find Homebrew, the
-# openclaw wrapper it just installed, and its private Node runtime.
-export PATH="$HOME/.local/bin:$HOME/.openclaw/tools/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# openclaw wrapper it just installed (~/.openclaw/bin -- see Step 3's own
+# comment for why that's the real, stable location), and its private Node
+# runtime.
+export PATH="$HOME/.local/bin:$HOME/.openclaw/bin:$HOME/.openclaw/tools/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export HOME="${HOME:-$(eval echo ~"$(id -un)")}"
 
 # Our own private Node/npm prefix (see Step 2 below) — put on PATH here,
 # unconditionally, as early as possible, not just inside Step 2's "need to
-# provision Node" branch. On a Mac with no usable system Node, this is also
-# where install.sh ends up publishing the `openclaw` wrapper and all its npm
-# packages, since it's whatever npm prefix is active at install time. Every
-# `command -v openclaw` check below (the fast-path check, Step 3's "already
-# installed?" check) needs this on PATH from the very start to correctly see
-# a PREVIOUS run's install. Without this fix, on such a machine: the fast
+# provision Node" branch. Also put ~/.openclaw/bin on PATH here for the same
+# reason: that's where Step 3's install-cli.sh always publishes the real,
+# stable `openclaw` wrapper (regardless of npm prefix — see Step 3's own
+# comment). Every `command -v openclaw` check below (the fast-path check,
+# Step 3's "already installed?" check) needs both of these on PATH from the
+# very start to correctly see a PREVIOUS run's install. Without this fix, on such a machine: the fast
 # path never triggered (couldn't find openclaw), Step 2 then re-extracted
 # Node into a freshly wiped directory — silently destroying the previously
 # installed openclaw CLI and all its npm packages along with it — and Step 4
@@ -492,76 +494,87 @@ fi
 echo "git ready: $(git --version)"
 
 # ---------------------------------------------------------------------
-# Step 3: provision the openclaw CLI, no prompts (Node is already on PATH
-# from Step 2, so install.sh's own Homebrew-based Node install is skipped).
+# Step 3: provision the openclaw CLI, no prompts.
+#
+# Use install-cli.sh (openclaw.ai/install-cli.sh), NOT the full install.sh.
+# This matters for more than just "no Homebrew": install-cli.sh is the exact
+# installer that produces the real, canonical ~/.openclaw layout --
+# confirmed byte-for-byte against a genuine prior manual install on a real
+# Mac (~/.openclaw/bin/openclaw containing
+# `exec "$PREFIX/tools/node/bin/node" "$PREFIX/tools/node-v<version>/lib/
+# node_modules/openclaw/dist/entry.js" "$@"`). install.sh's own default npm
+# path has no equivalent stable wrapper location -- it just symlinks
+# `openclaw` into whatever npm global prefix happens to be active, which for
+# us landed inside ~/.openclaw/tools/node-v<version>/bin instead, a path that
+# is never meant to be added to PATH directly (see the PATH-persistence step
+# right after this one). install-cli.sh's own install_node() also happens to
+# default to the exact same NODE_VERSION (24.19.0) and
+# ~/.openclaw/tools/node-v<version> layout Step 2 above already produced --
+# it recognizes that as already usable (linked_node_is_usable) and just
+# re-links ~/.openclaw/tools/node to it instead of re-downloading, so nothing
+# from Step 2 is wasted by switching installers here.
 #
 # If a supervised install already exists on this machine (from an earlier
-# manual setup, or a previous run of this installer), do NOT run install.sh
-# again over it. install.sh's default path is a plain `npm install -g` aimed
-# at a *fresh* install; run against an existing one it produced a real,
-# reproducible failure twice — npm itself reported success ("changed 330
-# packages") but openclaw's own postinstall never cleared its completion
-# marker ("OpenClaw lifecycle scripts did not complete"), and a first retry
-# failed identically both times. Stopping the Gateway first did NOT fix it
-# either (tried that — same failure). openclaw's own docs say plainly which
-# path is actually meant for this: "Prefer `openclaw update` for supervised
-# installs: it can coordinate the package swap with the running Gateway
-# service" (docs/install/updating/update-methods.md) — so for an existing
-# install, hand it to `openclaw update --yes` instead (its documented
-# non-interactive form — see the `ssh ... 'openclaw update --yes' </dev/null`
-# example in docs/cli/update.md) and skip install.sh entirely.
+# manual setup, or a previous run of this installer), still prefer
+# `openclaw update --yes` over re-running the installer: install.sh's plain
+# `npm install -g` path produced a real, reproducible failure against an
+# existing install (npm itself reported success but openclaw's own postinstall
+# never cleared its completion marker, and a retry failed identically) and
+# openclaw's own docs recommend `openclaw update` for supervised installs
+# specifically (docs/install/updating/update-methods.md). install-cli.sh's
+# own npm step is more defensive about this (it checks for and retries past a
+# stuck lifecycle marker itself), but there is no reason to find out the hard
+# way twice -- an existing, working `openclaw` on PATH is simply handed to
+# `openclaw update --yes` instead.
 # ---------------------------------------------------------------------
 EXISTING_OPENCLAW_BIN="$(command -v openclaw 2>/dev/null || true)"
 if [[ -n "$EXISTING_OPENCLAW_BIN" ]]; then
   notify "Step 3/4" "Found an existing openclaw install — updating…"
-  echo "Existing openclaw CLI found at ${EXISTING_OPENCLAW_BIN} — running 'openclaw update --yes' instead of install.sh."
+  echo "Existing openclaw CLI found at ${EXISTING_OPENCLAW_BIN} — running 'openclaw update --yes' instead of the installer."
   if ! "$EXISTING_OPENCLAW_BIN" update --yes --accept-capabilities; then
     fatal "openclaw update failed — check the log to troubleshoot (safe to re-run this installer)."
   fi
 else
   notify "Step 3/4" "Installing the openclaw command-line tool…"
-  if ! curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh \
-      | /bin/bash -s -- --no-prompt --no-onboard; then
+  if ! curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install-cli.sh \
+      | /bin/bash -s -- --node-version "$NODE_PIN_VERSION"; then
     fatal "openclaw CLI installation failed — check your network connection and try again."
   fi
 fi
 
-# install.sh doesn't always publish the openclaw wrapper at the "usual"
-# ~/.local/bin/openclaw — it links it into whichever npm global prefix is
-# active at install time. When Step 2 provisioned our own private Node (the
-# Homebrew-free nodejs.org download), THAT Node's own npm prefix is what's
-# active, so the real link lands under
-# ~/.openclaw/tools/node-v<version>/bin/openclaw instead (reachable via the
-# ~/.openclaw/tools/node/bin symlink) — the same place a normal openclaw
-# install would put it. Resolve it from PATH rather than hardcoding a path —
-# Step 2 already made sure the right bin dir is first on PATH either way, so
-# `command -v` finds whichever one is actually correct.
-OPENCLAW_BIN="$(command -v openclaw 2>/dev/null || true)"
+# install-cli.sh always publishes the real wrapper at the same stable,
+# version-independent location: ~/.openclaw/bin/openclaw (it internally execs
+# an absolute path to both node and entry.js, so nothing but this one
+# directory needs to be on PATH -- see the PATH-persistence step right below).
+OPENCLAW_BIN="$OPENCLAW_HOME_PREFIX/bin/openclaw"
 if [[ -z "$OPENCLAW_BIN" || ! -x "$OPENCLAW_BIN" ]]; then
-  fatal "The CLI install finished but no openclaw command was found on PATH. PATH=${PATH}"
+  fatal "The CLI install finished but ${OPENCLAW_BIN} was not found or not executable."
 fi
 echo "openclaw CLI ready at ${OPENCLAW_BIN}"
 
 # ---------------------------------------------------------------------
-# Persist ~/.openclaw/tools/node/bin on PATH for future interactive shells.
+# Persist ~/.openclaw/bin on PATH for future interactive shells.
 #
 # Everything above only puts openclaw on PATH for THIS script's own process
-# (see the PATH-priming block near the top). install.sh's own default (npm)
-# install path never persists anything to the user's shell rc files itself
-# -- ensure_openclaw_bin_link() (install.sh) just symlinks the wrapper into
-# whatever npm global prefix is active, which for us is always the Node we
-# provisioned in Step 2, i.e. ~/.openclaw/tools/node-v<version>/bin/openclaw
-# (reachable through the ~/.openclaw/tools/node/bin symlink). install.sh DOES
-# have PATH-persisting logic (persist_shell_path_prepend,
-# ensure_user_local_bin_on_path), but only its --install-method git path
-# calls it, targeting the unrelated ~/.local/bin -- not the plain npm
-# install path this script actually uses. Net effect without this block:
-# openclaw works fine inside this installer (and any other script that
-# explicitly PATHs it in) but "command not found" in a brand new Terminal
-# window, which is exactly the report this fixes.
+# (see the PATH-priming block near the top). Neither install.sh nor
+# install-cli.sh persists anything to the user's shell rc files on macOS by
+# themselves for the plain npm install path this script uses (install.sh's
+# own persist_shell_path_prepend / ensure_user_local_bin_on_path only fire
+# on its --install-method git path, targeting the unrelated ~/.local/bin).
+# Net effect without this block: openclaw works fine inside this installer
+# (and any other script that explicitly PATHs it in) but "command not found"
+# in a brand new Terminal window -- exactly the report this fixes.
+#
+# ~/.openclaw/bin is the right directory to persist, not
+# ~/.openclaw/tools/node/bin: that's where install-cli.sh (Step 3, above)
+# publishes the real, stable `openclaw` wrapper -- confirmed against a real
+# prior manual install on this project's own test Mac. The wrapper execs
+# node and entry.js by absolute path internally, so this one directory is
+# all PATH ever needs, independent of whatever Node version is installed
+# underneath.
 # ---------------------------------------------------------------------
 PATH_MARKER="# Added by OpenClaw.app installer"
-PATH_LINE="export PATH=\"\$HOME/.openclaw/tools/node/bin:\$PATH\"  ${PATH_MARKER}"
+PATH_LINE="export PATH=\"\$HOME/.openclaw/bin:\$PATH\"  ${PATH_MARKER}"
 PATH_RC_CANDIDATES=("$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.bash_profile" "$HOME/.bashrc")
 PATH_RC_ANY_EXISTS=0
 for rc in "${PATH_RC_CANDIDATES[@]}"; do
@@ -572,16 +585,16 @@ if [[ "$PATH_RC_ANY_EXISTS" == "0" ]]; then
   # one modern macOS Terminal.app actually sources for a login shell (zsh
   # has been the default shell since Catalina).
   echo "$PATH_LINE" >> "$HOME/.zprofile"
-  echo "Created ~/.zprofile with ~/.openclaw/tools/node/bin on PATH"
+  echo "Created ~/.zprofile with ~/.openclaw/bin on PATH"
 else
   for rc in "${PATH_RC_CANDIDATES[@]}"; do
     [[ -f "$rc" ]] || continue
     grep -qF "$PATH_MARKER" "$rc" 2>/dev/null && continue
     { echo ""; echo "$PATH_LINE"; } >> "$rc"
-    echo "Added ~/.openclaw/tools/node/bin to PATH in $rc"
+    echo "Added ~/.openclaw/bin to PATH in $rc"
   done
 fi
-# (fish users: add ~/.openclaw/tools/node/bin to ~/.config/fish/conf.d/ yourself -- not covered here.)
+# (fish users: add ~/.openclaw/bin to ~/.config/fish/conf.d/ yourself -- not covered here.)
 
 # ---------------------------------------------------------------------
 # Step 4: finish onboarding non-interactively — local Gateway + launchd

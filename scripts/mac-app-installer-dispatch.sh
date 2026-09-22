@@ -31,10 +31,11 @@ REAL_BIN="$APP_ROOT/Contents/MacOS/OpenClaw-bin"
 
 # A GUI double-click launches this with a minimal environment (no ~/.zshrc,
 # no ~/.zprofile PATH additions) -- same PATH scripts/mac-installer-runtime.sh
-# exports, so `command -v openclaw` finds it wherever provisioning actually
-# put it (the nodejs.org-download prefix specifically, if that's what ended
-# up owning the npm global install).
-export PATH="$HOME/.local/bin:$HOME/.openclaw/tools/node/bin:$HOME/Library/Application Support/OpenClawInstaller/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# exports. ~/.openclaw/bin is where install-cli.sh publishes the real, stable
+# `openclaw` wrapper (confirmed against a real prior manual install); the
+# tools/node/bin entry is a harmless belt-and-suspenders fallback for an
+# older layout.
+export PATH="$HOME/.local/bin:$HOME/.openclaw/bin:$HOME/.openclaw/tools/node/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 fast_path_ready() {
   [[ -x "$REAL_BIN" ]] \
