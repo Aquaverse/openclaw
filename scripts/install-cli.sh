@@ -150,6 +150,9 @@ Environment variables:
   OPENCLAW_VERSION=latest|next|<semver>
   OPENCLAW_GIT_DIR=...
   OPENCLAW_GIT_UPDATE=0|1
+  OPENCLAW_NODE_TARBALL=<path>         Use this local Node tarball instead of downloading
+                                       one from nodejs.org (must match --node-version/OS/arch)
+  OPENCLAW_NODE_TARBALL_SHA256=<hex>   Optional sha256 to verify OPENCLAW_NODE_TARBALL against
 EOF
 }
 
@@ -1238,19 +1241,36 @@ install_node() {
   tarball="node-v${NODE_VERSION}-${os}-${arch}.tar.gz"
   url="${base_url}/${tarball}"
 
-  detect_downloader
   require_bin tar
+  if [[ -n "${OPENCLAW_NODE_TARBALL:-}" && -f "${OPENCLAW_NODE_TARBALL}" ]]; then
+    # A packaged installer (e.g. the macOS one-click build) can bundle a
+    # pre-downloaded Node tarball alongside itself and point us at it here,
+    # instead of always fetching from nodejs.org -- same extraction path
+    # below either way, just no network use when this is set. Verifies the
+    # tarball's sha256 first when OPENCLAW_NODE_TARBALL_SHA256 was also
+    # given; falls through to a normal download if the file is missing.
+    log "Using bundled Node tarball: ${OPENCLAW_NODE_TARBALL}"
+    if [[ -n "${OPENCLAW_NODE_TARBALL_SHA256:-}" ]]; then
+      actual_sha="$(sha256_file "${OPENCLAW_NODE_TARBALL}")"
+      if [[ "$actual_sha" != "${OPENCLAW_NODE_TARBALL_SHA256}" ]]; then
+        fail "Bundled Node tarball sha256 mismatch for ${OPENCLAW_NODE_TARBALL} (expected ${OPENCLAW_NODE_TARBALL_SHA256}, got ${actual_sha})"
+      fi
+    fi
+    cp "${OPENCLAW_NODE_TARBALL}" "$tmp/node.tgz"
+  else
+    detect_downloader
 
-  download_file "${base_url}/SHASUMS256.txt" "$tmp/SHASUMS256.txt"
-  expected_sha="$(grep "  ${tarball}$" "$tmp/SHASUMS256.txt" | awk '{print $1}' | head -n 1 || true)"
-  if [[ -z "${expected_sha}" ]]; then
-    fail "Failed to resolve Node shasum for ${tarball}"
-  fi
+    download_file "${base_url}/SHASUMS256.txt" "$tmp/SHASUMS256.txt"
+    expected_sha="$(grep "  ${tarball}$" "$tmp/SHASUMS256.txt" | awk '{print $1}' | head -n 1 || true)"
+    if [[ -z "${expected_sha}" ]]; then
+      fail "Failed to resolve Node shasum for ${tarball}"
+    fi
 
-  download_file "$url" "$tmp/node.tgz"
-  actual_sha="$(sha256_file "$tmp/node.tgz")"
-  if [[ "$actual_sha" != "$expected_sha" ]]; then
-    fail "Node tarball sha256 mismatch for ${tarball} (expected ${expected_sha}, got ${actual_sha})"
+    download_file "$url" "$tmp/node.tgz"
+    actual_sha="$(sha256_file "$tmp/node.tgz")"
+    if [[ "$actual_sha" != "$expected_sha" ]]; then
+      fail "Node tarball sha256 mismatch for ${tarball} (expected ${expected_sha}, got ${actual_sha})"
+    fi
   fi
 
   rm -rf "$dir"

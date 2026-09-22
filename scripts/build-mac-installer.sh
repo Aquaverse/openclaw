@@ -1,43 +1,52 @@
 #!/bin/bash
 set -euo pipefail
 
-# Turn a plain OpenClaw.app (scripts/package-mac-app.sh's own output) into a
-# SINGLE, self-installing OpenClaw.app: double-clicking it, on a Mac that
-# doesn't have the CLI/Gateway set up yet, silently provisions a private
-# Node.js runtime (bundled -- no download) and the `openclaw` CLI, finishes
-# non-interactive onboarding (optionally with a baked default AI provider --
-# see installer.env.example), installs the local Gateway as a launchd
-# daemon, then launches straight into the app. Every launch after that first
-# one is indistinguishable from a normal app launch -- no wizard, no visible
-# delay. There is no separate wrapper app and no nested OpenClaw.app copy:
-# this mutates the given app bundle IN PLACE into exactly one bundle that is
-# both the installer and the app.
+# Turn a plain OpenClaw.app (scripts/package-mac-app.sh's own output) into
+# the distributable build: optionally bakes a default AI provider and a
+# bundled Node.js runtime into it (see installer.env.example), re-signs,
+# and produces both a plain dmg and a self-provisioning .pkg installer.
 #
-# How: the real, Swift-compiled GUI binary is moved from
-# Contents/MacOS/OpenClaw to Contents/MacOS/OpenClaw-bin. A tiny compiled
-# AppleScript applet stub takes its place at Contents/MacOS/OpenClaw --
-# that's what Launch Services actually runs on every double-click (see the
-# "why osacompile" note below). On every launch it first runs
-# Contents/Resources/OpenClawDispatch.sh (scripts/mac-app-installer-dispatch.sh
-# at build time): if this Mac is already fully provisioned, that script
-# launches OpenClaw-bin directly and exits 0, and NOTHING else below this
-# happens -- no Terminal, no delay. Only if it exits nonzero (genuine first
-# run) does the stub open a visible Terminal window running
-# Contents/Resources/OpenClawInstaller.sh (scripts/mac-installer-runtime.sh),
-# which does the actual provisioning and then launches OpenClaw-bin itself.
+# The app bundle itself is left completely alone -- Contents/MacOS/OpenClaw
+# is still the real, Swift-compiled GUI binary, exactly what
+# package-mac-app.sh produced, launched normally by a double-click through
+# Launch Services like any other Mac app. That part never changes.
 #
-# IMPORTANT signing/entitlements caveat: this script's own re-sign step
-# (see "Signing identity" below) is a plain, whole-bundle codesign pass. It
-# does NOT reproduce scripts/codesign-mac-app.sh's per-binary entitlements
-# plist / Team-ID audit / hardened-runtime handling. For an ad-hoc-signed
-# build (this script's default -- see ALLOW_ADHOC_SIGNING below) that's
-# fine: hardened runtime isn't engaged either way, so entitlements plists
-# are inert and TCC just tracks by bundle+path, same as an unmodified
-# ad-hoc package-mac-app.sh build. If this is ever signed with a real
-# Developer ID for actual distribution (hardened runtime IS engaged then),
-# double check that Contents/MacOS/OpenClaw-bin -- not just the stub --
-# still has whatever entitlements it needs (e.g. Apple Events automation
-# for Peekaboo/computer-use); this script does not verify that for you.
+# An earlier version of this script instead moved the real GUI binary aside
+# and spliced in a compiled AppleScript applet as a new
+# Contents/MacOS/OpenClaw, so that every double-click ran a dispatcher
+# script first and, on a genuine first run, opened a visible Terminal
+# window to run a whole separate shell-script installer before ever
+# launching the real app. That fought macOS's own conventions badly enough
+# to cause real, repeatable bugs: Gatekeeper's dedicated "Press Run to run
+# this script or Quit to quit" prompt for script-based (AppleScript-applet)
+# app bundles kept reappearing because quarantine on a manually-installed
+# copy never got a chance to clear; the window's miniaturize button, the
+# red close button's quit behavior, and the Dock icon's right-click "Quit"
+# were all broken because a process forked directly from that script was
+# never registered with Launch Services as a real running application; and
+# the fast-path re-dispatch could itself fail and silently fall back to
+# opening a full Terminal window on every single launch, not just the
+# first. None of that exists anymore -- see the removed
+# scripts/mac-installer-runtime.sh and scripts/mac-app-installer-dispatch.sh
+# in git history if any of it is ever needed again.
+#
+# Silent Node/CLI/Gateway provisioning is back, but on a completely
+# different, much better-trodden mechanism: this script now also builds a
+# .pkg installer (scripts/mac-pkg-postinstall.sh) whose postinstall script
+# runs once, as root, right after Installer.app copies OpenClaw.app into
+# /Applications and before it is ever launched -- using the standard
+# `launchctl asuser <uid> sudo -u <user>` pattern to act as the logged-in
+# user. It installs the CLI (offline, from the Node tarball bundled below,
+# when present), runs `openclaw onboard --non-interactive --install-daemon
+# --mode local` (optionally pre-filling a default AI provider from
+# installer.env), and marks the app's own onboarding as seen -- so a pkg
+# install lands straight in chat with a working local Gateway, same as
+# the old architecture intended, without ever touching the app bundle
+# itself or Launch Services. Every step in there is independently
+# best-effort: any failure just falls back to the app's own normal
+# onboarding UI (see that script's own header comment). The dmg is still
+# built too, unchanged, with no silent provisioning, for a plain manual
+# drag-to-Applications install with no admin-password prompt.
 #
 # Usage:
 #   scripts/build-mac-installer.sh [path/to/OpenClaw.app | path/to/OpenClaw-*.dmg]
@@ -60,32 +69,31 @@ set -euo pipefail
 #                          for its NOTARYTOOL_* credential env vars. Given
 #                          the entitlements caveat above, don't reach for
 #                          this without first working through that.
-#   SKIP_DMG=1             Only produce the mutated dist/OpenClaw.app, skip
-#                          the styled dmg.
+#   SKIP_DMG=1             Skip the styled dmg (the pkg is still built).
+#   SKIP_PKG=1             Skip the .pkg installer (the dmg is still built).
+#   SKIP_NODE_BUNDLE=1     Don't bundle a Node tarball into the app --
+#                          scripts/mac-pkg-postinstall.sh (and manual
+#                          install-cli.sh runs) fall back to downloading
+#                          Node from nodejs.org at install time instead.
+#   OPENCLAW_NODE_VERSION   Node version to bundle/install (default: the
+#                          same 24.19.0 default scripts/install-cli.sh uses).
 #   BUILD_ZIP=1            Also produce a .zip (known to occasionally trip
 #                          Gatekeeper's "damaged" check after transfer on
 #                          some Macs -- prefer the dmg; see the note below).
-#   SKIP_NODE_BUNDLE=1     Don't bundle a Node.js runtime; the installer
-#                          downloads one from nodejs.org on first run
-#                          instead.
-#   OPENCLAW_NODE_VERSION  Node version to bundle/pin (default: 24.19.0, a
-#                          version verified to have prebuilt native
-#                          dependencies -- see the comment at its use below).
 #   DMG_VOLUME_NAME / DMG_WINDOW_BOUNDS / DMG_ICON_SIZE / DMG_APP_POS /
 #   DMG_APPS_POS           Forwarded to scripts/create-dmg.sh (its defaults
 #                          already match this installer's original layout).
 #
-# Must run on real macOS (hdiutil/ditto/PlistBuddy/osascript/osacompile/
-# codesign -- all ship with the OS, no Xcode install required).
+# Must run on real macOS (hdiutil/ditto/PlistBuddy/codesign -- all ship
+# with the OS, no Xcode install required).
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/lib/plistbuddy.sh"
 
-# See mac-installer-runtime.sh's own header for why this matters even though
-# this file's own text is plain ASCII: macOS's system bash (3.2) drops into
-# the "C" locale with no locale env at all (as a bare invocation can give
-# it), and its byte classification there can misparse embedded non-ASCII
-# text badly enough to corrupt a nearby $VAR expansion.
+# macOS's system bash (3.2) drops into the "C" locale with no locale env at
+# all (as a bare invocation can give it), and its byte classification there
+# can misparse embedded non-ASCII text badly enough to corrupt a nearby
+# $VAR expansion -- good general practice to force real UTF-8 regardless.
 export LANG="${LANG:-en_US.UTF-8}"
 export LC_ALL="${LC_ALL:-en_US.UTF-8}"
 
@@ -96,8 +104,6 @@ if [[ ! -e "$INPUT" ]]; then
   echo "Usage: $0 [path/to/OpenClaw.app | path/to/OpenClaw-*.dmg]" >&2
   exit 1
 fi
-
-command -v osacompile >/dev/null 2>&1 || { echo "ERROR: osacompile not found (should ship with macOS)" >&2; exit 1; }
 
 mkdir -p "$DIST_DIR"
 APP="$DIST_DIR/OpenClaw.app"
@@ -143,23 +149,16 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
-REAL_BIN="$APP/Contents/MacOS/OpenClaw-bin"
-STUB_BIN="$APP/Contents/MacOS/OpenClaw"
-
-if [[ -e "$REAL_BIN" ]]; then
-  echo "ERROR: $APP already looks transformed (Contents/MacOS/OpenClaw-bin already exists)." >&2
-  echo "       Run scripts/package-mac-app.sh again first for a clean, untransformed build." >&2
-  exit 1
-fi
-if [[ ! -f "$STUB_BIN" ]]; then
-  echo "ERROR: $STUB_BIN not found -- not a valid OpenClaw.app build." >&2
+APP_BIN="$APP/Contents/MacOS/OpenClaw"
+if [[ ! -x "$APP_BIN" ]]; then
+  echo "ERROR: $APP_BIN not found or not executable -- not a valid OpenClaw.app build." >&2
   exit 1
 fi
 
 APP_VERSION="$(plist_print_required "$APP/Contents/Info.plist" CFBundleShortVersionString)"
 echo "==> App: $APP (version $APP_VERSION)"
 
-if codesign -dv "$STUB_BIN" 2>&1 | grep -q '^Signature=adhoc$'; then
+if codesign -dv "$APP_BIN" 2>&1 | grep -q '^Signature=adhoc$'; then
   echo "WARN: The build being transformed is only ad-hoc signed. Re-signing"
   echo "      below (ad-hoc or otherwise) doesn't change that this is a"
   echo "      dev/local build, not an Apple-notarized one -- Gatekeeper will"
@@ -167,129 +166,79 @@ if codesign -dv "$STUB_BIN" 2>&1 | grep -q '^Signature=adhoc$'; then
 fi
 
 # ---------------------------------------------------------------------
-# 2. Move the real GUI binary aside, splice in a compiled AppleScript
-#    applet as the new Contents/MacOS/OpenClaw.
-#
-#    Why osacompile and not a raw shell script: a bundle whose
-#    CFBundleExecutable is a plain text shell script has no Mach-O header
-#    for Launch Services to read an architecture from. On Apple Silicon
-#    that can make Launch Services fall back to assuming the app needs
-#    Rosetta/Intel and prompt to install it, even though nothing in the app
-#    actually needs Intel. osacompile produces a real, Apple-built,
-#    natively-Apple-Silicon "applet runner" Mach-O as CFBundleExecutable;
-#    its only job here is to run OpenClawDispatch.sh and, only if that says
-#    this is a genuine first run, open Terminal for the visible install.
-#
-#    This splices JUST osacompile's generic applet-runner binary and its
-#    compiled script into the EXISTING app bundle (keeping our own
-#    Info.plist, icon, bundle id, etc. untouched) rather than using
-#    osacompile's own generated bundle directly -- the applet runner reads
-#    its script from Contents/Resources/Scripts/main.scpt relative to
-#    whatever bundle it's actually running inside, so this works.
+# 2. Bundle a Node.js runtime tarball (on by default): downloads, once,
+# the official nodejs.org tarball for whichever CPU architecture(s) this
+# app bundle actually contains, caches it under .artifacts/ for future
+# builds, and copies it into Contents/Resources/node-runtime/. This is
+# what lets the .pkg installer below provision Node completely offline
+# via scripts/install-cli.sh's OPENCLAW_NODE_TARBALL support, instead of
+# everyone's first run needing its own nodejs.org download. Skip with
+# SKIP_NODE_BUNDLE=1 -- the app's onboarding UI and the pkg's postinstall
+# script both still work fine without it, install-cli.sh just downloads
+# Node itself at install time like it always did.
 # ---------------------------------------------------------------------
-echo "==> Moving the real GUI binary to Contents/MacOS/OpenClaw-bin"
-mv "$STUB_BIN" "$REAL_BIN"
-
-echo "==> Generating native launch stub with osacompile (avoids a false Rosetta prompt)"
-BUILD_TMP="$(mktemp -d)"
-cat > "$BUILD_TMP/dispatch.applescript" <<'APPLESCRIPT'
-try
-	set posixPath to POSIX path of (path to me)
-	set dispatchScript to posixPath & "Contents/Resources/OpenClawDispatch.sh"
-	set alreadyHandled to false
-	try
-		do shell script "/bin/bash " & quoted form of dispatchScript
-		set alreadyHandled to true
-	end try
-	if not alreadyHandled then
-		set installScript to posixPath & "Contents/Resources/OpenClawInstaller.sh"
-		set shellCmd to "clear; /bin/bash " & quoted form of installScript
-		tell application "Terminal"
-			activate
-			set installerTab to do script shellCmd
-			try
-				set custom title of installerTab to "OpenClaw"
-			end try
-			try
-				set current settings of installerTab to settings set "Basic"
-			end try
-			try
-				set background color of installerTab to {64250, 64250, 63710}
-				set normal text color of installerTab to {8000, 8000, 8000}
-				set bold text color of installerTab to {2000, 20000, 45000}
-				set cursor color of installerTab to {8000, 8000, 8000}
-			end try
-			set installerWindow to front window
-			try
-				set winWidth to 900
-				set winHeight to 560
-				set screenWidth to 1440
-				set screenHeight to 900
-				try
-					tell application "Finder" to set screenBounds to bounds of window of desktop
-					set screenWidth to item 3 of screenBounds
-					set screenHeight to item 4 of screenBounds
-				end try
-				set winX to ((screenWidth - winWidth) / 2) as integer
-				set winY to ((screenHeight - winHeight) / 2) as integer
-				if winY < 40 then set winY to 40
-				set bounds of installerWindow to {winX, winY, winX + winWidth, winY + winHeight}
-			end try
-			repeat
-				delay 1
-				if not busy of installerTab then exit repeat
-			end repeat
-			-- OpenClawInstaller.sh's own fatal() helper always echoes a line
-			-- starting with "[FATAL]" right before it shows its own dialog and
-			-- exits non-zero -- reuse that as the success/failure signal instead
-			-- of adding a whole separate status-file mechanism.
-			set installFailed to false
-			try
-				if (history of installerTab) contains "[FATAL]" then set installFailed to true
-			end try
-			if not installFailed then
-				delay 3
-				try
-					close installerWindow
-				end try
-			end if
-		end tell
-	end if
-on error
-	-- OpenClawInstaller.sh already shows its own friendly dialog (via
-	-- osascript) and writes ~/Library/Logs/OpenClawInstaller.log whenever it
-	-- fails, then exits non-zero. Swallowing any AppleScript-level error here
-	-- (e.g. Terminal.app being unavailable) leaves that dialog as the only
-	-- thing the user sees instead of a second, scarier system alert.
-end try
-APPLESCRIPT
-STUB_BUILD_APP="$BUILD_TMP/DispatchStub.app"
-osacompile -o "$STUB_BUILD_APP" "$BUILD_TMP/dispatch.applescript"
-
-cp "$STUB_BUILD_APP/Contents/MacOS/applet" "$STUB_BIN"
-chmod +x "$STUB_BIN"
-mkdir -p "$APP/Contents/Resources/Scripts"
-cp "$STUB_BUILD_APP/Contents/Resources/Scripts/main.scpt" "$APP/Contents/Resources/Scripts/main.scpt"
-
-echo "==> Installing the dispatcher and installer runtime scripts"
-cp "$ROOT_DIR/scripts/mac-app-installer-dispatch.sh" "$APP/Contents/Resources/OpenClawDispatch.sh"
-chmod +x "$APP/Contents/Resources/OpenClawDispatch.sh"
-cp "$ROOT_DIR/scripts/mac-installer-runtime.sh" "$APP/Contents/Resources/OpenClawInstaller.sh"
-chmod +x "$APP/Contents/Resources/OpenClawInstaller.sh"
+NODE_VERSION_FOR_BUNDLE="${OPENCLAW_NODE_VERSION:-24.19.0}"
+rm -rf "$APP/Contents/Resources/node-runtime"
+if [[ "${SKIP_NODE_BUNDLE:-0}" == "1" ]]; then
+  echo "==> SKIP_NODE_BUNDLE=1 -- not bundling a Node runtime; installs will fetch Node from nodejs.org"
+else
+  NODE_CACHE_DIR="$ROOT_DIR/.artifacts/mac-installer-node-cache"
+  mkdir -p "$NODE_CACHE_DIR" "$APP/Contents/Resources/node-runtime"
+  APP_ARCHS="$(lipo -archs "$APP_BIN" 2>/dev/null || uname -m)"
+  fetch_node_tarball() {
+    local arch="$1" tarball url expected_sha actual_sha
+    tarball="node-v${NODE_VERSION_FOR_BUNDLE}-darwin-${arch}.tar.gz"
+    url="https://nodejs.org/dist/v${NODE_VERSION_FOR_BUNDLE}/${tarball}"
+    if [[ ! -f "$NODE_CACHE_DIR/$tarball" ]]; then
+      echo "    Downloading $tarball (cached under .artifacts/ for future builds)"
+      curl -fsSL --proto '=https' --tlsv1.2 -o "$NODE_CACHE_DIR/$tarball.tmp" "$url"
+      mv "$NODE_CACHE_DIR/$tarball.tmp" "$NODE_CACHE_DIR/$tarball"
+    fi
+    if [[ ! -f "$NODE_CACHE_DIR/$tarball.sha256" ]]; then
+      curl -fsSL --proto '=https' --tlsv1.2 -o "$NODE_CACHE_DIR/SHASUMS256.txt.tmp" \
+        "https://nodejs.org/dist/v${NODE_VERSION_FOR_BUNDLE}/SHASUMS256.txt"
+      expected_sha="$(grep "  ${tarball}$" "$NODE_CACHE_DIR/SHASUMS256.txt.tmp" | awk '{print $1}' | head -n1)"
+      rm -f "$NODE_CACHE_DIR/SHASUMS256.txt.tmp"
+      if [[ -z "$expected_sha" ]]; then
+        echo "ERROR: could not resolve sha256 for $tarball" >&2
+        exit 1
+      fi
+      echo "$expected_sha" > "$NODE_CACHE_DIR/$tarball.sha256"
+    fi
+    expected_sha="$(cat "$NODE_CACHE_DIR/$tarball.sha256")"
+    actual_sha="$(shasum -a 256 "$NODE_CACHE_DIR/$tarball" | awk '{print $1}')"
+    if [[ "$actual_sha" != "$expected_sha" ]]; then
+      echo "ERROR: cached $tarball sha256 mismatch (expected $expected_sha, got $actual_sha) -- delete $NODE_CACHE_DIR/$tarball and retry" >&2
+      exit 1
+    fi
+    cp "$NODE_CACHE_DIR/$tarball" "$APP/Contents/Resources/node-runtime/$tarball"
+    cp "$NODE_CACHE_DIR/$tarball.sha256" "$APP/Contents/Resources/node-runtime/$tarball.sha256"
+  }
+  echo "==> Bundling Node ${NODE_VERSION_FOR_BUNDLE} for: $APP_ARCHS"
+  for arch in $APP_ARCHS; do
+    case "$arch" in
+      arm64 | x86_64) fetch_node_tarball "$arch" ;;
+      *) echo "    (skipping unrecognized arch: $arch)" ;;
+    esac
+  done
+fi
 
 # ---------------------------------------------------------------------
-# Default AI provider (optional): if installer.env exists at the repo root,
-# bake its OPENCLAW_INSTALLER_DEFAULT_AI_* values into the app bundle so
-# the end user lands in a working chat instead of OpenClaw.app's own
-# first-run "pick a model" screen. These values ship in PLAINTEXT inside
-# the bundle -- anyone who unzips/inspects Resources can read them. This is
+# 3. Default AI provider (optional): if installer.env exists at the repo
+# root, bake its OPENCLAW_INSTALLER_DEFAULT_AI_* values into the app bundle
+# as a plain resource file. These values ship in PLAINTEXT inside the
+# bundle -- anyone who unzips/inspects Resources can read them. This is
 # meant for a shared default backend, not a personal credential; do not
 # bake in a personal API key you don't want handed to everyone who
 # receives this build. See installer.env.example. No installer.env -> this
-# step is skipped and behavior is unchanged (end user picks a provider
-# themselves). This is intentionally a separate file from this repo's own
-# .env (which the gateway/CLI load at runtime when run from source) so the
-# two never mix.
+# step is skipped.
+#
+# scripts/mac-pkg-postinstall.sh reads this file at pkg-install time and
+# passes it to `openclaw onboard --custom-base-url/--custom-model-id/...`,
+# so the pkg installer lands straight in chat with a working model already
+# configured. The dmg's plain app never reads this file -- someone who
+# drags it to Applications by hand still goes through the normal onboarding
+# model picker.
 # ---------------------------------------------------------------------
 ENV_FILE="$ROOT_DIR/installer.env"
 read_env_var() {
@@ -297,7 +246,7 @@ read_env_var() {
   grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -n1 | cut -d'=' -f2-
 }
 if [[ -f "$ENV_FILE" ]]; then
-  echo "==> Baking default AI provider config from $ENV_FILE into the app"
+  echo "==> Baking default AI provider config from $ENV_FILE into the app (consumed by the pkg installer's postinstall script)"
   {
     echo "DEFAULT_AI_PROVIDER=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_PROVIDER)"
     echo "DEFAULT_AI_BASE_URL=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL)"
@@ -305,59 +254,20 @@ if [[ -f "$ENV_FILE" ]]; then
     echo "DEFAULT_AI_API_KEY=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_API_KEY)"
   } > "$APP/Contents/Resources/default-ai-provider.env"
 else
-  echo "==> No $ENV_FILE -- skipping default AI provider config (end user picks one in the app, as usual)"
+  echo "==> No $ENV_FILE -- skipping default AI provider config"
 fi
 
 # ---------------------------------------------------------------------
-# Bundle a Node.js runtime so the target Mac doesn't need to download one.
-# Cached under .artifacts/ (gitignored) so repeat builds don't re-download.
-# Pinned to a specific version rather than "whatever's newest" -- see
-# scripts/mac-installer-runtime.sh's own Step 2 comment for why a floating
-# "latest" patch release is a real, hit-before failure mode (native deps
-# like koffi without a matching prebuilt binary yet). Override with
-# OPENCLAW_NODE_VERSION.
-# ---------------------------------------------------------------------
-if [[ "${SKIP_NODE_BUNDLE:-0}" == "1" ]]; then
-  echo "==> SKIP_NODE_BUNDLE=1 -- installer will download Node.js on first run instead"
-else
-  NODE_PIN_VERSION="${OPENCLAW_NODE_VERSION:-24.19.0}"
-  NODE_CACHE_DIR="$ROOT_DIR/.artifacts/mac-installer-node-cache"
-  mkdir -p "$NODE_CACHE_DIR"
-  NODE_RUNTIME_DIR="$APP/Contents/Resources/node-runtime"
-  mkdir -p "$NODE_RUNTIME_DIR"
-
-  fetch_node_tarball() {
-    local dist_arch="$1" dest="$2"
-    local tarball_name="node-v${NODE_PIN_VERSION}-darwin-${dist_arch}.tar.gz"
-    local url="https://nodejs.org/dist/v${NODE_PIN_VERSION}/${tarball_name}"
-    local cached="$NODE_CACHE_DIR/$tarball_name"
-    if [[ ! -f "$cached" ]]; then
-      echo "==> Downloading Node.js ($dist_arch): $tarball_name"
-      curl -fsSL --proto '=https' --tlsv1.2 "$url" -o "${cached}.part"
-      mv "${cached}.part" "$cached"
-    else
-      echo "==> Node.js ($dist_arch) already cached: $tarball_name"
-    fi
-    cp "$cached" "$dest"
-  }
-
-  fetch_node_tarball "arm64" "$NODE_RUNTIME_DIR/node-darwin-arm64.tar.gz"
-  fetch_node_tarball "x64" "$NODE_RUNTIME_DIR/node-darwin-x64.tar.gz"
-  echo "$NODE_PIN_VERSION" > "$NODE_RUNTIME_DIR/version.txt"
-fi
-
-# ---------------------------------------------------------------------
-# Signing identity -- same auto-selection and ALLOW_ADHOC_SIGNING fallback
-# as scripts/codesign-mac-app.sh, so this behaves consistently with
-# package-mac-app.sh rather than defaulting to ad-hoc silently. See the
-# "IMPORTANT signing/entitlements caveat" note at the top of this file:
+# 4. Signing identity -- same auto-selection and ALLOW_ADHOC_SIGNING
+# fallback as scripts/codesign-mac-app.sh, so this behaves consistently
+# with package-mac-app.sh rather than defaulting to ad-hoc silently. See
+# the "IMPORTANT signing/entitlements caveat" note at the top of this file:
 # this is a plain whole-bundle re-sign, not a reproduction of
 # codesign-mac-app.sh's per-binary entitlements/Team-ID-audit handling.
-# --deep is used here (unlike the old wrapper design) because there is no
-# separately-owned, already-signed nested app to protect anymore -- this
-# is one flat bundle, so recursively re-signing everything inside
-# (OpenClaw-bin, the new stub, openclaw-mac, openclaw-mlx-tts,
-# Sparkle.framework) in one consistent pass is exactly what's wanted.
+# --deep re-signs everything inside the bundle (openclaw-mac,
+# openclaw-mlx-tts, Sparkle.framework, ...) in one consistent pass, needed
+# because adding default-ai-provider.env above changes the bundle's
+# contents after package-mac-app.sh's own signing pass.
 # ---------------------------------------------------------------------
 select_identity() {
   local preferred
@@ -401,7 +311,6 @@ spctl --assess --type execute --verbose=2 "$APP" || echo "WARN: spctl assessment
 
 detach_src
 trap - EXIT
-rm -rf "$BUILD_TMP"
 
 # ---------------------------------------------------------------------
 # Notarization (NOTARIZE=1 only; needs a real, non-ad-hoc SIGN_IDENTITY).
@@ -453,35 +362,99 @@ if [[ "${BUILD_ZIP:-0}" == "1" ]]; then
   ditto -c -k --keepParent "$APP" "$ZIP_PATH"
 fi
 
-if [[ "${SKIP_DMG:-0}" == "1" ]]; then
-  echo ""
-  echo "Done (SKIP_DMG=1, styled dmg skipped)."
-  echo "  App (self-installing): $APP"
-  [[ -n "$ZIP_PATH" ]] && echo "  zip: $ZIP_PATH"
-  echo ""
-  gatekeeper_reminder
-  exit 0
+# ---------------------------------------------------------------------
+# .pkg installer (skip with SKIP_PKG=1): the artifact that actually gets
+# Node/CLI/Gateway installed silently before first launch -- see this
+# script's header comment and scripts/mac-pkg-postinstall.sh. Signed with
+# a Developer ID Installer identity when one is available (a *different*
+# identity type than the Developer ID Application one used to sign the
+# app above -- security find-identity lists both separately); otherwise
+# built unsigned, which still installs fine locally but shows Gatekeeper's
+# "unidentified developer" warning once (right-click -> Open), same as an
+# ad-hoc-signed app.
+# ---------------------------------------------------------------------
+OUT_PKG=""
+if [[ "${SKIP_PKG:-0}" == "1" ]]; then
+  echo "==> SKIP_PKG=1 -- not building the .pkg installer"
+else
+  echo "==> Building .pkg installer (silent Node/CLI/Gateway provisioning)"
+  PKG_BUNDLE_ID="$(plist_print_required "$APP/Contents/Info.plist" CFBundleIdentifier)"
+  PKG_ROOT="$(mktemp -d)"
+  PKG_SCRIPTS_DIR="$(mktemp -d)"
+  ditto "$APP" "$PKG_ROOT/OpenClaw.app"
+  cp "$ROOT_DIR/scripts/mac-pkg-postinstall.sh" "$PKG_SCRIPTS_DIR/postinstall"
+  chmod 0755 "$PKG_SCRIPTS_DIR/postinstall"
+
+  select_installer_identity() {
+    local preferred
+    local pattern
+    for pattern in "Developer ID Installer" "Mac Installer Distribution" "3rd Party Mac Developer Installer"; do
+      preferred="$(security find-identity -v 2>/dev/null \
+        | awk -F'"' -v p="$pattern" '$0 ~ p { print $2; exit }')"
+      [[ -n "$preferred" ]] && { echo "$preferred"; return 0; }
+    done
+    return 1
+  }
+
+  COMPONENT_PKG="$DIST_DIR/.OpenClaw-component.pkg"
+  rm -f "$COMPONENT_PKG"
+  pkgbuild --root "$PKG_ROOT" \
+    --scripts "$PKG_SCRIPTS_DIR" \
+    --identifier "${PKG_BUNDLE_ID}.installer" \
+    --version "$APP_VERSION" \
+    --install-location /Applications \
+    "$COMPONENT_PKG"
+
+  OUT_PKG="$DIST_DIR/OpenClaw-${APP_VERSION}-Install.pkg"
+  rm -f "$OUT_PKG"
+  if PKG_IDENTITY="$(select_installer_identity)"; then
+    echo "==> Signing pkg with: $PKG_IDENTITY"
+    productsign --sign "$PKG_IDENTITY" "$COMPONENT_PKG" "$OUT_PKG"
+    rm -f "$COMPONENT_PKG"
+  else
+    echo "WARN: No Developer ID Installer identity found -- building an unsigned pkg."
+    echo "      It still installs fine locally; Gatekeeper will warn \"unidentified"
+    echo "      developer\" the first time (right-click -> Open), same as an"
+    echo "      ad-hoc-signed app. Set up a Developer ID Installer certificate and"
+    echo "      re-run for a pkg that installs cleanly on other Macs."
+    mv "$COMPONENT_PKG" "$OUT_PKG"
+  fi
+  rm -rf "$PKG_ROOT" "$PKG_SCRIPTS_DIR"
 fi
 
-echo "==> Building styled dmg (scripts/create-dmg.sh)"
-export DMG_VOLUME_NAME="${DMG_VOLUME_NAME:-Install OpenClaw}"
-OUT_DMG="$DIST_DIR/OpenClaw-${APP_VERSION}-Install.dmg"
-"$ROOT_DIR/scripts/create-dmg.sh" "$APP" "$OUT_DMG"
+# ---------------------------------------------------------------------
+# dmg (skip with SKIP_DMG=1): a plain, unmodified "OpenClaw.app + an
+# Applications shortcut" -- same as any normal Mac app, no silent
+# provisioning, no admin-password prompt to mount/drag-install it.
+# ---------------------------------------------------------------------
+OUT_DMG=""
+if [[ "${SKIP_DMG:-0}" == "1" ]]; then
+  echo "==> SKIP_DMG=1 -- not building the styled dmg"
+else
+  echo "==> Building styled dmg (scripts/create-dmg.sh)"
+  export DMG_VOLUME_NAME="${DMG_VOLUME_NAME:-Install OpenClaw}"
+  OUT_DMG="$DIST_DIR/OpenClaw-${APP_VERSION}-Install.dmg"
+  "$ROOT_DIR/scripts/create-dmg.sh" "$APP" "$OUT_DMG"
 
-if [[ "$IDENTITY" != "-" ]]; then
-  echo "==> Signing dmg"
-  codesign --force --sign "$IDENTITY" --timestamp "$OUT_DMG"
+  if [[ "$IDENTITY" != "-" ]]; then
+    echo "==> Signing dmg"
+    codesign --force --sign "$IDENTITY" --timestamp "$OUT_DMG"
+  fi
 fi
 
 echo ""
 echo "Done."
-echo "  App (self-installing): $APP"
-echo "  dmg (recommended for distribution): $OUT_DMG"
+echo "  App: $APP"
+[[ -n "$OUT_PKG" ]] && echo "  pkg (recommended -- installs Node/CLI/Gateway silently, lands in chat): $OUT_PKG"
+[[ -n "$OUT_DMG" ]] && echo "  dmg (plain manual install, no admin password): $OUT_DMG"
 [[ -n "$ZIP_PATH" ]] && echo "  zip: $ZIP_PATH"
 echo ""
-echo "One file, one double-click: the dmg contains exactly \"OpenClaw.app\" (plus an"
-echo "Applications shortcut for anyone who prefers to drag it manually). Double-clicking"
-echo "it directly from the mounted dmg, from Downloads, or after dragging it to"
-echo "/Applications all work the same way."
+echo "The pkg installs OpenClaw.app to /Applications and, right after, silently"
+echo "installs Node/the CLI/the Gateway and marks onboarding as seen (see"
+echo "scripts/mac-pkg-postinstall.sh) -- first launch should land straight in"
+echo "chat. The dmg is exactly \"OpenClaw.app\" plus an Applications shortcut,"
+echo "same as any normal Mac app, with no silent provisioning -- first-run"
+echo "Node/CLI/Gateway setup there is handled by the app's own onboarding UI,"
+echo "same as an official build."
 echo ""
 gatekeeper_reminder

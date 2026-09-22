@@ -98,33 +98,62 @@ It is not a distribution artifact. For a notarized app ZIP and DMG, use:
 scripts/package-mac-dist.sh
 ```
 
-One-click, self-installing `OpenClaw.app` (builds from source, then
-transforms that SAME app bundle in place -- no separate installer app, no
-nested `OpenClaw.app` copy): double-clicking it on a Mac with no CLI/Gateway
-set up yet silently provisions a bundled Node.js runtime (no download) and
-the `openclaw` CLI, finishes `openclaw onboard --non-interactive`, and
-installs the local Gateway as a launchd daemon before launching into the
-app. Every later double-click is indistinguishable from a normal app
-launch -- see `scripts/mac-app-installer-dispatch.sh`'s fast-path check,
-which is what makes that possible without opening Terminal every time:
+Installer build (builds from source, then re-signs and packages the
+SAME app bundle -- the bundle itself is untouched, `Contents/MacOS/OpenClaw`
+is still the real, Swift-compiled GUI binary, launched normally through
+Launch Services like any other Mac app -- and produces both a plain dmg and
+a self-provisioning pkg):
 
 ```bash
 scripts/package-mac-installer.sh
 ```
 
-Outputs `dist/OpenClaw.app` (mutated in place -- re-run
-`scripts/package-mac-app.sh` for a plain, untransformed build again) and,
-unless `SKIP_DMG=1`, `dist/OpenClaw-<version>-Install.dmg`. Same
+Outputs `dist/OpenClaw.app` (re-signed in place -- re-run
+`scripts/package-mac-app.sh` first for a clean, unsigned-by-this-step build
+again), unless `SKIP_DMG=1`, `dist/OpenClaw-<version>-Install.dmg`, and
+unless `SKIP_PKG=1`, `dist/OpenClaw-<version>-Install.pkg`. Same
 `ALLOW_ADHOC_SIGNING`/`SIGN_IDENTITY` signing story as `package-mac-app.sh`
-above applies, with an important caveat for a real (non-ad-hoc) signing
-identity -- see `scripts/build-mac-installer.sh`'s header comment on
-entitlements before reaching for `NOTARIZE=1`. To re-transform an
-already-built `dist/OpenClaw.app` without rebuilding it, run
-`scripts/build-mac-installer.sh` directly. See
-`scripts/mac-installer-runtime.sh` for the actual provisioning logic that
-runs on a genuine first launch, and `installer.env.example` for optionally
-baking in a default AI provider so the end user lands straight in a
-working chat.
+above applies to the app/dmg, with an important caveat for a real
+(non-ad-hoc) signing identity -- see `scripts/build-mac-installer.sh`'s
+header comment on entitlements before reaching for `NOTARIZE=1`. To re-run
+just this step against an already-built `dist/OpenClaw.app` without
+rebuilding it from source, run `scripts/build-mac-installer.sh` directly.
+
+The two artifacts differ in exactly one way -- what happens between
+"copied to /Applications" and "first launch":
+
+- **dmg**: drag `OpenClaw.app` to `/Applications` (or double-click straight
+  from the mounted image) -- a completely normal app launch through Launch
+  Services, no admin password needed. First-run Node.js/CLI/Gateway
+  provisioning is handled entirely by the app's own existing, native
+  onboarding UI (`CLIInstallPrompter`/`CLIInstaller`, running in-process --
+  see `Sources/OpenClaw/CLIInstaller.swift`), exactly like an official
+  OpenClaw.app build: a few onboarding windows asking to install
+  Node/openclaw, pick a Gateway, and set a model.
+- **pkg**: Installer.app copies `OpenClaw.app` to `/Applications` (needs an
+  admin password) and then runs `scripts/mac-pkg-postinstall.sh` once, as
+  root, using the standard `launchctl asuser <uid> sudo -u <user>` pattern
+  to act as the logged-in user -- installing the CLI (offline, from the
+  Node tarball `build-mac-installer.sh` bundles into
+  `Contents/Resources/node-runtime/` unless `SKIP_NODE_BUNDLE=1`), running
+  `openclaw onboard --non-interactive --install-daemon --mode local`
+  (optionally pre-filling a default AI provider -- see
+  `installer.env.example` -- read from `Contents/Resources/
+  default-ai-provider.env`), and marking the app's own onboarding as seen.
+  First launch should land straight in chat with a working local Gateway.
+  Every step is independently best-effort: any failure there just falls
+  back to the same onboarding UI the dmg path uses, never a broken app.
+
+An earlier version of this pipeline instead spliced a compiled AppleScript
+applet in as `Contents/MacOS/OpenClaw` itself, dispatching to a visible
+Terminal window on first launch to do this same provisioning. That fought
+Launch Services badly enough to cause real, repeatable bugs: Gatekeeper's
+script-quarantine prompt reappearing on every launch, and the window's
+miniaturize/close/Dock-quit controls not working because the real GUI
+process was never launched through Launch Services. It's been removed in
+favor of the pkg postinstall mechanism above, which never touches the app
+bundle or Launch Services at all; see `scripts/mac-installer-runtime.sh`
+and `scripts/mac-app-installer-dispatch.sh` in git history for reference.
 
 For an unattended Peekaboo elevation host, use the closed Foundation signing
 profile and source-addressed ZIP workflow. `package` is an internal release
