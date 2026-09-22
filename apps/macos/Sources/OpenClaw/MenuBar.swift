@@ -368,6 +368,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if launchPlan.allowsAutomaticPresentation {
             Task {
                 try? await Task.sleep(for: .seconds(2))
+                // Skip while AutoOnboardBootstrap is actively provisioning this
+                // launch: connectionMode can already read .local (or a stale
+                // .local from an earlier run) before the Gateway it's still
+                // installing/starting is actually reachable, so preloading the
+                // dashboard here raced it into showing a "Dashboard unavailable,
+                // could not connect" window ahead of the bootstrap's own
+                // progress panel and successful completion. AutoOnboardBootstrap
+                // opens chat itself once it's actually done, so there's nothing
+                // for this preload to add while it's in flight.
+                guard !AutoOnboardBootstrap.shared.isProvisioning else { return }
                 DashboardManager.shared.preloadIfConfigured()
             }
         }

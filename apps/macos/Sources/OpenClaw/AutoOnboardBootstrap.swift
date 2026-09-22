@@ -52,6 +52,21 @@ final class AutoOnboardBootstrap {
     /// before" bit.
     private var hasRunThisLaunch = false
 
+    /// True for as long as this launch's runIfEligible() call is active --
+    /// from the moment it decides to act (right after the single-flight
+    /// guard above) until it returns, whether via the fast "already ready"
+    /// path or the full install pipeline. Exposed so other launch-time UI
+    /// (currently DashboardManager's 2-second preload in MenuBar.swift) can
+    /// hold off opening a window that would try to connect to a Gateway
+    /// this might still be in the middle of installing/starting --
+    /// connectionMode gets set to .local (or may already read .local from a
+    /// stale prior run) well before the Gateway is actually up, so a naive
+    /// "is this configured" check elsewhere can't tell the difference on
+    /// its own. This is exactly what produced a "Dashboard unavailable,
+    /// could not connect" window flashing up before this bootstrap's own
+    /// progress panel and successful completion.
+    private(set) var isProvisioning = false
+
     private var panel: NSPanel?
     private let status = AutoOnboardStatus()
 
@@ -60,6 +75,8 @@ final class AutoOnboardBootstrap {
     func runIfEligible() async -> Bool {
         guard !self.hasRunThisLaunch else { return false }
         self.hasRunThisLaunch = true
+        self.isProvisioning = true
+        defer { self.isProvisioning = false }
 
         if case .ready = await CLIInstaller.managedStatus() {
             // The managed CLI is already installed and healthy on disk --
