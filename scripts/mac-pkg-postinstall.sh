@@ -63,6 +63,17 @@ if [[ -z "$CONSOLE_HOME" || ! -d "$CONSOLE_HOME" ]]; then
 fi
 log "Provisioning for console user: $CONSOLE_USER (uid $CONSOLE_UID, home $CONSOLE_HOME)"
 
+# Installer.app writes the payload as root:wheel, so a pkg-installed app
+# needs a password to move to the Trash until this is fixed -- chown it to
+# the console user (their own primary group) right away, same ownership it
+# would already have if they'd dragged it out of a dmg instead. Done
+# unconditionally, before anything below that could fail, so this always
+# lands even if the CLI/Gateway provisioning further down doesn't.
+CONSOLE_GROUP="$(/usr/bin/id -gn "$CONSOLE_USER" 2>/dev/null || echo staff)"
+log "Fixing ownership of $APP_PATH to $CONSOLE_USER:$CONSOLE_GROUP"
+/usr/sbin/chown -R "$CONSOLE_USER:$CONSOLE_GROUP" "$APP_PATH" >>"$LOG_FILE" 2>&1 ||
+  log "WARN: chown of $APP_PATH failed -- it may need a password to move to the Trash."
+
 # launchctl asuser gives a root-run command the target user's GUI/Mach
 # bootstrap context -- required for the CLI's LaunchAgent install
 # (--install-daemon below) to land in that user's per-user launchd domain

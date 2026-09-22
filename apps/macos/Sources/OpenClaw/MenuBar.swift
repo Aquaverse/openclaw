@@ -449,6 +449,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             OnboardingController.markComplete()
             return
         }
+        // A genuinely fresh install (never configured, onboarding never
+        // seen): try the silent bootstrap first -- same CLI/Gateway/model
+        // steps a pkg install's postinstall script does, just run from
+        // inside the app so a plain dmg install gets them too, with no
+        // manual clicks. It reverts all app state and returns false on any
+        // failure, so falling through to the normal wizard below is exactly
+        // what would have happened without this existing.
+        if connectionMode == .unconfigured, !onboardingSeen,
+           await AutoOnboardBootstrap.shared.runIfEligible()
+        {
+            return
+        }
         self.scheduleFirstRunOnboardingPresentation()
     }
 

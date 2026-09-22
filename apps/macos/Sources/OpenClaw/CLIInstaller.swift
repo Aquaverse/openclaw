@@ -349,7 +349,7 @@ enum CLIInstaller {
         let response = await ShellExecutor.runStreamingDetailed(
             command: cmd,
             cwd: nil,
-            env: nil,
+            env: self.bundledNodeTarballEnv(),
             timeout: self.installWatchdogTimeout(for: target))
         { line in
             guard let status = self.installStatus(forEventLine: line) else { return }
@@ -399,6 +399,37 @@ enum CLIInstaller {
         let fallback = response.errorMessage ?? "install failed"
         await statusHandler("Install failed: \(detail.isEmpty ? fallback : detail)")
         return false
+    }
+
+    /// A packaged installer (see scripts/build-mac-installer.sh) can bundle a
+    /// pre-downloaded Node tarball for this Mac's CPU architecture into
+    /// Contents/Resources/node-runtime/ -- when present, point
+    /// scripts/install-cli.sh at it (see its OPENCLAW_NODE_TARBALL support)
+    /// so installing Node doesn't need its own network round trip. Merges
+    /// onto the current process environment rather than replacing it --
+    /// ShellExecutor treats a non-nil env as the *entire* child environment,
+    /// not an overlay, so dropping PATH/HOME here would break the installer.
+    private static func bundledNodeTarballEnv() -> [String: String]? {
+        let arch: String
+        #if arch(arm64)
+        arch = "arm64"
+        #elseif arch(x86_64)
+        arch = "x86_64"
+        #else
+        return nil
+        #endif
+        let dir = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/node-runtime")
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return nil }
+        guard let tarballName = entries.first(where: {
+            $0.hasPrefix("node-v") && $0.hasSuffix("-darwin-\(arch).tar.gz")
+        }) else { return nil }
+        let tarballPath = dir.appendingPathComponent(tarballName).path
+        var env = ProcessInfo.processInfo.environment
+        env["OPENCLAW_NODE_TARBALL"] = tarballPath
+        if let sha256 = try? String(contentsOfFile: tarballPath + ".sha256", encoding: .utf8) {
+            env["OPENCLAW_NODE_TARBALL_SHA256"] = sha256.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return env
     }
 
     private static func installBundledMacCLI(prefix: String) throws {

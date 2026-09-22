@@ -124,12 +124,21 @@ The two artifacts differ in exactly one way -- what happens between
 
 - **dmg**: drag `OpenClaw.app` to `/Applications` (or double-click straight
   from the mounted image) -- a completely normal app launch through Launch
-  Services, no admin password needed. First-run Node.js/CLI/Gateway
-  provisioning is handled entirely by the app's own existing, native
-  onboarding UI (`CLIInstallPrompter`/`CLIInstaller`, running in-process --
-  see `Sources/OpenClaw/CLIInstaller.swift`), exactly like an official
-  OpenClaw.app build: a few onboarding windows asking to install
-  Node/openclaw, pick a Gateway, and set a model.
+  Services, no admin password needed. On a genuinely fresh install (never
+  configured, onboarding never seen), the app's own first launch now runs
+  the same silent steps the pkg's postinstall does --
+  `Sources/OpenClaw/AutoOnboardBootstrap.swift`, wired in from
+  `MenuBar.swift`'s `scheduleFirstRunOnboardingIfNeeded()` -- installing the
+  CLI (`CLIInstaller.install`, showing progress in a small panel instead of
+  the usual "Install CLI?" confirmation alert), starting the local Gateway
+  (`CLIInstaller.activateLocalGateway`), and applying a bundled default AI
+  provider if `installer.env` baked one in, landing straight in chat with
+  no manual clicks. Any failure along the way reverts app state and falls
+  back to the normal, existing onboarding wizard (`CLIInstallPrompter` /
+  `OnboardingController`) -- a few windows asking to install Node/openclaw,
+  pick a Gateway, and set a model, exactly like an official OpenClaw.app
+  build -- so this can only make a fresh install land in chat sooner, never
+  worse off.
 - **pkg**: Installer.app copies `OpenClaw.app` to `/Applications` (needs an
   admin password) and then runs `scripts/mac-pkg-postinstall.sh` once, as
   root, using the standard `launchctl asuser <uid> sudo -u <user>` pattern
@@ -142,7 +151,12 @@ The two artifacts differ in exactly one way -- what happens between
   default-ai-provider.env`), and marking the app's own onboarding as seen.
   First launch should land straight in chat with a working local Gateway.
   Every step is independently best-effort: any failure there just falls
-  back to the same onboarding UI the dmg path uses, never a broken app.
+  back to the same onboarding UI the dmg path uses, never a broken app. In
+  practice the app's own `AutoOnboardBootstrap` (see the dmg bullet above)
+  usually gets there first on first launch either way -- the pkg's
+  postinstall mainly matters for bundling Node offline and for machines
+  where the app is launched by something other than a person doing first
+  launch (e.g. MDM-deployed, no one logged in yet).
 
 An earlier version of this pipeline instead spliced a compiled AppleScript
 applet in as `Contents/MacOS/OpenClaw` itself, dispatching to a visible
