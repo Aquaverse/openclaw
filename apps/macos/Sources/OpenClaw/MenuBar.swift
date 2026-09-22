@@ -445,20 +445,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func scheduleFirstRunOnboardingIfNeeded() async {
         let connectionMode = AppStateStore.shared.connectionMode
         let onboardingSeen = AppStateStore.shared.onboardingSeen
-        if connectionMode != .unconfigured, onboardingSeen {
+        // connectionMode/onboardingSeen live in UserDefaults keyed by bundle
+        // id, which survives deleting OpenClaw.app and reinstalling a fresh
+        // copy in its place (macOS does not clear a bundle id's preferences
+        // just because the .app was trashed) -- so these flags alone can
+        // say "already configured" on a machine that's actually back to a
+        // blank slate. Only trust them once the managed CLI install is
+        // confirmed still there; otherwise fall through exactly as if this
+        // were a genuinely fresh launch.
+        if connectionMode != .unconfigured, onboardingSeen,
+           case .ready = await CLIInstaller.managedStatus()
+        {
             OnboardingController.markComplete()
             return
         }
-        // A genuinely fresh install (never configured, onboarding never
-        // seen): try the silent bootstrap first -- same CLI/Gateway/model
-        // steps a pkg install's postinstall script does, just run from
-        // inside the app so a plain dmg install gets them too, with no
-        // manual clicks. It reverts all app state and returns false on any
-        // failure, so falling through to the normal wizard below is exactly
-        // what would have happened without this existing.
-        if connectionMode == .unconfigured, !onboardingSeen,
-           await AutoOnboardBootstrap.shared.runIfEligible()
-        {
+        // Onboarding hasn't completed, or the flags saying it did no longer
+        // match reality (see above): try the silent bootstrap first -- same
+        // CLI/Gateway/model steps a pkg install's postinstall script does,
+        // just run from inside the app so a plain dmg install (or a
+        // reinstall over stale preferences) gets them too, with no manual
+        // clicks. AutoOnboardBootstrap does its own reality check and
+        // idempotent re-run internally, and reverts all app state and
+        // returns false on any real failure, so falling through to the
+        // normal wizard below is exactly what would have happened without
+        // this existing.
+        if await AutoOnboardBootstrap.shared.runIfEligible() {
             return
         }
         self.scheduleFirstRunOnboardingPresentation()
