@@ -325,7 +325,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await self.scheduleFirstRunOnboardingIfNeeded()
                 }
                 // Attachment must settle before deciding whether this app needs to install a CLI.
-                if !PostUpdateController.shared.startIfNeeded() {
+                let postUpdateStarted = PostUpdateController.shared.startIfNeeded()
+                // Only when this launch was already configured (shouldWaitForConnection):
+                // a genuinely fresh/unconfigured launch is already owned end-to-end by the
+                // sibling Task above (scheduleFirstRunOnboardingIfNeeded() ->
+                // AutoOnboardBootstrap). Running this separate, older CLI-install-prompting
+                // path here too raced a second, independent install-cli.sh against
+                // AutoOnboardBootstrap's own on a fresh install -- observed in testing as
+                // Node quietly starting to install in the background with no progress
+                // panel (this path has none), before AutoOnboardBootstrap's own panel and
+                // install finally appeared and finished the job. Both paths reading/writing
+                // the same AppStateStore.connectionMode/onboardingSeen made the race
+                // possible: AutoOnboardBootstrap setting connectionMode = .local partway
+                // through its own run could make checkAndPromptIfNeededAsync's guards pass
+                // on a stale onboardingSeen value before AutoOnboardBootstrap ever reaches
+                // its own onboardingSeen = true.
+                if shouldWaitForConnection, !postUpdateStarted {
                     CLIInstallPrompter.shared.checkAndPromptIfNeeded(reason: "launch")
                 }
             }
