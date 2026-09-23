@@ -111,22 +111,39 @@ final class AutoOnboardBootstrap {
         // half-configured state this is trying to avoid).
         AppStateStore.shared.connectionMode = .local
 
+        // Always installs the same "latest" stable channel
+        // scripts/mac-pkg-postinstall.sh's install-cli.sh invocation
+        // defaults to (OPENCLAW_VERSION unset -> "latest") --
+        // deliberately NOT CLIInstaller.automaticInstallTarget's
+        // exact-version-pinned-to-this-app-build behavior. Pinning to an
+        // exact version here used to mean a dmg install and a pkg install
+        // of the same app build could resolve to two different openclaw
+        // versions against the *same* ~/.openclaw state (pkg always
+        // installs npm's current "latest", dmg pinned to this app
+        // bundle's own version number). Whichever one wrote
+        // ~/.openclaw/openclaw.json most recently, the other install's
+        // older/mismatched CLI would then correctly refuse to touch a
+        // config schema newer than itself -- a real machine hit exactly
+        // this: pkg installed a newer npm "latest" and wrote the config,
+        // a later dmg install pinned to an older app version, and its
+        // model-provisioning step failed silently against that
+        // "written by a newer OpenClaw" config. Always resolving to the
+        // same channel as the pkg path keeps both installers converging
+        // on the same CLI version for the same on-disk state, dmg
+        // included.
+        //
         // isDebug is forced to false here -- deliberately NOT
-        // CLIInstallBuild.isDebug -- so this always resolves to the same
-        // fast, production-style channel scripts/mac-pkg-postinstall.sh
-        // uses (installScriptCommand only adds --install-method git when
-        // the target is exactly .channel(.dev)): an exact npm install
-        // matching this app's version, or the stable/beta channel as a
-        // fallback. CLIInstaller's isDebug-aware channel selection exists
-        // for the interactive channel picker developers use on purpose
-        // (CLIInstallPrompter), not for a launch meant to look like an
-        // ordinary first run -- using the git/dev channel here means
-        // cloning the whole repo and building the CLI from source on first
-        // launch, which is what made this take minutes instead of seconds
-        // whenever this app binary happened to be a Debug build.
-        let appVersion = GatewayEnvironment.appVersionString()
-        let target = CLIInstaller.automaticInstallTarget(appVersion: appVersion, isDebug: false)
-            ?? .channel(CLIInstaller.suggestedChannel(appVersion: appVersion, isDebug: false))
+        // CLIInstallBuild.isDebug -- so this never resolves to the
+        // git/dev channel (installScriptCommand only adds
+        // --install-method git when the target is exactly .channel(.dev)):
+        // using that here would mean cloning the whole repo and building
+        // the CLI from source on first launch, which is what made this
+        // take minutes instead of seconds whenever this app binary
+        // happened to be a Debug build. CLIInstaller's isDebug-aware
+        // channel selection exists for the interactive channel picker
+        // developers use on purpose (CLIInstallPrompter), not for a
+        // launch meant to look like an ordinary first run.
+        let target: CLIInstaller.InstallTarget = .channel(.stable)
 
         let installed = await CLIInstaller.install(target: target) { [weak self] message in
             self?.status.step = message

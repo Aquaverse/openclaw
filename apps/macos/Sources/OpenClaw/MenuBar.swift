@@ -150,7 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var state: AppState?
     private var statusMenuController: StatusMenuController?
     private lazy var dockMenu = AppDockMenu(
-        openDashboard: { [weak self] in self?.openDashboardAction() },
+        openDashboard: { [weak self] in self?.openDashboardOrResumeProvisioning() },
         openGateway: { AppNavigationActions.openGateway($0) },
         openSettings: { AppNavigationActions.openSettings() })
     private var terminationCleanupTask: Task<Void, Never>?
@@ -255,8 +255,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows _: Bool) -> Bool {
         // Reopening is explicit user intent even after a background-only launch.
         guard !AppLaunchRuntimePlan.current.isElevationHost else { return false }
-        self.openDashboardAction()
+        self.openDashboardOrResumeProvisioning()
         return false
+    }
+
+    // Both a Dock-icon reopen click and the Dock right-click menu's "Open
+    // Dashboard" item ultimately want the same thing here: land the user
+    // somewhere useful, not necessarily literally the Dashboard window if
+    // this launch hasn't actually gotten there yet. Either can land in the
+    // brief window before applicationDidFinishLaunching's own scheduled
+    // provisioning Task has actually started running (connectionMode still
+    // .unconfigured), or while AutoOnboardBootstrap is actively mid-flight
+    // (isProvisioning) -- opening the Dashboard unconditionally in either
+    // case raced both of those into flashing up "Dashboard unavailable,
+    // could not connect" well before the bootstrap's own "Setting up
+    // OpenClaw..." progress panel ever got a chance to show, even though
+    // provisioning was already under way or about to be. Route through the
+    // same check applicationDidFinishLaunching itself uses instead of
+    // opening the Dashboard blind -- scheduleFirstRunOnboardingIfNeeded()
+    // is safe to call again here even if the launch-time Task already
+    // claimed it (AutoOnboardBootstrap's own hasRunThisLaunch guard makes a
+    // second call a no-op), and calling it from this explicit user gesture
+    // instead of only waiting on that Task is what gets the progress panel
+    // showing sooner rather than later.
+    /// Internal (not private): also called from StatusMenuController,
+    /// StatusMenuRenderer, and DeepLinks, whose menu-bar-icon click, dropdown
+    /// "Dashboard" item, and openclaw://dashboard link can each fire in the same
+    /// early post-launch window as the Dock-reopen case above, and want the same
+    /// fallback instead of a raced-open Dashboard.
+    func openDashboardOrResumeProvisioning() {
+        guard self.isProvisioningOrUnconfigured else {
+            self.openDashboardAction()
+            return
+        }
+        Task { @MainActor in
+            await self.scheduleFirstRunOnboardingIfNeeded()
+        }
+    }
+
+    private var isProvisioningOrUnconfigured: Bool {
+        AutoOnboardBootstrap.shared.isProvisioning || self.state?.connectionMode == .unconfigured
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {

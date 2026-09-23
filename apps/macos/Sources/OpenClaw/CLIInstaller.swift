@@ -405,30 +405,58 @@ enum CLIInstaller {
     /// pre-downloaded Node tarball for this Mac's CPU architecture into
     /// Contents/Resources/node-runtime/ -- when present, point
     /// scripts/install-cli.sh at it (see its OPENCLAW_NODE_TARBALL support)
-    /// so installing Node doesn't need its own network round trip. Merges
-    /// onto the current process environment rather than replacing it --
-    /// ShellExecutor treats a non-nil env as the *entire* child environment,
-    /// not an overlay, so dropping PATH/HOME here would break the installer.
+    /// so installing Node doesn't need its own network round trip. Also
+    /// points install-cli.sh at Contents/Resources/postinstall-bundled-plugins-fixed.mjs
+    /// when build-mac-installer.sh bundled one (see its "2b" step and
+    /// install-cli.sh's OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE support): an
+    /// interim workaround for a real npm-postinstall bug that a plain
+    /// `openclaw@<version>` install can hit on some macOS/APFS setups until
+    /// the fix is actually published to npm. scripts/mac-pkg-postinstall.sh
+    /// already wires this up for a pkg install's silent provisioning; a dmg
+    /// install instead runs entirely through this Swift-driven path, so it
+    /// needs its own copy of the same wiring. Each override is added
+    /// independently -- one being unavailable (e.g. SKIP_NODE_BUNDLE=1, or
+    /// an older app bundle without the fixed-postinstall resource) doesn't
+    /// disable the other. Merges onto the current process environment
+    /// rather than replacing it -- ShellExecutor treats a non-nil env as
+    /// the *entire* child environment, not an overlay, so dropping
+    /// PATH/HOME here would break the installer.
     private static func bundledNodeTarballEnv() -> [String: String]? {
+        var env: [String: String]?
+
         let arch: String
         #if arch(arm64)
         arch = "arm64"
         #elseif arch(x86_64)
         arch = "x86_64"
         #else
-        return nil
+        arch = ""
         #endif
-        let dir = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/node-runtime")
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return nil }
-        guard let tarballName = entries.first(where: {
-            $0.hasPrefix("node-v") && $0.hasSuffix("-darwin-\(arch).tar.gz")
-        }) else { return nil }
-        let tarballPath = dir.appendingPathComponent(tarballName).path
-        var env = ProcessInfo.processInfo.environment
-        env["OPENCLAW_NODE_TARBALL"] = tarballPath
-        if let sha256 = try? String(contentsOfFile: tarballPath + ".sha256", encoding: .utf8) {
-            env["OPENCLAW_NODE_TARBALL_SHA256"] = sha256.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !arch.isEmpty {
+            let dir = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/node-runtime")
+            if let entries = try? FileManager.default.contentsOfDirectory(atPath: dir.path),
+               let tarballName = entries.first(where: {
+                   $0.hasPrefix("node-v") && $0.hasSuffix("-darwin-\(arch).tar.gz")
+               })
+            {
+                let tarballPath = dir.appendingPathComponent(tarballName).path
+                var updated = env ?? ProcessInfo.processInfo.environment
+                updated["OPENCLAW_NODE_TARBALL"] = tarballPath
+                if let sha256 = try? String(contentsOfFile: tarballPath + ".sha256", encoding: .utf8) {
+                    updated["OPENCLAW_NODE_TARBALL_SHA256"] = sha256.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                env = updated
+            }
         }
+
+        let postinstallOverridePath = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/postinstall-bundled-plugins-fixed.mjs").path
+        if FileManager.default.fileExists(atPath: postinstallOverridePath) {
+            var updated = env ?? ProcessInfo.processInfo.environment
+            updated["OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE"] = postinstallOverridePath
+            env = updated
+        }
+
         return env
     }
 

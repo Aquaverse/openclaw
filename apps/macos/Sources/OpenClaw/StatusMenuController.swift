@@ -128,7 +128,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     /// local event monitor below, so an action firing here has no mouse event.
     @objc
     private func handleStatusClick(_: Any?) {
-        AppNavigationActions.openDashboard()
+        // Guard against the same early post-launch race MenuBar.swift's Dock
+        // handling documents: this can fire before provisioning has reached a
+        // configured state, and opening the Dashboard blind then would flash
+        // "Dashboard unavailable" ahead of the "Setting up OpenClaw..." panel.
+        (NSApp.delegate as? AppDelegate)?.openDashboardOrResumeProvisioning()
     }
 
     private func installButton(in item: NSStatusItem) {
@@ -164,7 +168,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             if event.type == .rightMouseDown || event.modifierFlags.contains(.control) {
                 self.presentMenu()
             } else {
-                AppNavigationActions.openDashboard()
+                (NSApp.delegate as? AppDelegate)?.openDashboardOrResumeProvisioning()
             }
             return nil
         }

@@ -192,7 +192,11 @@ final class DeepLinkHandler {
     // MARK: - UI
 
     private func openDashboard() async {
-        AppNavigationActions.openDashboard()
+        // An openclaw://dashboard link can in principle arrive in the same
+        // early post-launch window as the Dock/status-item cases (MenuBar.swift,
+        // StatusMenuController.swift) -- route through the same shared fallback
+        // rather than risking a raced-open "Dashboard unavailable".
+        (NSApp.delegate as? AppDelegate)?.openDashboardOrResumeProvisioning()
     }
 
     private func confirm(title: String, message: String) -> Bool {

@@ -224,6 +224,45 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# 2b. Bundle the local scripts/postinstall-bundled-plugins.mjs (interim
+# workaround for a real, already-fixed bug: npm's own "postinstall"
+# invocation of this script gets a *relative* argv[1], which can realpath
+# to a different-looking string than this module's own absolute path on
+# some macOS/APFS setups -- so isDirectPostinstallInvocation() silently
+# returned false and .openclaw-lifecycle-pending was never removed, even
+# though `npm install` itself reported success. The fix lives in this
+# repo, but install-cli.sh always installs `openclaw@latest` from the
+# real npm registry, so a plain rebuild of this .app can't pick the fix
+# up on its own until it's actually published as a new openclaw version.
+# Bundling this one file here, and having scripts/mac-pkg-postinstall.sh
+# pass its path through install-cli.sh's OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE
+# support, overwrites the freshly-npm-installed copy with this fixed
+# version and re-runs it before install-cli.sh checks whether the install
+# actually completed -- so a pkg/dmg built from this repo works correctly
+# today, without waiting on an npm release. Safe to delete this step (and
+# its Resources file, and the OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE support
+# in install-cli.sh) once that release has shipped and had a chance to
+# roll out.
+# ---------------------------------------------------------------------
+cp "$ROOT_DIR/scripts/postinstall-bundled-plugins.mjs" "$APP/Contents/Resources/postinstall-bundled-plugins-fixed.mjs"
+
+# ---------------------------------------------------------------------
+# 2c. Refresh Contents/Resources/install-cli.sh from this repo's current
+# copy. scripts/package-mac-app.sh (the full JS+Swift build) is what
+# normally puts install-cli.sh there -- but it's a plain shell script,
+# untouched by that build's JS/Swift steps, so it's safe (and much
+# faster) to also re-copy it here. Without this, iterating on
+# install-cli.sh itself (like the OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE
+# support above) would silently keep testing against whatever
+# install-cli.sh happened to be baked in by the last full
+# `pnpm mac:installer` run, even when only running the fast
+# `pnpm mac:installer:wrap` path -- exactly the mismatch that first
+# shipped the "2b" step above without actually being exercised.
+# ---------------------------------------------------------------------
+cp "$ROOT_DIR/scripts/install-cli.sh" "$APP/Contents/Resources/install-cli.sh"
+chmod 0644 "$APP/Contents/Resources/install-cli.sh"
+
+# ---------------------------------------------------------------------
 # 3. Default AI provider (optional): if installer.env exists at the repo
 # root, bake its OPENCLAW_INSTALLER_DEFAULT_AI_* values into the app bundle
 # as a plain resource file. These values ship in PLAINTEXT inside the
@@ -396,14 +435,38 @@ else
     return 1
   }
 
+  # A plain `pkgbuild --root` auto-derives a component plist that marks
+  # OpenClaw.app "relocatable" -- installd then treats *any* path Launch
+  # Services already has this bundle id registered at (a developer's own
+  # dist/OpenClaw.app build output, say, if it was ever opened directly
+  # from there) as the real install target, and silently updates that
+  # copy in place instead of writing to --install-location. Installer.app
+  # still reports success either way, but /Applications and
+  # ~/.openclaw end up untouched -- this bit a real dev machine and isn't
+  # fixable by clearing pkgutil receipts or lsregister state (or not
+  # reliably: Spotlight's own mdfind index can keep reporting the old
+  # path regardless). --component-plist below with BundleIsRelocatable
+  # forced to false makes every install always land at
+  # --install-location, ignoring whatever Launch Services thinks it
+  # already knows. BundleIsVersionChecked=false is the companion fix for
+  # a same-version reinstall otherwise being silently skipped because a
+  # prior pkgutil receipt already matches.
+  COMPONENT_PLIST="$(mktemp -t openclaw-pkg-component).plist"
+  rm -f "$COMPONENT_PLIST"
+  pkgbuild --analyze --root "$PKG_ROOT" "$COMPONENT_PLIST"
+  plist_set_or_add_bool "$COMPONENT_PLIST" "0:BundleIsRelocatable" false
+  plist_set_or_add_bool "$COMPONENT_PLIST" "0:BundleIsVersionChecked" false
+
   COMPONENT_PKG="$DIST_DIR/.OpenClaw-component.pkg"
   rm -f "$COMPONENT_PKG"
   pkgbuild --root "$PKG_ROOT" \
+    --component-plist "$COMPONENT_PLIST" \
     --scripts "$PKG_SCRIPTS_DIR" \
     --identifier "${PKG_BUNDLE_ID}.installer" \
     --version "$APP_VERSION" \
     --install-location /Applications \
     "$COMPONENT_PKG"
+  rm -f "$COMPONENT_PLIST"
 
   OUT_PKG="$DIST_DIR/OpenClaw-${APP_VERSION}-Install.pkg"
   rm -f "$OUT_PKG"

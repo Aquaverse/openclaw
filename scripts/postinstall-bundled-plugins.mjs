@@ -10,6 +10,7 @@ import {
   realpathSync,
   rmdirSync,
   rmSync,
+  statSync,
   unlinkSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
@@ -384,6 +385,32 @@ export function isDirectPostinstallInvocation(params = {}) {
   }
   const modulePath = params.modulePath ?? fileURLToPath(import.meta.url);
   const resolveRealPath = params.realpathSync ?? realpathSync;
+  const statPath = params.statSync ?? statSync;
+  // Compare by filesystem identity (device + inode) before falling back to
+  // realpath string equality. npm invokes this script's package.json
+  // "postinstall" entry with a *relative* argv[1] resolved against the
+  // package root cwd, while modulePath comes from this module's own
+  // import.meta.url -- on at least one real macOS install (APFS, a
+  // separate /System/Volumes/Data volume under the /Users firmlink),
+  // realpathSync canonicalized those two equivalent paths to two
+  // different-looking strings, so the old string-equality check silently
+  // returned false for npm's own invocation. npm still reported a clean
+  // install, but runBundledPluginPostinstall()/completePackageLifecycle()
+  // below never ran, so .openclaw-lifecycle-pending was never removed,
+  // and install-cli.sh's post-install check (dist/entry.js exists AND the
+  // marker is gone) failed every time even after a successful `npm
+  // install`. dev+ino identifies the same file regardless of which alias
+  // path was used to reach it, so it isn't sensitive to that.
+  try {
+    const entryStat = statPath(entryPath);
+    const moduleStat = statPath(modulePath);
+    if (entryStat.dev === moduleStat.dev && entryStat.ino === moduleStat.ino) {
+      return true;
+    }
+  } catch {
+    // Fall through to the path-based checks below (e.g. entryPath/modulePath
+    // don't exist as real files in a test harness).
+  }
   try {
     return resolveRealPath(entryPath) === resolveRealPath(modulePath);
   } catch {

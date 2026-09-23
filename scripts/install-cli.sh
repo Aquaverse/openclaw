@@ -153,6 +153,10 @@ Environment variables:
   OPENCLAW_NODE_TARBALL=<path>         Use this local Node tarball instead of downloading
                                        one from nodejs.org (must match --node-version/OS/arch)
   OPENCLAW_NODE_TARBALL_SHA256=<hex>   Optional sha256 to verify OPENCLAW_NODE_TARBALL against
+  OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE=<path>  Dev/interim-only: after npm install, overwrite the
+                                       installed package's scripts/postinstall-bundled-plugins.mjs
+                                       with this local file and re-run it before checking whether
+                                       the install completed (see scripts/build-mac-installer.sh)
 EOF
 }
 
@@ -1523,6 +1527,27 @@ commit_wrapper_backup() {
   WRAPPER_BACKUP_PATH=""
 }
 
+# When OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE points at a local
+# scripts/postinstall-bundled-plugins.mjs, overwrite the just-installed
+# package's copy with it and re-run it (as a plain absolute-path
+# invocation, so isDirectPostinstallInvocation() always recognizes it)
+# before checking whether the install actually completed its lifecycle.
+# This lets a locally-built .pkg/.dmg (see scripts/build-mac-installer.sh,
+# which bundles Contents/Resources/postinstall-bundled-plugins-fixed.mjs)
+# ship a fix to this script ahead of an actual openclaw npm release,
+# without needing to publish a new version first. A no-op everywhere else
+# (CI, other platforms, a plain `openclaw@latest` install) since the env
+# var is unset there.
+apply_openclaw_postinstall_override() {
+  local override="${OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE:-}"
+  [[ -n "$override" && -f "$override" ]] || return 0
+  local installed_script
+  installed_script="$(node_dir)/lib/node_modules/openclaw/scripts/postinstall-bundled-plugins.mjs"
+  [[ -f "$installed_script" ]] || return 0
+  cp -f "$override" "$installed_script" 2>/dev/null || return 0
+  "$(node_bin)" "$installed_script" >/dev/null 2>&1 || true
+}
+
 install_openclaw() {
   local requested="${OPENCLAW_VERSION:-latest}"
   if is_openclaw_source_package_install_spec "$requested"; then
@@ -1577,9 +1602,15 @@ install_openclaw() {
   local npm_install_args=(install -g --prefix "$(node_dir)" "${npm_args[@]}")
   [[ -z "$lifecycle_arg" ]] || npm_install_args+=("$lifecycle_arg")
   npm_install_args+=("$install_spec")
-  if ! env -u NPM_CONFIG_BEFORE -u npm_config_before -u NPM_CONFIG_MIN_RELEASE_AGE -u npm_config_min_release_age -u npm_config_min-release-age "$npm_cmd" "${npm_install_args[@]}" || [[ ! -f "$installed_entry" || -e "$lifecycle_pending" || -e "$legacy_install_guard" ]]; then
+  local npm_install_ok=1
+  env -u NPM_CONFIG_BEFORE -u npm_config_before -u NPM_CONFIG_MIN_RELEASE_AGE -u npm_config_min_release_age -u npm_config_min-release-age "$npm_cmd" "${npm_install_args[@]}" || npm_install_ok=0
+  apply_openclaw_postinstall_override
+  if [[ "$npm_install_ok" != "1" || ! -f "$installed_entry" || -e "$lifecycle_pending" || -e "$legacy_install_guard" ]]; then
     log "npm install openclaw@${resolved_requested} did not produce a usable package; retrying once"
-    if ! env -u NPM_CONFIG_BEFORE -u npm_config_before -u NPM_CONFIG_MIN_RELEASE_AGE -u npm_config_min_release_age -u npm_config_min-release-age "$npm_cmd" "${npm_install_args[@]}" || [[ ! -f "$installed_entry" || -e "$lifecycle_pending" || -e "$legacy_install_guard" ]]; then
+    npm_install_ok=1
+    env -u NPM_CONFIG_BEFORE -u npm_config_before -u NPM_CONFIG_MIN_RELEASE_AGE -u npm_config_min_release_age -u npm_config_min-release-age "$npm_cmd" "${npm_install_args[@]}" || npm_install_ok=0
+    apply_openclaw_postinstall_override
+    if [[ "$npm_install_ok" != "1" || ! -f "$installed_entry" || -e "$lifecycle_pending" || -e "$legacy_install_guard" ]]; then
       emit_json error message "npm install did not produce a usable OpenClaw package"
       log "ERROR: npm install did not produce a usable OpenClaw package"
       return 1

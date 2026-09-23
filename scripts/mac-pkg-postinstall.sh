@@ -111,6 +111,18 @@ else
   log "No bundled Node tarball for arch '$ARCH' -- install-cli.sh will fetch Node from nodejs.org instead."
 fi
 
+# ---------------------------------------------------------------------
+# Postinstall-script override: see scripts/build-mac-installer.sh's "2b"
+# step for why this exists. Passed straight through to install-cli.sh's
+# OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE support.
+# ---------------------------------------------------------------------
+POSTINSTALL_SCRIPT_OVERRIDE="$APP_PATH/Contents/Resources/postinstall-bundled-plugins-fixed.mjs"
+if [[ -f "$POSTINSTALL_SCRIPT_OVERRIDE" ]]; then
+  log "Using bundled postinstall-script fix: $POSTINSTALL_SCRIPT_OVERRIDE"
+else
+  POSTINSTALL_SCRIPT_OVERRIDE=""
+fi
+
 PREFIX="$CONSOLE_HOME/.openclaw"
 
 log "==> Installing OpenClaw CLI into $PREFIX (this can take a minute)..."
@@ -119,6 +131,7 @@ if ! run_as_console_user /usr/bin/env \
     OPENCLAW_PREFIX="$PREFIX" \
     OPENCLAW_NODE_TARBALL="$NODE_TARBALL" \
     OPENCLAW_NODE_TARBALL_SHA256="$NODE_TARBALL_SHA256" \
+    OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE="$POSTINSTALL_SCRIPT_OVERRIDE" \
     /bin/bash "$INSTALL_CLI" --json >>"$LOG_FILE" 2>&1; then
   log "WARN: CLI install failed (see $LOG_FILE for install-cli.sh's own output above) -- leaving first-run setup to the app's own onboarding UI."
   exit 0

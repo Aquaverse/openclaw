@@ -338,7 +338,10 @@ final class StatusMenuRenderer: NSObject {
 
         switch action {
         case .dashboard:
-            AppNavigationActions.openDashboard()
+            // Same early post-launch provisioning race as the status-item click
+            // itself (StatusMenuController) -- route through the shared fallback
+            // instead of risking a raced-open "Dashboard unavailable".
+            (NSApp.delegate as? AppDelegate)?.openDashboardOrResumeProvisioning()
         case .quickChat:
             QuickChatController.shared.toggle()
         case .talkMode:
