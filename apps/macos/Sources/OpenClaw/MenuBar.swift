@@ -147,6 +147,8 @@ struct OpenClawApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    // Temporary instrumentation, see AutoOnboardBootstrap.logger's comment.
+    private static let logger = Logger(subsystem: "ai.openclaw", category: "app-launch")
     private var state: AppState?
     private var statusMenuController: StatusMenuController?
     private lazy var dockMenu = AppDockMenu(
@@ -288,6 +290,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.openDashboardAction()
             return
         }
+        // A reopen landing while AutoOnboardBootstrap's own runIfEligible()
+        // is still actively running must not call
+        // scheduleFirstRunOnboardingIfNeeded() again -- its single-flight
+        // guard would make that second call fall through to the manual
+        // wizard instead of a no-op, popping "Welcome to OpenClaw" up on
+        // top of the still-in-flight "Setting up OpenClaw..." panel. Just
+        // bring that existing panel back into focus instead.
+        guard !AutoOnboardBootstrap.shared.isProvisioning else {
+            AutoOnboardBootstrap.shared.reactivatePanel()
+            return
+        }
         Task { @MainActor in
             await self.scheduleFirstRunOnboardingIfNeeded()
         }
@@ -310,6 +323,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         #endif
+        // Temporary instrumentation, see AutoOnboardBootstrap.logger's comment --
+        // pins down whether a slow-to-appear "Setting up OpenClaw..." panel is
+        // waiting on this function's own synchronous work to finish, or on
+        // something after runIfEligible() actually starts. Safe to remove once
+        // that's confirmed.
+        Self.logger.notice("applicationDidFinishLaunching: entered")
         let launchPlan = AppLaunchRuntimePlan.current
         if !AppProfile.current.isActive, !launchPlan.isElevationHost {
             switch ApplicationRelocator.handleLaunch() {
@@ -343,7 +362,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let state {
             let shouldWaitForConnection = state.connectionMode != .unconfigured
             if !shouldWaitForConnection, launchPlan.allowsAutomaticPresentation {
+                Self.logger.notice("applicationDidFinishLaunching: creating auto-onboard Task")
                 Task { @MainActor in
+                    Self.logger.notice("applicationDidFinishLaunching: auto-onboard Task started running")
                     await self.scheduleFirstRunOnboardingIfNeeded()
                 }
             }
@@ -383,9 +404,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        TerminationSignalWatcher.shared.start()
-        MacNodeModeCoordinator.shared.start()
-        if launchPlan.allowsInteractiveServices {
+        // Deferred (was synchronous, inline, right here) -- these are all
+        // independent background services with no ordering dependency on
+        // each other or on what follows, but each one starting synchronously
+        // added to a chain that had to run to completion before this
+        // function returned control to the run loop. Only once
+        // applicationDidFinishLaunching actually returns does the run loop
+        // get a chance to dispatch the auto-onboard Task created above, so
+        // that Task (and its "Setting up OpenClaw..." panel) was queued
+        // behind all of this rather than getting to run first. Moving it
+        // into its own Task lets it run a beat later instead, off the
+        // critical path to that panel appearing.
+        Task { @MainActor [weak self] in
+            TerminationSignalWatcher.shared.start()
+            MacNodeModeCoordinator.shared.start()
+            guard launchPlan.allowsInteractiveServices else { return }
             GatewaysMainMenu.shared.install()
             BackgroundSessionNotifications.shared.start()
             NodePairingApprovalPrompter.shared.start()
@@ -393,7 +426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ExecApprovalsPromptServer.shared.start()
             MacControlServer.shared.start()
             ExecApprovalsGatewayPrompter.shared.start()
-            if let state {
+            if let state = self?.state {
                 CookieSyncManager.shared.start(state: state)
             }
             VoiceWakeGlobalSettingsSync.shared.start()

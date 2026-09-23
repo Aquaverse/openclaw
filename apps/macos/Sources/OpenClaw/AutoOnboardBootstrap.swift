@@ -69,6 +69,14 @@ final class AutoOnboardBootstrap {
 
     private var panel: NSPanel?
     private let status = AutoOnboardStatus()
+    // Temporary instrumentation while diagnosing reports of the "Setting up
+    // OpenClaw..." panel taking a long time (or a Dock/menu-bar click) to
+    // actually appear on a cold double-click launch -- pins down whether the
+    // delay is before runIfEligible() even starts running (queued behind
+    // other synchronous applicationDidFinishLaunching work) or after
+    // (inside the CLI-install pipeline itself). Safe to remove once that's
+    // confirmed.
+    private let logger = Logger(subsystem: "ai.openclaw", category: "AutoOnboard")
 
     private init() {}
 
@@ -77,6 +85,7 @@ final class AutoOnboardBootstrap {
         self.hasRunThisLaunch = true
         self.isProvisioning = true
         defer { self.isProvisioning = false }
+        self.logger.notice("runIfEligible: entered")
 
         if case .ready = await CLIInstaller.managedStatus() {
             // The managed CLI is already installed and healthy on disk --
@@ -193,14 +202,53 @@ final class AutoOnboardBootstrap {
         panel.contentView = hostingView
         panel.setContentSize(hostingView.fittingSize)
         panel.center()
-        NSApp.activate(ignoringOtherApps: true)
+        // This can be the very first window shown on a cold double-click
+        // launch, milliseconds into applicationDidFinishLaunching -- unlike
+        // OnboardingController.show() (the manual wizard's equivalent window,
+        // which has had this app-still-.accessory-at-process-start problem
+        // solved for a long time), this path was activating/ordering front
+        // without first nudging the activation policy to .regular, and
+        // without any retry if the very first activate() this early in the
+        // process lifetime is silently dropped by the window server -- both
+        // plausible explanations for reports of double-clicking the app
+        // showing a Dock icon with no visible window until a second
+        // double-click/Dock click. Mirror OnboardingController.show()'s
+        // ordering, then reassert focus once more shortly after in case the
+        // very first attempt landed too early to take effect.
+        DockIconManager.shared.temporarilyShowDock()
         panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
         self.panel = panel
+        self.logger.notice("showPanel: panel ordered front, isVisible=\(panel.isVisible, privacy: .public)")
+        Task { @MainActor [weak self, weak panel] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, let panel, self.panel === panel, !panel.isKeyWindow else { return }
+            panel.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     private func closePanel() {
         self.panel?.close()
         self.panel = nil
+    }
+
+    /// Called when a Dock/menu-bar-icon reopen (or similar user gesture)
+    /// lands while runIfEligible() is still actively mid-flight
+    /// (isProvisioning). Calling scheduleFirstRunOnboardingIfNeeded() again
+    /// at that point is unsafe: runIfEligible()'s single-flight guard
+    /// (hasRunThisLaunch) makes a second concurrent call return false
+    /// immediately -- which reads to that caller as "silent bootstrap isn't
+    /// going to handle this", and it falls through to the old manual
+    /// "Welcome to OpenClaw" wizard, popping that up on top of this
+    /// in-flight progress panel. Just reassert this panel's focus instead;
+    /// there's nothing else useful to do until runIfEligible() itself
+    /// finishes and either opens chat or reverts to the manual wizard on
+    /// its own.
+    func reactivatePanel() {
+        guard let panel else { return }
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: - Default AI provider (installer.env, baked in by
