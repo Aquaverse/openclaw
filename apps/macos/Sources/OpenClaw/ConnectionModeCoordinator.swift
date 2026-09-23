@@ -28,6 +28,7 @@ final class ConnectionModeCoordinator {
     /// Apply the requested connection mode by starting/stopping local gateway,
     /// managing the control-channel SSH tunnel, and cleaning up chat windows/panels.
     func apply(mode: AppState.ConnectionMode, paused: Bool) async {
+        traceLog("ConnectionModeCoordinator.apply: entered, mode=\(mode), paused=\(paused)")
         self.portSweepTask?.cancel()
         self.localDisconnectTask?.cancel()
         let hostsLocalGateway = AppStateStore.shared.hostsLocalGatewayWithRemotePrimary
@@ -62,7 +63,9 @@ final class ConnectionModeCoordinator {
             guard self.transition.isCurrent(applyGeneration, mode: mode) else { return }
 
         case .local:
+            traceLog("ConnectionModeCoordinator.apply: awaiting applyLocalMode()")
             await self.applyLocalMode(paused: paused, generation: applyGeneration)
+            traceLog("ConnectionModeCoordinator.apply: applyLocalMode() returned")
             guard self.transition.isCurrent(applyGeneration, mode: mode) else { return }
 
         case .remote:
@@ -97,9 +100,13 @@ final class ConnectionModeCoordinator {
     }
 
     private func applyLocalMode(paused: Bool, generation: UInt64) async {
+        traceLog("applyLocalMode: awaiting applyLocalGateway()")
         await self.applyLocalGateway(mode: .local, paused: paused, hostsLocalGateway: false, generation: generation)
+        traceLog("applyLocalMode: applyLocalGateway() returned")
         guard self.transition.isCurrent(generation, mode: .local) else { return }
+        traceLog("applyLocalMode: awaiting ControlChannel.configure()")
         await ControlChannel.shared.configure()
+        traceLog("applyLocalMode: ControlChannel.configure() returned")
     }
 
     private func applyLocalGateway(
@@ -109,19 +116,26 @@ final class ConnectionModeCoordinator {
         generation: UInt64) async
     {
         if GatewayAutostartPolicy.shouldStartGateway(mode: mode, paused: paused, hostsLocalGateway: hostsLocalGateway) {
+            traceLog("applyLocalGateway: setActive(true)")
             GatewayProcessManager.shared.setActive(true)
+            traceLog("applyLocalGateway: awaiting waitForStartupAttempt()")
             await GatewayProcessManager.shared.waitForStartupAttempt()
+            traceLog("applyLocalGateway: waitForStartupAttempt() returned")
             guard self.transition.isCurrent(generation, mode: mode) else { return }
             var launchAgentInstalled = false
             if GatewayAutostartPolicy.shouldEnsureLaunchAgent(
                 mode: mode, paused: paused, hostsLocalGateway: hostsLocalGateway)
             {
+                traceLog("applyLocalGateway: awaiting ensureLaunchAgentEnabledIfNeeded()")
                 launchAgentInstalled = await GatewayProcessManager.shared.ensureLaunchAgentEnabledIfNeeded()
+                traceLog("applyLocalGateway: ensureLaunchAgentEnabledIfNeeded() returned installed=\(launchAgentInstalled)")
             }
             guard self.transition.isCurrent(generation, mode: mode) else { return }
             // Finish persistence before readiness so a newer lifecycle cannot clear its repair marker.
+            traceLog("applyLocalGateway: awaiting waitForGatewayReady()")
             _ = await GatewayProcessManager.shared.waitForGatewayReady(
                 launchAgentInstalled: launchAgentInstalled)
+            traceLog("applyLocalGateway: waitForGatewayReady() returned")
             guard self.transition.isCurrent(generation, mode: mode) else { return }
         } else {
             GatewayProcessManager.shared.stop()

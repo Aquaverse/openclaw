@@ -86,6 +86,7 @@ final class AutoOnboardBootstrap {
         self.isProvisioning = true
         defer { self.isProvisioning = false }
         self.logger.notice("runIfEligible: entered")
+        traceLog("runIfEligible: entered")
 
         if case .ready = await CLIInstaller.managedStatus() {
             // The managed CLI is already installed and healthy on disk --
@@ -185,6 +186,7 @@ final class AutoOnboardBootstrap {
     // MARK: - Progress panel
 
     private func showPanel() {
+        traceLog("showPanel: entered")
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 120),
             styleMask: [.titled],
@@ -220,6 +222,7 @@ final class AutoOnboardBootstrap {
         NSApp.activate(ignoringOtherApps: true)
         self.panel = panel
         self.logger.notice("showPanel: panel ordered front, isVisible=\(panel.isVisible, privacy: .public)")
+        traceLog("showPanel: panel ordered front, isVisible=\(panel.isVisible)")
         Task { @MainActor [weak self, weak panel] in
             try? await Task.sleep(for: .milliseconds(300))
             guard let self, let panel, self.panel === panel, !panel.isKeyWindow else { return }
@@ -246,6 +249,7 @@ final class AutoOnboardBootstrap {
     /// finishes and either opens chat or reverts to the manual wizard on
     /// its own.
     func reactivatePanel() {
+        traceLog("reactivatePanel: called, hasPanel=\(self.panel != nil)")
         guard let panel else { return }
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

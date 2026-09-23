@@ -6,6 +6,35 @@ import OpenClawKit
 import OSLog
 import SwiftUI
 
+// Temporary file-based diagnostic logging, added because os.Logger's
+// .notice() calls placed at these same call sites (see the comments on
+// AutoOnboardBootstrap.logger and AppDelegate.logger) have not shown up in
+// either `log stream` or `log show --last` output across several real test
+// launches, despite those call sites being confirmed reached (other
+// logging from later in the very same functions does show up) and the
+// string literals being confirmed present in the built binary. This
+// sidesteps whatever about the unified-logging path is swallowing them by
+// writing straight to a plain file instead, which has no comparable
+// ambiguity around log level, predicate, or store-persistence timing.
+// Safe to remove, along with its call sites, once the "Setting up
+// OpenClaw..." panel-timing question this exists to answer is resolved.
+func traceLog(_ message: String) {
+    let path = NSHomeDirectory() + "/Library/Logs/OpenClaw/launch-trace.log"
+    let dir = (path as NSString).deletingLastPathComponent
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let formatter = DateFormatter()
+    formatter.dateFormat = "HH:mm:ss.SSS"
+    let line = "\(formatter.string(from: Date())) [pid \(ProcessInfo.processInfo.processIdentifier)] \(message)\n"
+    guard let data = line.data(using: .utf8) else { return }
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(data)
+        try? handle.close()
+    } else {
+        try? data.write(to: URL(fileURLWithPath: path))
+    }
+}
+
 /// Routes private maintenance commands before SwiftUI constructs or activates the application.
 @main
 enum OpenClawProcessMain {
@@ -286,6 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// early post-launch window as the Dock-reopen case above, and want the same
     /// fallback instead of a raced-open Dashboard.
     func openDashboardOrResumeProvisioning() {
+        traceLog("openDashboardOrResumeProvisioning: called, isProvisioningOrUnconfigured=\(self.isProvisioningOrUnconfigured), isProvisioning=\(AutoOnboardBootstrap.shared.isProvisioning)")
         guard self.isProvisioningOrUnconfigured else {
             self.openDashboardAction()
             return
@@ -298,6 +328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // top of the still-in-flight "Setting up OpenClaw..." panel. Just
         // bring that existing panel back into focus instead.
         guard !AutoOnboardBootstrap.shared.isProvisioning else {
+            traceLog("openDashboardOrResumeProvisioning: bringing existing panel back via reactivatePanel()")
             AutoOnboardBootstrap.shared.reactivatePanel()
             return
         }
@@ -329,6 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // something after runIfEligible() actually starts. Safe to remove once
         // that's confirmed.
         Self.logger.notice("applicationDidFinishLaunching: entered")
+        traceLog("applicationDidFinishLaunching: entered")
         let launchPlan = AppLaunchRuntimePlan.current
         if !AppProfile.current.isActive, !launchPlan.isElevationHost {
             switch ApplicationRelocator.handleLaunch() {
@@ -363,26 +395,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let shouldWaitForConnection = state.connectionMode != .unconfigured
             if !shouldWaitForConnection, launchPlan.allowsAutomaticPresentation {
                 Self.logger.notice("applicationDidFinishLaunching: creating auto-onboard Task")
+                traceLog("applicationDidFinishLaunching: creating auto-onboard Task")
                 Task { @MainActor in
                     Self.logger.notice("applicationDidFinishLaunching: auto-onboard Task started running")
+                    traceLog("applicationDidFinishLaunching: auto-onboard Task started running")
                     await self.scheduleFirstRunOnboardingIfNeeded()
                 }
             }
             Task { @MainActor in
+                traceLog("applicationDidFinishLaunching: connection Task started running, shouldWaitForConnection=\(shouldWaitForConnection), connectionMode=\(state.connectionMode)")
                 // Validate PATH selection before local startup. Existing installs may not
                 // have the validation cache yet, and a stale external CLI must not win.
                 if state.connectionMode == .local ||
                     (state.connectionMode == .remote && state.hostsLocalGatewayWithRemotePrimary)
                 {
+                    traceLog("applicationDidFinishLaunching: awaiting CLIInstaller.status()")
                     _ = await CLIInstaller.status()
+                    traceLog("applicationDidFinishLaunching: CLIInstaller.status() returned")
                 }
+                // Decide onboarding/reprovisioning *before* asking ConnectionModeCoordinator
+                // to stand up (or reattach to) a Gateway for this mode -- moved ahead of the
+                // apply() call below (was after it). Measured root cause of the "Setting up
+                // OpenClaw..." panel taking 40+ seconds to appear, and of a Dock-icon click
+                // in that window hitting "Dashboard unavailable": connectionMode can read
+                // .local here (a prior run's persisted state, or a reinstall over preferences
+                // that still say so) while nothing is actually installed yet -- a first-ever
+                // launch, or one after a reinstall. ConnectionModeCoordinator.apply() has no
+                // way to tell "not installed yet" apart from "installed but briefly not
+                // running", so it patiently retried a Gateway nothing had attempted to start,
+                // for GatewayLaunchAgentManager.startupMigrationTolerance's full first-run
+                // grace window (120s, observed cut short around 42-48s) -- entirely blocking
+                // scheduleFirstRunOnboardingIfNeeded() (and therefore this panel) and this
+                // app's own Dashboard-open guard (isProvisioningOrUnconfigured only becomes
+                // true once AutoOnboardBootstrap.runIfEligible() itself starts) for that whole
+                // window. AutoOnboardBootstrap has its own, separate, and much faster path to
+                // actually install/start a Gateway (CLIInstaller.activateLocalGateway(),
+                // inside runIfEligible()) -- there is nothing useful for
+                // ConnectionModeCoordinator.apply() to wait on here until that has had a
+                // chance to run. Calling scheduleFirstRunOnboardingIfNeeded() first costs
+                // nothing when this launch turns out to already be genuinely ready (its own
+                // CLIInstaller.managedStatus() check is fast and it returns immediately);
+                // apply() below then finds a real, already-running Gateway to attach to
+                // instead of one nothing has tried to start, resolving in seconds either way.
+                if launchPlan.allowsAutomaticPresentation, shouldWaitForConnection {
+                    traceLog("applicationDidFinishLaunching: shouldWaitForConnection path calling scheduleFirstRunOnboardingIfNeeded() (before ConnectionModeCoordinator.apply())")
+                    await self.scheduleFirstRunOnboardingIfNeeded()
+                }
+                traceLog("applicationDidFinishLaunching: awaiting ConnectionModeCoordinator.apply()")
                 await ConnectionModeCoordinator.shared.apply(
                     mode: state.connectionMode,
                     paused: state.isPaused)
+                traceLog("applicationDidFinishLaunching: ConnectionModeCoordinator.apply() returned")
                 guard launchPlan.allowsAutomaticPresentation else { return }
-                if shouldWaitForConnection {
-                    await self.scheduleFirstRunOnboardingIfNeeded()
-                }
                 // Attachment must settle before deciding whether this app needs to install a CLI.
                 let postUpdateStarted = PostUpdateController.shared.startIfNeeded()
                 // Only when this launch was already configured (shouldWaitForConnection):
@@ -416,6 +480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // into its own Task lets it run a beat later instead, off the
         // critical path to that panel appearing.
         Task { @MainActor [weak self] in
+            traceLog("applicationDidFinishLaunching: deferred background-services Task started running")
             TerminationSignalWatcher.shared.start()
             MacNodeModeCoordinator.shared.start()
             guard launchPlan.allowsInteractiveServices else { return }
