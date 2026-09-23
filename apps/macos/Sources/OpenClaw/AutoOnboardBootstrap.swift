@@ -92,14 +92,32 @@ final class AutoOnboardBootstrap {
             // The managed CLI is already installed and healthy on disk --
             // most likely a prior successful provisioning whose
             // onboardingSeen flag didn't carry over (e.g. a fresh reinstall
-            // over the same still-intact ~/.openclaw). Nothing to install;
-            // just bring app state back in line with reality and land in
-            // chat like any other already-configured launch, rather than
-            // running the whole install pipeline again or falling through
-            // to the manual wizard.
+            // over the same still-intact ~/.openclaw), or an earlier launch
+            // that installed the CLI but was quit/killed before reaching
+            // this function's own full pipeline below (which is the only
+            // place that otherwise applies the bundled default model).
+            // Nothing to install; just bring app state back in line with
+            // reality and land in chat like any other already-configured
+            // launch, rather than running the whole install pipeline again
+            // or falling through to the manual wizard.
             AppStateStore.shared.connectionMode = .local
             AppStateStore.shared.onboardingSeen = true
             if await CLIInstaller.activateLocalGateway() == .ready {
+                // Best-effort, same as the full pipeline below: mirrors
+                // scripts/mac-pkg-postinstall.sh always (re-)running
+                // `openclaw onboard --non-interactive` regardless of whether
+                // the CLI was already present, rather than skipping default
+                // model configuration whenever this fast path is taken.
+                // Without this, a launch that reaches this branch because an
+                // earlier one was interrupted before configuring the default
+                // model (installed the CLI, then got force-quit) would mark
+                // onboarding fully complete here and never configure a
+                // default model at all -- the app looks "installed" with no
+                // model picked, only fixable by hand in Model Management.
+                if let provider = Self.bundledDefaultProvider() {
+                    traceLog("runIfEligible: fast path re-applying bundled default provider")
+                    _ = await Self.applyDefaultProvider(provider)
+                }
                 AppNavigationActions.openChat()
             }
             return true
