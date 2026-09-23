@@ -235,6 +235,14 @@ EOF
   fi
 fi
 
+# Flush the just-written .DS_Store (background image reference, icon
+# positions, custom-icon flag) to the mounted RW image before detaching --
+# Finder's AppleScript automation writes that state asynchronously, and a
+# detach/convert that races ahead of it landing on disk is a known source of
+# a DMG occasionally coming out with the styling silently missing (plain
+# white background, unstyled icon layout) on some builds but not others.
+sync
+
 if ! detach_dmg; then
   echo "Error: Failed to detach DMG mount: $MOUNT_POINT" >&2
   exit 1

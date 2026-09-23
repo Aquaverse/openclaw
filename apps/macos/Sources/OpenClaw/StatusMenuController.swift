@@ -282,7 +282,38 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             Task {
                 guard self.state.connectionMode == mode, self.state.isPaused == paused,
                       self.state.hostsLocalGatewayWithRemotePrimary == hostsLocalGateway else { return }
+                // AutoOnboardBootstrap owns first-run (and any later re-)provisioning
+                // end to end, including its own explicit Gateway activation
+                // (CLIInstaller.activateLocalGateway(), called directly -- it uses the
+                // same GatewayProcessManager.shared.setActive(true) entry point as
+                // ConnectionModeCoordinator.apply() does, but apply() also stops/resets
+                // other connection state first (MacGatewayConnectionFleet, NodeServiceManager,
+                // RemoteTunnelManager, WebChatManager) that can undercut a concurrent
+                // activation). AutoOnboardBootstrap sets connectionMode as it goes (e.g.
+                // to .local up front, before its own install/activation has actually
+                // finished), which used to make this observer fire apply() concurrently
+                // with that pipeline -- observed in testing as a second, independent
+                // apply() landing seconds after AutoOnboardBootstrap's own, with
+                // waitForStartupAttempt() then stalling ~38s waiting on the other's
+                // in-flight start task, and separately a run where the install ended up
+                // reverted to .unconfigured after this same overlap. Waiting out
+                // isProvisioning here (rather than skipping the call outright) still
+                // reconciles state ConnectionModeCoordinator.apply() is uniquely
+                // responsible for once the pipeline is done -- ControlChannel.configure()
+                // in particular, which activateLocalGateway() does not call on its own --
+                // it just no longer does so *during* the pipeline's own indeterminate
+                // provisioning window.
+                if AutoOnboardBootstrap.shared.isProvisioning {
+                    traceLog("StatusMenuController.applyStateSideEffects: waiting out isProvisioning before apply(), mode=\(mode)")
+                    while AutoOnboardBootstrap.shared.isProvisioning {
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                    }
+                }
+                guard self.state.connectionMode == mode, self.state.isPaused == paused,
+                      self.state.hostsLocalGatewayWithRemotePrimary == hostsLocalGateway else { return }
+                traceLog("StatusMenuController.applyStateSideEffects: awaiting ConnectionModeCoordinator.apply(), mode=\(mode)")
                 await ConnectionModeCoordinator.shared.apply(mode: mode, paused: paused)
+                traceLog("StatusMenuController.applyStateSideEffects: ConnectionModeCoordinator.apply() returned")
                 if modeChanged, self.state.connectionMode == mode,
                    AppLaunchRuntimePlan.current.allowsAutomaticPresentation
                 {
