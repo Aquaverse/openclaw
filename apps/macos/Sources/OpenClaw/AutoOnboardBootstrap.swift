@@ -174,8 +174,10 @@ final class AutoOnboardBootstrap {
         let target: CLIInstaller.InstallTarget = .channel(.stable)
 
         let installed = await CLIInstaller.install(target: target) { [weak self] message in
+            traceLog("runIfEligible: install status: \(message)")
             self?.status.step = message
         }
+        traceLog("runIfEligible: CLIInstaller.install() returned installed=\(installed)")
         guard installed else {
             AppStateStore.shared.connectionMode = .unconfigured
             return false
@@ -183,6 +185,7 @@ final class AutoOnboardBootstrap {
 
         self.status.step = String(localized: "Starting OpenClaw Gateway…")
         let activation = await CLIInstaller.activateLocalGateway()
+        traceLog("runIfEligible: CLIInstaller.activateLocalGateway() returned \(activation)")
         guard activation == .ready else {
             AppStateStore.shared.connectionMode = .unconfigured
             return false

@@ -694,8 +694,21 @@ final class GatewayProcessManager {
             self.gatewayOwnership = nil
             return false
         }
+        // A listener existing on the port used to be enough on its own to report "attached" here
+        // (`hasListener || published || ...`), even when the health probe against it failed --
+        // e.g. a dead/unresponsive process still holding the port after a crash or a prior failed
+        // install. That silently ended startIfNeeded()'s task without ever falling through to
+        // enableLaunchdGateway(), so a stale-but-present listener produced a permanent `.failed`
+        // status instead of a fresh start attempt. Now a failed terminal always falls through
+        // (published is false for `.failed`), regardless of hasListener, so a real live gateway
+        // is still reused (probe succeeds -> published=true), but a dead one is treated the same
+        // as no listener at all and we retry via the launchd path's much larger readiness budget.
+        if case .failed = terminal {
+            traceLog("attachExistingGatewayIfAvailable: hasListener=\(hasListener) but health probe " +
+                "failed; falling through to enableLaunchdGateway() instead of reporting attach success")
+        }
         let published = await self.publishGatewayReadinessTerminal(terminal, context: context)
-        return hasListener || published || !self.isCurrentGatewayStart(startGeneration)
+        return published || !self.isCurrentGatewayStart(startGeneration)
     }
 
     nonisolated static func profileAllowsExistingGatewayAttachment(
