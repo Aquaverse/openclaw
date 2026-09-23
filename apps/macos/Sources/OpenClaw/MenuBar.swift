@@ -507,14 +507,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Skip while AutoOnboardBootstrap is actively provisioning this
                 // launch: connectionMode can already read .local (or a stale
                 // .local from an earlier run) before the Gateway it's still
-                // installing/starting is actually reachable, so preloading the
+                // installing/starting is actually reachable, so opening the
                 // dashboard here raced it into showing a "Dashboard unavailable,
                 // could not connect" window ahead of the bootstrap's own
                 // progress panel and successful completion. AutoOnboardBootstrap
                 // opens chat itself once it's actually done, so there's nothing
-                // for this preload to add while it's in flight.
-                guard !AutoOnboardBootstrap.shared.isProvisioning else { return }
-                DashboardManager.shared.preloadIfConfigured()
+                // for this to add while it's in flight. Also skip if onboarding
+                // was never actually completed -- a failed auto-install falls
+                // through to the manual "Welcome to OpenClaw" wizard instead
+                // (AppStateStore.onboardingSeen stays false), and opening the
+                // dashboard here would repeat the exact "Dashboard unavailable"
+                // flash this guard exists to avoid.
+                guard !AutoOnboardBootstrap.shared.isProvisioning,
+                      AppStateStore.shared.onboardingSeen
+                else { return }
+                // Bring the dashboard to the front on a normal, already-configured
+                // launch (was: DashboardManager.shared.preloadIfConfigured(), which
+                // deliberately loads in the background and never orders the window
+                // front -- see its own doc comment). That made every ordinary
+                // double-click launch open silently into the background/menu bar,
+                // needing a second, separate click (Dock reopen) to actually see
+                // the main window -- not matching how a double-click behaves for
+                // most macOS apps.
+                traceLog("applicationDidFinishLaunching: 2s auto-present Task opening dashboard")
+                AppNavigationActions.openDashboard(userGesture: false)
             }
         }
 
