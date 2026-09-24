@@ -183,20 +183,62 @@ final class AutoOnboardBootstrap {
             return false
         }
 
+        // Deliberately reordered to configure the default model *before*
+        // activateLocalGateway() below (was: activate, then configure).
+        // openclaw onboard --skip-daemon here only writes settings to disk
+        // -- it does not touch any Gateway process -- but a Gateway that is
+        // already running by the time it runs read its config once, at its
+        // own startup, and does not reload it afterward. Configuring first
+        // means whatever process activateLocalGateway() attaches to or
+        // starts next reads the *correct* config from its own first boot,
+        // instead of racing a config write against a process that already
+        // read the old (or default/empty) one. This also matters for a
+        // genuinely fresh gateway, not just a stale one: config-after-start
+        // silently dropped the default model even on a clean install with
+        // nothing left running beforehand.
+        if let provider = Self.bundledDefaultProvider() {
+            traceLog("runIfEligible: bundledDefaultProvider() found provider id=\(provider.id ?? "nil"), baseURL=\(provider.baseURL), modelID=\(provider.modelID), hasAPIKey=\(provider.apiKey != nil)")
+            self.status.step = String(localized: "Configuring default model…")
+            let applied = await Self.applyDefaultProvider(provider)
+            traceLog("runIfEligible: applyDefaultProvider() returned \(applied)")
+        } else {
+            traceLog("runIfEligible: bundledDefaultProvider() found no provider (missing/unreadable default-ai-provider.env, or empty baseURL/modelID) -- skipping default model configuration")
+        }
+
+        // CLIInstaller.install() above only writes fresh files to
+        // managedExecutableLocation() -- it never touches a gateway process
+        // that might already be running. The gateway's LaunchAgent is
+        // installed with KeepAlive=true (see src/daemon/launchd-plist.ts),
+        // so merely stopping the gateway process between launches does not
+        // remove it from launchd: launchd silently relaunches it on its
+        // own, independent of this app even running, using whatever binary
+        // (and whatever config on disk at that moment) happened to be
+        // current -- observed in testing as a gateway process that started
+        // (via launchd) well before this launch's own install() call above
+        // even finished, still running the *previous* version and config.
+        // activateLocalGateway() below is attach-first (see
+        // GatewayProcessManager.attachExistingGatewayIfAvailable()): it
+        // only health-probes an existing listener and never checks that
+        // its version or config generation matches what was just written
+        // above, so it happily reports success while leaving that stale,
+        // launchd-resurrected process in place. Force a restart here,
+        // before activateLocalGateway() gets a chance to attach to it,
+        // whenever something is already running: launchd re-execs the
+        // LaunchAgent's fixed executable path, which now points at the
+        // binary install() wrote and reads the config applyDefaultProvider()
+        // just wrote above.
+        if await GatewayLaunchAgentManager.runningGatewayPID() != nil {
+            traceLog("runIfEligible: existing gateway process found after install; forcing restart so it picks up the freshly installed binary and config")
+            let restartResult = await GatewayLaunchAgentManager.kickstart()
+            traceLog("runIfEligible: GatewayLaunchAgentManager.kickstart() returned \(restartResult ?? "nil (success)")")
+        }
+
         self.status.step = String(localized: "Starting OpenClaw Gateway…")
         let activation = await CLIInstaller.activateLocalGateway()
         traceLog("runIfEligible: CLIInstaller.activateLocalGateway() returned \(activation)")
         guard activation == .ready else {
             AppStateStore.shared.connectionMode = .unconfigured
             return false
-        }
-
-        if let provider = Self.bundledDefaultProvider() {
-            self.status.step = String(localized: "Configuring default model…")
-            // Best-effort only: the Gateway is already up either way, so a
-            // failure here just leaves the model picker for the user on
-            // first chat instead of failing the whole bootstrap.
-            _ = await Self.applyDefaultProvider(provider)
         }
 
         AppStateStore.shared.onboardingSeen = true
@@ -288,7 +330,10 @@ final class AutoOnboardBootstrap {
 
     private static func bundledDefaultProvider() -> DefaultProvider? {
         let envURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/default-ai-provider.env")
-        guard let contents = try? String(contentsOf: envURL, encoding: .utf8) else { return nil }
+        guard let contents = try? String(contentsOf: envURL, encoding: .utf8) else {
+            traceLog("bundledDefaultProvider: could not read \(envURL.path) (file missing from bundle, or unreadable)")
+            return nil
+        }
         var values: [String: String] = [:]
         for line in contents.split(whereSeparator: \.isNewline) {
             guard let separatorIndex = line.firstIndex(of: "=") else { continue }
@@ -298,7 +343,10 @@ final class AutoOnboardBootstrap {
         }
         let baseURL = values["DEFAULT_AI_BASE_URL"] ?? ""
         let modelID = values["DEFAULT_AI_MODEL"] ?? ""
-        guard !baseURL.isEmpty, !modelID.isEmpty else { return nil }
+        guard !baseURL.isEmpty, !modelID.isEmpty else {
+            traceLog("bundledDefaultProvider: read \(envURL.path) but baseURL or modelID is empty (baseURLEmpty=\(baseURL.isEmpty), modelIDEmpty=\(modelID.isEmpty)) -- treating as unconfigured")
+            return nil
+        }
         let providerID = values["DEFAULT_AI_PROVIDER"]
         let apiKey = values["DEFAULT_AI_API_KEY"]
         return DefaultProvider(
@@ -309,14 +357,24 @@ final class AutoOnboardBootstrap {
     }
 
     /// Shells out to the just-installed CLI's own `openclaw onboard
-    /// --non-interactive`, the same command scripts/mac-pkg-postinstall.sh
-    /// runs for a pkg install -- reuses its exact validated flag set rather
-    /// than duplicating provider/config-writing logic here. --skip-daemon
-    /// because activateLocalGateway() above already started the Gateway;
-    /// this call only needs to fill in the model/provider config.
+    /// --non-interactive` to write the default model/provider config to
+    /// disk. scripts/mac-pkg-postinstall.sh runs a similar command for a
+    /// pkg install, but with --install-daemon (not --skip-daemon) --
+    /// that script's onboard call is the only thing installing/starting
+    /// the Gateway service on that path, so it must manage the daemon
+    /// itself. Here, --skip-daemon is intentional and different: this call
+    /// now runs *before* activateLocalGateway() (see the reordering
+    /// comment at its call site in runIfEligible()), specifically so it
+    /// only writes config and never touches any Gateway process itself --
+    /// activateLocalGateway() below is solely responsible for starting (or
+    /// restarting) the Gateway, and does so only after this config write
+    /// has already landed on disk.
     private static func applyDefaultProvider(_ provider: DefaultProvider) async -> Bool {
         let executable = CLIInstaller.managedExecutableLocation()
-        guard FileManager.default.isExecutableFile(atPath: executable) else { return false }
+        guard FileManager.default.isExecutableFile(atPath: executable) else {
+            traceLog("applyDefaultProvider: managed executable not found/executable at \(executable)")
+            return false
+        }
         var arguments = [
             "onboard", "--non-interactive", "--accept-risk",
             "--mode", "local", "--skip-daemon",
@@ -334,7 +392,17 @@ final class AutoOnboardBootstrap {
             arguments.append(contentsOf: ["--custom-api-key", apiKey])
         }
         let command = AppProfile.current.localCLICommand(prefix: [executable], arguments: arguments)
+        // Never log `command` or `response` verbatim -- both can contain
+        // --custom-api-key's value. Redact that one argument's value before
+        // tracing so this stays safe to paste into a shared log file.
+        let redactedCommand = command.enumerated().map { index, token in
+            index > 0 && command[index - 1] == "--custom-api-key" ? "<redacted>" : token
+        }
         let response = await ShellExecutor.run(command: command, cwd: nil, env: nil, timeout: 60)
+        traceLog("applyDefaultProvider: ran \(redactedCommand.joined(separator: " ")) -> ok=\(response.ok)")
+        if !response.ok {
+            traceLog("applyDefaultProvider: failure message: \(response.message ?? "nil")")
+        }
         return response.ok
     }
 }
