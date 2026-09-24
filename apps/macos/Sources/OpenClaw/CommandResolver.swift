@@ -166,6 +166,22 @@ enum CommandResolver {
         return paths
     }
 
+    /// The app-managed "openclaw" executable itself (not just its containing
+    /// directory, as openclawManagedPaths(home:profile:) returns) -- used by
+    /// resolveLocalCLI(searchPaths:projectRoot:) to prefer this exact binary
+    /// over anything else discoverable on PATH. See that call site's comment
+    /// for why this priority check exists.
+    private static func managedOpenClawExecutable(
+        home: URL = FileManager().homeDirectoryForCurrentUser,
+        profile: AppProfile = .current) -> String?
+    {
+        let candidate = profile.stateDirectoryURL(homeDirectory: home)
+            .appendingPathComponent("bin")
+            .appendingPathComponent(self.helperName)
+            .path
+        return FileManager().isExecutableFile(atPath: candidate) ? candidate : nil
+    }
+
     private static func nodeManagerBinPaths(home: URL) -> [String] {
         var bins: [String] = []
 
@@ -354,6 +370,32 @@ enum CommandResolver {
         let root = projectRoot ?? self.projectRoot()
         if let openclawPath = projectOpenClawExecutable(projectRoot: root) {
             return .executable([openclawPath])
+        }
+        // Check the app-managed install directly, ahead of the generic PATH
+        // search below. preferredPaths() puts externalPaths (/usr/local/bin,
+        // Homebrew, nvm/volta/asdf/fnm node-manager bins, …) *before*
+        // managedPaths in its fallback ordering -- reasonable for finding
+        // tools the managed install doesn't bundle (git, pnpm), but wrong
+        // for "openclaw" itself: on a machine with any other openclaw CLI
+        // on PATH (a separate `npm install -g openclaw`, a leftover dev
+        // checkout, …), openclawExecutable(searchPaths:) below would find
+        // that one first and silently run it instead of the managed CLI.
+        // Observed in testing as gateway install/restart/status commands
+        // launching a stray /usr/local/bin/openclaw pointed at the same
+        // shared state directory as the real managed Gateway, which then
+        // correctly refused to let two different Gateways mutate that
+        // directory at once ("another Gateway owns that state directory") --
+        // a confusing failure with no actual second Gateway process left
+        // running by the time anyone went looking for one, because the
+        // wrongly-resolved process was short-lived. The managed install
+        // must always win over an unscoped PATH search when it exists and
+        // works. Gated on searchPaths == nil so callers that deliberately
+        // pass their own explicit searchPaths (tests, and any future caller
+        // scoping resolution on purpose) are unaffected -- this check only
+        // engages for the default/unscoped resolution path that real gateway
+        // daemon management (GatewayLaunchAgentManager.daemonCommand) uses.
+        if searchPaths == nil, let managedPath = self.managedOpenClawExecutable() {
+            return .executable([managedPath])
         }
         if let openclawPath = openclawExecutable(searchPaths: searchPaths) {
             return .executable([openclawPath])

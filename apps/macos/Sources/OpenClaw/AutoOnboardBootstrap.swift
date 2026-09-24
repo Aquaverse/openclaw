@@ -102,22 +102,43 @@ final class AutoOnboardBootstrap {
             // or falling through to the manual wizard.
             AppStateStore.shared.connectionMode = .local
             AppStateStore.shared.onboardingSeen = true
+            // Best-effort, same as the full pipeline below: mirrors
+            // scripts/mac-pkg-postinstall.sh always (re-)running
+            // `openclaw onboard --non-interactive` regardless of whether
+            // the CLI was already present, rather than skipping default
+            // model configuration whenever this fast path is taken.
+            // Without this, a launch that reaches this branch because an
+            // earlier one was interrupted before configuring the default
+            // model (installed the CLI, then got force-quit) would mark
+            // onboarding fully complete here and never configure a
+            // default model at all -- the app looks "installed" with no
+            // model picked, only fixable by hand in Model Management.
+            //
+            // Deliberately reordered ahead of activateLocalGateway() below
+            // (was: activate, then configure), same reasoning as the full
+            // pipeline further down. This fast path routinely attaches to a
+            // Gateway left running from a previous launch; openclaw onboard
+            // --skip-daemon only writes config, it does not restart that
+            // process, and a Gateway that's already up only reads config
+            // once, at its own startup. In testing this meant the Gateway
+            // separately noticed the config file change on its own and
+            // self-restarted (its own SIGUSR2 reload-for-restart path,
+            // relying on launchd's KeepAlive to bring it back) -- which
+            // does eventually land the right model, but shows a several-
+            // second "reconnecting" Dashboard blip in the meantime, and if
+            // that self-restart doesn't fire (or the app is quit mid-cycle)
+            // the default model silently never gets configured at all.
+            // Writing config first avoids that whole cycle: whatever
+            // process activateLocalGateway() attaches to or starts next
+            // reads the already-correct config from its own first boot.
+            if let provider = Self.bundledDefaultProvider() {
+                traceLog("runIfEligible: fast path re-applying bundled default provider")
+                let applied = await Self.applyDefaultProvider(provider)
+                traceLog("runIfEligible: fast path applyDefaultProvider() returned \(applied)")
+            } else {
+                traceLog("runIfEligible: fast path found no bundled default provider -- skipping")
+            }
             if await CLIInstaller.activateLocalGateway() == .ready {
-                // Best-effort, same as the full pipeline below: mirrors
-                // scripts/mac-pkg-postinstall.sh always (re-)running
-                // `openclaw onboard --non-interactive` regardless of whether
-                // the CLI was already present, rather than skipping default
-                // model configuration whenever this fast path is taken.
-                // Without this, a launch that reaches this branch because an
-                // earlier one was interrupted before configuring the default
-                // model (installed the CLI, then got force-quit) would mark
-                // onboarding fully complete here and never configure a
-                // default model at all -- the app looks "installed" with no
-                // model picked, only fixable by hand in Model Management.
-                if let provider = Self.bundledDefaultProvider() {
-                    traceLog("runIfEligible: fast path re-applying bundled default provider")
-                    _ = await Self.applyDefaultProvider(provider)
-                }
                 AppNavigationActions.openChat()
             }
             return true
@@ -392,18 +413,50 @@ final class AutoOnboardBootstrap {
             arguments.append(contentsOf: ["--custom-api-key", apiKey])
         }
         let command = AppProfile.current.localCLICommand(prefix: [executable], arguments: arguments)
-        // Never log `command` or `response` verbatim -- both can contain
-        // --custom-api-key's value. Redact that one argument's value before
-        // tracing so this stays safe to paste into a shared log file.
+        // Never log `command`, stdout, or stderr verbatim -- all three can
+        // contain --custom-api-key's value (the command holds it directly;
+        // a misbehaving CLI could in principle echo an invalid argument
+        // back in its own error text). Redact the one argument in the
+        // command, and belt-and-suspenders strip the literal key value out
+        // of anything else before it's ever passed to traceLog.
         let redactedCommand = command.enumerated().map { index, token in
             index > 0 && command[index - 1] == "--custom-api-key" ? "<redacted>" : token
         }
-        let response = await ShellExecutor.run(command: command, cwd: nil, env: nil, timeout: 60)
-        traceLog("applyDefaultProvider: ran \(redactedCommand.joined(separator: " ")) -> ok=\(response.ok)")
-        if !response.ok {
-            traceLog("applyDefaultProvider: failure message: \(response.message ?? "nil")")
+        func redactAPIKey(_ text: String) -> String {
+            guard let apiKey = provider.apiKey, !apiKey.isEmpty else { return text }
+            return text.replacingOccurrences(of: apiKey, with: "<redacted>")
         }
-        return response.ok
+        // One retry after a short delay: observed in testing failing
+        // outright (exit 1) a few seconds after CLIInstaller.install()
+        // reported success, then succeeding with the exact same command
+        // moments later on a subsequent launch -- consistent with the
+        // freshly-written CLI/Node install not being fully settled on disk
+        // yet (file flush, symlinks, node_modules) at the instant this
+        // first runs right after install(). A single short-delay retry
+        // covers that transient window without masking a real,
+        // deterministic failure (which will fail identically both times,
+        // and still gets logged below either way).
+        for attempt in 1...2 {
+            // runDetailed() (rather than the terser .run()) so a failure's
+            // real "[openclaw] Reason: …" text is available here -- .run()'s
+            // Response only exposes a generic "exit N"/"timeout"
+            // errorMessage, which was observed in testing to give zero
+            // insight into why onboard failed.
+            let result = await ShellExecutor.runDetailed(command: command, cwd: nil, env: nil, timeout: 60)
+            traceLog("applyDefaultProvider: ran (attempt \(attempt)/2) \(redactedCommand.joined(separator: " ")) -> success=\(result.success)")
+            if result.success {
+                return true
+            }
+            let combined = result.stdout.isEmpty ? result.stderr : result.stdout
+            let summary = TextSummarySupport.summarizeLastLine(redactAPIKey(combined))
+                ?? result.errorMessage
+                ?? "no output captured"
+            traceLog("applyDefaultProvider: failure summary (attempt \(attempt)/2): \(summary)")
+            if attempt == 1 {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+        }
+        return false
     }
 }
 
