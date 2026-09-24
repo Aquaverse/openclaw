@@ -30,7 +30,8 @@
 #
 # Env overrides:
 #   OPENCLAW_LLAMA_FALLBACK_PORT   Port llama-server listens on (default 8687).
-#   OPENCLAW_LLAMA_FALLBACK_CTX    Context size (default 4096).
+#   OPENCLAW_LLAMA_FALLBACK_CTX    Context size; overrides the build's installer.env value
+#                                  (DEFAULT_LLAMA_CTX), default 32768.
 #   OPENCLAW_LLAMA_FALLBACK_HEALTH_WAIT  Seconds to wait for the server to answer (default 600).
 #   OPENCLAW_LLAMA_FALLBACK_REUSE_EXISTING  1 (default): register a llama-server the user
 #                                  already runs instead of starting our own; 0: never.
@@ -108,7 +109,21 @@ trap 'rm -rf "$LOCK_DIR"' EXIT
 # Shared settings and helpers.
 # ---------------------------------------------------------------------
 PORT="${OPENCLAW_LLAMA_FALLBACK_PORT:-8687}"
-CTX="${OPENCLAW_LLAMA_FALLBACK_CTX:-4096}"
+# OpenClaw's agent requests carry a long system prompt plus tool schemas;
+# with 4096 tokens most of them failed with "Context overflow: prompt too
+# large for the model". 32768 is also Qwen2.5's native context; the KV cache
+# for it is ~1 GB on the 1.5B model.
+# Precedence: OPENCLAW_LLAMA_FALLBACK_CTX in the environment, then the value
+# baked from installer.env (DEFAULT_LLAMA_CTX), then 32768.
+BAKED_CTX=""
+if [[ -f "$DEFAULT_AI_ENV" ]]; then
+  BAKED_CTX="$(/usr/bin/grep -E '^DEFAULT_LLAMA_CTX=' "$DEFAULT_AI_ENV" | /usr/bin/tail -n1 | /usr/bin/cut -d'=' -f2- | /usr/bin/tr -d '\r')"
+fi
+CTX="${OPENCLAW_LLAMA_FALLBACK_CTX:-${BAKED_CTX:-32768}}"
+if [[ ! "$CTX" =~ ^[0-9]+$ ]] || (( CTX < 4096 )); then
+  log "WARN: invalid context size '$CTX' -- using 32768"
+  CTX=32768
+fi
 MODEL_ALIAS="openclaw-local-fallback"
 LAUNCH_AGENT_LABEL="ai.openclaw.llama-fallback"
 LAUNCH_AGENT_DIR="$HOME/Library/LaunchAgents"
@@ -166,6 +181,56 @@ register_fallback() {
   fi
 }
 
+# sync_context_window <provider id> <model id> <base url> [fallback n_ctx]
+# Custom providers are registered with a 128k context window by default, so
+# OpenClaw would keep sending prompts far beyond what llama-server was started
+# with instead of compacting the session first. Record the server's real
+# context size (from its /props, else the given fallback) on the model entry.
+# Re-registration keeps an existing contextWindow, so this sticks.
+sync_context_window() {
+  local provider_id="$1" model_id="$2" base_url="$3" fallback_ctx="${4:-}"
+  local server_root="${base_url%/v1}" n_ctx models_json model_index current_ctx
+  n_ctx="$(/usr/bin/curl -fsS --max-time 5 "${server_root}/props" 2>/dev/null | "$NODE_BIN" -e '
+    let raw = "";
+    process.stdin.on("data", (chunk) => { raw += chunk; });
+    process.stdin.on("end", () => {
+      try {
+        const props = JSON.parse(raw);
+        const value = props?.default_generation_settings?.n_ctx ?? props?.n_ctx;
+        if (Number.isInteger(value) && value > 0) process.stdout.write(String(value));
+      } catch {}
+    });
+  ' 2>/dev/null || true)"
+  n_ctx="${n_ctx:-$fallback_ctx}"
+  if [[ ! "$n_ctx" =~ ^[0-9]+$ ]]; then
+    log "Could not determine the context size of ${base_url}; leaving ${provider_id}/${model_id} context window as registered"
+    return 0
+  fi
+  models_json="$("$OPENCLAW_BIN" config get "models.providers.${provider_id}.models" --json 2>/dev/null || true)"
+  read -r model_index current_ctx < <(printf '%s' "$models_json" | "$NODE_BIN" -e '
+    let raw = "";
+    process.stdin.on("data", (chunk) => { raw += chunk; });
+    process.stdin.on("end", () => {
+      let models = [];
+      try { models = JSON.parse(raw); } catch {}
+      const index = Array.isArray(models) ? models.findIndex((m) => m && m.id === process.argv[1]) : -1;
+      if (index >= 0) process.stdout.write(index + " " + (models[index].contextWindow ?? ""));
+    });
+  ' "$model_id" 2>/dev/null)
+  if [[ -z "${model_index:-}" ]]; then
+    log "WARN: ${provider_id}/${model_id} not found in config; cannot record its ${n_ctx}-token context window"
+    return 0
+  fi
+  if [[ "${current_ctx:-}" == "$n_ctx" ]]; then
+    return 0
+  fi
+  if "$OPENCLAW_BIN" config set "models.providers.${provider_id}.models[${model_index}].contextWindow" "$n_ctx" >>"$LOG_FILE" 2>&1; then
+    log "Recorded ${provider_id}/${model_id} context window: ${n_ctx} tokens (was ${current_ctx:-unset})"
+  else
+    log "WARN: could not record the ${n_ctx}-token context window for ${provider_id}/${model_id} (see above)"
+  fi
+}
+
 # Prints "<pid>\t<port>\t<model id>" for the first llama-server this user is
 # already running (not one started by this script) that answers on
 # 127.0.0.1 without an API key; returns 1 when there is none.
@@ -209,6 +274,7 @@ if [[ "${OPENCLAW_LLAMA_FALLBACK_REUSE_EXISTING:-1}" == "1" ]] \
     IFS=$'\t' read -r EXISTING_PID EXISTING_PORT EXISTING_MODEL <<<"$EXISTING_SERVER"
     log "Found a running llama-server (pid $EXISTING_PID) on 127.0.0.1:$EXISTING_PORT serving '$EXISTING_MODEL' -- using it instead of starting our own"
     register_fallback "llama-existing" "$EXISTING_MODEL" "http://127.0.0.1:${EXISTING_PORT}/v1"
+    sync_context_window "llama-existing" "$EXISTING_MODEL" "http://127.0.0.1:${EXISTING_PORT}/v1"
     log "llama fallback setup finished."
     exit 0
   fi
@@ -463,6 +529,7 @@ done
 [[ "$HEALTHY" == "1" ]] || fail_soft "llama-server did not become healthy within ${HEALTH_WAIT_SECONDS}s (see ${HOME}/Library/Logs/OpenClaw/llama-fallback-server.log)"
 log "llama-server became healthy after ${WAITED}s"
 register_fallback "llama-local-fallback" "$MODEL_ALIAS" "http://127.0.0.1:${PORT}/v1"
+sync_context_window "llama-local-fallback" "$MODEL_ALIAS" "http://127.0.0.1:${PORT}/v1" "$CTX"
 
 log "llama fallback setup finished."
 exit 0

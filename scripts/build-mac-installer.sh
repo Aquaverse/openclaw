@@ -556,6 +556,14 @@ if [[ -f "$ENV_FILE" ]]; then
     echo "DEFAULT_AI_MODEL=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_MODEL)"
     echo "DEFAULT_AI_API_KEY=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_API_KEY)"
     echo "DEFAULT_LLAMA_MODEL=$LLAMA_MODEL_FOR_BUNDLE"
+    # llama-server context size (tokens) for the local model; see
+    # scripts/mac-llama-fallback-setup.sh. Empty -> that script's default.
+    LLAMA_CTX_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_CTX)"
+    if [[ -n "$LLAMA_CTX_FOR_BUNDLE" && ! "$LLAMA_CTX_FOR_BUNDLE" =~ ^[0-9]+$ ]]; then
+      echo "ERROR: OPENCLAW_LLAMA_FALLBACK_CTX must be a whole number of tokens, got '${LLAMA_CTX_FOR_BUNDLE}'" >&2
+      exit 1
+    fi
+    echo "DEFAULT_LLAMA_CTX=$LLAMA_CTX_FOR_BUNDLE"
   } > "$APP/Contents/Resources/default-ai-provider.env"
 else
   echo "==> No $ENV_FILE -- skipping default AI provider config"
