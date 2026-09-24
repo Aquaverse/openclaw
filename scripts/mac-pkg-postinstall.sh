@@ -123,6 +123,21 @@ else
   POSTINSTALL_SCRIPT_OVERRIDE=""
 fi
 
+# ---------------------------------------------------------------------
+# CLI package: this checkout's own CLI build, bundled by
+# scripts/build-mac-installer.sh step 2d. Passed through to
+# install-cli.sh's OPENCLAW_PACKAGE_TGZ support; empty (npm registry
+# install, as before) when the build used SKIP_CLI_BUNDLE=1.
+# ---------------------------------------------------------------------
+CLI_PACKAGE_TGZ="$(/usr/bin/find "$APP_PATH/Contents/Resources/openclaw-cli" -maxdepth 1 -name 'openclaw-*.tgz' 2>/dev/null | /usr/bin/sort | /usr/bin/tail -n1)"
+CLI_PACKAGE_TGZ_SHA256=""
+if [[ -n "$CLI_PACKAGE_TGZ" ]]; then
+  [[ -f "${CLI_PACKAGE_TGZ}.sha256" ]] && CLI_PACKAGE_TGZ_SHA256="$(cat "${CLI_PACKAGE_TGZ}.sha256")"
+  log "Using bundled OpenClaw CLI package: $CLI_PACKAGE_TGZ"
+else
+  log "No bundled OpenClaw CLI package -- install-cli.sh will install openclaw from the npm registry."
+fi
+
 PREFIX="$CONSOLE_HOME/.openclaw"
 
 log "==> Installing OpenClaw CLI into $PREFIX (this can take a minute)..."
@@ -132,6 +147,8 @@ if ! run_as_console_user /usr/bin/env \
     OPENCLAW_NODE_TARBALL="$NODE_TARBALL" \
     OPENCLAW_NODE_TARBALL_SHA256="$NODE_TARBALL_SHA256" \
     OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE="$POSTINSTALL_SCRIPT_OVERRIDE" \
+    OPENCLAW_PACKAGE_TGZ="$CLI_PACKAGE_TGZ" \
+    OPENCLAW_PACKAGE_TGZ_SHA256="$CLI_PACKAGE_TGZ_SHA256" \
     /bin/bash "$INSTALL_CLI" --json >>"$LOG_FILE" 2>&1; then
   log "WARN: CLI install failed (see $LOG_FILE for install-cli.sh's own output above) -- leaving first-run setup to the app's own onboarding UI."
   exit 0
@@ -155,6 +172,7 @@ AI_PROVIDER=""
 AI_BASE_URL=""
 AI_MODEL=""
 AI_API_KEY=""
+ONBOARD_KEY_FILE=""
 ENV_FILE="$APP_PATH/Contents/Resources/default-ai-provider.env"
 if [[ -f "$ENV_FILE" ]]; then
   DEFAULT_AI_PROVIDER=""
@@ -176,14 +194,29 @@ if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
   log "Configuring default AI provider from the bundled installer.env (base URL: $AI_BASE_URL, model: $AI_MODEL)"
   ONBOARD_ARGS+=(--auth-choice custom-api-key --custom-base-url "$AI_BASE_URL" --custom-model-id "$AI_MODEL" --custom-compatibility openai)
   [[ -n "$AI_PROVIDER" ]] && ONBOARD_ARGS+=(--custom-provider-id "$AI_PROVIDER")
-  [[ -n "$AI_API_KEY" ]] && ONBOARD_ARGS+=(--custom-api-key "$AI_API_KEY")
+  # The API key is handed to onboard through CUSTOM_API_KEY (read from a
+  # console-user-only temp file below), never as --custom-api-key: process
+  # arguments -- including sudo's, which stays alive for the whole command --
+  # are visible to every local user in `ps` while onboard runs.
+  if [[ -n "$AI_API_KEY" ]]; then
+    ONBOARD_KEY_FILE="$(/usr/bin/mktemp /tmp/openclaw-onboard-key.XXXXXX)"
+    /bin/chmod 600 "$ONBOARD_KEY_FILE"
+    printf '%s' "$AI_API_KEY" > "$ONBOARD_KEY_FILE"
+    /usr/sbin/chown "$CONSOLE_USER" "$ONBOARD_KEY_FILE"
+  fi
 else
   log "No default AI provider baked into this build -- setting up the Gateway/daemon only; the app will still ask for a model on first launch."
 fi
 
 log "==> Running non-interactive onboarding (installs the Gateway LaunchAgent)..."
-if run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-    "$OPENCLAW_BIN" "${ONBOARD_ARGS[@]}" >>"$LOG_FILE" 2>&1; then
+ONBOARD_OK=0
+# shellcheck disable=SC2016 # expanded by the inner (console-user) bash
+run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+    /bin/bash -c 'if [[ -n "$1" ]]; then CUSTOM_API_KEY="$(cat "$1")"; export CUSTOM_API_KEY; fi; shift; exec "$@"' \
+    openclaw-onboard "$ONBOARD_KEY_FILE" \
+    "$OPENCLAW_BIN" "${ONBOARD_ARGS[@]}" >>"$LOG_FILE" 2>&1 && ONBOARD_OK=1
+[[ -n "$ONBOARD_KEY_FILE" ]] && /bin/rm -f "$ONBOARD_KEY_FILE"
+if [[ "$ONBOARD_OK" == "1" ]]; then
   log "Onboarding finished."
 else
   log "WARN: non-interactive onboarding failed (see $LOG_FILE above) -- first launch will fall back to the app's own onboarding UI."
@@ -205,6 +238,27 @@ if [[ -n "$BUNDLE_ID" ]]; then
   run_as_console_user /usr/bin/defaults write "$BUNDLE_ID" "openclaw.connectionMode" -string "local" >>"$LOG_FILE" 2>&1
 else
   log "WARN: could not read CFBundleIdentifier from $APP_PATH/Contents/Info.plist -- app defaults not primed; first launch will show its own onboarding."
+fi
+
+
+# ---------------------------------------------------------------------
+# llama.cpp local-model fallback (best-effort, backgrounded): if this
+# build bundled a llama-server release for this Mac's arch (see
+# scripts/build-mac-installer.sh step 3 / OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL
+# in installer.env), download its GGUF weights, start it, and register it
+# as a *backup* model -- never touching the online default model
+# configured above. Backgrounded because the GGUF download can take
+# minutes and must not hold up Installer.app's own postinstall wait.
+# ---------------------------------------------------------------------
+LLAMA_SETUP_SCRIPT="$APP_PATH/Contents/Resources/mac-llama-fallback-setup.sh"
+if [[ -f "$LLAMA_SETUP_SCRIPT" ]]; then
+  log "Launching backgrounded local-model fallback setup ($LLAMA_SETUP_SCRIPT)"
+  run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+    /usr/bin/nohup /bin/bash "$LLAMA_SETUP_SCRIPT" --app-path "$APP_PATH" --prefix "$PREFIX" \
+    >/dev/null 2>&1 &
+  disown || true
+else
+  log "No bundled mac-llama-fallback-setup.sh -- skipping local-model fallback."
 fi
 
 log "OpenClaw postinstall finished."

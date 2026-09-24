@@ -77,6 +77,23 @@ set -euo pipefail
 #                          Node from nodejs.org at install time instead.
 #   OPENCLAW_NODE_VERSION   Node version to bundle/install (default: the
 #                          same 24.19.0 default scripts/install-cli.sh uses).
+#   SKIP_CLI_BUNDLE=1      Don't bundle this checkout's OpenClaw CLI package --
+#                          installs then fetch openclaw from the npm registry
+#                          (install-cli.sh --version latest) as before, and
+#                          CLI-side changes made in this repo (e.g. onboard
+#                          --custom-as-backup, used by the llama.cpp fallback)
+#                          are NOT available to the installed CLI.
+#   SKIP_LLAMA_BUNDLE=1    Don't bundle a llama.cpp llama-server binary into
+#                          the app -- the local-model fallback (see
+#                          OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL in
+#                          installer.env.example) is then skipped entirely at
+#                          install/first-launch time, since there is no
+#                          bundled server to run it with.
+#   OPENCLAW_LLAMA_VERSION  llama.cpp release tag to bundle (e.g. "b11149"; also
+#                          read from installer.env when not set here), or
+#                          "latest" (default) to resolve the newest GitHub
+#                          release at build time. Pin an exact tag for
+#                          reproducible builds.
 #   BUILD_ZIP=1            Also produce a .zip (known to occasionally trip
 #                          Gatekeeper's "damaged" check after transfer on
 #                          some Macs -- prefer the dmg; see the note below).
@@ -261,10 +278,261 @@ cp "$ROOT_DIR/scripts/postinstall-bundled-plugins.mjs" "$APP/Contents/Resources/
 # ---------------------------------------------------------------------
 cp "$ROOT_DIR/scripts/install-cli.sh" "$APP/Contents/Resources/install-cli.sh"
 chmod 0644 "$APP/Contents/Resources/install-cli.sh"
+# Same reasoning for the llama.cpp fallback setup script: package-mac-app.sh
+# copies it, so a `pnpm mac:installer:wrap`-only run would otherwise ship
+# whatever copy the last full build left in the bundle.
+cp "$ROOT_DIR/scripts/mac-llama-fallback-setup.sh" "$APP/Contents/Resources/mac-llama-fallback-setup.sh"
+chmod 0644 "$APP/Contents/Resources/mac-llama-fallback-setup.sh"
 
 # ---------------------------------------------------------------------
-# 3. Default AI provider (optional): if installer.env exists at the repo
-# root, bake its OPENCLAW_INSTALLER_DEFAULT_AI_* values into the app bundle
+# 2d. Bundle this checkout's own OpenClaw CLI as an npm package (.tgz).
+# install-cli.sh otherwise installs `openclaw@latest` from the npm
+# registry, so any CLI-side change made in this repo (onboard
+# --custom-as-backup for the llama.cpp fallback, fixes not yet published,
+# ...) never reaches the installed CLI, and the CLI version drifts from the
+# app's. With the package bundled, CLIInstaller.swift and
+# mac-pkg-postinstall.sh point install-cli.sh at it via
+# OPENCLAW_PACKAGE_TGZ -- same pattern as the Node tarball in step 2.
+# Dependencies are still resolved from the npm registry at install time.
+#
+# Packs with the repo's canonical package builder
+# (scripts/package-openclaw-for-docker.mjs, which also bundles the
+# @openclaw/ai workspace package and verifies the tarball) using
+# --skip-build: dist/ was just built by package-mac-app.sh's `pnpm build`.
+# Never let the packer rebuild here -- its build step wipes dist/, which is
+# where dist/OpenClaw.app (the app this script is packaging) lives.
+# When running this script alone (pnpm mac:installer:wrap), dist/ is
+# whatever the last full build left behind.
+# ---------------------------------------------------------------------
+rm -rf "$APP/Contents/Resources/openclaw-cli"
+if [[ "${SKIP_CLI_BUNDLE:-0}" == "1" ]]; then
+  echo "==> SKIP_CLI_BUNDLE=1 -- not bundling a CLI package; installs will fetch openclaw from the npm registry"
+else
+  if [[ ! -f "$ROOT_DIR/dist/entry.js" ]]; then
+    echo "ERROR: $ROOT_DIR/dist/entry.js is missing -- run the full pipeline (pnpm mac:installer) first, or set SKIP_CLI_BUNDLE=1" >&2
+    exit 1
+  fi
+  # Finder drops .DS_Store (and ._* AppleDouble files on some volumes) into
+  # any folder you open, e.g. dist/ when looking at dist/OpenClaw.app. npm
+  # pack always leaves those out of the tarball, but the packer's dist
+  # inventory walks dist/ itself and records them, so the tarball check then
+  # fails with "Inventory references absent tar entry dist/.DS_Store".
+  # Clear them first (outside .app bundles, which the package excludes).
+  find "$ROOT_DIR/dist" -type f \( -name '.DS_Store' -o -name '._*' \) -not -path '*.app/*' -delete
+  CLI_PACKAGE_VERSION="$(node -p "require(process.argv[1]).version" "$ROOT_DIR/package.json")"
+  CLI_PACK_DIR="$ROOT_DIR/.artifacts/mac-installer-cli-package"
+  rm -rf "$CLI_PACK_DIR"
+  mkdir -p "$CLI_PACK_DIR"
+  # This script's own outputs (dist/OpenClaw-<version>-Install.dmg/.pkg/.zip
+  # from a previous run) also live in dist/, and the package's "files" list
+  # only excludes dist/**/*.app -- so they were being packed into the CLI
+  # tarball (observed: 70M -> 784M), and each rerun would pack an installer
+  # that already contained the previous tarball. Park them outside dist/ while
+  # packing and put them back afterwards (this run overwrites them later).
+  DIST_STASH_DIR="$ROOT_DIR/.artifacts/mac-installer-dist-stash"
+  rm -rf "$DIST_STASH_DIR"
+  mkdir -p "$DIST_STASH_DIR"
+  restore_dist_stash() {
+    find "$DIST_STASH_DIR" -maxdepth 1 -type f -exec mv -f {} "$ROOT_DIR/dist/" \; 2>/dev/null || true
+  }
+  trap 'restore_dist_stash; detach_src' EXIT
+  find "$ROOT_DIR/dist" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.pkg' -o -name '*.zip' \) \
+    -exec mv -f {} "$DIST_STASH_DIR/" \;
+  echo "==> Packing this checkout's OpenClaw CLI ${CLI_PACKAGE_VERSION} (reusing dist/ from pnpm build)"
+  CLI_TGZ="$(cd "$ROOT_DIR" && node scripts/package-openclaw-for-docker.mjs \
+    --skip-build \
+    --allow-unreleased-changelog \
+    --output-dir "$CLI_PACK_DIR" \
+    --output-name "openclaw-${CLI_PACKAGE_VERSION}.tgz" | tail -n 1)"
+  restore_dist_stash
+  trap detach_src EXIT
+  if [[ -z "$CLI_TGZ" || ! -f "$CLI_TGZ" ]]; then
+    echo "ERROR: CLI pack did not produce a tarball (got: '${CLI_TGZ}') -- see output above, or set SKIP_CLI_BUNDLE=1" >&2
+    exit 1
+  fi
+  # A normal CLI package is well under 100M; anything this large means
+  # something that is not part of the CLI leaked into dist/ and got packed.
+  CLI_TGZ_KB="$(du -k "$CLI_TGZ" | cut -f1)"
+  if (( CLI_TGZ_KB > 300 * 1024 )); then
+    echo "ERROR: $(basename "$CLI_TGZ") is $((CLI_TGZ_KB / 1024))M -- unexpectedly large; list the biggest entries with:" >&2
+    echo "       tar -tvzf '$CLI_TGZ' | sort -k3 -n | tail" >&2
+    exit 1
+  fi
+  mkdir -p "$APP/Contents/Resources/openclaw-cli"
+  cp "$CLI_TGZ" "$APP/Contents/Resources/openclaw-cli/"
+  shasum -a 256 "$CLI_TGZ" | awk '{print $1}' \
+    > "$APP/Contents/Resources/openclaw-cli/$(basename "$CLI_TGZ").sha256"
+  echo "    Bundled $(basename "$CLI_TGZ") ($(du -h "$CLI_TGZ" | cut -f1))"
+fi
+
+# ---------------------------------------------------------------------
+ENV_FILE="$ROOT_DIR/installer.env"
+read_env_var() {
+  [[ -f "$ENV_FILE" ]] || return 0
+  grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -n1 | cut -d'=' -f2-
+}
+
+# ---------------------------------------------------------------------
+# 3. llama.cpp local-model fallback (optional): bundles the prebuilt
+# `llama-server` release archive (the binary plus its dylibs) into
+# the app per architecture, the same offline-friendly way step 2 bundles
+# Node's .tar.gz -- unpacked at install time, not at build time. This is
+# the binary only -- no GGUF model weights ship in the installer; those are fetched
+# from HuggingFace at first launch (see AutoOnboardBootstrap.swift /
+# mac-pkg-postinstall.sh) for whichever model
+# OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL names, and only then is the local
+# server started and registered as a *backup* (non-primary) model -- see
+# --custom-as-backup on `openclaw onboard` (src/wizard/setup.model-auth.ts /
+# src/commands/onboard-non-interactive/local/auth-choice.ts). The online
+# default model configured in installer.env, if any, is unaffected and
+# stays primary.
+#
+# Skipped entirely (no bundling, no download, no fallback at
+# install/first-launch time) when installer.env has no
+# OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL set, or with SKIP_LLAMA_BUNDLE=1.
+# ---------------------------------------------------------------------
+rm -rf "$APP/Contents/Resources/llama-runtime"
+LLAMA_MODEL_FOR_BUNDLE="$(read_env_var OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL)"
+if [[ "${SKIP_LLAMA_BUNDLE:-0}" == "1" ]]; then
+  echo "==> SKIP_LLAMA_BUNDLE=1 -- not bundling llama-server; the local-model fallback is disabled for this build"
+elif [[ -z "$LLAMA_MODEL_FOR_BUNDLE" ]]; then
+  echo "==> No OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL in $ENV_FILE -- skipping llama-server bundling (no fallback model configured)"
+else
+  # The environment wins; otherwise take the pin from installer.env (see
+  # installer.env.example), so a pinned build needs no extra env var.
+  if [[ -z "${OPENCLAW_LLAMA_VERSION:-}" ]]; then
+    OPENCLAW_LLAMA_VERSION="$(read_env_var OPENCLAW_LLAMA_VERSION)"
+  fi
+  echo "==> llama.cpp release: ${OPENCLAW_LLAMA_VERSION:-latest}"
+  LLAMA_CACHE_DIR="$ROOT_DIR/.artifacts/mac-installer-llama-cache"
+  mkdir -p "$LLAMA_CACHE_DIR" "$APP/Contents/Resources/llama-runtime"
+  APP_ARCHS="$(lipo -archs "$APP_BIN" 2>/dev/null || uname -m)"
+
+  # llama.cpp publishes its macOS binaries on the rolling bNNNN nightly
+  # releases (llama-bNNNN-bin-macos-<arch>.tar.gz; older ones used .zip).
+  # Its occasional semver releases (e.g. v0.5.0) can be marked "Latest" on
+  # GitHub while carrying NO binaries at all, so "latest" here means "the
+  # newest release that actually has a macos-<arch> build", not GitHub's
+  # /releases/latest. GITHUB_TOKEN, if set, avoids the API's anonymous rate
+  # limit. Pin OPENCLAW_LLAMA_VERSION=bNNNN for reproducible (and, once
+  # cached, offline) builds.
+  llama_api_get() {
+    local url="$1"
+    local auth_header=()
+    [[ -n "${GITHUB_TOKEN:-}" ]] && auth_header=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+    curl -fsSL --proto '=https' --tlsv1.2 --retry 2 \
+      -H "Accept: application/vnd.github+json" \
+      ${auth_header[@]+"${auth_header[@]}"} "$url"
+  }
+
+  # Prints "<tag>\t<asset url>\t<zip|tar.gz>" for the first matching release.
+  resolve_llama_asset() {
+    local mac_asset_arch="$1" requested="${OPENCLAW_LLAMA_VERSION:-latest}" api_url json
+    if [[ "$requested" == "latest" ]]; then
+      api_url="https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=50"
+    else
+      api_url="https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/${requested}"
+    fi
+    if ! json="$(llama_api_get "$api_url")"; then
+      echo "ERROR: GitHub API request failed: $api_url" >&2
+      echo "       (rate limited or offline? set GITHUB_TOKEN, or pin OPENCLAW_LLAMA_VERSION=bNNNN once it is cached)" >&2
+      return 1
+    fi
+    printf '%s' "$json" | node -e '
+      const arch = process.argv[1];
+      let raw = "";
+      process.stdin.on("data", (chunk) => { raw += chunk; });
+      process.stdin.on("end", () => {
+        const data = JSON.parse(raw);
+        const releases = Array.isArray(data) ? data : [data];
+        const pattern = new RegExp("bin-macos-" + arch + "\\.(zip|tar\\.gz)$");
+        for (const release of releases) {
+          if (!release || release.draft) continue;
+          const asset = (release.assets || []).find((entry) => pattern.test(entry.name || ""));
+          if (asset) {
+            const ext = asset.name.endsWith(".zip") ? "zip" : "tar.gz";
+            process.stdout.write(release.tag_name + "\t" + asset.browser_download_url + "\t" + ext + "\n");
+            return;
+          }
+        }
+        process.exit(3);
+      });
+    ' "$mac_asset_arch"
+  }
+
+  # Bundles the raw release archive itself (plus a sha256 sidecar), the same
+  # way step 2 bundles Node's .tar.gz -- NOT extracted at build time, so no
+  # loose Mach-O files land under this script's --deep re-sign pass.
+  # scripts/mac-llama-fallback-setup.sh extracts it into ~/.openclaw/llama
+  # on the target machine (AutoOnboardBootstrap.swift for the dmg,
+  # mac-pkg-postinstall.sh for the pkg).
+  fetch_llama_archive() {
+    local arch="$1" mac_asset_arch requested resolved tag="" asset_url="" ext="" cache_file="" candidate
+    local expected_sha actual_sha
+    case "$arch" in
+      arm64) mac_asset_arch="arm64" ;;
+      x86_64) mac_asset_arch="x64" ;;
+      *) return 0 ;;
+    esac
+    requested="${OPENCLAW_LLAMA_VERSION:-latest}"
+    if [[ "$requested" != "latest" ]]; then
+      for candidate in zip tar.gz; do
+        if [[ -f "$LLAMA_CACHE_DIR/$requested/llama-macos-${mac_asset_arch}.${candidate}" ]]; then
+          tag="$requested"
+          ext="$candidate"
+          cache_file="$LLAMA_CACHE_DIR/$requested/llama-macos-${mac_asset_arch}.${candidate}"
+          break
+        fi
+      done
+    fi
+    if [[ -z "$cache_file" ]]; then
+      echo "    Resolving llama.cpp ${requested} macos-${mac_asset_arch} release asset"
+      if ! resolved="$(resolve_llama_asset "$mac_asset_arch")" || [[ -z "$resolved" ]]; then
+        echo "ERROR: found no llama.cpp release with a macos-${mac_asset_arch} build (requested: ${requested})." >&2
+        echo "       Releases: https://github.com/ggml-org/llama.cpp/releases" >&2
+        echo "       Set OPENCLAW_LLAMA_VERSION to a bNNNN release that has one, or SKIP_LLAMA_BUNDLE=1." >&2
+        exit 1
+      fi
+      IFS=$'\t' read -r tag asset_url ext <<<"$resolved"
+      cache_file="$LLAMA_CACHE_DIR/$tag/llama-macos-${mac_asset_arch}.${ext}"
+      if [[ ! -f "$cache_file" ]]; then
+        mkdir -p "$LLAMA_CACHE_DIR/$tag"
+        echo "    Downloading $(basename "$asset_url") (cached under .artifacts/ for future builds)"
+        if ! curl -fSL --proto '=https' --tlsv1.2 --retry 3 -o "$cache_file.tmp" "$asset_url"; then
+          rm -f "$cache_file.tmp"
+          echo "ERROR: download failed: $asset_url" >&2
+          exit 1
+        fi
+        mv "$cache_file.tmp" "$cache_file"
+        shasum -a 256 "$cache_file" | awk '{print $1}' > "$cache_file.sha256"
+      fi
+    fi
+    expected_sha="$(cat "$cache_file.sha256" 2>/dev/null || true)"
+    actual_sha="$(shasum -a 256 "$cache_file" | awk '{print $1}')"
+    if [[ -n "$expected_sha" && "$actual_sha" != "$expected_sha" ]]; then
+      echo "ERROR: cached $cache_file sha256 mismatch -- delete it and retry" >&2
+      exit 1
+    fi
+    [[ -f "$cache_file.sha256" ]] || echo "$actual_sha" > "$cache_file.sha256"
+    cp "$cache_file" "$APP/Contents/Resources/llama-runtime/llama-macos-${mac_asset_arch}.${ext}"
+    cp "$cache_file.sha256" "$APP/Contents/Resources/llama-runtime/llama-macos-${mac_asset_arch}.${ext}.sha256"
+    echo "$tag" > "$APP/Contents/Resources/llama-runtime/release-tag.txt"
+    echo "    Bundled llama.cpp $tag (llama-macos-${mac_asset_arch}.${ext}, $(du -h "$cache_file" | cut -f1))"
+  }
+
+  echo "==> Bundling llama-server for: $APP_ARCHS (fallback model: $LLAMA_MODEL_FOR_BUNDLE)"
+  for arch in $APP_ARCHS; do
+    case "$arch" in
+      arm64 | x86_64) fetch_llama_archive "$arch" ;;
+      *) echo "    (skipping unrecognized arch: $arch)" ;;
+    esac
+  done
+fi
+
+# ---------------------------------------------------------------------
+# 4. Default AI provider (optional): if installer.env exists at the repo
+# root, bake its OPENCLAW_INSTALLER_DEFAULT_AI_* (and
+# OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL) values into the app bundle
 # as a plain resource file. These values ship in PLAINTEXT inside the
 # bundle -- anyone who unzips/inspects Resources can read them. This is
 # meant for a shared default backend, not a personal credential; do not
@@ -277,13 +545,9 @@ chmod 0644 "$APP/Contents/Resources/install-cli.sh"
 # so the pkg installer lands straight in chat with a working model already
 # configured. The dmg's plain app never reads this file -- someone who
 # drags it to Applications by hand still goes through the normal onboarding
-# model picker.
+# model picker. AutoOnboardBootstrap.swift reads the same file for the dmg's
+# own silent first-launch provisioning, including DEFAULT_LLAMA_MODEL below.
 # ---------------------------------------------------------------------
-ENV_FILE="$ROOT_DIR/installer.env"
-read_env_var() {
-  [[ -f "$ENV_FILE" ]] || return 0
-  grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -n1 | cut -d'=' -f2-
-}
 if [[ -f "$ENV_FILE" ]]; then
   echo "==> Baking default AI provider config from $ENV_FILE into the app (consumed by the pkg installer's postinstall script)"
   {
@@ -291,13 +555,14 @@ if [[ -f "$ENV_FILE" ]]; then
     echo "DEFAULT_AI_BASE_URL=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL)"
     echo "DEFAULT_AI_MODEL=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_MODEL)"
     echo "DEFAULT_AI_API_KEY=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_API_KEY)"
+    echo "DEFAULT_LLAMA_MODEL=$LLAMA_MODEL_FOR_BUNDLE"
   } > "$APP/Contents/Resources/default-ai-provider.env"
 else
   echo "==> No $ENV_FILE -- skipping default AI provider config"
 fi
 
 # ---------------------------------------------------------------------
-# 4. Signing identity -- same auto-selection and ALLOW_ADHOC_SIGNING
+# 5. Signing identity -- same auto-selection and ALLOW_ADHOC_SIGNING
 # fallback as scripts/codesign-mac-app.sh, so this behaves consistently
 # with package-mac-app.sh rather than defaulting to ad-hoc silently. See
 # the "IMPORTANT signing/entitlements caveat" note at the top of this file:

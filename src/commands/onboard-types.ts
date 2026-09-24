@@ -88,6 +88,12 @@ export type OnboardOptions = OnboardDynamicProviderOptions & {
   customProviderId?: string;
   customCompatibility?: "openai" | "openai-responses" | "anthropic";
   customImageInput?: boolean;
+  /**
+   * Register the custom provider model as a backup instead of replacing the
+   * current primary model. Used for non-interactive automation that wants a
+   * fallback model registered without disturbing the existing default.
+   */
+  customAsBackup?: boolean;
   gatewayPort?: number;
   gatewayBind?: GatewayBind;
   gatewayAuth?: GatewayAuthChoice;

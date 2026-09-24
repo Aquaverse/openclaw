@@ -153,7 +153,11 @@ export function registerOnboardAuthOptions(command: Command): Command {
       "Custom provider API compatibility: openai|openai-responses|anthropic (default: openai)",
     )
     .option("--custom-image-input", "Mark the custom provider model as image-capable")
-    .option("--custom-text-input", "Mark the custom provider model as text-only");
+    .option("--custom-text-input", "Mark the custom provider model as text-only")
+    .option(
+      "--custom-as-backup",
+      "Register the custom provider model as a fallback without replacing the current primary model",
+    );
 }
 
 export function registerOnboardGatewayOptions(command: Command): Command {
@@ -232,6 +236,7 @@ function pickOnboardAuthOptionValues(opts: Record<string, unknown>): Partial<Onb
       | "anthropic"
       | undefined,
     customImageInput: customTextInput ? false : opts.customImageInput === true ? true : undefined,
+    customAsBackup: opts.customAsBackup === true ? true : undefined,
   };
 }
 

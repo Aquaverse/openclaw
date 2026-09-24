@@ -153,6 +153,10 @@ Environment variables:
   OPENCLAW_NODE_TARBALL=<path>         Use this local Node tarball instead of downloading
                                        one from nodejs.org (must match --node-version/OS/arch)
   OPENCLAW_NODE_TARBALL_SHA256=<hex>   Optional sha256 to verify OPENCLAW_NODE_TARBALL against
+  OPENCLAW_PACKAGE_TGZ=<path>          npm installs only: install this local, prebuilt OpenClaw package
+                                       (.tgz) instead of resolving --version from the npm registry
+                                       (used by app bundles that ship their own CLI build)
+  OPENCLAW_PACKAGE_TGZ_SHA256=<hex>    Optional sha256 to verify OPENCLAW_PACKAGE_TGZ against
   OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE=<path>  Dev/interim-only: after npm install, overwrite the
                                        installed package's scripts/postinstall-bundled-plugins.mjs
                                        with this local file and re-run it before checking whether
@@ -1550,6 +1554,35 @@ apply_openclaw_postinstall_override() {
 
 install_openclaw() {
   local requested="${OPENCLAW_VERSION:-latest}"
+  # App bundles built by scripts/build-mac-installer.sh ship their own CLI
+  # build (Contents/Resources/openclaw-cli/*.tgz, packed from the same
+  # checkout as the app). Installing that exact package keeps the CLI in
+  # lockstep with the app instead of whatever the registry's --version tag
+  # resolves to today. Dependencies still come from the npm registry.
+  local bundled_package_version=""
+  if [[ -n "${OPENCLAW_PACKAGE_TGZ:-}" ]]; then
+    local bundled_package="${OPENCLAW_PACKAGE_TGZ}"
+    [[ -f "$bundled_package" ]] || fail "OPENCLAW_PACKAGE_TGZ does not exist: ${bundled_package}"
+    if [[ -n "${OPENCLAW_PACKAGE_TGZ_SHA256:-}" ]]; then
+      local bundled_package_sha=""
+      bundled_package_sha="$(sha256_file "$bundled_package")"
+      if [[ "$bundled_package_sha" != "${OPENCLAW_PACKAGE_TGZ_SHA256}" ]]; then
+        fail "Bundled OpenClaw package sha256 mismatch for ${bundled_package} (expected ${OPENCLAW_PACKAGE_TGZ_SHA256}, got ${bundled_package_sha})"
+      fi
+    fi
+    bundled_package_version="$(tar -xzOf "$bundled_package" package/package.json 2>/dev/null | "$(node_bin)" -e '
+      let raw = "";
+      process.stdin.on("data", (chunk) => { raw += chunk; });
+      process.stdin.on("end", () => {
+        const value = JSON.parse(raw).version;
+        if (typeof value !== "string" || value.trim() === "") process.exit(1);
+        process.stdout.write(value.trim());
+      });
+    ' 2>/dev/null || true)"
+    [[ -n "$bundled_package_version" ]] || fail "Could not read the OpenClaw version from ${bundled_package}"
+    log "Using bundled OpenClaw package ${bundled_package_version}: ${bundled_package}"
+    requested="$bundled_package"
+  fi
   if is_openclaw_source_package_install_spec "$requested"; then
     fail "npm installs do not support OpenClaw GitHub source targets like '${requested}'. Use --install-method git --version main, latest, beta, an exact version, or a built .tgz package."
   fi
@@ -1572,7 +1605,10 @@ install_openclaw() {
     "$freshness_flag"
   )
   local resolved_requested="$requested"
-  if [[ -n "${REQUIRED_COMPATIBLE_VERSION:-}" ]]; then
+  if [[ -n "$bundled_package_version" ]]; then
+    # A local package has no registry tag to resolve; check its own version.
+    require_openclaw_version_compatible "$bundled_package_version"
+  elif [[ -n "${REQUIRED_COMPATIBLE_VERSION:-}" ]]; then
     # || true: a failed npm view must reach the explicit fail below instead
     # of dying silently through set -e with no error event.
     resolved_requested="$(resolve_npm_openclaw_version "$requested" || true)"
@@ -1623,6 +1659,18 @@ install_openclaw() {
 set -euo pipefail
 exec "${PREFIX}/tools/node/bin/node" "$(node_dir)/lib/node_modules/openclaw/dist/entry.js" "\$@"
 EOF
+  # Record which bundled package is installed. An app bundle rebuilt from a
+  # newer checkout keeps the same version string (only the commit differs),
+  # so the app compares this sha256 -- not the version -- to decide whether an
+  # existing ~/.openclaw needs its CLI refreshed. Registry installs clear it.
+  local bundled_marker="${PREFIX}/.bundled-cli-package.sha256"
+  if [[ -n "$bundled_package_version" ]]; then
+    local bundled_marker_sha="${OPENCLAW_PACKAGE_TGZ_SHA256:-}"
+    [[ -n "$bundled_marker_sha" ]] || bundled_marker_sha="$(sha256_file "${OPENCLAW_PACKAGE_TGZ}")"
+    printf '%s\n' "$bundled_marker_sha" > "$bundled_marker"
+  else
+    rm -f "$bundled_marker"
+  fi
   emit_json step name openclaw status ok version "$requested"
 }
 

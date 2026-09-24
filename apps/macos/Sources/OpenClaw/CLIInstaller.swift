@@ -421,6 +421,56 @@ enum CLIInstaller {
     /// rather than replacing it -- ShellExecutor treats a non-nil env as
     /// the *entire* child environment, not an overlay, so dropping
     /// PATH/HOME here would break the installer.
+    /// This checkout's own CLI build, bundled by scripts/build-mac-installer.sh
+    /// step 2d as Contents/Resources/openclaw-cli/openclaw-<version>.tgz.
+    struct BundledCLIPackage {
+        let path: String
+        let version: String
+        let sha256: String?
+    }
+
+    static func bundledCLIPackage(bundle: Bundle = .main) -> BundledCLIPackage? {
+        let directory = bundle.bundleURL.appendingPathComponent("Contents/Resources/openclaw-cli")
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory.path),
+              let name = entries.sorted().last(where: { $0.hasPrefix("openclaw-") && $0.hasSuffix(".tgz") })
+        else {
+            return nil
+        }
+        let path = directory.appendingPathComponent(name).path
+        let version = String(name.dropFirst("openclaw-".count).dropLast(".tgz".count))
+        let sha256 = (try? String(contentsOfFile: path + ".sha256", encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return BundledCLIPackage(
+            path: path,
+            version: version,
+            sha256: (sha256?.isEmpty ?? true) ? nil : sha256)
+    }
+
+    /// True when an existing managed install should be replaced by this app's
+    /// bundled CLI package: e.g. OpenClaw.app was reinstalled/upgraded over a
+    /// kept ~/.openclaw. Builds from this checkout all report the same version
+    /// string, so the comparison is against the sha256 install-cli.sh records
+    /// in <prefix>/.bundled-cli-package.sha256 after installing a bundled
+    /// package. Never downgrades: an installed CLI newer than the bundled one
+    /// (e.g. from the npm registry) is kept, because an older CLI refuses to
+    /// modify config written by a newer one.
+    static func bundledCLIPackageNeedsInstall(installedVersion: String) -> Bool {
+        guard let package = self.bundledCLIPackage(), let bundledSHA256 = package.sha256 else {
+            return false
+        }
+        if let installed = Semver.parse(installedVersion),
+           let bundled = Semver.parse(package.version),
+           installed > bundled
+        {
+            return false
+        }
+        let markerURL = URL(fileURLWithPath: self.installPrefix())
+            .appendingPathComponent(".bundled-cli-package.sha256")
+        let installedSHA256 = (try? String(contentsOf: markerURL, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return installedSHA256 != bundledSHA256
+    }
+
     private static func bundledNodeTarballEnv() -> [String: String]? {
         var env: [String: String]?
 
@@ -447,6 +497,20 @@ enum CLIInstaller {
                 }
                 env = updated
             }
+        }
+
+        // This checkout's own CLI build (scripts/build-mac-installer.sh step
+        // 2d): install it instead of resolving the version from the npm
+        // registry, so CLI-side changes shipped with this app (e.g. onboard
+        // --custom-as-backup for the llama.cpp fallback) are actually present
+        // in the installed CLI. See install-cli.sh's OPENCLAW_PACKAGE_TGZ.
+        if let package = self.bundledCLIPackage() {
+            var updated = env ?? ProcessInfo.processInfo.environment
+            updated["OPENCLAW_PACKAGE_TGZ"] = package.path
+            if let sha256 = package.sha256 {
+                updated["OPENCLAW_PACKAGE_TGZ_SHA256"] = sha256
+            }
+            env = updated
         }
 
         let postinstallOverridePath = Bundle.main.bundleURL

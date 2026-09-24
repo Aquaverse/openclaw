@@ -206,7 +206,10 @@ export async function runSetupModelAuthStep(params: {
         config: nextConfig,
         target,
         secretInputMode: opts.secretInputMode,
-        setAsPrimary: !params.preserveExistingModelSelection,
+        // A caller can explicitly ask for the custom provider to be
+        // registered as a backup model (e.g. a local llama.cpp fallback)
+        // without disturbing whatever is already primary.
+        setAsPrimary: opts.customAsBackup === true ? false : !params.preserveExistingModelSelection,
         verification: "deferred",
       });
       const custom = prepareCustomSetupCredentials(customResult);

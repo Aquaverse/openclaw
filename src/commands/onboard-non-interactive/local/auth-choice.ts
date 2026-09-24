@@ -260,6 +260,10 @@ export async function applyNonInteractiveAuthChoice(params: {
         providerId: customAuth.providerId,
         supportsImageInput: customAuth.supportsImageInput,
         target: params.target,
+        // Non-interactive callers (e.g. a bundled local-model fallback) can
+        // ask for the custom provider to be registered as an automatic
+        // fallback without replacing whatever model is already primary.
+        ...(opts.customAsBackup === true ? { setAsPrimary: false, addAsFallback: true } : {}),
       });
       if (result.providerIdRenamedFrom && result.providerId) {
         runtime.log(

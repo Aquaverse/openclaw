@@ -232,6 +232,13 @@ describe("package dist inventory", () => {
         "utf8",
       );
       await fs.writeFile(omittedMap, "{}", "utf8");
+      // Finder metadata is never packed by npm, so it must never be inventoried.
+      await fs.writeFile(path.join(packageRoot, "dist", ".DS_Store"), "", "utf8");
+      await fs.writeFile(
+        path.join(packageRoot, "dist", "plugin-sdk", "._provider-entry.d.ts"),
+        "",
+        "utf8",
+      );
 
       await expect(writePackageDistInventory(packageRoot)).resolves.toStrictEqual([
         "dist/plugin-sdk/provider-entry.d.ts",

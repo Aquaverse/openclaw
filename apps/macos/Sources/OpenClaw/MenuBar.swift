@@ -645,9 +645,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // confirmed still there; otherwise fall through exactly as if this
         // were a genuinely fresh launch.
         if connectionMode != .unconfigured, onboardingSeen,
-           case .ready = await CLIInstaller.managedStatus()
+           case let .ready(_, installedVersion) = await CLIInstaller.managedStatus(),
+           !CLIInstaller.bundledCLIPackageNeedsInstall(installedVersion: installedVersion)
         {
             OnboardingController.markComplete()
+            // Ordinary configured launches never reach AutoOnboardBootstrap, so
+            // start the (idempotent, backgrounded) llama.cpp fallback setup here
+            // too: it finishes an interrupted model download, (re)starts the
+            // local server after an app update or reboot-time failure, and
+            // returns within moments when everything is already in place.
+            AutoOnboardBootstrap.launchLlamaFallbackSetupInBackground()
             return
         }
         // Onboarding hasn't completed, or the flags saying it did no longer

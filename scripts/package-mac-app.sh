@@ -474,6 +474,15 @@ fi
 cp "$INSTALL_CLI_SRC" "$APP_ROOT/Contents/Resources/install-cli.sh"
 chmod 0644 "$APP_ROOT/Contents/Resources/install-cli.sh"
 
+echo "📦 Copying local-model (llama.cpp) fallback setup script"
+LLAMA_FALLBACK_SETUP_SRC="$ROOT_DIR/scripts/mac-llama-fallback-setup.sh"
+if [ ! -f "$LLAMA_FALLBACK_SETUP_SRC" ]; then
+  echo "ERROR: llama fallback setup script missing at $LLAMA_FALLBACK_SETUP_SRC" >&2
+  exit 1
+fi
+cp "$LLAMA_FALLBACK_SETUP_SRC" "$APP_ROOT/Contents/Resources/mac-llama-fallback-setup.sh"
+chmod 0644 "$APP_ROOT/Contents/Resources/mac-llama-fallback-setup.sh"
+
 echo "📦 Provisioning the matching private node worker [${BUILD_ARCHS[*]}]"
 /bin/bash "$ROOT_DIR/scripts/stage-mac-node-worker.sh" "$APP_ROOT/Contents/Resources/node-worker" "${BUILD_ARCHS[@]}"
 

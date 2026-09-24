@@ -17,7 +17,7 @@ import type { ModelProviderConfig } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { isSecretRef, type SecretInput } from "../config/types.secrets.js";
 import type { PluginManifestRecord } from "../plugins/manifest-registry.js";
-import { applyPrimaryModel } from "../plugins/provider-model-primary.js";
+import { applyFallbackModel, applyPrimaryModel } from "../plugins/provider-model-primary.js";
 import { normalizeOptionalSecretInput } from "../utils/normalize-secret-input.js";
 import { normalizeAlias } from "./models/alias-name.js";
 import { applyAgentModelDefaults, type OnboardingAgentTarget } from "./onboard-agent-target.js";
@@ -199,6 +199,11 @@ type ApplyCustomApiConfigParams = {
   supportsImageInput?: boolean;
   target?: OnboardingAgentTarget;
   setAsPrimary?: boolean;
+  /**
+   * With setAsPrimary === false, also append the model to the agent default
+   * fallbacks so it is used automatically when the primary model fails.
+   */
+  addAsFallback?: boolean;
   manifestPlugins?: readonly CustomAliasManifestPlugin[];
 };
 
@@ -706,7 +711,11 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
 
   const applyModelDefaults = (modelConfig: OpenClawConfig): OpenClawConfig => {
     let updated =
-      params.setAsPrimary === false ? modelConfig : applyPrimaryModel(modelConfig, modelRef);
+      params.setAsPrimary === false
+        ? params.addAsFallback === true
+          ? applyFallbackModel(modelConfig, modelRef)
+          : modelConfig
+        : applyPrimaryModel(modelConfig, modelRef);
     if (isAzure && isLikelyReasoningModel) {
       const existingPerModelThinking =
         updated.agents?.defaults?.models?.[modelRef]?.params?.thinking;

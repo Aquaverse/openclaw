@@ -88,7 +88,14 @@ final class AutoOnboardBootstrap {
         self.logger.notice("runIfEligible: entered")
         traceLog("runIfEligible: entered")
 
-        if case .ready = await CLIInstaller.managedStatus() {
+        // A kept ~/.openclaw whose CLI came from an older bundle (or the npm
+        // registry, at the same or an older version) is not "ready" for this
+        // app: fall through to the full pipeline below, which reinstalls the
+        // CLI from this app's bundled package over the existing state (config,
+        // sessions and the downloaded llama.cpp model are left in place).
+        if case let .ready(_, installedVersion) = await CLIInstaller.managedStatus(),
+           !CLIInstaller.bundledCLIPackageNeedsInstall(installedVersion: installedVersion)
+        {
             // The managed CLI is already installed and healthy on disk --
             // most likely a prior successful provisioning whose
             // onboardingSeen flag didn't carry over (e.g. a fresh reinstall
@@ -141,6 +148,7 @@ final class AutoOnboardBootstrap {
             if await CLIInstaller.activateLocalGateway() == .ready {
                 AppNavigationActions.openChat()
             }
+            Self.launchLlamaFallbackSetupInBackground()
             return true
         }
 
@@ -264,6 +272,7 @@ final class AutoOnboardBootstrap {
 
         AppStateStore.shared.onboardingSeen = true
         AppNavigationActions.openChat()
+        Self.launchLlamaFallbackSetupInBackground()
         return true
     }
 
@@ -472,6 +481,45 @@ final class AutoOnboardBootstrap {
             }
         }
         return false
+    }
+
+    // MARK: - llama.cpp local-model fallback (installer.env's
+    // OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL, deployed by
+    // scripts/mac-llama-fallback-setup.sh, bundled by
+    // scripts/package-mac-app.sh as Contents/Resources/mac-llama-fallback-setup.sh)
+
+    /// Fires scripts/mac-llama-fallback-setup.sh -- the same script the pkg
+    /// installer's postinstall backgrounds -- without awaiting it from
+    /// runIfEligible(). That script downloads a GGUF model from HuggingFace
+    /// and starts a local llama-server, which can take minutes; it must not
+    /// hold up the progress panel or delay AppNavigationActions.openChat()
+    /// above. It is entirely best-effort and only ever adds a *backup*
+    /// model (--custom-as-backup) once it finishes -- see that script's own
+    /// header comment. A missing bundled script (e.g. SKIP_LLAMA_BUNDLE was
+    /// set at build time) is a silent no-op here, same as the script's own
+    /// early-exit checks would produce.
+    static func launchLlamaFallbackSetupInBackground() {
+        let scriptURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/mac-llama-fallback-setup.sh")
+        guard FileManager.default.fileExists(atPath: scriptURL.path) else { return }
+        let appPath = Bundle.main.bundleURL.path
+        let prefix = CLIInstaller.installPrefix()
+        let command = [
+            "/bin/bash", scriptURL.path,
+            "--app-path", appPath,
+            "--prefix", prefix,
+        ]
+        // Detached: this Task is intentionally never awaited by the caller.
+        // The script logs its own progress/failures to
+        // ~/Library/Logs/OpenClaw/llama-fallback-setup.log rather than
+        // surfacing anything in the UI. It runs on every launch: it is
+        // idempotent (a healthy, registered server is left alone), holds a
+        // lock against overlapping runs, and resumes an interrupted model
+        // download -- so this timeout only bounds one run; a large GGUF
+        // download cut short here simply continues on the next launch.
+        Task.detached(priority: .background) {
+            _ = await ShellExecutor.run(command: command, cwd: nil, env: nil, timeout: 3600)
+        }
     }
 }
 
