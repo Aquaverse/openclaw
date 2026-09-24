@@ -391,6 +391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        traceLog("applicationDidFinishLaunching: relocator/updater done")
         // Remote startup can spawn an SSH child. Admit tunnel work only after the
         // singleton check so a short-lived handoff process cannot orphan that child.
         GatewayEndpointStore.admitPrimaryAppLaunch()
@@ -406,6 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller.start()
             self.statusMenuController = controller
         }
+        traceLog("applicationDidFinishLaunching: status menu started")
         if let state {
             let shouldWaitForConnection = state.connectionMode != .unconfigured
             if !shouldWaitForConnection, launchPlan.allowsAutomaticPresentation {
@@ -564,6 +566,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.webChatAutoLogger.info("Auto-opening dashboard via CLI flag")
             AppNavigationActions.openDashboard(userGesture: false)
         }
+        traceLog("applicationDidFinishLaunching: returning")
     }
 
     func applicationWillTerminate(_: Notification) {

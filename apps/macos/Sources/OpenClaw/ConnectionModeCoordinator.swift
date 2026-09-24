@@ -24,6 +24,7 @@ final class ConnectionModeCoordinator {
     private var transition = Transition()
     private var portSweepTask: Task<Void, Never>?
     private var localDisconnectTask: Task<Void, Never>?
+    private var deferredLaunchAgentAuditTask: Task<Void, Never>?
 
     // Counts overlapping apply() calls rather than a plain Bool: a newer
     // apply() can start (and legitimately supersede an older one via
@@ -153,6 +154,30 @@ final class ConnectionModeCoordinator {
             await GatewayProcessManager.shared.waitForStartupAttempt()
             traceLog("applyLocalGateway: waitForStartupAttempt() returned")
             guard self.transition.isCurrent(generation, mode: mode) else { return }
+            // Relaunch fast path: startup already attached to a Gateway that
+            // passed its health probe (status .attachedExisting), so there is
+            // nothing to wait for before presenting the dashboard. The
+            // LaunchAgent audit below (ensureLaunchAgentEnabledIfNeeded ->
+            // `openclaw gateway status --json` through Node, measured at
+            // 1.5-2.3s per launch) only confirms/repairs persistence; for a
+            // healthy attach it returns "skipped". Run it right after instead
+            // of in front of the dashboard: same audit, same repair behavior
+            // (config drift, port change, stale plist -> reinstall + readiness
+            // recovery), just off the critical path. Local mode only; the
+            // remote-with-local-gateway path keeps the original ordering.
+            if mode == .local,
+               GatewayAutostartPolicy.shouldEnsureLaunchAgent(
+                   mode: mode, paused: paused, hostsLocalGateway: hostsLocalGateway),
+               case .attachedExisting = GatewayProcessManager.shared.status
+            {
+                traceLog("applyLocalGateway: attached to a healthy gateway; deferring LaunchAgent audit")
+                traceLog("applyLocalGateway: awaiting waitForGatewayReady()")
+                _ = await GatewayProcessManager.shared.waitForGatewayReady(launchAgentInstalled: false)
+                traceLog("applyLocalGateway: waitForGatewayReady() returned")
+                guard self.transition.isCurrent(generation, mode: mode) else { return }
+                self.scheduleDeferredLaunchAgentAudit(mode: mode, generation: generation)
+                return
+            }
             var launchAgentInstalled = false
             if GatewayAutostartPolicy.shouldEnsureLaunchAgent(
                 mode: mode, paused: paused, hostsLocalGateway: hostsLocalGateway)
@@ -171,6 +196,23 @@ final class ConnectionModeCoordinator {
         } else {
             GatewayProcessManager.shared.stop()
             await GatewayProcessManager.shared.waitForStartupAttempt()
+        }
+    }
+
+    /// Runs the LaunchAgent persistence audit that the relaunch fast path in
+    /// applyLocalGateway() took off the critical path, in the same order the
+    /// normal path uses (ensure, then readiness) so a reinstall it triggers
+    /// still gets its readiness/recovery pass. Superseded by any newer apply().
+    private func scheduleDeferredLaunchAgentAudit(mode: AppState.ConnectionMode, generation: UInt64) {
+        self.deferredLaunchAgentAuditTask?.cancel()
+        self.deferredLaunchAgentAuditTask = Task { @MainActor [weak self] in
+            guard let self, self.transition.isCurrent(generation, mode: mode) else { return }
+            traceLog("deferredLaunchAgentAudit: awaiting ensureLaunchAgentEnabledIfNeeded()")
+            let installed = await GatewayProcessManager.shared.ensureLaunchAgentEnabledIfNeeded()
+            traceLog("deferredLaunchAgentAudit: ensureLaunchAgentEnabledIfNeeded() returned installed=\(installed)")
+            guard !Task.isCancelled, self.transition.isCurrent(generation, mode: mode) else { return }
+            _ = await GatewayProcessManager.shared.waitForGatewayReady(launchAgentInstalled: installed)
+            traceLog("deferredLaunchAgentAudit: waitForGatewayReady() returned")
         }
     }
 }

@@ -409,16 +409,31 @@ final class AutoOnboardBootstrap {
         if let id = provider.id {
             arguments.append(contentsOf: ["--custom-provider-id", id])
         }
-        if let apiKey = provider.apiKey {
-            arguments.append(contentsOf: ["--custom-api-key", apiKey])
+        // The API key is passed via the CUSTOM_API_KEY environment variable,
+        // never as a --custom-api-key argument: process arguments are
+        // world-readable on macOS (any local user can see them in `ps -ef`
+        // for as long as onboard runs), environment variables are not.
+        // onboard's non-interactive custom-api-key path falls back to
+        // CUSTOM_API_KEY when the flag is absent and, in the default
+        // (plaintext) secret-input mode, stores the resolved value exactly as
+        // it would have stored the flag value
+        // (src/commands/onboard-non-interactive/api-keys.ts,
+        // resolveNonInteractiveApiKey; local/auth-choice.ts).
+        // ShellExecutor treats a non-nil env as a full replacement
+        // (.custom), so start from this process's environment.
+        var environment: [String: String]? = nil
+        if let apiKey = provider.apiKey, !apiKey.isEmpty {
+            var merged = ProcessInfo.processInfo.environment
+            merged["CUSTOM_API_KEY"] = apiKey
+            environment = merged
         }
         let command = AppProfile.current.localCLICommand(prefix: [executable], arguments: arguments)
-        // Never log `command`, stdout, or stderr verbatim -- all three can
-        // contain --custom-api-key's value (the command holds it directly;
-        // a misbehaving CLI could in principle echo an invalid argument
-        // back in its own error text). Redact the one argument in the
-        // command, and belt-and-suspenders strip the literal key value out
-        // of anything else before it's ever passed to traceLog.
+        // The key no longer travels in `command` (see CUSTOM_API_KEY above),
+        // but still never log stdout/stderr verbatim: a misbehaving CLI could
+        // in principle echo the key back in its own error text. Strip the
+        // literal key value out of anything before it reaches traceLog; the
+        // --custom-api-key redaction below is kept as a guard in case the
+        // flag is ever reintroduced.
         let redactedCommand = command.enumerated().map { index, token in
             index > 0 && command[index - 1] == "--custom-api-key" ? "<redacted>" : token
         }
@@ -442,7 +457,7 @@ final class AutoOnboardBootstrap {
             // Response only exposes a generic "exit N"/"timeout"
             // errorMessage, which was observed in testing to give zero
             // insight into why onboard failed.
-            let result = await ShellExecutor.runDetailed(command: command, cwd: nil, env: nil, timeout: 60)
+            let result = await ShellExecutor.runDetailed(command: command, cwd: nil, env: environment, timeout: 60)
             traceLog("applyDefaultProvider: ran (attempt \(attempt)/2) \(redactedCommand.joined(separator: " ")) -> success=\(result.success)")
             if result.success {
                 return true
