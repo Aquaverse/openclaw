@@ -315,8 +315,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// early post-launch window as the Dock-reopen case above, and want the same
     /// fallback instead of a raced-open Dashboard.
     func openDashboardOrResumeProvisioning() {
-        traceLog("openDashboardOrResumeProvisioning: called, isProvisioningOrUnconfigured=\(self.isProvisioningOrUnconfigured), isProvisioning=\(AutoOnboardBootstrap.shared.isProvisioning)")
+        traceLog("openDashboardOrResumeProvisioning: called, isProvisioningOrUnconfigured=\(self.isProvisioningOrUnconfigured), isProvisioning=\(AutoOnboardBootstrap.shared.isProvisioning), isApplyingConnection=\(ConnectionModeCoordinator.shared.isApplying)")
         guard self.isProvisioningOrUnconfigured else {
+            guard !ConnectionModeCoordinator.shared.isApplying else {
+                // A reopen landing while ConnectionModeCoordinator.apply() is still
+                // starting/reattaching the Gateway must not open the Dashboard yet --
+                // its WebView would hit a not-yet-ready endpoint ahead of apply()'s own
+                // health-probe/ControlChannel.configure() finishing, showing "Dashboard
+                // unavailable" for a Gateway that is genuinely still coming up rather
+                // than actually failed. Wait for the in-flight apply() to settle first.
+                traceLog("openDashboardOrResumeProvisioning: ConnectionModeCoordinator still applying; deferring dashboard open")
+                Task { @MainActor in
+                    await ConnectionModeCoordinator.shared.waitUntilIdle()
+                    guard !self.isProvisioningOrUnconfigured else { return }
+                    self.openDashboardAction()
+                }
+                return
+            }
             self.openDashboardAction()
             return
         }
@@ -447,6 +462,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     paused: state.isPaused)
                 traceLog("applicationDidFinishLaunching: ConnectionModeCoordinator.apply() returned")
                 guard launchPlan.allowsAutomaticPresentation else { return }
+                // Bring the dashboard to the front on a normal, already-configured
+                // launch (was: DashboardManager.shared.preloadIfConfigured(), which
+                // deliberately loads in the background and never orders the window
+                // front -- see its own doc comment). That made every ordinary
+                // double-click launch open silently into the background/menu bar,
+                // needing a second, separate click (Dock reopen) to actually see
+                // the main window -- not matching how a double-click behaves for
+                // most macOS apps.
+                //
+                // This used to fire from a separate Task on a flat 2-second delay,
+                // independent of apply() above -- a guess that raced apply()'s own
+                // gateway-start/health-probe/ControlChannel.configure() sequence
+                // whenever a reattach took longer than 2s (observed up to ~19s),
+                // opening the Dashboard against a not-yet-ready endpoint and
+                // showing "Dashboard unavailable" for a Gateway that was genuinely
+                // still starting. Opening it here instead, right after apply()
+                // above has actually finished, ties presentation to the real
+                // completion signal rather than a duration nothing guarantees.
+                // Only for shouldWaitForConnection (this launch was already
+                // configured): a genuinely fresh/unconfigured launch is owned by
+                // the sibling auto-onboard Task above, which opens chat itself.
+                if shouldWaitForConnection,
+                   !AutoOnboardBootstrap.shared.isProvisioning,
+                   AppStateStore.shared.onboardingSeen
+                {
+                    traceLog("applicationDidFinishLaunching: connection Task opening dashboard after ConnectionModeCoordinator.apply() completed")
+                    AppNavigationActions.openDashboard(userGesture: false)
+                }
                 // Attachment must settle before deciding whether this app needs to install a CLI.
                 let postUpdateStarted = PostUpdateController.shared.startIfNeeded()
                 // Only when this launch was already configured (shouldWaitForConnection):
@@ -501,38 +544,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await HealthStore.shared.refresh(onDemand: true) }
         Task { await PortGuardian.shared.reapOrphanedTunnels() }
         AppStateStore.shared.applyComputerControlHostState()
-        if launchPlan.allowsAutomaticPresentation {
-            Task {
-                try? await Task.sleep(for: .seconds(2))
-                // Skip while AutoOnboardBootstrap is actively provisioning this
-                // launch: connectionMode can already read .local (or a stale
-                // .local from an earlier run) before the Gateway it's still
-                // installing/starting is actually reachable, so opening the
-                // dashboard here raced it into showing a "Dashboard unavailable,
-                // could not connect" window ahead of the bootstrap's own
-                // progress panel and successful completion. AutoOnboardBootstrap
-                // opens chat itself once it's actually done, so there's nothing
-                // for this to add while it's in flight. Also skip if onboarding
-                // was never actually completed -- a failed auto-install falls
-                // through to the manual "Welcome to OpenClaw" wizard instead
-                // (AppStateStore.onboardingSeen stays false), and opening the
-                // dashboard here would repeat the exact "Dashboard unavailable"
-                // flash this guard exists to avoid.
-                guard !AutoOnboardBootstrap.shared.isProvisioning,
-                      AppStateStore.shared.onboardingSeen
-                else { return }
-                // Bring the dashboard to the front on a normal, already-configured
-                // launch (was: DashboardManager.shared.preloadIfConfigured(), which
-                // deliberately loads in the background and never orders the window
-                // front -- see its own doc comment). That made every ordinary
-                // double-click launch open silently into the background/menu bar,
-                // needing a second, separate click (Dock reopen) to actually see
-                // the main window -- not matching how a double-click behaves for
-                // most macOS apps.
-                traceLog("applicationDidFinishLaunching: 2s auto-present Task opening dashboard")
-                AppNavigationActions.openDashboard(userGesture: false)
-            }
-        }
 
         #if DEBUG
         // Screenshot/demo helper: show the pairing panel with sample requests.

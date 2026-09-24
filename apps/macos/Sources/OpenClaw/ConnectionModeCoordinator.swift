@@ -25,9 +25,40 @@ final class ConnectionModeCoordinator {
     private var portSweepTask: Task<Void, Never>?
     private var localDisconnectTask: Task<Void, Never>?
 
+    // Counts overlapping apply() calls rather than a plain Bool: a newer
+    // apply() can start (and legitimately supersede an older one via
+    // Transition) before that older call has unwound through its own
+    // `guard self.transition.isCurrent(...)` early-returns, so a simple
+    // "set true on entry, false on exit" flag would flicker false while a
+    // still-in-flight apply() from a different caller is the one that
+    // actually owns the connection right now.
+    private var applyingCount = 0
+
+    /// True while at least one apply() call is in flight. Callers that want
+    /// to present UI only once a connection attempt has actually settled
+    /// (success or failure) -- rather than racing a blind presentation
+    /// against apply()'s own gateway-start/health-probe/ControlChannel
+    /// sequence -- check this (see openDashboardOrResumeProvisioning() in
+    /// MenuBar.swift, added after a launch showed "Dashboard unavailable"
+    /// for several seconds before self-recovering: apply() was still
+    /// reattaching/starting the Gateway when a Dock click opened the
+    /// Dashboard's WebView against a not-yet-ready endpoint).
+    var isApplying: Bool { self.applyingCount > 0 }
+
+    /// Polls until no apply() call is in flight. 200ms matches the poll
+    /// interval StatusMenuController.applyStateSideEffects() already uses
+    /// to wait out AutoOnboardBootstrap.isProvisioning for the same reason.
+    func waitUntilIdle() async {
+        while self.isApplying {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+    }
+
     /// Apply the requested connection mode by starting/stopping local gateway,
     /// managing the control-channel SSH tunnel, and cleaning up chat windows/panels.
     func apply(mode: AppState.ConnectionMode, paused: Bool) async {
+        self.applyingCount += 1
+        defer { self.applyingCount -= 1 }
         traceLog("ConnectionModeCoordinator.apply: entered, mode=\(mode), paused=\(paused)")
         self.portSweepTask?.cancel()
         self.localDisconnectTask?.cancel()
