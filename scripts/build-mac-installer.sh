@@ -323,6 +323,13 @@ else
   CLI_PACK_DIR="$ROOT_DIR/.artifacts/mac-installer-cli-package"
   rm -rf "$CLI_PACK_DIR"
   mkdir -p "$CLI_PACK_DIR"
+  # npm pack writes temporary files to its cache even with --ignore-scripts.
+  # Keep installer packaging independent of a root-owned or otherwise stale
+  # user cache (common after an earlier sudo npm invocation).
+  if [[ -z "${NPM_CONFIG_CACHE:-}" ]]; then
+    export NPM_CONFIG_CACHE="$ROOT_DIR/.artifacts/mac-installer-npm-cache"
+  fi
+  mkdir -p "$NPM_CONFIG_CACHE"
   # This script's own outputs (dist/OpenClaw-<version>-Install.dmg/.pkg/.zip
   # from a previous run) also live in dist/, and the package's "files" list
   # only excludes dist/**/*.app -- so they were being packed into the CLI
@@ -369,7 +376,9 @@ fi
 ENV_FILE="$ROOT_DIR/installer.env"
 read_env_var() {
   [[ -f "$ENV_FILE" ]] || return 0
-  grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -n1 | cut -d'=' -f2-
+  # Optional installer.env keys are allowed to be absent. Keep grep's
+  # no-match status from triggering the caller's set -e exit path.
+  grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -n1 | cut -d'=' -f2- || true
 }
 
 # ---------------------------------------------------------------------
@@ -557,7 +566,7 @@ if [[ -f "$ENV_FILE" ]]; then
     echo "DEFAULT_AI_API_KEY=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_API_KEY)"
     echo "DEFAULT_LLAMA_MODEL=$LLAMA_MODEL_FOR_BUNDLE"
     # llama-server context size (tokens) for the local model; see
-    # scripts/mac-llama-fallback-setup.sh. Empty -> that script's default.
+    # scripts/mac-llama-fallback-setup.sh. Empty -> model-native context.
     LLAMA_CTX_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_CTX)"
     if [[ -n "$LLAMA_CTX_FOR_BUNDLE" && ! "$LLAMA_CTX_FOR_BUNDLE" =~ ^[0-9]+$ ]]; then
       echo "ERROR: OPENCLAW_LLAMA_FALLBACK_CTX must be a whole number of tokens, got '${LLAMA_CTX_FOR_BUNDLE}'" >&2

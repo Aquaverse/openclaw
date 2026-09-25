@@ -250,16 +250,13 @@ fi
 # configured above. Backgrounded because the GGUF download can take
 # minutes and must not hold up Installer.app's own postinstall wait.
 # ---------------------------------------------------------------------
-LLAMA_SETUP_SCRIPT="$APP_PATH/Contents/Resources/mac-llama-fallback-setup.sh"
-if [[ -f "$LLAMA_SETUP_SCRIPT" ]]; then
-  log "Launching backgrounded local-model fallback setup ($LLAMA_SETUP_SCRIPT)"
-  run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
-    /usr/bin/nohup /bin/bash "$LLAMA_SETUP_SCRIPT" --app-path "$APP_PATH" --prefix "$PREFIX" \
-    >/dev/null 2>&1 &
-  disown || true
-else
-  log "No bundled mac-llama-fallback-setup.sh -- skipping local-model fallback."
-fi
+# The local model (download of a ~2 GB GGUF, llama-server start) is NOT run
+# from here: with it backgrounded from this script, Installer.app was observed
+# to keep showing "Running package scripts" while the download ran, even
+# with nohup/&. OpenClaw.app starts the same setup in the
+# background on every launch (AutoOnboardBootstrap / MenuBar), so it simply
+# happens on first launch instead, without holding up the installer.
+log "Local model setup is deferred to OpenClaw.app's first launch."
 
 log "OpenClaw postinstall finished."
 exit 0
