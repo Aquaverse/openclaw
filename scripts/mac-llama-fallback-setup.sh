@@ -1,8 +1,10 @@
 #!/bin/bash
 # Best-effort local-model fallback setup: unpacks the bundled llama-server
-# release archive (see scripts/build-mac-installer.sh step 3), downloads the
-# GGUF weights named by OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL from
-# HuggingFace, starts llama-server as a per-user LaunchAgent, and -- only
+# release archive (see scripts/build-mac-installer.sh step 3), finds or
+# downloads the GGUF weights named by OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL
+# in the Hugging Face hub cache (~/.cache/huggingface/hub by default, shared
+# with `hf download` and llama.cpp -hf; see step 2), starts llama-server as
+# a per-user LaunchAgent, and -- only
 # once it actually answers health checks -- registers it with the CLI as a
 # *backup* model (--custom-as-backup; see src/wizard/setup.model-auth.ts /
 # src/commands/onboard-non-interactive/local/auth-choice.ts). The already
@@ -36,6 +38,9 @@
 #                                  more than 10 GiB of memory is available. Set
 #                                  0 explicitly to always use model-native context.
 #   OPENCLAW_LLAMA_FALLBACK_HEALTH_WAIT  Seconds to wait for the server to answer (default 600).
+#   HF_HUB_CACHE / HF_HOME / HF_ENDPOINT  Standard Hugging Face settings (from the environment or
+#                                  `launchctl setenv`): where the hub cache is, and a mirror
+#                                  endpoint such as https://hf-mirror.com.
 #   OPENCLAW_LLAMA_FALLBACK_REUSE_EXISTING  1 (default): register a llama-server the user
 #                                  already runs instead of starting our own; 0: never.
 #                                  A running server is reused only when its model
@@ -587,11 +592,21 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 2. Resolve which GGUF file to download. DEFAULT_LLAMA_MODEL is a
-# HuggingFace repo id, optionally with ":<filename>" to pin an exact file
-# (e.g. "Qwen/Qwen2.5-1.5B-Instruct-GGUF:qwen2.5-1.5b-instruct-q4_k_m.gguf").
-# Without a pinned filename, query the HF API and pick the first .gguf
-# matching a preferred quantization, falling back to the first .gguf found.
+# 2. Locate the GGUF weights, downloading them only when no copy exists.
+# DEFAULT_LLAMA_MODEL is a Hugging Face repo id, optionally with
+# ":<filename>" to pin an exact file (e.g.
+# "unsloth/Qwen3.5-2B-GGUF:Qwen3.5-2B-Q4_K_M.gguf"). Without a pinned file,
+# the first .gguf matching a preferred quantization is chosen.
+#
+# Weights live in the Hugging Face hub cache, in its standard layout
+# (models--<org>--<name>/{blobs,snapshots,refs}) -- the cache that
+# huggingface_hub / `hf download` and llama.cpp's own -hf downloads use -- so
+# a model the user already fetched with any of them is used in place, and
+# ours is visible to (and shared with) them. Looked up, in order:
+#   1. the hub cache(s)
+#   2. $LLAMA_DIR/models (where earlier builds of this script downloaded;
+#      moved into the hub cache once its checksum is verified)
+#   3. llama.cpp's pre-hub-cache flat caches
 # ---------------------------------------------------------------------
 HF_REPO="${DEFAULT_LLAMA_MODEL%%:*}"
 if [[ "$DEFAULT_LLAMA_MODEL" == *:* ]]; then
@@ -599,69 +614,294 @@ if [[ "$DEFAULT_LLAMA_MODEL" == *:* ]]; then
 else
   HF_FILE=""
 fi
+HF_REPO_DIR_NAME="models--${HF_REPO//\//--}"
 
-# Remember which file an unpinned repo resolved to, so later runs (every app
-# launch) find the already-downloaded model without asking HuggingFace
-# again -- and still work offline.
-RESOLVED_MARKER="$LLAMA_DIR/models/.resolved-file"
-if [[ -z "$HF_FILE" && -f "$RESOLVED_MARKER" ]]; then
-  IFS=$'\t' read -r CACHED_REPO CACHED_FILE < "$RESOLVED_MARKER" || true
-  if [[ "${CACHED_REPO:-}" == "$HF_REPO" && -n "${CACHED_FILE:-}" && -s "$LLAMA_DIR/models/$CACHED_FILE" ]]; then
-    HF_FILE="$CACHED_FILE"
-    log "Using previously resolved model file: $HF_REPO / $HF_FILE"
+# An app started from Finder does not inherit shell exports, so settings
+# made with `launchctl setenv` are consulted too.
+hf_setting() {
+  local value="${!1:-}"
+  [[ -n "$value" ]] || value="$(/bin/launchctl getenv "$1" 2>/dev/null || true)"
+  printf '%s' "$value"
+}
+
+# Hub cache directories in llama.cpp's order of precedence (common/hf-cache.cpp):
+# LLAMA_CACHE, HF_HUB_CACHE, HUGGINGFACE_HUB_CACHE, $HF_HOME/hub,
+# $XDG_CACHE_HOME/huggingface/hub, ~/.cache/huggingface/hub. The first one
+# that is set receives downloads; all of them (and the default) are searched.
+HF_HUB_DIRS=()
+for HF_SPEC in "LLAMA_CACHE:" "HF_HUB_CACHE:" "HUGGINGFACE_HUB_CACHE:" "HF_HOME:/hub" "XDG_CACHE_HOME:/huggingface/hub"; do
+  HF_VALUE="$(hf_setting "${HF_SPEC%%:*}")"
+  [[ -n "$HF_VALUE" ]] && HF_HUB_DIRS+=("${HF_VALUE%/}${HF_SPEC#*:}")
+done
+HF_HUB_DIRS+=("$HOME/.cache/huggingface/hub")
+HF_HUB_DIR="${HF_HUB_DIRS[0]}"
+HF_ENDPOINT_URL="$(hf_setting HF_ENDPOINT)"
+HF_ENDPOINT_URL="${HF_ENDPOINT_URL:-https://huggingface.co}"
+HF_ENDPOINT_URL="${HF_ENDPOINT_URL%/}"
+
+# hub_cached_file <hub dir> <file>: the snapshot path of <file> for $HF_REPO
+# -- in the snapshot refs/main points at, else the newest snapshot that has
+# it. It must resolve to a non-empty file (a blob removed by
+# `hf cache delete` leaves a dangling link behind).
+hub_cached_file() {
+  local repo_dir="$1/$HF_REPO_DIR_NAME" file="$2" commit snapshot
+  [[ -n "$file" && -d "$repo_dir/snapshots" ]] || return 1
+  commit="$(/bin/cat "$repo_dir/refs/main" 2>/dev/null || true)"
+  if [[ -n "$commit" && -s "$repo_dir/snapshots/$commit/$file" ]]; then
+    printf '%s\n' "$repo_dir/snapshots/$commit/$file"
+    return 0
   fi
-fi
+  while IFS= read -r snapshot; do
+    if [[ -n "$snapshot" && -s "$repo_dir/snapshots/$snapshot/$file" ]]; then
+      printf '%s\n' "$repo_dir/snapshots/$snapshot/$file"
+      return 0
+    fi
+  done < <(/bin/ls -1t "$repo_dir/snapshots" 2>/dev/null)
+  return 1
+}
 
-if [[ -z "$HF_FILE" ]]; then
-  log "Resolving a GGUF file from HuggingFace repo $HF_REPO"
-  HF_FILE="$("$NODE_BIN" -e '
-    const repo = process.argv[1];
+# Prints the cached .gguf of $HF_REPO a preferred quantization matches (for
+# an unpinned repo while Hugging Face cannot be reached).
+hub_cached_preferred_gguf() {
+  local hub
+  for hub in "${HF_HUB_DIRS[@]}"; do
+    [[ -d "$hub/$HF_REPO_DIR_NAME/snapshots" ]] || continue
+    (cd "$hub/$HF_REPO_DIR_NAME/snapshots" 2>/dev/null && /usr/bin/find . -mindepth 2 -name '*.gguf' 2>/dev/null) \
+      | /usr/bin/sed 's#^\./[^/]*/##' | "$NODE_BIN" -e '
+        let raw = "";
+        process.stdin.on("data", (chunk) => { raw += chunk; });
+        process.stdin.on("end", () => {
+          const files = raw.split("\n").filter(Boolean);
+          for (const p of ["q4_k_m", "q4_0", "q5_k_m", "q6_k", "q8_0"]) {
+            const hit = files.find((f) => f.toLowerCase().includes(p));
+            if (hit) { process.stdout.write(hit); return; }
+          }
+          process.exit(1);
+        });
+      ' 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# fetch_model_metadata [file]: sets META_COMMIT, META_FILE, META_OID (blob
+# name: the LFS sha256, else the git blob id -- what huggingface_hub and
+# llama.cpp name blobs by) and META_SIZE for $HF_REPO at main. Without a
+# file, picks the preferred-quantization .gguf. Returns 1 when offline.
+META_COMMIT=""
+fetch_model_metadata() {
+  local meta
+  [[ -n "$META_COMMIT" && ( -z "${1:-}" || "${1:-}" == "$META_FILE" ) ]] && return 0
+  meta="$("$NODE_BIN" -e '
+    const [endpoint, repo, wanted] = process.argv.slice(1);
     const prefs = ["q4_k_m", "q4_0", "q5_k_m", "q6_k", "q8_0"];
     // Encode each path segment, not the whole id: the API rejects an encoded
     // "/" between owner and name ("Qwen%2F...") with HTTP 400.
-    fetch("https://huggingface.co/api/models/" + repo.split("/").map(encodeURIComponent).join("/"))
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))))
+    const url = endpoint + "/api/models/" + repo.split("/").map(encodeURIComponent).join("/")
+      + "/revision/main?blobs=true";
+    fetch(url, { signal: AbortSignal.timeout(30000) })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status + " for " + url))))
       .then((data) => {
-        const files = (data.siblings || [])
-          .map((s) => s.rfilename)
-          .filter((f) => typeof f === "string" && f.toLowerCase().endsWith(".gguf"));
+        const siblings = (data.siblings || []).filter((s) => typeof s.rfilename === "string");
         let chosen = null;
-        for (const p of prefs) {
-          chosen = files.find((f) => f.toLowerCase().includes(p));
-          if (chosen) break;
+        if (wanted) {
+          chosen = siblings.find((s) => s.rfilename === wanted);
+        } else {
+          const ggufs = siblings.filter((s) => s.rfilename.toLowerCase().endsWith(".gguf"));
+          for (const p of prefs) {
+            chosen = ggufs.find((s) => s.rfilename.toLowerCase().includes(p));
+            if (chosen) break;
+          }
+          chosen = chosen || ggufs[0];
         }
-        if (!chosen) chosen = files[0];
-        if (!chosen) throw new Error("no .gguf files found");
-        process.stdout.write(chosen);
+        if (!chosen) throw new Error(wanted ? wanted + " is not in " + repo : "no .gguf files in " + repo);
+        const oid = chosen.lfs?.sha256 || chosen.blobId;
+        const size = chosen.lfs?.size ?? chosen.size;
+        if (!/^[0-9a-f]{40}$/.test(data.sha || "") || !/^[0-9a-f]{40,64}$/.test(oid || "") || !Number.isInteger(size)) {
+          throw new Error("unexpected metadata for " + repo + "/" + chosen.rfilename);
+        }
+        process.stdout.write([data.sha, chosen.rfilename, oid, size].join("\t"));
       })
       .catch((err) => {
         process.stderr.write(String(err) + "\n");
         process.exit(1);
       });
-  ' "$HF_REPO" 2>>"$LOG_FILE")"
-  [[ -n "$HF_FILE" ]] || fail_soft "could not resolve a GGUF file for repo $HF_REPO (see $LOG_FILE)"
+  ' "$HF_ENDPOINT_URL" "$HF_REPO" "${1:-}" 2>>"$LOG_FILE")" || return 1
+  IFS=$'\t' read -r META_COMMIT META_FILE META_OID META_SIZE <<<"$meta"
+  [[ -n "$META_COMMIT" && -n "$META_FILE" && -n "$META_OID" && "$META_SIZE" =~ ^[0-9]+$ ]] || { META_COMMIT=""; return 1; }
+}
+
+file_size() {
+  [[ -f "$1" ]] || return 0
+  /usr/bin/wc -c 2>/dev/null <"$1" | /usr/bin/tr -d ' '
+}
+
+# verify_blob <file>: size and (for an LFS file) sha256 match the metadata.
+verify_blob() {
+  local file="$1" actual
+  [[ "$(file_size "$file")" == "$META_SIZE" ]] || return 1
+  [[ ${#META_OID} -eq 64 ]] || return 0
+  log "Verifying the sha256 of $file"
+  actual="$(/usr/bin/shasum -a 256 "$file" | /usr/bin/awk '{print $1}')"
+  [[ "$actual" == "$META_OID" ]]
+}
+
+# link_snapshot: points snapshots/<commit>/<file> at the blob (relative
+# link, as huggingface_hub does), records refs/main, sets MODEL_PATH.
+link_snapshot() {
+  local repo_dir="$HF_HUB_DIR/$HF_REPO_DIR_NAME" snapshot up="../../" rest="$META_FILE"
+  snapshot="$repo_dir/snapshots/$META_COMMIT/$META_FILE"
+  while [[ "$rest" == */* ]]; do
+    up+="../"
+    rest="${rest#*/}"
+  done
+  mkdir -p "$(dirname "$snapshot")" "$repo_dir/refs" || return 1
+  ln -sfn "${up}blobs/$META_OID" "$snapshot" || return 1
+  printf '%s' "$META_COMMIT" > "$repo_dir/refs/main"
+  [[ -s "$snapshot" ]] || return 1
+  MODEL_PATH="$snapshot"
+}
+
+# run_locked <lock file> <command...>: holds the same per-blob lock
+# huggingface_hub takes (.locks/<repo>/<blob>.lock, flock) while the command
+# runs, so a concurrent `hf download` of the same file cannot interleave
+# with ours. Exit status 201: someone else holds it (curl exits below 128,
+# or 128+signal).
+run_locked() {
+  local lock="$1"
+  shift
+  if [[ ! -x /usr/bin/perl ]]; then
+    "$@"
+    return
+  fi
+  mkdir -p "$(dirname "$lock")" 2>/dev/null || { "$@"; return; }
+  /usr/bin/perl -MFcntl=:flock -e '
+    my $lock = shift;
+    # No lock file possible (read-only .locks): run unlocked.
+    if (open(my $fh, ">>", $lock)) {
+      flock($fh, LOCK_EX | LOCK_NB) or exit 201;
+      our $held = $fh;
+    }
+    my $rc = system { $ARGV[0] } @ARGV;
+    exit($rc == -1 ? 127 : ($rc & 127) ? 128 + ($rc & 127) : $rc >> 8);
+  ' "$lock" "$@"
+}
+
+if [[ -z "$HF_FILE" && -f "$RESOLVED_MARKER" ]]; then
+  # Which file an unpinned repo resolved to earlier, so later runs (every app
+  # launch) find it without asking Hugging Face again -- and work offline.
+  IFS=$'\t' read -r CACHED_REPO CACHED_FILE < "$RESOLVED_MARKER" || true
+  if [[ "${CACHED_REPO:-}" == "$HF_REPO" && -n "${CACHED_FILE:-}" ]]; then
+    HF_FILE="$CACHED_FILE"
+    log "Using previously resolved model file: $HF_REPO / $HF_FILE"
+  fi
+fi
+if [[ -z "$HF_FILE" ]]; then
+  log "Resolving a GGUF file from Hugging Face repo $HF_REPO"
+  if fetch_model_metadata; then
+    HF_FILE="$META_FILE"
+  elif HF_FILE="$(hub_cached_preferred_gguf)"; then
+    log "Hugging Face is not reachable; using the cached $HF_FILE"
+  else
+    fail_soft "could not resolve a GGUF file for repo $HF_REPO (see $LOG_FILE)"
+  fi
 fi
 log "Resolved model file: $HF_REPO / $HF_FILE"
 
-# ---------------------------------------------------------------------
-# 3. Download the GGUF weights (idempotent: skipped if already present).
-# ---------------------------------------------------------------------
-mkdir -p "$MODELS_DIR"
-MODEL_PATH="$MODELS_DIR/$HF_FILE"
-if [[ -s "$MODEL_PATH" ]]; then
-  log "Model already downloaded at $MODEL_PATH -- reusing"
-else
-  MODEL_URL="https://huggingface.co/${HF_REPO}/resolve/main/${HF_FILE}"
-  log "Downloading $MODEL_URL to $MODEL_PATH (this can take a while for larger models)"
-  # -C - resumes a .part left by an interrupted run (app quit, the app's
-  # own timeout, network drop) instead of starting a multi-GB file over.
-  # The .part is deliberately kept on failure for the next run to resume.
-  if ! /usr/bin/curl -fL --proto '=https' --tlsv1.2 --retry 3 -C - -o "$MODEL_PATH.part" "$MODEL_URL" >>"$LOG_FILE" 2>&1; then
-    fail_soft "download of $MODEL_URL failed; will resume on the next run (see $LOG_FILE)"
+MODEL_PATH=""
+for HF_HUB in "${HF_HUB_DIRS[@]}"; do
+  if MODEL_PATH="$(hub_cached_file "$HF_HUB" "$HF_FILE")"; then
+    log "Model found in the Hugging Face cache at $MODEL_PATH -- reusing"
+    break
   fi
-  mv "$MODEL_PATH.part" "$MODEL_PATH"
-  log "Download finished: $MODEL_PATH"
+  MODEL_PATH=""
+done
+
+LEGACY_MODEL_PATH="$MODELS_DIR/$HF_FILE"
+LEGACY_SKIP_MARKER="$MODELS_DIR/.not-moved-to-hub"
+if [[ -z "$MODEL_PATH" && -s "$LEGACY_MODEL_PATH" ]]; then
+  MODEL_PATH="$LEGACY_MODEL_PATH"
+  if [[ -L "$LEGACY_MODEL_PATH" ]]; then
+    log "Using the previously downloaded model: $MODEL_PATH"
+  else
+    # Downloaded by an earlier build of this script: move it into the hub
+    # cache (a rename on the same volume, no copy) once it is verified
+    # against the repository, leaving a link behind so LaunchAgent
+    # definitions that still name the old path keep working. Offline, or when
+    # it does not match the repository's current file (checked once per
+    # repository revision), it is used in place.
+    if fetch_model_metadata "$HF_FILE" \
+      && [[ "$(/bin/cat "$LEGACY_SKIP_MARKER" 2>/dev/null)" != "$HF_FILE"$'\t'"$META_OID" ]]; then
+      HUB_BLOB="$HF_HUB_DIR/$HF_REPO_DIR_NAME/blobs/$META_OID"
+      if ! verify_blob "$LEGACY_MODEL_PATH"; then
+        printf '%s\t%s' "$HF_FILE" "$META_OID" > "$LEGACY_SKIP_MARKER"
+        log "$LEGACY_MODEL_PATH differs from the repository's current $HF_FILE -- using it in place"
+      elif mkdir -p "$(dirname "$HUB_BLOB")" 2>/dev/null \
+        && { [[ "$(file_size "$HUB_BLOB")" == "$META_SIZE" ]] || mv -f "$LEGACY_MODEL_PATH" "$HUB_BLOB"; }; then
+        # The blob is in place: the old path becomes a link to it first, so
+        # the model stays reachable even if linking the snapshot fails.
+        [[ -L "$LEGACY_MODEL_PATH" ]] || rm -f "$LEGACY_MODEL_PATH"
+        ln -sfn "$HUB_BLOB" "$LEGACY_MODEL_PATH"
+        if link_snapshot; then
+          log "Moved the previously downloaded model into the Hugging Face cache: $MODEL_PATH"
+        else
+          log "WARN: could not link $HF_FILE into $HF_HUB_DIR/$HF_REPO_DIR_NAME/snapshots -- using $LEGACY_MODEL_PATH"
+        fi
+      else
+        log "WARN: could not move $LEGACY_MODEL_PATH into $HF_HUB_DIR -- using it in place"
+      fi
+    else
+      log "Using the previously downloaded model in place: $LEGACY_MODEL_PATH"
+    fi
+  fi
 fi
+
+if [[ -z "$MODEL_PATH" ]]; then
+  # llama.cpp before b8498 kept -hf downloads as flat <org>_<repo>_<file>.
+  for FLAT_DIR in "$(hf_setting LLAMA_CACHE)" "$HOME/Library/Caches/llama.cpp" "$HOME/.cache/llama.cpp"; do
+    FLAT_FILE="${FLAT_DIR%/}/${HF_REPO//\//_}_${HF_FILE//\//_}"
+    if [[ -n "$FLAT_DIR" && -s "$FLAT_FILE" ]]; then
+      MODEL_PATH="$FLAT_FILE"
+      log "Model found in llama.cpp's cache at $MODEL_PATH -- reusing"
+      break
+    fi
+  done
+fi
+
+# ---------------------------------------------------------------------
+# 3. Download into the hub cache. A partial download is resumed; the file
+# is only published (blob + snapshot link) after its size and sha256 match.
+# ---------------------------------------------------------------------
+if [[ -z "$MODEL_PATH" ]]; then
+  fetch_model_metadata "$HF_FILE" \
+    || fail_soft "Hugging Face ($HF_ENDPOINT_URL) could not be reached to download $HF_REPO/$HF_FILE; will retry on the next run (see $LOG_FILE)"
+  HUB_REPO_DIR="$HF_HUB_DIR/$HF_REPO_DIR_NAME"
+  HUB_BLOB="$HUB_REPO_DIR/blobs/$META_OID"
+  mkdir -p "$HUB_REPO_DIR/blobs" || fail_soft "cannot create $HUB_REPO_DIR/blobs"
+  if [[ "$(file_size "$HUB_BLOB")" != "$META_SIZE" ]]; then
+    MODEL_URL="${HF_ENDPOINT_URL}/${HF_REPO}/resolve/${META_COMMIT}/${HF_FILE}"
+    log "Downloading $MODEL_URL into $HF_HUB_DIR (this can take a while for larger models)"
+    # -C - resumes an .incomplete left by an interrupted run (app quit, the
+    # app's own timeout, network drop) -- huggingface_hub resumes the same
+    # file -- instead of starting a multi-GB download over.
+    run_locked "$HF_HUB_DIR/.locks/$HF_REPO_DIR_NAME/$META_OID.lock" \
+      /usr/bin/curl -fL --proto '=https' --tlsv1.2 --retry 3 -C - -o "$HUB_BLOB.incomplete" "$MODEL_URL" >>"$LOG_FILE" 2>&1
+    DOWNLOAD_STATUS=$?
+    if (( DOWNLOAD_STATUS == 201 )); then
+      fail_soft "another program is downloading $HF_REPO/$HF_FILE into $HF_HUB_DIR right now; will use it on the next run"
+    elif (( DOWNLOAD_STATUS != 0 )); then
+      fail_soft "download of $MODEL_URL failed; will resume on the next run (see $LOG_FILE)"
+    fi
+    if ! verify_blob "$HUB_BLOB.incomplete"; then
+      rm -f "$HUB_BLOB.incomplete"
+      fail_soft "the downloaded $HF_FILE does not match the repository's size/sha256; discarded, will download again on the next run"
+    fi
+    mv -f "$HUB_BLOB.incomplete" "$HUB_BLOB" || fail_soft "could not move the download into $HUB_BLOB"
+    log "Download finished and verified: $HUB_BLOB"
+  fi
+  link_snapshot || fail_soft "could not link $HF_FILE into the Hugging Face cache at $HUB_REPO_DIR"
+fi
+log "Using model file: $MODEL_PATH"
+mkdir -p "$MODELS_DIR"
 printf '%s\t%s\n' "$HF_REPO" "$HF_FILE" > "$RESOLVED_MARKER"
 
 if (( AUTO_CTX == 1 )); then
