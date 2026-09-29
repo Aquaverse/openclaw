@@ -83,6 +83,11 @@ set -euo pipefail
 #                          CLI-side changes made in this repo (e.g. onboard
 #                          --custom-as-backup, used by the llama.cpp fallback)
 #                          are NOT available to the installed CLI.
+#   OPENCLAW_LITELLM_VERSION  Exact litellm[proxy] version for the optional
+#                          LiteLLM smart router (also read from installer.env;
+#                          required when OPENCLAW_INSTALLER_ENABLE_LITELLM=1).
+#   OPENCLAW_UV_VERSION     Exact uv release bundled to install it (same).
+#   OPENCLAW_LITELLM_PYTHON Python version for that environment (default 3.12).
 #   SKIP_LLAMA_BUNDLE=1    Don't bundle a llama.cpp llama-server binary into
 #                          the app -- the local-model fallback (see
 #                          OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL in
@@ -283,6 +288,13 @@ chmod 0644 "$APP/Contents/Resources/install-cli.sh"
 # whatever copy the last full build left in the bundle.
 cp "$ROOT_DIR/scripts/mac-llama-fallback-setup.sh" "$APP/Contents/Resources/mac-llama-fallback-setup.sh"
 chmod 0644 "$APP/Contents/Resources/mac-llama-fallback-setup.sh"
+# Hardware-tiered local AI orchestrator and the LiteLLM router setup it
+# drives (mac-llama-fallback-setup.sh hands off to the orchestrator when it
+# is present, so the app/pkg entry points stay unchanged).
+for LOCAL_AI_SCRIPT in mac-local-ai-setup.sh mac-litellm-router-setup.sh; do
+  cp "$ROOT_DIR/scripts/$LOCAL_AI_SCRIPT" "$APP/Contents/Resources/$LOCAL_AI_SCRIPT"
+  chmod 0644 "$APP/Contents/Resources/$LOCAL_AI_SCRIPT"
+done
 
 # ---------------------------------------------------------------------
 # 2d. Bundle this checkout's own OpenClaw CLI as an npm package (.tgz).
@@ -539,6 +551,117 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# 3b. LiteLLM smart router (optional, OPENCLAW_INSTALLER_ENABLE_LITELLM=1 in
+# installer.env): bundles the uv release archive plus a hash-locked
+# requirements file for the pinned `litellm[proxy]` version. Nothing Python
+# ships in the app itself; scripts/mac-litellm-router-setup.sh uses uv on the
+# target Mac to fetch a managed Python and install exactly the locked,
+# hash-verified packages into ~/.openclaw/litellm (only when the Mac's
+# hardware calls for the hybrid local+cloud mode -- see
+# scripts/mac-local-ai-setup.sh).
+#
+# The pin is mandatory and hashes are required at install time: LiteLLM's
+# PyPI releases 1.82.7 and 1.82.8 were compromised in March 2026, so never
+# resolve "latest" or install unhashed packages here.
+# ---------------------------------------------------------------------
+rm -rf "$APP/Contents/Resources/litellm-runtime"
+LITELLM_ENABLED_FOR_BUNDLE="$(read_env_var OPENCLAW_INSTALLER_ENABLE_LITELLM)"
+if [[ "$LITELLM_ENABLED_FOR_BUNDLE" != "1" ]]; then
+  echo "==> LiteLLM smart router not enabled (OPENCLAW_INSTALLER_ENABLE_LITELLM!=1) -- skipping"
+  LITELLM_ENABLED_FOR_BUNDLE=""
+else
+  LITELLM_VERSION_FOR_BUNDLE="${OPENCLAW_LITELLM_VERSION:-$(read_env_var OPENCLAW_LITELLM_VERSION)}"
+  UV_VERSION_FOR_BUNDLE="${OPENCLAW_UV_VERSION:-$(read_env_var OPENCLAW_UV_VERSION)}"
+  LITELLM_PYTHON_FOR_BUNDLE="${OPENCLAW_LITELLM_PYTHON:-$(read_env_var OPENCLAW_LITELLM_PYTHON)}"
+  LITELLM_PYTHON_FOR_BUNDLE="${LITELLM_PYTHON_FOR_BUNDLE:-3.12}"
+  if [[ ! "$LITELLM_VERSION_FOR_BUNDLE" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]]; then
+    echo "ERROR: OPENCLAW_LITELLM_VERSION must be an exact version (e.g. 1.94.2), got '${LITELLM_VERSION_FOR_BUNDLE}'" >&2
+    exit 1
+  fi
+  case "$LITELLM_VERSION_FOR_BUNDLE" in
+    1.82.7 | 1.82.8)
+      echo "ERROR: litellm $LITELLM_VERSION_FOR_BUNDLE is a known-compromised PyPI release -- pin a different version" >&2
+      exit 1
+      ;;
+  esac
+  if [[ ! "$UV_VERSION_FOR_BUNDLE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ERROR: OPENCLAW_UV_VERSION must be an exact uv release (e.g. 0.8.22), got '${UV_VERSION_FOR_BUNDLE}'" >&2
+    exit 1
+  fi
+  UV_CACHE_ROOT="$ROOT_DIR/.artifacts/mac-installer-uv-cache/$UV_VERSION_FOR_BUNDLE"
+  LITELLM_LOCK_CACHE="$ROOT_DIR/.artifacts/mac-installer-litellm-lock"
+  LITELLM_RUNTIME_OUT="$APP/Contents/Resources/litellm-runtime"
+  mkdir -p "$UV_CACHE_ROOT" "$LITELLM_LOCK_CACHE" "$LITELLM_RUNTIME_OUT"
+  APP_ARCHS="$(lipo -archs "$APP_BIN" 2>/dev/null || uname -m)"
+  HOST_UV=""
+
+  fetch_uv_archive() { # $1 = uv target triple; prints the cached archive path
+    local target="$1" archive="$UV_CACHE_ROOT/uv-$1.tar.gz" url expected actual
+    url="https://github.com/astral-sh/uv/releases/download/${UV_VERSION_FOR_BUNDLE}/uv-${target}.tar.gz"
+    if [[ ! -f "$archive" ]]; then
+      echo "    Downloading uv ${UV_VERSION_FOR_BUNDLE} (${target})" >&2
+      curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "$archive.tmp" "$url" || { rm -f "$archive.tmp"; echo "ERROR: download failed: $url" >&2; return 1; }
+      curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "$archive.sha256.tmp" "$url.sha256" || { rm -f "$archive.tmp" "$archive.sha256.tmp"; echo "ERROR: download failed: $url.sha256" >&2; return 1; }
+      expected="$(awk '{print $1}' "$archive.sha256.tmp")"
+      actual="$(shasum -a 256 "$archive.tmp" | awk '{print $1}')"
+      if [[ -z "$expected" || "$expected" != "$actual" ]]; then
+        rm -f "$archive.tmp" "$archive.sha256.tmp"
+        echo "ERROR: uv archive sha256 mismatch for $url" >&2
+        return 1
+      fi
+      mv "$archive.tmp" "$archive"
+      echo "$expected" > "$archive.sha256"
+      rm -f "$archive.sha256.tmp"
+    fi
+    [[ "$(shasum -a 256 "$archive" | awk '{print $1}')" == "$(cat "$archive.sha256")" ]] \
+      || { echo "ERROR: cached $archive sha256 mismatch -- delete it and retry" >&2; return 1; }
+    echo "$archive"
+  }
+
+  # uv that can run on this build machine, used only to compile the lock.
+  case "$(uname -m)" in
+    arm64) HOST_UV_TARGET="aarch64-apple-darwin" ;;
+    *) HOST_UV_TARGET="x86_64-apple-darwin" ;;
+  esac
+  HOST_UV_ARCHIVE="$(fetch_uv_archive "$HOST_UV_TARGET")" || exit 1
+  HOST_UV_DIR="$UV_CACHE_ROOT/host-$HOST_UV_TARGET"
+  if [[ ! -x "$HOST_UV_DIR/uv" ]]; then
+    rm -rf "$HOST_UV_DIR" && mkdir -p "$HOST_UV_DIR"
+    tar -xzf "$HOST_UV_ARCHIVE" -C "$HOST_UV_DIR" --strip-components=1
+  fi
+  HOST_UV="$HOST_UV_DIR/uv"
+
+  echo "==> Bundling LiteLLM smart router runtime: litellm[proxy]==${LITELLM_VERSION_FOR_BUNDLE}, uv ${UV_VERSION_FOR_BUNDLE}, Python ${LITELLM_PYTHON_FOR_BUNDLE}, for: $APP_ARCHS"
+  for arch in $APP_ARCHS; do
+    case "$arch" in
+      arm64) uv_target="aarch64-apple-darwin"; mac_arch="arm64" ;;
+      x86_64) uv_target="x86_64-apple-darwin"; mac_arch="x64" ;;
+      *) echo "    (skipping unrecognized arch: $arch)"; continue ;;
+    esac
+    uv_archive="$(fetch_uv_archive "$uv_target")" || exit 1
+    cp "$uv_archive" "$LITELLM_RUNTIME_OUT/uv-macos-${mac_arch}.tar.gz"
+    cp "$uv_archive.sha256" "$LITELLM_RUNTIME_OUT/uv-macos-${mac_arch}.tar.gz.sha256"
+    lock_file="$LITELLM_LOCK_CACHE/litellm-${LITELLM_VERSION_FOR_BUNDLE}-py${LITELLM_PYTHON_FOR_BUNDLE}-${uv_target}.lock"
+    if [[ ! -s "$lock_file" ]]; then
+      echo "    Resolving hash-locked dependencies for ${uv_target}"
+      printf 'litellm[proxy]==%s\n' "$LITELLM_VERSION_FOR_BUNDLE" > "$lock_file.in"
+      if ! "$HOST_UV" pip compile --quiet --no-config --generate-hashes \
+          --python-version "$LITELLM_PYTHON_FOR_BUNDLE" --python-platform "$uv_target" \
+          --output-file "$lock_file.tmp" "$lock_file.in"; then
+        rm -f "$lock_file.tmp"
+        echo "ERROR: could not resolve litellm[proxy]==${LITELLM_VERSION_FOR_BUNDLE} for ${uv_target}" >&2
+        exit 1
+      fi
+      mv "$lock_file.tmp" "$lock_file"
+    fi
+    cp "$lock_file" "$LITELLM_RUNTIME_OUT/requirements-macos-${mac_arch}.lock"
+  done
+  echo "$LITELLM_VERSION_FOR_BUNDLE" > "$LITELLM_RUNTIME_OUT/litellm-version.txt"
+  echo "$LITELLM_PYTHON_FOR_BUNDLE" > "$LITELLM_RUNTIME_OUT/python-version.txt"
+  echo "    Bundled LiteLLM runtime ($(du -sh "$LITELLM_RUNTIME_OUT" | cut -f1))"
+fi
+
+# ---------------------------------------------------------------------
 # 4. Default AI provider (optional): if installer.env exists at the repo
 # root, bake its OPENCLAW_INSTALLER_DEFAULT_AI_* (and
 # OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL) values into the app bundle
@@ -573,6 +696,13 @@ if [[ -f "$ENV_FILE" ]]; then
       exit 1
     fi
     echo "DEFAULT_LLAMA_CTX=$LLAMA_CTX_FOR_BUNDLE"
+    # LiteLLM hybrid router (scripts/mac-local-ai-setup.sh,
+    # scripts/mac-litellm-router-setup.sh): the switch, and optional per-tier
+    # model pins (OpenClaw refs; unset tiers are chosen automatically).
+    echo "DEFAULT_LITELLM_ENABLED=${LITELLM_ENABLED_FOR_BUNDLE:+1}"
+    echo "DEFAULT_ROUTER_TIER_MEDIUM=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_MEDIUM)"
+    echo "DEFAULT_ROUTER_TIER_COMPLEX=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_COMPLEX)"
+    echo "DEFAULT_ROUTER_TIER_REASONING=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_REASONING)"
   } > "$APP/Contents/Resources/default-ai-provider.env"
 else
   echo "==> No $ENV_FILE -- skipping default AI provider config"

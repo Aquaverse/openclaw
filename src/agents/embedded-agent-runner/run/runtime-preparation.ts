@@ -525,6 +525,7 @@ export async function prepareEmbeddedRunRuntime(input: {
     provider,
     modelId,
     requestedModelId,
+    modelSelectionChangedByHook,
     expectedHarnessArtifact,
     nativeModelOwned,
     nativeSessionRuntime,

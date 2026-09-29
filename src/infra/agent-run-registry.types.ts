@@ -21,6 +21,12 @@ export type AgentRunContext = {
   /** Producer-owned start captured from this run's accepted lifecycle event. */
   lifecycleStartedAt?: number;
   activeModel?: AgentRunModel;
+  /**
+   * Model this run reports while it is live, regardless of which model actually
+   * answers. A `before_model_resolve` plugin route pins the session's own
+   * selection here so the chat picker does not flicker to the routed model.
+   */
+  pinnedActiveModel?: AgentRunModel;
   verboseLevel?: VerboseLevel;
   isHeartbeat?: boolean;
   /** Whether control UI clients should receive chat/agent updates for this run. */

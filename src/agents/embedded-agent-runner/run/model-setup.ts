@@ -1,5 +1,6 @@
 import { loadSessionEntryReadOnly } from "../../../config/sessions/session-accessor.js";
 import { assertAgentRunLifecycleGenerationCurrent } from "../../../infra/agent-events.js";
+import { pinAgentRunActiveModel } from "../../../infra/agent-run-registry.js";
 import { requireActivePluginRegistry } from "../../../plugins/runtime.js";
 import { resolveSessionPinnedHarnessId } from "../../../sessions/agent-harness-session-key.js";
 import { FailoverError } from "../../failover-error.js";
@@ -124,6 +125,11 @@ export async function resolveEmbeddedRunModelSetup(params: {
   });
   const modelSelectionChangedByHook =
     hookSelection.provider !== params.provider || hookSelection.modelId !== params.modelId;
+  if (modelSelectionChangedByHook && runParams.runId) {
+    // The session keeps the model the user picked, so the live run reports that
+    // one instead of flickering to the model the plugin routed this turn to.
+    pinAgentRunActiveModel(runParams.runId, { provider: params.provider, model: params.modelId });
+  }
   let provider = hookSelection.provider;
   let modelId = hookSelection.modelId;
   const requestStreamTransportOverrides = resolveRequestStreamTransportOverrides(

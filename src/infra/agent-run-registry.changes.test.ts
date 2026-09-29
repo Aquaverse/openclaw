@@ -3,10 +3,12 @@ import { sessionChanges } from "../sessions/session-row-changes.js";
 import {
   claimAgentRunContext,
   clearAgentRunContext,
+  pinAgentRunActiveModel,
   recordAgentRunModel,
   registerAgentRunContext,
   releaseAgentRunContext,
   resetAgentRunRegistryForTest,
+  resolveProjectedAgentRunModel,
   rotateAgentRunRegistryLifecycleGeneration,
   sweepStaleRunContexts,
 } from "./agent-run-registry.js";
@@ -66,4 +68,30 @@ it("invalidates the run projection on lifecycle rotation and orphan cleanup", ()
   } finally {
     stop();
   }
+});
+
+it("keeps a pinned run reporting the selected model while a plugin routes the turn", () => {
+  const identity = { sessionKey: "agent:main:pinned", agentId: "main", sessionId: "pinned-1" };
+  registerAgentRunContext("pinned", identity);
+  pinAgentRunActiveModel("pinned", { provider: "litellm-router", model: "adaptive" });
+
+  recordAgentRunModel("pinned", { provider: "llama-local-fallback", model: "openclaw-local" });
+  expect(resolveProjectedAgentRunModel({ agentId: "main", sessionId: "pinned-1" })).toEqual({
+    provider: "litellm-router",
+    model: "adaptive",
+  });
+
+  // Clearing still passes through, so run start resets the reported model.
+  recordAgentRunModel("pinned", undefined);
+  expect(resolveProjectedAgentRunModel({ agentId: "main", sessionId: "pinned-1" })).toBeNull();
+});
+
+it("reports the real model when no pin is set", () => {
+  const identity = { sessionKey: "agent:main:unpinned", agentId: "main", sessionId: "unpinned-1" };
+  registerAgentRunContext("unpinned", identity);
+  recordAgentRunModel("unpinned", { provider: "llama-local-fallback", model: "openclaw-local" });
+  expect(resolveProjectedAgentRunModel({ agentId: "main", sessionId: "unpinned-1" })).toEqual({
+    provider: "llama-local-fallback",
+    model: "openclaw-local",
+  });
 });

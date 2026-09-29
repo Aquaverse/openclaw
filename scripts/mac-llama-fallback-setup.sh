@@ -72,6 +72,15 @@ fail_soft() {
 [[ -n "$APP_PATH" && -d "$APP_PATH" ]] || fail_soft "no valid --app-path given ($APP_PATH)"
 [[ -n "$PREFIX" ]] || fail_soft "no --prefix given"
 
+# The app (and pkg) launch this script on every app start. When the bundle
+# also carries the local-AI orchestrator (LiteLLM hybrid mode), hand off to
+# it; it calls back into this script, with OPENCLAW_LOCAL_AI_ORCHESTRATED=1,
+# for the llama.cpp part -- which is everything below, unchanged.
+LOCAL_AI_ORCHESTRATOR="$APP_PATH/Contents/Resources/mac-local-ai-setup.sh"
+if [[ -z "${OPENCLAW_LOCAL_AI_ORCHESTRATED:-}" && -f "$LOCAL_AI_ORCHESTRATOR" ]]; then
+  exec /bin/bash "$LOCAL_AI_ORCHESTRATOR" --app-path "$APP_PATH" --prefix "$PREFIX"
+fi
+
 log "=================================================="
 log "llama fallback setup starting (app: $APP_PATH, prefix: $PREFIX)"
 

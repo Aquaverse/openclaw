@@ -1,0 +1,134 @@
+{
+  "id": "adaptive-model",
+  "categories": [
+    "models"
+  ],
+  "name": "Adaptive Model",
+  "description": "Makes a selectable \"adaptive\" model pick a configured model for each user message, classified by a local model through the LiteLLM router.",
+  "activation": {
+    "onStartup": true
+  },
+  "configGroups": [
+    {
+      "id": "adaptive-routing",
+      "title": "Adaptive routing",
+      "order": 10,
+      "properties": [
+        "adaptiveModel",
+        "defaultModel",
+        "tiers",
+        "candidates",
+        "exclude"
+      ]
+    },
+    {
+      "id": "classifier",
+      "title": "Classifier",
+      "order": 20,
+      "properties": [
+        "routerBaseUrl",
+        "routerKeyFile",
+        "classifierModel",
+        "timeoutMs"
+      ]
+    },
+    {
+      "id": "conversation",
+      "title": "Conversation",
+      "order": 30,
+      "properties": [
+        "stickyMinutes",
+        "shortFollowUpChars",
+        "recentTurns",
+        "leanLocalPrompt"
+      ]
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "adaptiveModel": {
+        "type": "string",
+        "description": "Model ref that turns adaptive routing on when it is the selected model (default litellm-router/adaptive). Any other selected model is used as-is."
+      },
+      "defaultModel": {
+        "type": "string",
+        "description": "Model ref for COMPLEX requests and the anchor for the other tiers. Default: the first non-local fallback of the agent's model selection."
+      },
+      "tiers": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Pin the model ref used for a tier. Unset tiers are chosen from the configured models automatically.",
+        "properties": {
+          "SIMPLE": {
+            "type": "string"
+          },
+          "MEDIUM": {
+            "type": "string"
+          },
+          "COMPLEX": {
+            "type": "string"
+          },
+          "REASONING": {
+            "type": "string"
+          }
+        }
+      },
+      "candidates": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Explicit list of model refs to route between. Default: every configured model (primary, fallbacks, model picker entries and custom provider models)."
+      },
+      "exclude": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Model refs or provider ids never routed to."
+      },
+      "routerBaseUrl": {
+        "type": "string",
+        "description": "OpenAI-compatible base URL of the LiteLLM router (default http://127.0.0.1:18791/v1)."
+      },
+      "routerKeyFile": {
+        "type": "string",
+        "description": "File holding the router's API key (default <state dir>/litellm/master.key)."
+      },
+      "classifierModel": {
+        "type": "string",
+        "description": "Router model name of the local classifier (default local-classifier)."
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 500,
+        "maximum": 20000,
+        "description": "Budget for one classification (default 5000). On timeout the previous choice of the conversation is kept, else the adaptive model's own router answers."
+      },
+      "stickyMinutes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1440,
+        "description": "How long a conversation remembers its last choice (default 30)."
+      },
+      "shortFollowUpChars": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2000,
+        "description": "Messages up to this length never downgrade the conversation's current model (default 80)."
+      },
+      "recentTurns": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "description": "Earlier user messages given to the classifier as context (default 3)."
+      },
+      "leanLocalPrompt": {
+        "type": "boolean",
+        "description": "When a message is routed to the local model, send it a short chat-only system prompt without tools instead of the full agent prompt (default true). A small local model cannot act on the full agent prompt, and reading it takes many seconds."
+      }
+    }
+  }
+}

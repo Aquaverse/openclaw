@@ -291,3 +291,63 @@ it.each([false, true])(
     expect(fixture.read()?.fallbackNotice).toBeUndefined();
   },
 );
+
+it("treats a before_model_resolve route as the selected model, not a fallback", async () => {
+  const fixture = await createFixture({ provider: "litellm-router", model: "adaptive" });
+  const { context } = fixture;
+  const entry = context.activeSessionEntry!;
+  context.cfg.agents = { defaults: { model: { primary: "litellm-router/adaptive" } } };
+  await fixture.replace(entry);
+
+  context.execution.resolved = { provider: "llama-local-fallback", model: "openclaw-local" };
+  context.execution.result.meta.agentMeta = {
+    sessionId: entry.sessionId,
+    contextTokens: 1_000,
+    provider: "llama-local-fallback",
+    model: "openclaw-local",
+    modelSelectionChangedByHook: true,
+  };
+
+  const accounting = await accountAgentTurn(context);
+  expect(accounting.fallbackTransition).toMatchObject({
+    fallbackActive: false,
+    fallbackTransitioned: false,
+  });
+  const stored = fixture.read()!;
+  expect(stored.fallbackNotice).toBeUndefined();
+  // The picker must keep showing the model the user selected.
+  expect(stored.modelProvider).toBe("litellm-router");
+  expect(stored.model).toBe("adaptive");
+});
+
+it("still reports a real fallback that happened on top of a hook route", async () => {
+  const fixture = await createFixture({ provider: "litellm-router", model: "adaptive" });
+  const { context } = fixture;
+  const entry = context.activeSessionEntry!;
+  context.cfg.agents = { defaults: { model: { primary: "litellm-router/adaptive" } } };
+  await fixture.replace(entry);
+
+  context.execution.resolved = { provider: "fallback-fixture", model: "plain" };
+  context.execution.fallback.attempts = [
+    {
+      provider: "vllm",
+      model: "publicModelDefault",
+      error: "model not found",
+      reason: "model_not_found",
+    },
+  ];
+  context.execution.result.meta.agentMeta = {
+    sessionId: entry.sessionId,
+    contextTokens: 1_000,
+    provider: "fallback-fixture",
+    model: "plain",
+    modelSelectionChangedByHook: true,
+  };
+
+  const accounting = await accountAgentTurn(context);
+  expect(accounting.fallbackTransition).toMatchObject({ fallbackActive: true });
+  expect(fixture.read()?.fallbackNotice).toMatchObject({
+    selectedModel: "litellm-router/adaptive",
+    activeModel: "fallback-fixture/plain",
+  });
+});

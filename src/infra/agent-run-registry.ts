@@ -561,15 +561,35 @@ export function recordAgentRunModel(runId: string, model: AgentRunModel | undefi
   if (!context || context.lifecycleGeneration !== getAgentRunLifecycleGeneration()) {
     return;
   }
-  if (areAgentRunModelsEqual(context.activeModel, model)) {
+  // A pinned run reports the selection the user made, not the model a plugin
+  // routed this turn to. Clearing (undefined) still passes through.
+  const next = model && context.pinnedActiveModel ? context.pinnedActiveModel : model;
+  if (areAgentRunModelsEqual(context.activeModel, next)) {
     return;
   }
-  if (model) {
-    context.activeModel = model;
+  if (next) {
+    context.activeModel = next;
   } else {
     delete context.activeModel;
   }
   bumpAgentRunIndexVersion(context);
+}
+
+/**
+ * Pins the model a live run reports to the Control UI. Used when a
+ * `before_model_resolve` plugin routes one turn elsewhere: the session keeps its
+ * own selection, so the picker must keep showing it for the whole run.
+ */
+export function pinAgentRunActiveModel(runId: string, model: AgentRunModel | undefined): void {
+  const context = getAgentRunContext(runId);
+  if (!context || context.lifecycleGeneration !== getAgentRunLifecycleGeneration()) {
+    return;
+  }
+  if (model) {
+    context.pinnedActiveModel = model;
+  } else {
+    delete context.pinnedActiveModel;
+  }
 }
 
 export function resolveProjectedAgentRunModel(params: {

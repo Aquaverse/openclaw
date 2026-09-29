@@ -44,6 +44,8 @@ export function prepareEmbeddedRunTerminal(input: {
   provider: string;
   providerOwner?: PreparedProviderFailoverOwner;
   model: string;
+  /** A `before_model_resolve` plugin hook chose this run's provider/model. */
+  modelSelectionChangedByHook?: boolean;
   activeErrorContext: { provider: string; model: string };
   authProfileStore: AuthProfileStore;
   authProfileId?: string;
@@ -128,6 +130,7 @@ export function prepareEmbeddedRunTerminal(input: {
     ...(attempt.runtimeModelSelection
       ? { runtimeModelSelection: attempt.runtimeModelSelection }
       : {}),
+    ...(input.modelSelectionChangedByHook ? { modelSelectionChangedByHook: true } : {}),
     credentialSource: attempt.modelAttempt?.credentialSource,
     usage: usageMeta.usage,
     lastCallUsage: usageMeta.lastCallUsage,
