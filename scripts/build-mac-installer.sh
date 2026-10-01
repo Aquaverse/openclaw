@@ -696,6 +696,32 @@ if [[ -f "$ENV_FILE" ]]; then
       exit 1
     fi
     echo "DEFAULT_LLAMA_CTX=$LLAMA_CTX_FOR_BUNDLE"
+    # llama-server memory shaping for the local model; see
+    # scripts/mac-llama-fallback-setup.sh. Empty -> that script's own defaults.
+    # Validated here rather than at launch time so a typo fails the build
+    # instead of silently dropping the flag on every user's machine.
+    LLAMA_CACHE_RAM_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_CACHE_RAM)"
+    if [[ -n "$LLAMA_CACHE_RAM_FOR_BUNDLE" \
+      && "$LLAMA_CACHE_RAM_FOR_BUNDLE" != "off" \
+      && ! "$LLAMA_CACHE_RAM_FOR_BUNDLE" =~ ^[0-9]+$ ]]; then
+      echo "ERROR: OPENCLAW_LLAMA_FALLBACK_CACHE_RAM must be MiB or 'off', got '${LLAMA_CACHE_RAM_FOR_BUNDLE}'" >&2
+      exit 1
+    fi
+    echo "DEFAULT_LLAMA_CACHE_RAM=$LLAMA_CACHE_RAM_FOR_BUNDLE"
+    LLAMA_KV_TYPE_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_KV_TYPE)"
+    if [[ -n "$LLAMA_KV_TYPE_FOR_BUNDLE" && ! "$LLAMA_KV_TYPE_FOR_BUNDLE" =~ ^[a-z0-9_]+$ ]]; then
+      echo "ERROR: OPENCLAW_LLAMA_FALLBACK_KV_TYPE must be a cache type or 'off', got '${LLAMA_KV_TYPE_FOR_BUNDLE}'" >&2
+      exit 1
+    fi
+    echo "DEFAULT_LLAMA_KV_TYPE=$LLAMA_KV_TYPE_FOR_BUNDLE"
+    LLAMA_SLOTS_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_SLOTS)"
+    if [[ -n "$LLAMA_SLOTS_FOR_BUNDLE" \
+      && "$LLAMA_SLOTS_FOR_BUNDLE" != "off" \
+      && ! "$LLAMA_SLOTS_FOR_BUNDLE" =~ ^[0-9]+$ ]]; then
+      echo "ERROR: OPENCLAW_LLAMA_FALLBACK_SLOTS must be a slot count or 'off', got '${LLAMA_SLOTS_FOR_BUNDLE}'" >&2
+      exit 1
+    fi
+    echo "DEFAULT_LLAMA_SLOTS=$LLAMA_SLOTS_FOR_BUNDLE"
     # LiteLLM hybrid router (scripts/mac-local-ai-setup.sh,
     # scripts/mac-litellm-router-setup.sh): the switch, and optional per-tier
     # model pins (OpenClaw refs; unset tiers are chosen automatically).

@@ -37,6 +37,24 @@
 #                                  32768 normally or model-native context when
 #                                  more than 10 GiB of memory is available. Set
 #                                  0 explicitly to always use model-native context.
+#   The three knobs below follow the same precedence as the context size:
+#   this environment variable > the value baked from installer.env at build
+#   time (DEFAULT_LLAMA_CACHE_RAM / _KV_TYPE / _SLOTS) > the default here.
+#   OPENCLAW_LLAMA_FALLBACK_CACHE_RAM  Host-RAM prompt-cache cap in MiB passed as
+#                                  --cache-ram (default 512). llama-server's own
+#                                  default is 8192 MiB, which this model does not
+#                                  need and which grows over time. Do not set 0:
+#                                  --kv-unified "requires cache-ram", so disabling
+#                                  the cache also disables the unified KV buffer.
+#                                  Set to "off" to omit the flag entirely.
+#   OPENCLAW_LLAMA_FALLBACK_KV_TYPE  KV cache type for -ctk/-ctv (default q8_0;
+#                                  "f16" restores llama-server's default, "off"
+#                                  omits both flags). q8_0 halves KV memory and is
+#                                  harmless for the classification / short-answer
+#                                  role this fallback model plays.
+#   OPENCLAW_LLAMA_FALLBACK_SLOTS  Server slots passed as -np (default 1). The
+#                                  llama-server default is -1 (auto), which can
+#                                  open several slots for a single consumer.
 #   OPENCLAW_LLAMA_FALLBACK_HEALTH_WAIT  Seconds to wait for the server to answer (default 600).
 #   HF_HUB_CACHE / HF_HOME / HF_ENDPOINT  Standard Hugging Face settings (from the environment or
 #                                  `launchctl setenv`): where the hub cache is, and a mirror
@@ -956,6 +974,73 @@ mkdir -p "$LAUNCH_AGENT_DIR"
 # MTLCompilerService, and a Background-class process gets its compile
 # requests deprioritized so far that startup was observed stalling for many
 # minutes (llama-server stuck in ggml_metal_library_init / MTLCompilerScheduler).
+# Memory-shaping flags. llama-server's own defaults are tuned for a dedicated
+# inference box, not for a fallback model sharing a 16 GB laptop with everything
+# else: --cache-ram defaults to 8192 MiB of host-RAM prompt cache that fills up
+# over time, and -np defaults to auto (several slots). Each flag is added only
+# when the bundled build actually advertises it -- the llama.cpp release is
+# version-bumped from installer.env, and a flag that silently disappears must
+# degrade to "not passed", never to a server that refuses to start.
+SERVER_HELP=""
+server_supports_flag() { # <flag as it appears in --help>
+  [[ -n "$SERVER_HELP" ]] || SERVER_HELP="$("$SERVER_BIN" --help 2>&1 || true)"
+  [[ "$SERVER_HELP" == *"$1"* ]]
+}
+
+# Same precedence as the context size: runtime env > value baked from
+# installer.env at build time > this script's default.
+BAKED_CACHE_RAM=""; BAKED_KV_TYPE=""; BAKED_SLOTS=""
+if [[ -f "$DEFAULT_AI_ENV" ]]; then
+  baked_value() {
+    /usr/bin/grep -E "^$1=" "$DEFAULT_AI_ENV" | /usr/bin/tail -n1 \
+      | /usr/bin/cut -d'=' -f2- | /usr/bin/tr -d '\r'
+  }
+  BAKED_CACHE_RAM="$(baked_value DEFAULT_LLAMA_CACHE_RAM)"
+  BAKED_KV_TYPE="$(baked_value DEFAULT_LLAMA_KV_TYPE)"
+  BAKED_SLOTS="$(baked_value DEFAULT_LLAMA_SLOTS)"
+fi
+
+EXTRA_SERVER_ARGS=()
+CACHE_RAM="${OPENCLAW_LLAMA_FALLBACK_CACHE_RAM:-${BAKED_CACHE_RAM:-512}}"
+if [[ "$CACHE_RAM" == "off" ]]; then
+  log "Prompt cache: leaving llama-server's default (--cache-ram not passed)"
+elif [[ "$CACHE_RAM" =~ ^[0-9]+$ ]] && server_supports_flag "--cache-ram"; then
+  # 0 would also switch off the unified KV buffer, which we want to keep.
+  if (( CACHE_RAM == 0 )); then
+    log "WARN: --cache-ram 0 also disables the unified KV buffer -- using 64 MiB instead"
+    CACHE_RAM=64
+  fi
+  EXTRA_SERVER_ARGS+=(--cache-ram "$CACHE_RAM")
+elif [[ ! "$CACHE_RAM" =~ ^[0-9]+$ ]]; then
+  log "WARN: invalid OPENCLAW_LLAMA_FALLBACK_CACHE_RAM '$CACHE_RAM' -- not passing --cache-ram"
+fi
+
+KV_TYPE="${OPENCLAW_LLAMA_FALLBACK_KV_TYPE:-${BAKED_KV_TYPE:-q8_0}}"
+if [[ "$KV_TYPE" == "off" ]]; then
+  log "KV cache type: leaving llama-server's default (-ctk/-ctv not passed)"
+elif [[ "$KV_TYPE" =~ ^[a-z0-9_]+$ ]] && server_supports_flag "--cache-type-k"; then
+  EXTRA_SERVER_ARGS+=(-ctk "$KV_TYPE" -ctv "$KV_TYPE")
+elif [[ ! "$KV_TYPE" =~ ^[a-z0-9_]+$ ]]; then
+  log "WARN: invalid OPENCLAW_LLAMA_FALLBACK_KV_TYPE '$KV_TYPE' -- not passing -ctk/-ctv"
+fi
+
+SLOTS="${OPENCLAW_LLAMA_FALLBACK_SLOTS:-${BAKED_SLOTS:-1}}"
+if [[ "$SLOTS" == "off" ]]; then
+  log "Server slots: leaving llama-server's default (-np not passed)"
+elif [[ "$SLOTS" =~ ^[0-9]+$ ]] && (( SLOTS >= 1 )) && server_supports_flag "--parallel"; then
+  EXTRA_SERVER_ARGS+=(-np "$SLOTS")
+elif [[ ! "$SLOTS" =~ ^[0-9]+$ ]]; then
+  log "WARN: invalid OPENCLAW_LLAMA_FALLBACK_SLOTS '$SLOTS' -- not passing -np"
+fi
+
+EXTRA_SERVER_ARGS_XML=""
+for arg in "${EXTRA_SERVER_ARGS[@]+"${EXTRA_SERVER_ARGS[@]}"}"; do
+  EXTRA_SERVER_ARGS_XML+="    <string>${arg}</string>"$'\n'
+done
+(( ${#EXTRA_SERVER_ARGS[@]} > 0 )) \
+  && log "Server memory flags: ${EXTRA_SERVER_ARGS[*]}" \
+  || log "Server memory flags: none (turned off, or unsupported by this build)"
+
 PLIST_CANDIDATE="$LLAMA_DIR/.launch-agent.plist.new"
 cat > "$PLIST_CANDIDATE" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -978,7 +1063,7 @@ cat > "$PLIST_CANDIDATE" <<PLIST_EOF
     <string>-c</string>
     <string>${CTX}</string>
     <string>--no-webui</string>
-  </array>
+${EXTRA_SERVER_ARGS_XML}  </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
