@@ -390,7 +390,28 @@ read_env_var() {
   [[ -f "$ENV_FILE" ]] || return 0
   # Optional installer.env keys are allowed to be absent. Keep grep's
   # no-match status from triggering the caller's set -e exit path.
-  grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -n1 | cut -d'=' -f2- || true
+  local raw
+  raw="$(grep -E "^[[:space:]]*$1=" "$ENV_FILE" | tail -n1 | cut -d'=' -f2- || true)"
+  [[ -n "$raw" ]] || return 0
+  # Parse the value the way a shell would. installer.env.example documents
+  # several keys as "KEY=value   # what it means", and uncommenting such a
+  # line verbatim is the expected way to set it -- so the trailing comment and
+  # the padding before it must not end up in the baked value. A quoted value is
+  # taken up to its closing quote (a '#' inside quotes is data); an unquoted one
+  # ends at the first whitespace-preceded '#', which is also the shell's rule,
+  # so a value that itself contains '#' (an API key, say) survives intact.
+  raw="${raw#"${raw%%[![:space:]]*}"}"
+  if [[ "$raw" == \"* ]]; then
+    raw="${raw#\"}"
+    raw="${raw%%\"*}"
+  elif [[ "$raw" == \'* ]]; then
+    raw="${raw#\'}"
+    raw="${raw%%\'*}"
+  else
+    raw="${raw%%[[:space:]]#*}"
+    raw="${raw%"${raw##*[![:space:]]}"}"
+  fi
+  printf '%s' "$raw"
 }
 
 # ---------------------------------------------------------------------
