@@ -1,0 +1,78 @@
+{
+  "id": "nexus-agent-core",
+  "name": "Nexus Agent Core",
+  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list), off by default. Stage 0 runtime spikes remain behind spikesEnabled (see DESIGN.md section 13).",
+  "categories": [
+    "agent-orchestration"
+  ],
+  "enabledByDefault": false,
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "tasksEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable the Stage 1 Task module: nexus_task_* tools (optional tools, allow them via tools.allow), nexus.task.* gateway methods, the open-Task prompt list and the nexus.sqlite store. Off by default."
+      },
+      "ownerId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$",
+        "description": "MVP owner id placeholder (DESIGN section 5). Not a security boundary. Defaults to \"local\"."
+      },
+      "spikesEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Register the Stage 0 spike probes (gateway methods nexus.spike.*, tool nexus_spike_probe, probe service). Off by default so the plugin is inert."
+      },
+      "spikeStopDelayMs": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Spike 3 item 4: delay the probe service stop() by this many ms to observe the reload stop timeout."
+      },
+      "spikeStartFailOnce": {
+        "type": "boolean",
+        "description": "Spike 3 item 4: make the first probe service start() throw once to observe start-failure retry."
+      }
+    }
+  },
+  "contracts": {
+    "tools": [
+      "nexus_task_reserve",
+      "nexus_task_create",
+      "nexus_task_get",
+      "nexus_task_update",
+      "nexus_task_note",
+      "nexus_task_search",
+      "nexus_spike_probe"
+    ]
+  },
+  "toolMetadata": {
+    "nexus_task_reserve": {
+      "optional": true
+    },
+    "nexus_task_create": {
+      "optional": true
+    },
+    "nexus_task_get": {
+      "optional": true
+    },
+    "nexus_task_update": {
+      "optional": true
+    },
+    "nexus_task_note": {
+      "optional": true
+    },
+    "nexus_task_search": {
+      "optional": true
+    },
+    "nexus_spike_probe": {
+      "optional": true
+    }
+  }
+}

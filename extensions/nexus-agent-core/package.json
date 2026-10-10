@@ -1,0 +1,33 @@
+{
+  "name": "@openclaw/nexus-agent-core",
+  "version": "2026.9.4",
+  "private": true,
+  "description": "Nexus Agent Core plugin (Stage 1 Task module; Stage 0 runtime spikes)",
+  "type": "module",
+  "dependencies": {
+    "typebox": "1.3.30"
+  },
+  "devDependencies": {
+    "@openclaw/plugin-sdk": "workspace:*",
+    "openclaw": "workspace:*"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.9.4"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "build": {
+      "workerEntries": [
+        "./src/store/sqlite-store.worker.ts",
+        "./src/spikes/spike1-sqlite.worker.ts"
+      ]
+    }
+  }
+}
