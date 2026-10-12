@@ -34,9 +34,9 @@ GitHub 的 Issue Forms 可以设置必填字段、默认 labels 和 assignees；
 │   ├── pull_request_template.md
 │   └── workflows/
 │       ├── ci.yml
+│       ├── codex-checks.yml
 │       ├── codex-review.yml
-│       ├── codex-qa.yml
-│       └── quality-ledger.yml
+│       └── codex-qa.yml
 ├── .agents/
 │   └── skills/
 ├── docs/
@@ -213,9 +213,7 @@ Security Review
        │
        └── FAIL
               │
-              ├── PR comment
-              ├── 创建 Bug Issue
-              └── 写入 Quality Ledger
+              └── 在 PR 中记录失败证据，等待 Human Supervisor 处理
 ```
 
 `Codex QA` 输出 schema：

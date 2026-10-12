@@ -6,7 +6,6 @@ const os = require("node:os");
 const path = require("node:path");
 const { readReport } = require("./report.cjs");
 const loadContext = require("./context.cjs");
-const ledger = require("./ledger.cjs");
 
 const expected = {
   issue: 12,
@@ -69,7 +68,7 @@ test("rejects false passes with bugs, regressions, failed criteria or no execute
     assert.throws(() => check({ ...qa, ...override }), /Contradictory/);
   }
 });
-test("keeps valid failing QA reports available to the publisher", () => {
+test("keeps valid failing QA reports available as evidence", () => {
   assert.equal(
     check({ ...qa, result: "fail", tests_executed: [], regressions: ["environment blocked"] })
       .result,
@@ -137,30 +136,18 @@ test("AI Ready=No and PRs masquerading as Issues are rejected before execution",
   issue = { ...issue, pull_request: {} };
   await assert.rejects(loadContext({ github, context }), /points to a PR/);
 });
-test("publisher discards stale commits without writing to GitHub", async () => {
-  const context = {
-    repo: { owner: "owner", repo: "repo" },
-    payload: {
-      workflow_run: {
-        event: "pull_request",
-        head_repository: { full_name: "owner/repo" },
-        head_sha: expected.commit,
-        pull_requests: [{ number: 34 }],
-      },
-    },
-  };
-  let notices = 0;
-  const github = {
-    rest: {
-      pulls: {
-        get: async () => ({
-          data: {
-            head: { repo: { full_name: "owner/repo" }, sha: "b".repeat(40) },
-          },
-        }),
-      },
-    },
-  };
-  await ledger({ github, context, core: { notice: () => notices++ } });
-  assert.equal(notices, 1);
+
+test("codex-ci PRs run only the ordered QA and review checks", () => {
+  const workflows = path.join(__dirname, "..", "workflows");
+  const caller = fs.readFileSync(path.join(workflows, "codex-checks.yml"), "utf8");
+  const ci = fs.readFileSync(path.join(workflows, "ci.yml"), "utf8");
+
+  assert.match(caller, /branches: \[codex-ci\]/);
+  assert.match(caller, /uses: \.\/\.github\/workflows\/codex-qa\.yml/);
+  assert.match(caller, /needs: qa/);
+  assert.match(caller, /uses: \.\/\.github\/workflows\/codex-review\.yml/);
+  assert.doesNotMatch(caller, /merge-gate|ci-gate|quality-ledger/i);
+  assert.match(ci, /branches-ignore: \[codex-ci\]/);
+  assert.doesNotMatch(ci, /^  codex-(?:qa|review):|^  merge-gate:/m);
+  assert.equal(fs.existsSync(path.join(workflows, "quality-ledger.yml")), false);
 });

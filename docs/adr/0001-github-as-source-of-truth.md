@@ -18,8 +18,8 @@ GitHub Files 保存长期规则、规格、设计、测试策略、报告和 ADR
 ## Consequences
 
 - Agent 可以用同一份 Issue、文件和 PR 上下文执行计划、实现、QA 和修复。
-- 质量报告和 Bug 镜像可以被搜索、审计并交给后续 Agent。
-- 需要维护 Issue Contract、PR Contract、评论协议和 Quality Ledger；未回写 GitHub 的决定不作为长期约束。
+- QA 和 Review 报告可以通过 PR 关联的 Actions artifact 审计并交给后续 Agent。
+- 需要维护 Issue Contract、PR Contract 和评论协议；未回写 GitHub 的决定不作为长期约束。
 
 ## Alternatives
 

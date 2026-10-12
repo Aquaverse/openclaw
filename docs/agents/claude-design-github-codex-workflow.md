@@ -3,7 +3,7 @@
 日期：2026-10-10
 状态：按 [a2a_dev_process.md](../../a2a_dev_process.md) 执行
 
-本文定义 Claude Design 如何接入本仓库已经建立的 GitHub Issue Forms、PR Template、Codex QA、Codex Review 和质量台账。它不创建新的 Issue 或 PR 格式，也不把 Claude Design 链接当作研发权威来源。
+本文定义 Claude Design 如何接入本仓库已经建立的 GitHub Issue Forms、PR Template、Codex QA 和 Codex Review。它不创建新的 Issue 或 PR 格式，也不把 Claude Design 链接当作研发权威来源。
 
 ## 核心原则
 
@@ -154,7 +154,7 @@ Build → Lint → Type Check → Unit → Integration → E2E
 → Codex QA → Codex Review → Human Supervisor → Merge
 ```
 
-Codex QA 按 Feature Issue 的 AC 验收，也要检查 Design handoff 中的异常状态。QA 报告和截图按 [质量台账规范](../quality/README.md) 进入质量台账。Codex Review 是额外审查，不能替代测试、分支保护或 Human Supervisor。
+Codex QA 按 Feature Issue 的 AC 验收，也要检查 Design handoff 中的异常状态。QA 报告和截图作为工作流 artifact 保存。Codex Review 是额外审查，不能替代测试、分支保护或 Human Supervisor。
 
 ## 正式评论协议
 
@@ -180,6 +180,6 @@ Codex QA 按 Feature Issue 的 AC 验收，也要检查 Design handoff 中的异
 5. Codex 读取 Feature Issue、Design Issue、handoff、`AGENTS.md` 和代码，实现最小切片。
 6. PR 使用现有模板，逐项提供 AC、测试、截图、设备矩阵、设计差异和风险回滚。
 7. CI、Codex QA、Codex Review 和 Human Supervisor 完成既定门槛后合并。
-8. 设计变化回到 Issue 和版本化文件；质量证据进入质量台账。
+8. 设计变化回到 Issue 和版本化文件；质量证据保存在 PR 和工作流 artifact 中。
 
 第一阶段保持 Claude Design 到 GitHub 的人工 handoff，优先验证文件结构、Issue 链接和证据完整性。只有在格式稳定、权限和导出能力明确后，才考虑自动同步；自动化不能绕过 Issue、PR、Review 或人工验收。
