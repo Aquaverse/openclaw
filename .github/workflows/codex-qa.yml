@@ -1,0 +1,65 @@
+name: Codex QA
+
+on:
+  workflow_call:
+    secrets:
+      OPENAI_API_KEY:
+        required: true
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  qa:
+    name: Codex QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Require supported PR and credentials
+        env:
+          API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          API_ENDPOINT: ${{ vars.OPENAI_RESPONSES_API_ENDPOINT }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          test "$SAME_REPO" = true || { echo '::error::Use a supervised same-repository branch for Codex checks'; exit 1; }
+          test -n "$API_KEY" || { echo '::error::Configure OPENAI_API_KEY'; exit 1; }
+          test -n "$API_ENDPOINT" || { echo '::error::Configure OPENAI_RESPONSES_API_ENDPOINT'; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-node-env
+        with:
+          node-version: "24.x"
+          install-bun: "false"
+          install-deps: "true"
+          frozen-lockfile: "true"
+          cache-mode: restore
+      - name: Load Issue contract and discussion
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await require('./.github/scripts/context.cjs')({ github, context });
+      - name: Run Codex QA
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          responses-api-endpoint: ${{ vars.OPENAI_RESPONSES_API_ENDPOINT }}
+          prompt-file: .github/prompts/qa.md
+          output-file: evidence/qa.json
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+          codex-args: '["--output-schema", ".github/schemas/qa.json"]'
+      - name: Validate report and enforce verdict
+        run: node .github/scripts/report.cjs qa evidence/qa.json evidence/context.json
+      - name: Preserve report and raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-qa
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30

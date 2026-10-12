@@ -1,0 +1,73 @@
+{
+  "type": "object",
+  "properties": {
+    "result": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "issue": {
+      "type": "integer"
+    },
+    "pr": {
+      "type": "integer"
+    },
+    "commit": {
+      "type": "string"
+    },
+    "security": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail",
+        "na"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "blocking": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blocking",
+          "path",
+          "line",
+          "description",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "result",
+    "issue",
+    "pr",
+    "commit",
+    "security",
+    "summary",
+    "findings"
+  ],
+  "additionalProperties": false
+}

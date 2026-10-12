@@ -121,3 +121,51 @@ Commands and implementation detail stay with these owners.
 - **Releases:** the chosen release workflow and [release contract](docs/reference/RELEASING.md). Preserve the selected release cut and identity through publication and verification. npm-format lock mirrors are verified against `pnpm-lock.yaml`, published in dependency evidence, and kept out of npm tarballs.
 - **Secrets/advisories:** [secret semantics](docs/gateway/secrets.md), [auth semantics](docs/auth-credential-semantics.md), and [security reporting](SECURITY.md) for the affected branch.
 - **Live channels/native apps:** the owning scoped guide and permitted proof workflow. Telegram claims require Test Server userbot proof with Convex-leased credentials; platform claims require the relevant real device/platform evidence. Mac permission proof needs a stable, properly signed app; see [signing](docs/platforms/mac/signing.md).
+
+# Repository Agent Instructions
+
+这些规则适用于整个仓库。目录更深处的 `AGENTS.md` 可以补充模块专属约束；任务专用要求以 GitHub Issue、其全部评论和链接文件为准。
+
+## 权威上下文
+
+开始工作前按顺序读取：
+
+1. 关联 GitHub Issue 及全部 Issue comments。
+2. `AGENTS.md` 和任务涉及目录下更深层的 `AGENTS.md`。
+3. Issue 明确链接的产品规格、设计、API、ADR 和运行手册。
+4. 现有代码、测试、配置和目标提交的 diff。
+
+GitHub 是研发决策的唯一权威来源：Files 保存长期规则，Issue 保存需求、任务和 Bug 状态，PR 保存实现、测试证据、Review 和合并决策。聊天或 Slack 中影响研发的决定必须回写 Issue 或 PR comment；Slack 只用于 `urgent`、`incident`、`security` 提醒并附 GitHub 链接。流程总览见 [`a2a_dev_process.md`](a2a_dev_process.md)，术语见 [`GLOSSARY.md`](GLOSSARY.md)。
+
+## Issue 和 PR 门槛
+
+- 正常工作必须关联一个主 Issue，PR 使用 `Closes #<number>`；其他依赖使用 `Refs #<number>`。
+- Issue 必须具备 Type、Problem、User Outcome、Scope、Non-goals、Acceptance Criteria、References、Dependencies、Risk、Owner 和 `AI Ready`。Type 只能是 Feature、Bug、Design 或 Tech Debt；线上 Incident 使用 Bug Type 搭配 `incident` 标签。`AI Ready=Yes` 且每项 AC 使用唯一的 `AC-1`、`AC-2` 编号后，才开始实现。
+- 需求、依赖或验收条件存在影响行为的未决问题时，在 Issue 留下 `[AI-QUESTION]` 并停止依赖该信息的实现；不要自行猜测产品意图。
+- PR 使用 [pull request template](.github/pull_request_template.md)，说明变更、规格引用、每项 AC、测试证据、Review、安全、风险回滚、文档和 Human Supervisor。
+
+## 实现和验证
+
+- 先理解 Issue 和现有约束，再实现满足 AC 的最小变更；保持用户已有改动，避免无关重构。
+- 从 `package.json` 和 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 发现真实命令与选中的 CI lanes，不凭记忆创造测试命令。保留现有 OpenClaw CI 的分片与 `openclaw/ci-gate` 聚合契约；同仓库、非草稿 PR 在该门禁成功后依次运行 Codex QA、Codex Review 和 Merge gate。
+- 现有自动化脚本可用 `node --test .github/scripts/automation.test.cjs` 验证。新增或修改功能时，补充有意义的自动测试，并在 PR 中记录实际命令、退出码和证据路径；未执行的测试不能写成通过。
+- 需要 QA 验收时，读取 [`.agents/skills/qa/SKILL.md`](.agents/skills/qa/SKILL.md)，逐项验证 AC，检查异常路径，并按 [`.github/schemas/qa.json`](.github/schemas/qa.json) 生成结构化报告。QA 只产生报告和证据，不替代 Review、Security Review 或 Human Supervisor。
+- 需要 Codex Review 时，遵循 [`.github/prompts/review.md`](.github/prompts/review.md) 和 [`.github/schemas/review.json`](.github/schemas/review.json)，直接检查目标 diff，不依赖 QA 结论；当前 CI 调度在 QA 成功后运行 Review，内容独立不等于并行执行。
+
+## 证据和沟通
+
+把可复核证据保存到 `evidence/` 或 PR 关联的质量记录中：命令、退出码、日志、测试结果、截图、coverage 和代码定位。长期质量摘要由 Quality Ledger 写入 [`docs/quality/README.md`](docs/quality/README.md) 规定的路径。
+
+正式评论使用以下前缀，并在 GitHub 留存：`[AI-PLAN]`、`[AI-QUESTION]`、`[AI-EVIDENCE]`、`[AI-BLOCKED]`、`[HUMAN-DECISION]`、`[AI-RESULT]`。阻塞说明解除条件；可复现产品缺陷说明严重程度、复现步骤和证据；环境阻塞不伪装成 Bug。
+
+## 完成标准
+
+任务完成前，确认：
+
+- 每项 Acceptance Criterion 都有实现或明确的阻塞/失败证据。
+- 受影响的自动测试已运行，测试、构建、lint 和类型检查的状态真实记录。
+- 必需的规格、API、设计、ADR 和运行文档已同步，或在 PR 中说明 N/A 原因。
+- PR 关联正确 Issue，使用仓库模板，并包含测试证据和回滚风险。
+- 没有未记录的产品决策、未解释的失败检查或声称通过的未执行测试。
+
+除非任务或工作流明确授权，不 push、merge 或创建外部 Issue。需要正式沟通时遵循上述评论协议，由获得授权的 GitHub workflow 发布；先把结果和证据准备成可审查的变更。
