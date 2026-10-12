@@ -1,0 +1,70 @@
+name: Quality Ledger
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] trusted publisher; validates same-repo PR/head SHA and treats bounded artifacts as schema-validated data only
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-ledger
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      # Only execute publisher code from the trusted default branch.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Download structured QA and review reports
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('node:fs');
+            const run = context.payload.workflow_run;
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,
+              { ...context.repo, run_id: run.id, per_page: 100 });
+            for (const kind of ['qa', 'review']) {
+              const artifact = artifacts.find(a => a.name === `codex-${kind}` && !a.expired);
+              if (!artifact) continue;
+              if (artifact.size_in_bytes > 20000000) throw new Error('Artifact too large');
+              const response = await github.rest.actions.downloadArtifact({ ...context.repo,
+                artifact_id: artifact.id, archive_format: 'zip' });
+              fs.writeFileSync(`${process.env.RUNNER_TEMP}/${kind}.zip`, Buffer.from(response.data));
+            }
+      - name: Extract only JSON data
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, zipfile
+          folder = pathlib.Path(os.environ['RUNNER_TEMP'])
+          for kind in ('qa', 'review'):
+              archive = folder / (kind + '.zip')
+              if not archive.exists():
+                  continue
+              with zipfile.ZipFile(archive) as z:
+                  name = kind + '.json'
+                  if name not in z.namelist():
+                      continue
+                  if z.getinfo(name).file_size > 500000:
+                      raise ValueError('Report too large')
+                  (folder / name).write_bytes(z.read(name))
+          PY
+      - name: Publish comments, Bug Issues and ledger pull request
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await require('./.github/scripts/ledger.cjs')({ github, context, core });

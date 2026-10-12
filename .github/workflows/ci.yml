@@ -6187,3 +6187,55 @@ jobs:
           done <<< "$JOB_RESULTS"
 
           exit "$failures"
+
+  codex-qa:
+    name: Codex QA
+    needs: ci-gate
+    if: >-
+      github.event_name == 'pull_request' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    uses: ./.github/workflows/codex-qa.yml
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  codex-review:
+    name: Codex Review
+    needs: codex-qa
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    uses: ./.github/workflows/codex-review.yml
+    secrets:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  merge-gate:
+    name: Merge gate
+    needs:
+      - ci-gate
+      - codex-qa
+      - codex-review
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Require OpenClaw CI, Codex QA and Codex Review
+        shell: bash
+        env:
+          OPENCLAW_CI: ${{ needs.ci-gate.result }}
+          CODEX_QA: ${{ needs.codex-qa.result }}
+          CODEX_REVIEW: ${{ needs.codex-review.result }}
+        run: |
+          set -euo pipefail
+          test "$OPENCLAW_CI" = success
+          test "$CODEX_QA" = success
+          test "$CODEX_REVIEW" = success

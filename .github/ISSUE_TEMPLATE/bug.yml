@@ -1,0 +1,131 @@
+name: Bug
+description: 可复现的缺陷
+title: '[Bug] '
+labels:
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        GitHub 是权威记录。正式评论使用
+        [AI-PLAN]、[AI-QUESTION]、[AI-EVIDENCE]、[AI-BLOCKED]、[HUMAN-DECISION]、[AI-RESULT]。需求变更须同步
+        Issue 和引用文件。
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type
+      description: 本表单对应的任务类型。
+      options:
+        - Bug
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: 描述当前问题、影响与证据，不以解决方案代替问题。
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User Outcome
+      description: 用户完成后得到什么？
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: 列出本次包含的工作。
+    validations:
+      required: true
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: 明确边界；无则填写 None。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: 每条使用 AC-1、AC-2 等编号，给出输入、预期结果和可自动验证的方法。
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: 填写仓库中的 PRD / Spec / Design / API / ADR 链接；ADR 使用 docs/adr/。无则说明原因。
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: '关联 Issue/API/服务；阻塞项写 Blocked by: #编号，无则填写 None。'
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      description: 综合数据、安全、兼容性和回滚风险。
+      options:
+        - low
+        - medium
+        - high
+    validations:
+      required: true
+  - type: input
+    id: owner
+    attributes:
+      label: Owner
+      description: 最终监督 AI 并负责验收的人，填写 @GitHub用户名。
+    validations:
+      required: true
+  - type: dropdown
+    id: ai_ready
+    attributes:
+      label: AI Ready
+      description: 仅在需求、验收条件与依赖明确且无影响行为的 TBD 时选择 Yes；No 时不得实施。
+      options:
+        - 'No'
+        - 'Yes'
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: 最小复现步骤、输入、频率与前置条件。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected / Actual
+      description: 分别填写预期结果与实际结果。
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: 版本/commit、浏览器、OS、设备、相关日志/截图链接；去除敏感信息。
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: S1 严重中断；S2 关键能力受损；S3 一般缺陷；S4 轻微问题。
+      options:
+        - S1
+        - S2
+        - S3
+        - S4
+    validations:
+      required: true

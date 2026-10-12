@@ -1,0 +1,111 @@
+{
+  "type": "object",
+  "properties": {
+    "result": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "issue": {
+      "type": "integer"
+    },
+    "pr": {
+      "type": "integer"
+    },
+    "commit": {
+      "type": "string"
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail"
+            ]
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "result",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tests_added": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tests_executed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "regressions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "bugs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "S1",
+              "S2",
+              "S3",
+              "S4"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "reproduction": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "title",
+          "reproduction",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "result",
+    "issue",
+    "pr",
+    "commit",
+    "acceptance_criteria",
+    "tests_added",
+    "tests_executed",
+    "regressions",
+    "bugs"
+  ],
+  "additionalProperties": false
+}

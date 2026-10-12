@@ -1,7 +1,7 @@
 <!--
-Optional linked context:
-Add a visible `Closes #<issue-number>` or `Related: #<issue-number>` line
-below this comment.
+Required linked context for normal development work:
+Add one visible `Closes #<issue-number>` line for the AI Ready primary Issue.
+Use `Refs #<issue-number>` for dependencies that this PR does not close.
 
 Required PR title:
 type: user-facing description
@@ -17,6 +17,10 @@ fix: add null check to task query
 **MUST:** Keep **Allow edits from maintainers** enabled for this PR so maintainers
 can help update the branch when needed.
 -->
+
+## Linked Issue
+
+Closes #____
 
 ## What Problem This Solves
 
@@ -46,6 +50,14 @@ in the diff or optional <details>; include technical detail only when it explain
 behavior or a material tradeoff. Do not hide risks or required actions in <details>.
 -->
 
+## Spec / Design References
+
+<!-- Link the relevant GitHub spec, design, API, ADR, runbook, and dependency Issues. -->
+
+## Acceptance Criteria
+
+- [ ] AC-1: <!-- Match the Issue AC identifier and link its evidence. -->
+
 ## Evidence
 
 <!--
@@ -56,7 +68,34 @@ AGENTS.md "Product and validation" screenshot completion/landing gate; these oth
 forms of evidence do not replace the required screenshots in chat AND the PR.
 
 Reviewers will inspect the code, tests, and CI. Use this section to make the
-validation easy to understand, not to restate the diff.
-Summarize what was checked and the result; note meaningful gaps. Link long output
-or put it in optional <details>, keeping the useful evidence summary visible.
+validation easy to understand, not to restate the diff. Record actual commands,
+exit codes, and evidence paths. Mark unrun checks or N/A items with a reason.
 -->
+
+- Build / static checks:
+- Unit / integration:
+- E2E / live proof:
+- Codex QA report:
+- Screenshots / browser / device matrix:
+- Design differences:
+
+## AI Review
+
+- [ ] Codex Review passed
+- [ ] Security review passed or is N/A with rationale
+
+## Risk & Rollback
+
+- Risk: <!-- low / medium / high, with the concrete failure mode -->
+- Rollback: <!-- steps plus migration and compatibility effects -->
+
+## Documentation
+
+- [ ] Updated, or N/A with rationale
+
+## Human Supervisor
+
+@____
+
+<!-- Formal discussion prefixes: [AI-PLAN], [AI-QUESTION], [AI-EVIDENCE],
+[AI-BLOCKED], [HUMAN-DECISION], [AI-RESULT]. Record external decisions on GitHub. -->
