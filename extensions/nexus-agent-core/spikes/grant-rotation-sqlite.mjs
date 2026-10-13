@@ -569,7 +569,7 @@ console.log("\n[10] core approval 租约与审批超时");
 //
 // ⚠ 口径：主体证明的是"**文档里的 schema** 符合契约"。Stage 1 的生产迁移
 // （src/store/schema.ts）已落地：开头四条检查证它与文档逐字一致、单独建库干净、
-// 后续阶段只靠追加表就能叠上去；Stage 2 迁移（决策/授权/执行/outbox/run_triggers）同样逐字比对并叠加。
+// 后续阶段只靠追加表就能叠上去；Stage 2 迁移（决策/授权/执行/outbox/run_triggers）与 Stage 3 第一批迁移（账本/证据/完成条件）同样逐字比对并叠加。
 // 其余断言还没有换成执行生产迁移。
 console.log("\n[11] DESIGN.md 的 schema 与命名契约");
 {
@@ -711,14 +711,75 @@ console.log("\n[11] DESIGN.md 的 schema 与命名契约");
             ),
       );
 
+      // ---- Stage 3 第一批（DESIGN §13 Stage 3 切片①，2026-10-13）：生产迁移 STAGE3_LEDGER_SQL 是 §6.3 的**两段**——
+      // 「事实：投影 + 追加事件」到 blob_reservations 之前（含 evidence / process_incarnations / blob_objects：
+      // evidence 的外键要指向它们，已发布的表不能再 ALTER），以及「完成条件」。字节存储与 purge 留给后续迁移。
+      const m3 = schemaTs.match(/STAGE3_LEDGER_SQL = `\n([\s\S]*?)\n`;/);
+      const sql3 = m3 ? m3[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
+      const ledgerStart = seg1End;
+      const ledgerEnd = md.indexOf("CREATE TABLE blob_reservations");
+      const completionStart = md.indexOf("---------- 完成条件");
+      const completionEnd = md.indexOf("---------- 偏好与个人上下文");
+      const ordered3 =
+        ledgerStart > 0 &&
+        ledgerEnd > ledgerStart &&
+        completionStart > ledgerEnd &&
+        completionEnd > completionStart &&
+        completionEnd < seg2Start;
+      const expected3 = ordered3
+        ? `${md.slice(ledgerStart, ledgerEnd).trim()}\n\n${md.slice(completionStart, completionEnd).trim()}`
+        : "";
+      check(
+        "Stage 3 迁移 SQL 与 DESIGN §6.3 的两段逐字一致（账本 + 证据 + 进程化身 + blob_objects；完成条件）",
+        [ordered3, sql3.trim() === expected3],
+        (x) => x[0] === true && x[1] === true,
+      );
+      let stage3Error = "ok";
+      try {
+        stacked.exec(sql3);
+      } catch (error) {
+        stage3Error = String(error?.message ?? error);
+      }
+      const STAGE3_TABLES = [
+        "blob_objects",
+        "claim_event_evidence",
+        "claim_events",
+        "claim_evidence_links",
+        "claims",
+        "evidence",
+        "nexus_task_completion_claims",
+        "process_incarnations",
+      ];
+      check(
+        "Stage 3 迁移叠在 Stage 1+2 库上：无错误，foreign_key_check 为空，新增恰好八张表",
+        [stage3Error, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
+        (x) =>
+          x[0] === "ok" &&
+          x[1] === 0 &&
+          JSON.stringify(x[2]) ===
+            JSON.stringify(
+              [
+                "nexus_task_sessions",
+                "nexus_task_steps",
+                "nexus_tasks",
+                ...STAGE2_TABLES,
+                ...STAGE3_TABLES,
+              ].toSorted(),
+            ),
+      );
+
       let restError = "ok";
       try {
-        stacked.exec(md.slice(0, a) + md.slice(seg1End, seg2Start) + md.slice(seg2End));
+        stacked.exec(
+          md.slice(ledgerEnd, completionStart) +
+            md.slice(completionEnd, seg2Start) +
+            md.slice(seg2End),
+        );
       } catch (error) {
         restError = String(error?.message ?? error);
       }
       check(
-        "Stage 3–4 的表继续只靠追加叠到 Stage 1+2 库上，最终表集合与完整 schema 一致",
+        "Stage 3 余下与 Stage 4 的表继续只靠追加叠到 Stage 1–3 库上，最终表集合与完整 schema 一致",
         [restError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
         (x) => x[0] === "ok" && x[1] === 0 && JSON.stringify(x[2]) === JSON.stringify(fullTables),
       );

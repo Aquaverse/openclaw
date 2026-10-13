@@ -1,4 +1,4 @@
-// Stage 1/2 验收：订阅 plugin.nexus-agent-core.{task_changed,decision_changed,execution_changed} 并打印。
+// Stage 1/2/3 验收：订阅 plugin.nexus-agent-core.{task_changed,decision_changed,execution_changed,claim_changed,claim_verified} 并打印。
 // 可用 --event <name> 只看一种（可重复）。
 // 运行（必须经仓库的 tsx 加载器，裸 node --experimental-strip-types 解析不了 .js→.ts）：
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/listen-task-events.mts --seconds 600
@@ -12,9 +12,13 @@ import {
 } from "../../../packages/gateway-protocol/src/client-info.ts";
 import { GatewayClient } from "../../../src/gateway/client.ts";
 
-const ALL_EVENTS = ["task_changed", "decision_changed", "execution_changed"].map(
-  (name) => `plugin.nexus-agent-core.${name}`,
-);
+const ALL_EVENTS = [
+  "task_changed",
+  "decision_changed",
+  "execution_changed",
+  "claim_changed",
+  "claim_verified",
+].map((name) => `plugin.nexus-agent-core.${name}`);
 const picked = process.argv.flatMap((a, i) =>
   a === "--event" && process.argv[i + 1] ? [`plugin.nexus-agent-core.${process.argv[i + 1]}`] : [],
 );

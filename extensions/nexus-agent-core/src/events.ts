@@ -24,6 +24,18 @@ type Emitter = (event: string, payload: unknown, opts: { scope: "operator.read" 
 
 export const DECISION_CHANGED_EVENT = "decision_changed";
 export const EXECUTION_CHANGED_EVENT = "execution_changed";
+export const CLAIM_CHANGED_EVENT = "claim_changed";
+export const CLAIM_VERIFIED_EVENT = "claim_verified";
+
+/** Outbox-delivered ledger notices. Ids and a state only: clients re-read through nexus.claim.get. */
+export type ClaimChangedPayload = {
+  ownerId: string;
+  taskId: string;
+  claimId?: string;
+  state?: string;
+  previousState?: string;
+  eventId?: string;
+};
 
 /** Outbox-delivered notices. Ids and a status only: clients re-read through nexus.decision.get / nexus.execution.list. */
 export type DecisionChangedPayload = {
@@ -60,6 +72,20 @@ export function createEventBridge(onError: (error: unknown) => void = () => {}) 
         throw new Error("no gateway event emitter attached");
       }
       emitter(EXECUTION_CHANGED_EVENT, payload, { scope: "operator.read" });
+    },
+    /** claim_changed: every ledger event (create / assert / evidence / retract / detach). */
+    claimChanged(payload: ClaimChangedPayload) {
+      if (!emitter) {
+        throw new Error("no gateway event emitter attached");
+      }
+      emitter(CLAIM_CHANGED_EVENT, payload, { scope: "operator.read" });
+    },
+    /** claim_verified: the claim just reached VERIFIED (section 12). */
+    claimVerified(payload: ClaimChangedPayload) {
+      if (!emitter) {
+        throw new Error("no gateway event emitter attached");
+      }
+      emitter(CLAIM_VERIFIED_EVENT, payload, { scope: "operator.read" });
     },
     /** Payload carries ids and a summary only; clients re-read through nexus.task.get. */
     taskChanged(change: TaskChangeKind, task: TaskIdentity) {

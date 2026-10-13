@@ -1407,6 +1407,81 @@ describe("outbox (section 8.8.3)", () => {
   });
 });
 
+describe("orphan core-approval attempts and the process boot id (section 9.5.1)", () => {
+  const TIMEOUT = 600_000;
+  const attempted = (workerId: string) => {
+    const f = fixture();
+    const t = f.task();
+    const d = f.created(f.decide(t, [f.booking(t)]));
+    const claim = f.k.claimCoreApproval({
+      principal: P,
+      decisionId: d.id,
+      approvalTimeoutMs: TIMEOUT,
+      workerId,
+      now: T0 + 100,
+    });
+    assert.ok(claim);
+    const card = () =>
+      f.row(
+        "SELECT core_approval_state AS card, core_approval_attempt_by AS by FROM decisions WHERE id = ?",
+        d.id,
+      );
+    const restart = (bootId?: string | null) =>
+      f.k.reconcileOnStart({
+        principal: P,
+        now: T0 + 1000,
+        outboxStaleMs: 120_000,
+        ...(bootId !== undefined ? { bootId } : {}),
+      });
+    return { f, d, card, restart };
+  };
+
+  it("an attempt made by ANOTHER process is put back to not_attempted at once, without waiting for the lease", () => {
+    const { card, restart, f, d } = attempted("nexus@111:5000#aaaaaa");
+    assert.equal(card().card, "attempted");
+    const out = restart("222:9000");
+    assert.equal(out.orphanAttemptsReset, 1);
+    assert.equal(card().card, "not_attempted");
+    assert.equal(card().by, null);
+    assert.ok(
+      f.k.claimCoreApproval({
+        principal: P,
+        decisionId: d.id,
+        approvalTimeoutMs: TIMEOUT,
+        workerId: "w2",
+        now: T0 + 1100,
+      }),
+      "a new attempt is possible immediately",
+    );
+  });
+
+  it("the same boot id (a plugin reload keeps the process) is never touched", () => {
+    const { card, restart } = attempted("nexus@111:5000#aaaaaa");
+    assert.equal(restart("111:5000").orphanAttemptsReset, 0);
+    assert.equal(card().card, "attempted");
+  });
+
+  it("unreadable ids never match anything: unavailable on either side, legacy worker ids, and no boot id at all", () => {
+    const unavailableWorker = attempted("nexus@unavailable#aaaaaa");
+    assert.equal(unavailableWorker.restart("222:9000").orphanAttemptsReset, 0);
+    assert.equal(unavailableWorker.card().card, "attempted");
+    const legacy = attempted("nexus-4242-abcdef");
+    assert.equal(legacy.restart("222:9000").orphanAttemptsReset, 0);
+    assert.equal(legacy.card().card, "attempted");
+    const noBootId = attempted("nexus@111:5000#aaaaaa");
+    assert.equal(noBootId.restart(null).orphanAttemptsReset, 0);
+    assert.equal(noBootId.restart().orphanAttemptsReset, 0);
+    assert.equal(noBootId.restart("unavailable").orphanAttemptsReset, 0);
+    assert.equal(noBootId.card().card, "attempted");
+  });
+
+  it("a different boot id with the same pid is a different process (pid reuse)", () => {
+    const { card, restart } = attempted("nexus@111:5000#aaaaaa");
+    assert.equal(restart("111:7777").orphanAttemptsReset, 1);
+    assert.equal(card().card, "not_attempted");
+  });
+});
+
 describe("startup reconciliation (section 8.9.1 #3)", () => {
   it("returns what is still pending or unfinished, expires overdue decisions, infers nothing", () => {
     const f = fixture();

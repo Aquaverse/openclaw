@@ -18,6 +18,7 @@ import {
   DEFAULT_DECISION_DEADLINE_MS,
   OPTION_IDS,
 } from "../decision/content.js";
+import type { ExecutionHookResult } from "./claim-ledger.js";
 import type {
   ActionGrantRecord,
   ActionRecord,
@@ -127,7 +128,11 @@ function globMatches(pattern: string, value: string): boolean {
   return new RegExp(`^${escaped}$`, "i").test(value);
 }
 
-export type DecisionKernelOptions = { newId?: (prefix: string) => string };
+export type DecisionKernelOptions = {
+  newId?: (prefix: string) => string;
+  /** Stage 3: runs inside settleExecution's transaction when the caller asks for it (`recordClaim`). Must not throw. */
+  afterSettleInTx?: (owner: string, executionId: string, now: number) => ExecutionHookResult;
+};
 
 export type CreateDecisionInput = {
   principal: Principal;
@@ -2011,6 +2016,8 @@ export function createDecisionKernel(
     executionId: string;
     outcome: SettleOutcomeInput;
     from?: ExecutionState[];
+    /** Stage 3: also write the execution-result claim + its evidence in this transaction (never fails the settle). */
+    recordClaim?: boolean;
     now: number;
   }):
     | { outcome: "settled"; execution: ExecutionRecord; task: TaskRecord | null }
@@ -2070,6 +2077,21 @@ export function createDecisionKernel(
         null,
         input.now,
       );
+      if (input.recordClaim && options.afterSettleInTx) {
+        const recorded = options.afterSettleInTx(owner, execution.id, input.now);
+        if (!recorded.ok) {
+          // The provider outcome is already settled; the ledger failure is surfaced in the step log instead.
+          addStep(
+            owner,
+            execution.taskId,
+            "execution",
+            "failed",
+            `执行结果未能写入事实账本（${execution.id}）`,
+            { executionId: execution.id, error: recorded.error.slice(0, 300) },
+            input.now,
+          );
+        }
+      }
       return { outcome: "settled" as const, execution, task };
     });
 
@@ -2355,14 +2377,32 @@ export function createDecisionKernel(
     principal: Principal;
     now: number;
     outboxStaleMs: number;
+    /** `<pid>:<OS start time>` of THIS process (DESIGN section 9.5.1), or null when it could not be read. */
+    bootId?: string | null;
   }): {
     expired: DecisionRecord[];
     pendingDecisions: DecisionRecord[];
     unfinishedExecutions: ExecutionRecord[];
     recoveredOutbox: number;
     purgedRunTriggers: number;
+    orphanAttemptsReset: number;
   } => {
     const expired = expireDueDecisions({ principal: input.principal, now: input.now });
+    // A core-approval attempt made by a DIFFERENT process can never be answered (its card died with it), so it is put
+    // back to not_attempted at once instead of waiting for the lease. Only attempts that carry a readable boot id of
+    // another process qualify; attempts from this process (a reload keeps the pid) and legacy ones are never touched.
+    const orphanAttemptsReset =
+      input.bootId && input.bootId !== "unavailable"
+        ? run(
+            "UPDATE decisions SET core_approval_state = 'not_attempted', core_approval_attempt_at = NULL, " +
+              "core_approval_attempt_by = NULL, core_approval_attempt_id = NULL " +
+              "WHERE owner_id = ? AND status = 'pending' AND core_approval_state = 'attempted' " +
+              "AND core_approval_attempt_by LIKE 'nexus@%#%' AND core_approval_attempt_by NOT LIKE 'nexus@unavailable#%' " +
+              "AND core_approval_attempt_by NOT LIKE ?",
+            input.principal.ownerId,
+            `nexus@${input.bootId}#%`,
+          )
+        : 0;
     return {
       expired,
       pendingDecisions: listDecisions({
@@ -2381,6 +2421,7 @@ export function createDecisionKernel(
         now: input.now,
       }),
       purgedRunTriggers: purgeRunTriggers({ principal: input.principal, now: input.now }),
+      orphanAttemptsReset,
     };
   };
 

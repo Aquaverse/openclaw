@@ -1,7 +1,7 @@
 {
   "id": "nexus-agent-core",
   "name": "Nexus Agent Core",
-  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Both off by default. Stage 0 runtime spikes remain behind spikesEnabled (see DESIGN.md section 13).",
+  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see DESIGN.md section 13).",
   "categories": [
     "agent-orchestration"
   ],
@@ -22,6 +22,11 @@
         "type": "boolean",
         "default": false,
         "description": "Enable the Stage 2 decision module (needs tasksEnabled): nexus_action_prepare / nexus_action_authorize / nexus_decision_request / nexus_action_commit (optional tools, allow them via tools.alsoAllow), nexus.decision.* / nexus.execution.* / nexus.grant.* gateway methods, and a FAKE provider. Off by default."
+      },
+      "claimsEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable the Stage 3 Claim / Evidence ledger (needs decisionsEnabled): nexus_claim_add / nexus_evidence_add / nexus_claim_verify (optional tools, allow them via tools.alsoAllow), nexus.claim.* gateway methods, completion gating for nexus_task_update(succeeded) and execution-result claims. Off by default."
       },
       "fakeProviderIdempotent": {
         "type": "boolean",
@@ -86,6 +91,9 @@
       "nexus_action_authorize",
       "nexus_decision_request",
       "nexus_action_commit",
+      "nexus_claim_add",
+      "nexus_evidence_add",
+      "nexus_claim_verify",
       "nexus_spike_probe"
     ]
   },
@@ -121,6 +129,15 @@
       "optional": true
     },
     "nexus_action_commit": {
+      "optional": true
+    },
+    "nexus_claim_add": {
+      "optional": true
+    },
+    "nexus_evidence_add": {
+      "optional": true
+    },
+    "nexus_claim_verify": {
       "optional": true
     }
   }

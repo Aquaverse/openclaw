@@ -29,6 +29,16 @@ export const NEXUS_ACTION_PROTOCOL = [
   "- 决策请求返回 pending：把需要用户确认这件事告诉用户，然后停下，不要继续往下做。",
 ].join("\n");
 
+/** Appended only when `claimsEnabled` (Stage 3). */
+export const NEXUS_CLAIM_PROTOCOL = [
+  "[Nexus 断言协议]",
+  "要对用户说「已经办成了」之前，先把这句话登记成 claim，并挂上证据：",
+  '- nexus_claim_add(taskId, subject, predicate="executed", value={actionId}, completion="SUPPORTED")：只能是 ASSERTED 或 UNKNOWN，状态由证据推导，你不能自己写 SUPPORTED。',
+  '- commit 返回 succeeded 后，用 nexus_evidence_add(taskId, claimId, ref={kind:"execution", id:executionId}) 挂证据；返回的 stateAfter 不是 SUPPORTED 就不要说成功。',
+  '- 想结束事项时才用 nexus_task_update(status="succeeded")；被 completion_unmet 拒绝说明证据不够，如实告诉用户缺什么，不要再试一遍糊弄过去。',
+  "- nexus_claim_verify 只读：用它看 store 实际确认了什么，而不是看你以为确认了什么。",
+].join("\n");
+
 const MAX_TITLE = 60;
 const MAX_NOTE = 80;
 

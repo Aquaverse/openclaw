@@ -3,6 +3,7 @@
 // (DESIGN section 5: there is no overload without a principal). Write paths run in a single sync transaction.
 import type { DatabaseSync } from "node:sqlite";
 import { compareTasks, flattenLeaves, isDuplicate, queryRecall, tokenize } from "../similarity.js";
+import type { CompletionCheck } from "./claim-types.js";
 import { MIGRATIONS, type Migration } from "./schema.js";
 import {
   CLOSED_STATUSES,
@@ -137,6 +138,8 @@ export type UpdateInput = {
   expectedRevision?: number;
   sessionKey: string;
   now: number;
+  /** Stage 3: when true, `status: "succeeded"` is allowed and checked against the Task's completion claims (section 9.3). */
+  completionGate?: boolean;
 };
 export type UpdateOutcome =
   | { outcome: "updated"; task: TaskRecord; revisionBumped: boolean }
@@ -144,9 +147,19 @@ export type UpdateOutcome =
   | { outcome: "not_found" }
   | { outcome: "task_closed"; task: TaskRecord }
   | { outcome: "status_not_allowed"; allowed: TaskStatus[] }
+  | { outcome: "completion_unmet"; check: CompletionCheck }
   | { outcome: "revision_conflict"; task: TaskRecord };
 
-export function createTaskKernel(db: DatabaseSync, transaction: TransactionRunner) {
+export type TaskKernelHooks = {
+  /** Runs inside the update transaction; supplied by the claim ledger (Stage 3). */
+  checkCompletion?: (owner: string, taskId: string) => CompletionCheck;
+};
+
+export function createTaskKernel(
+  db: DatabaseSync,
+  transaction: TransactionRunner,
+  hooks: TaskKernelHooks = {},
+) {
   const getRow = (owner: string, taskId: string): Row | undefined =>
     db
       .prepare(`SELECT ${TASK_COLUMNS} FROM nexus_tasks WHERE owner_id = ? AND id = ?`)
@@ -344,14 +357,33 @@ export function createTaskKernel(db: DatabaseSync, transaction: TransactionRunne
           return { outcome: "task_closed", task };
         }
         const patch = input.patch;
+        const gated =
+          patch.status === "succeeded" &&
+          input.completionGate === true &&
+          hooks.checkCompletion !== undefined;
         if (
           patch.status !== undefined &&
+          !gated &&
           !(MODEL_SETTABLE_STATUSES as readonly string[]).includes(patch.status)
         ) {
-          return { outcome: "status_not_allowed", allowed: [...MODEL_SETTABLE_STATUSES] };
+          return {
+            outcome: "status_not_allowed",
+            allowed:
+              input.completionGate === true
+                ? [...MODEL_SETTABLE_STATUSES, "succeeded"]
+                : [...MODEL_SETTABLE_STATUSES],
+          };
         }
         if (input.expectedRevision !== undefined && input.expectedRevision !== task.revision) {
           return { outcome: "revision_conflict", task };
+        }
+        // Section 9.3: "succeeded" is the store's decision, not the model's. Every completion claim must have reached its
+        // required state (and there must be at least one) or the update is refused with the reasons.
+        if (gated && hooks.checkCompletion) {
+          const check = hooks.checkCompletion(owner, task.id);
+          if (!check.ok) {
+            return { outcome: "completion_unmet", check };
+          }
         }
         const sets: string[] = [];
         const params: (string | number | null)[] = [];
@@ -379,6 +411,10 @@ export function createTaskKernel(db: DatabaseSync, transaction: TransactionRunne
         if (patch.status !== undefined && patch.status !== task.status) {
           sets.push("status = ?");
           params.push(patch.status);
+          if (patch.status === "succeeded") {
+            sets.push("ended_at = ?");
+            params.push(input.now);
+          }
         }
         if (sets.length === 0) {
           bindSession(owner, task.id, input.sessionKey, input.now);

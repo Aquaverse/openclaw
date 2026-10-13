@@ -57,7 +57,11 @@ describe("task store kernel", () => {
     upsert(patch, now) as Extract<UpdateOutcome, { outcome: "updated" | "unchanged" }>;
 
   it("applies the migration once and is idempotent", () => {
-    assert.deepEqual(applied, ["stage1-0001-task-core", "stage2-0001-decision-grant-execution"]);
+    assert.deepEqual(applied, [
+      "stage1-0001-task-core",
+      "stage2-0001-decision-grant-execution",
+      "stage3-0001-claim-evidence-ledger",
+    ]);
     assert.deepEqual(applyMigrations(db, tx), []);
   });
   it("has foreign keys on", () => assert.equal(k.info().foreignKeys, 1));

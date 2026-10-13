@@ -4,6 +4,7 @@
 import { renderApprovalCard } from "./decision/approval-text.js";
 import { parseDecisionRequest } from "./decision/request.js";
 import type { EventBridge } from "./events.js";
+import { resolveProcessBootId, workerIdFor } from "./process-boot.js";
 import type { FakeProvider } from "./provider/fake-provider.js";
 import type { OutboxRecord } from "./store/decision-types.js";
 import type { TaskStore } from "./store/host.js";
@@ -48,15 +49,23 @@ export type DecisionRuntimeDeps = {
     ttlMs: number;
   }) => Promise<unknown>;
   logger: Logger;
-  config: { coreApprovalEnabled: boolean; approvalTimeoutMs: number };
+  config: {
+    coreApprovalEnabled: boolean;
+    approvalTimeoutMs: number;
+    /** Stage 3: settle also writes the execution-result claim + evidence (needs the ledger). */
+    claimsEnabled?: boolean;
+  };
   now?: () => number;
   workerId?: string;
+  /** `<pid>:<OS start time>` of this process; null = unreadable. Defaults to resolveProcessBootId(). */
+  bootId?: string | null;
 };
 
 export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
   const now = deps.now ?? Date.now;
-  const workerId =
-    deps.workerId ?? `nexus-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  const bootId = deps.bootId !== undefined ? deps.bootId : resolveProcessBootId();
+  const workerId = deps.workerId ?? workerIdFor(bootId, Math.random().toString(36).slice(2, 8));
+  const recordClaim = deps.config.claimsEnabled === true;
   const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
   let flushing: Promise<number> | undefined;
 
@@ -272,6 +281,25 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
           ...(typeof payload.state === "string" ? { status: payload.state } : {}),
         });
         return;
+      case "claim_changed":
+      case "claim_verified": {
+        const eventPayload = {
+          ownerId: principal.ownerId,
+          taskId: record.taskId,
+          ...(typeof payload.claimId === "string" ? { claimId: payload.claimId } : {}),
+          ...(typeof payload.state === "string" ? { state: payload.state } : {}),
+          ...(typeof payload.previousState === "string"
+            ? { previousState: payload.previousState }
+            : {}),
+          ...(typeof payload.eventId === "string" ? { eventId: payload.eventId } : {}),
+        };
+        if (record.kind === "claim_verified") {
+          deps.events.claimVerified(eventPayload);
+        } else {
+          deps.events.claimChanged(eventPayload);
+        }
+        return;
+      }
       case "execution_ready": {
         const executionId =
           typeof payload.executionId === "string" ? payload.executionId : undefined;
@@ -389,6 +417,7 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
         providerOperationId: lookup.operationId,
       },
       from: ["unknown", "executing"],
+      recordClaim,
       now: now(),
     });
     if (settled.outcome === "settled") {
@@ -458,6 +487,7 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
             }
           : { kind: "failed", error: { code: "operator_resolved_failed", note: input.note } },
       from: ["unknown", "executing"],
+      recordClaim,
       now: now(),
     });
     if (settled.outcome === "settled") {
@@ -517,9 +547,10 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
       principal,
       now: now(),
       outboxStaleMs: OUTBOX_STALE_MS,
+      bootId,
     });
     deps.logger.info(
-      `nexus: startup reconciliation pendingDecisions=${report.pendingDecisions.length} unfinishedExecutions=${report.unfinishedExecutions.length} expired=${report.expired.length} recoveredOutbox=${report.recoveredOutbox}`,
+      `nexus: startup reconciliation pendingDecisions=${report.pendingDecisions.length} unfinishedExecutions=${report.unfinishedExecutions.length} expired=${report.expired.length} recoveredOutbox=${report.recoveredOutbox} orphanAttemptsReset=${report.orphanAttemptsReset} bootId=${bootId ?? "unavailable"}`,
     );
     return report;
   }

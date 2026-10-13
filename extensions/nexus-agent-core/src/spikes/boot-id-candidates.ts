@@ -2,7 +2,7 @@
 // Experiment-only: neither candidate is normative until the Stage 0 spike 3 freeze record is filled in.
 // After the freeze exactly one of these becomes resolveProcessBootId; the other is deleted.
 import { randomUUID } from "node:crypto";
-import { getFileLockProcessStartTime } from "openclaw/plugin-sdk/process-runtime";
+import { readProcessStartTime } from "../process-boot.js";
 
 const CANDIDATE_B_KEY = Symbol.for("nexus-agent-core.spike.processBootId");
 
@@ -35,7 +35,7 @@ export type BootIdCandidateD = {
  * lock uses to tell a reused pid from the original owner. It does not depend on module or realm state.
  */
 export function readBootIdCandidateD(
-  read: (pid: number) => number | null = (pid) => getFileLockProcessStartTime(pid),
+  read: (pid: number) => number | null = readProcessStartTime,
   now: () => number = () => Date.now(),
 ): BootIdCandidateD {
   const pid = process.pid;

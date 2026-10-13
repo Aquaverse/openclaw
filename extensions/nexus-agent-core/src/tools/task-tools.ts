@@ -43,6 +43,8 @@ export type TaskToolDeps = {
   resolvePrincipal: (ctx: { agentId?: string; sessionKey?: string }) => Principal | undefined;
   now?: () => number;
   newId?: () => string;
+  /** Stage 3: nexus_task_update may ask for "succeeded"; the store accepts it only when every completion claim is met. */
+  completionEnabled?: boolean;
 };
 
 type ToolContext = { agentId?: string; sessionKey?: string };
@@ -370,8 +372,9 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
     {
       name: "nexus_task_update",
       label: "Nexus: update a Task",
-      description:
-        "Update a Task's title, goal, entities, summary or status (only clarifying or planning). You cannot mark a Task succeeded, failed, cancelled or deleted. Pass expectedRevision when you want to detect concurrent edits.",
+      description: deps.completionEnabled
+        ? 'Update a Task\'s title, goal, entities, summary or status (clarifying, planning, or succeeded). "succeeded" is refused unless the Task has completion claims (nexus_claim_add with completion) and every one has reached its required state through evidence; saying it is done does not count. You cannot mark a Task failed, cancelled or deleted. Pass expectedRevision when you want to detect concurrent edits.'
+        : "Update a Task's title, goal, entities, summary or status (only clarifying or planning). You cannot mark a Task succeeded, failed, cancelled or deleted. Pass expectedRevision when you want to detect concurrent edits.",
       parameters: Type.Object({
         taskId: Type.String(),
         title: Type.Optional(Type.String()),
@@ -379,7 +382,12 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
         entities: Type.Optional(objectSchema("Replaces the entities.")),
         summary: Type.Optional(Type.String({ description: "One-line progress summary." })),
         status: Type.Optional(
-          Type.Union(MODEL_SETTABLE_STATUSES.map((status) => Type.Literal(status))),
+          Type.Union(
+            [
+              ...MODEL_SETTABLE_STATUSES,
+              ...(deps.completionEnabled ? (["succeeded"] as const) : []),
+            ].map((status) => Type.Literal(status)),
+          ),
         ),
         expectedRevision: Type.Optional(Type.Integer({ minimum: 1 })),
       }),
@@ -431,12 +439,21 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
               : {}),
             sessionKey,
             now: now(),
+            ...(deps.completionEnabled ? { completionGate: true } : {}),
           });
           switch (result.outcome) {
             case "not_found":
               return fail("not_found", "找不到这个事项。");
             case "task_closed":
               return fail("task_closed", `事项已结束（${result.task.status}），不能再修改。`);
+            case "completion_unmet":
+              return fail(
+                "completion_unmet",
+                result.check.reason === "no_completion_claims"
+                  ? "这个事项还没有登记完成条件：先用 nexus_claim_add（completion 填 SUPPORTED 或 VERIFIED）登记要证明什么，再用 nexus_evidence_add 挂上证据。"
+                  : "完成条件还没有全部达到要求的状态。事项没有被标记完成；不要告诉用户已经完成。",
+                { items: result.check.items },
+              );
             case "status_not_allowed":
               return fail("status_not_allowed", "这个状态不能由模型设置。", {
                 allowed: result.allowed,

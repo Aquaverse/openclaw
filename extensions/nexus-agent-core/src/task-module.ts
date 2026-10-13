@@ -3,11 +3,18 @@
 // run-trigger ledger, outbox delivery, decision RPC and startup reconciliation.
 import path from "node:path";
 import type { OpenClawPluginApi } from "../api.js";
+import { createClaimRpcHandlers } from "./claim-rpc.js";
 import { createDecisionRpcHandlers } from "./decision-rpc.js";
 import { createDecisionRuntime, DEFAULT_APPROVAL_TIMEOUT_MS } from "./decision-runtime.js";
 import { createEventBridge } from "./events.js";
 import { resolvePrincipal } from "./principal.js";
-import { NEXUS_ACTION_PROTOCOL, NEXUS_TASK_PROTOCOL, renderOpenTasks } from "./prompt.js";
+import { resolveProcessBootId } from "./process-boot.js";
+import {
+  NEXUS_ACTION_PROTOCOL,
+  NEXUS_CLAIM_PROTOCOL,
+  NEXUS_TASK_PROTOCOL,
+  renderOpenTasks,
+} from "./prompt.js";
 import {
   createFakeProvider,
   PROVIDER_MODES,
@@ -23,11 +30,14 @@ import {
 } from "./store/host.js";
 import { createTokenLedger } from "./tokens.js";
 import { ACTION_TOOL_NAMES, createActionTools } from "./tools/action-tools.js";
+import { CLAIM_TOOL_NAMES, createClaimTools } from "./tools/claim-tools.js";
 import { createTaskTools, TASK_TOOL_NAMES } from "./tools/task-tools.js";
 
 export type TaskModuleConfig = {
   ownerId?: string;
   decisionsEnabled?: boolean;
+  /** Stage 3: Claim / Evidence ledger (needs decisionsEnabled: outbox delivery lives in the decision runtime). */
+  claimsEnabled?: boolean;
   /** Fake provider: does it honour the idempotency key? (default true) */
   fakeProviderIdempotent?: boolean;
   /** Fake provider failure injection (default "ok"). */
@@ -82,6 +92,12 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
   }
   const host = sharedHost(resolveNexusDatabasePath(), workerUrl);
   const getStore = async () => host.store;
+  const claimsEnabled = config.decisionsEnabled === true && config.claimsEnabled === true;
+  if (config.claimsEnabled === true && !claimsEnabled) {
+    api.logger.warn(
+      "nexus-agent-core: claimsEnabled needs decisionsEnabled; the claim ledger stays off",
+    );
+  }
   const principalFor = (
     ctx: {
       agentId?: string;
@@ -92,7 +108,17 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
   ) => resolvePrincipal(config.ownerId, ctx);
 
   api.registerTool(
-    (ctx) => createTaskTools({ getStore, ledger, events, resolvePrincipal: principalFor }, ctx),
+    (ctx) =>
+      createTaskTools(
+        {
+          getStore,
+          ledger,
+          events,
+          resolvePrincipal: principalFor,
+          completionEnabled: claimsEnabled,
+        },
+        ctx,
+      ),
     {
       names: [...TASK_TOOL_NAMES],
       optional: true,
@@ -107,6 +133,9 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
           path.join(path.dirname(resolveNexusDatabasePath()), "fake-provider.jsonl"),
         )
       : undefined;
+  // One boot id per process: the runtime stamps it into attempt ids and the service records the incarnation with it.
+  const bootId = resolveProcessBootId();
+  const incarnationId = `inc-${bootId ?? "unavailable"}-${Math.random().toString(36).slice(2, 8)}`;
   const runtime = provider
     ? createDecisionRuntime({
         getStore,
@@ -118,7 +147,9 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
         config: {
           coreApprovalEnabled: config.coreApprovalEnabled !== false,
           approvalTimeoutMs: config.approvalTimeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS,
+          claimsEnabled,
         },
+        bootId,
       })
     : undefined;
   if (runtime && provider) {
@@ -131,11 +162,34 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
             resolvePrincipal: principalFor,
             provider,
             onOutboxWritten: () => runtime.kickOutbox(),
+            claimsEnabled,
           },
           ctx,
         ),
       { names: [...ACTION_TOOL_NAMES], optional: true },
     );
+    if (claimsEnabled) {
+      api.registerTool(
+        (ctx) =>
+          createClaimTools(
+            {
+              getStore,
+              resolvePrincipal: principalFor,
+              onOutboxWritten: () => runtime.kickOutbox(),
+            },
+            ctx,
+          ),
+        { names: [...CLAIM_TOOL_NAMES], optional: true },
+      );
+      for (const [method, handler, scope] of createClaimRpcHandlers({
+        getStore,
+        events,
+        resolvePrincipal: () => principalFor(),
+        kickOutbox: () => runtime.kickOutbox(),
+      })) {
+        api.registerGatewayMethod(method, handler, { scope });
+      }
+    }
     // Authority is never decided here: this hook only creates the (side-effect free) decision entry and, on a user
     // turn, offers an optional core approval card for nexus_decision_request. Grants are consumed in the tool handler.
     api.on("before_tool_call", async (event, ctx) => runtime.beforeToolCall(event, ctx));
@@ -168,7 +222,11 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
       const open = await host.store.listOpen({ principal, limit: OPEN_TASKS_IN_PROMPT });
       return {
         prependSystemContext: runtime
-          ? `${NEXUS_TASK_PROTOCOL}\n\n${NEXUS_ACTION_PROTOCOL}`
+          ? [
+              NEXUS_TASK_PROTOCOL,
+              NEXUS_ACTION_PROTOCOL,
+              ...(claimsEnabled ? [NEXUS_CLAIM_PROTOCOL] : []),
+            ].join("\n\n")
           : NEXUS_TASK_PROTOCOL,
         ...(open.length > 0 ? { prependContext: renderOpenTasks(open) } : {}),
       };
@@ -190,6 +248,7 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
 
   // Only the live registration owns the service; discovery passes must not open the database.
   let timer: ReturnType<typeof setInterval> | undefined;
+  let incarnationRegistered = false;
   if (api.registrationMode === "full") {
     api.registerService({
       id: "nexus-task-store",
@@ -211,6 +270,25 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
           );
           return;
         }
+        if (claimsEnabled) {
+          // Provenance only (section 9.5.1): a row per process start. Nothing here marks another incarnation gone.
+          try {
+            const principal = principalFor();
+            if (principal && bootId) {
+              await host.store.registerIncarnation({
+                principal,
+                incarnationId,
+                bootId,
+                now: Date.now(),
+              });
+              incarnationRegistered = true;
+            }
+          } catch (error) {
+            api.logger.warn(
+              `nexus-agent-core: could not record the process incarnation: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
         if (runtime) {
           // gateway_start reconciliation (section 8.9.1 #3): nothing is inferred from the Control UI or from core.
           try {
@@ -231,6 +309,17 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
           timer = undefined;
         }
         events.attach(undefined);
+        if (incarnationRegistered) {
+          try {
+            const principal = principalFor();
+            if (principal) {
+              await host.store.closeIncarnation({ principal, incarnationId, now: Date.now() });
+            }
+          } catch {
+            // best effort: a missing clean-shutdown mark only means the row stays open
+          }
+          incarnationRegistered = false;
+        }
         await host.close();
       },
     });

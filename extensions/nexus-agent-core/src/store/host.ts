@@ -52,6 +52,16 @@ const STORE_OPERATIONS: Record<StoreOperationName, true> = {
   finishOutbox: true,
   recoverOutbox: true,
   reconcileOnStart: true,
+  addClaim: true,
+  addEvidence: true,
+  retractClaim: true,
+  unlinkEvidence: true,
+  getClaim: true,
+  listClaims: true,
+  verifyChain: true,
+  checkCompletion: true,
+  registerIncarnation: true,
+  closeIncarnation: true,
 };
 
 export type StoreHost = {

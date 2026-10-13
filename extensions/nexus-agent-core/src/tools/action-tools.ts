@@ -39,6 +39,8 @@ export type ActionToolDeps = {
   sleep?: (ms: number) => Promise<void>;
   /** Called after a write that produced outbox rows, so delivery does not wait for the next sweep. */
   onOutboxWritten?: () => void;
+  /** Stage 3: a settled execution also writes its execution claim + evidence into the ledger. */
+  claimsEnabled?: boolean;
 };
 
 type ToolContext = { agentId?: string; sessionKey?: string };
@@ -496,6 +498,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
             executionId,
             outcome,
             now: now(),
+            recordClaim: deps.claimsEnabled === true,
           });
           if (settled.outcome === "settled" && settled.task) {
             deps.events.taskChanged("updated", settled.task);
