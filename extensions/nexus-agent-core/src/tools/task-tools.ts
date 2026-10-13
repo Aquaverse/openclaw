@@ -52,7 +52,7 @@ type Failure = { ok: false; code: string; message: string; hint?: string; [key: 
 const objectSchema = (description: string) =>
   Type.Object({}, { additionalProperties: true, description });
 
-function jsonResult(payload: Record<string, unknown>) {
+export function jsonResult(payload: Record<string, unknown>) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(payload) }],
     details: payload,
@@ -71,7 +71,7 @@ function fail(code: string, message: string, extra: Record<string, unknown> = {}
   };
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -106,7 +106,12 @@ function taskView(task: TaskRecord) {
   };
 }
 
-function detailView(detail: TaskDetail) {
+type DetailExtras = {
+  pendingDecisions: unknown[];
+  readyExecutions: unknown[];
+};
+
+function detailView(detail: TaskDetail, extras: DetailExtras) {
   return {
     ...taskView(detail.task),
     steps: detail.steps.map((step) => ({
@@ -118,8 +123,9 @@ function detailView(detail: TaskDetail) {
       at: step.endedAt ?? step.startedAt,
     })),
     sessions: detail.sessions.length,
-    // Stage 2 fills this; the field exists now so callers can rely on its shape (DESIGN section 12).
-    pendingDecisions: [] as unknown[],
+    // Decisions waiting for the human, and executions the model may commit right now (DESIGN sections 8 and 12).
+    pendingDecisions: extras.pendingDecisions,
+    readyExecutions: extras.readyExecutions,
   };
 }
 
@@ -335,9 +341,29 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
             now: now(),
             stepLimit: LIMITS.stepsReturned,
           });
-          return detail
-            ? { ok: true, ...detailView(detail) }
-            : fail("not_found", "找不到这个事项。");
+          if (!detail) {
+            return fail("not_found", "找不到这个事项。");
+          }
+          const pending = await store.listDecisions({
+            principal,
+            taskId,
+            statuses: ["pending"],
+            limit: 5,
+          });
+          const ready = await store.listReadyExecutions({ principal, taskId, now: now() });
+          return {
+            ok: true,
+            ...detailView(detail, {
+              pendingDecisions: pending.map((decision) => ({
+                decisionId: decision.id,
+                riskTier: decision.riskTier,
+                question: decision.question,
+                actionIds: decision.actionIds,
+                deadlineAt: decision.deadlineAt,
+              })),
+              readyExecutions: ready,
+            }),
+          };
         });
       },
     },

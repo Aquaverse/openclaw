@@ -1,6 +1,6 @@
 // Nexus Agent Core plugin entry.
-// Stage 1: the Task module behind `tasksEnabled` (DESIGN section 13). Stage 0 runtime spikes stay behind
-// `spikesEnabled`. Decision, Evidence and Preference modules arrive in later stages.
+// Stage 1: the Task module behind `tasksEnabled`; Stage 2: decisions/grants/executions behind `decisionsEnabled`
+// (DESIGN section 13). Stage 0 runtime spikes stay behind `spikesEnabled`. Evidence and Preference arrive later.
 import path from "node:path";
 import { definePluginEntry } from "./api.js";
 import { getSharedSpikeRecorder, readObservationFile } from "./src/spikes/recorder.js";
@@ -12,6 +12,11 @@ import { registerTaskModule } from "./src/task-module.js";
 
 type NexusPluginConfig = {
   tasksEnabled?: boolean;
+  decisionsEnabled?: boolean;
+  fakeProviderIdempotent?: boolean;
+  fakeProviderMode?: string;
+  coreApprovalEnabled?: boolean;
+  approvalTimeoutMs?: number;
   ownerId?: string;
   spikesEnabled?: boolean;
   spikeStopDelayMs?: number;
@@ -35,15 +40,28 @@ function readSpikeParams(raw: Record<string, unknown>): SpikeRunParams {
 export default definePluginEntry({
   id: "nexus-agent-core",
   name: "Nexus Agent Core",
-  description: "Nexus Agent Core (Task module; Stage 0 runtime spikes).",
+  description:
+    "Nexus Agent Core (Task module, decision/grant/execution module; Stage 0 runtime spikes).",
   register(api) {
     const config = (api.pluginConfig ?? {}) as NexusPluginConfig;
     // Visible in the gateway log and in CLI stderr, even when the spikes are off or no config reached us.
     api.logger.info(
-      `nexus-agent-core register: mode=${api.registrationMode} pluginConfig=${api.pluginConfig === undefined ? "absent" : "present"} tasksEnabled=${config.tasksEnabled === true} spikesEnabled=${config.spikesEnabled === true}`,
+      `nexus-agent-core register: mode=${api.registrationMode} pluginConfig=${api.pluginConfig === undefined ? "absent" : "present"} tasksEnabled=${config.tasksEnabled === true} decisionsEnabled=${config.decisionsEnabled === true} spikesEnabled=${config.spikesEnabled === true}`,
     );
+    if (config.decisionsEnabled === true && config.tasksEnabled !== true) {
+      api.logger.warn(
+        "nexus-agent-core: decisionsEnabled needs tasksEnabled; the decision module stays off",
+      );
+    }
     if (config.tasksEnabled === true) {
-      registerTaskModule(api, { ownerId: config.ownerId });
+      registerTaskModule(api, {
+        ownerId: config.ownerId,
+        decisionsEnabled: config.decisionsEnabled === true,
+        fakeProviderIdempotent: config.fakeProviderIdempotent,
+        fakeProviderMode: config.fakeProviderMode,
+        coreApprovalEnabled: config.coreApprovalEnabled,
+        approvalTimeoutMs: config.approvalTimeoutMs,
+      });
     }
     if (config.spikesEnabled !== true) {
       return;

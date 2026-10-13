@@ -20,18 +20,18 @@ export type TransactionRunner = <T>(run: () => T) => T;
 
 type Row = Record<string, unknown>;
 
-const TASK_COLUMNS =
+export const TASK_COLUMNS =
   "id, owner_id, kind, title, status, goal_json, entities_json, risk_ceiling, summary, revision, " +
   "origin_session_key, last_session_key, created_at, updated_at, ended_at, deleted_at";
 
-function parseJson(text: unknown): unknown {
+export function parseJson(text: unknown): unknown {
   if (typeof text !== "string") {
     return null;
   }
   return JSON.parse(text) as unknown;
 }
 
-function toTask(row: Row): TaskRecord {
+export function toTask(row: Row): TaskRecord {
   return {
     id: String(row.id),
     ownerId: String(row.owner_id),
@@ -68,7 +68,7 @@ function toStep(row: Row): TaskStepRecord {
   };
 }
 
-function isClosed(status: string): boolean {
+export function isClosed(status: string): boolean {
   return (CLOSED_STATUSES as readonly string[]).includes(status);
 }
 

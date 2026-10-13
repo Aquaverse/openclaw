@@ -569,7 +569,8 @@ console.log("\n[10] core approval 租约与审批超时");
 //
 // ⚠ 口径：主体证明的是"**文档里的 schema** 符合契约"。Stage 1 的生产迁移
 // （src/store/schema.ts）已落地：开头四条检查证它与文档逐字一致、单独建库干净、
-// 后续阶段只靠追加表就能叠上去。其余断言还没有换成执行生产迁移。
+// 后续阶段只靠追加表就能叠上去；Stage 2 迁移（决策/授权/执行/outbox/run_triggers）同样逐字比对并叠加。
+// 其余断言还没有换成执行生产迁移。
 console.log("\n[11] DESIGN.md 的 schema 与命名契约");
 {
   const designPath = new URL("../DESIGN.md", import.meta.url);
@@ -651,6 +652,77 @@ console.log("\n[11] DESIGN.md 的 schema 与命名契约");
       [names(staged), staged.prepare("PRAGMA foreign_key_check").all().length],
       (x) => JSON.stringify(x[0]) === JSON.stringify(fullTables) && x[1] === 0,
     );
+
+    // ---- Stage 2 分批建表（DESIGN §13 Stage 2，2026-10-12）：生产迁移 STAGE2_DECISION_SQL 是 §6.3 的**两段**——
+    // 「候选动作…执行（含 grant_uses）」与「通知 outbox + run 触发源账本」。这里证：① 与文档逐字一致；
+    // ② 叠在 Stage 1 库上干净；③ 剩下的 Stage 3–4 表仍能继续只靠追加叠上去，最终表集合与完整 schema 一致。
+    {
+      const m2 = schemaTs.match(/STAGE2_DECISION_SQL = `\n([\s\S]*?)\n`;/);
+      const sql2 = m2 ? m2[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
+      const seg1Start = md.indexOf("---------- 候选动作");
+      const seg1End = md.indexOf("---------- 事实：投影 + 追加事件");
+      const seg2Start = md.indexOf("---------- 通知 outbox");
+      const seg2End = md.indexOf("---------- purge 回执");
+      const ordered =
+        seg1Start === b && seg1Start < seg1End && seg1End < seg2Start && seg2Start < seg2End;
+      const expected = ordered
+        ? `${md.slice(seg1Start, seg1End).trim()}\n\n${md.slice(seg2Start, seg2End).trim()}`
+        : "";
+      check(
+        "Stage 2 迁移 SQL 与 DESIGN §6.3 的两段逐字一致（候选动作…执行；outbox + run_triggers）",
+        [ordered, sql2.trim() === expected],
+        (x) => x[0] === true && x[1] === true,
+      );
+
+      const stacked = new DatabaseSync(":memory:");
+      stacked.exec("PRAGMA foreign_keys = ON;");
+      let stackError = "ok";
+      try {
+        stacked.exec(migrationSql);
+        stacked.exec(sql2);
+      } catch (error) {
+        stackError = String(error?.message ?? error);
+      }
+      const STAGE2_TABLES = [
+        "action_executions",
+        "action_grants",
+        "actions",
+        "decision_actions",
+        "decisions",
+        "grant_uses",
+        "outbox",
+        "run_triggers",
+        "standing_grants",
+      ];
+      check(
+        "Stage 2 迁移叠在 Stage 1 库上：无错误，foreign_key_check 为空，新增恰好九张表",
+        [stackError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
+        (x) =>
+          x[0] === "ok" &&
+          x[1] === 0 &&
+          JSON.stringify(x[2]) ===
+            JSON.stringify(
+              [
+                "nexus_task_sessions",
+                "nexus_task_steps",
+                "nexus_tasks",
+                ...STAGE2_TABLES,
+              ].toSorted(),
+            ),
+      );
+
+      let restError = "ok";
+      try {
+        stacked.exec(md.slice(0, a) + md.slice(seg1End, seg2Start) + md.slice(seg2End));
+      } catch (error) {
+        restError = String(error?.message ?? error);
+      }
+      check(
+        "Stage 3–4 的表继续只靠追加叠到 Stage 1+2 库上，最终表集合与完整 schema 一致",
+        [restError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
+        (x) => x[0] === "ok" && x[1] === 0 && JSON.stringify(x[2]) === JSON.stringify(fullTables),
+      );
+    }
   }
 
   if (db && !openError) {

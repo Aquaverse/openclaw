@@ -16,6 +16,19 @@ export const NEXUS_TASK_PROTOCOL = [
   "- 登记事项只是记录，不是开始办理：创建或更新 Task 之后，不要因此启动子代理或自行去订票、付款；先把进展告诉用户并问下一步。",
 ].join("\n");
 
+/** Appended to the protocol only when `decisionsEnabled` (Stage 2). */
+export const NEXUS_ACTION_PROTOCOL = [
+  "[Nexus 动作协议]",
+  "对外动作（联系供应商、预订、付款）不要直接做，也不要用别的工具绕过；一律走 Nexus：",
+  "- 先 nexus_action_prepare 登记动作（只是记录，不会执行）。toolName 只能是 fake_vendor_message / fake_booking / fake_payment；参数只写用户说过的内容。",
+  "- 联系供应商（R1）：先 nexus_action_authorize(actionId)；返回 no_policy 时用 nexus_decision_request 征得用户同意，再 authorize。",
+  "- 预订、付款（R2/R3）：用 nexus_decision_request 请用户批准（参数只有 taskId 和 effect.actionIds，不要写 kind）；批准之前什么都不会发生，不要说「已经订好」。",
+  "- 只有拿到 executionId 才能 nexus_action_commit(executionId)；不要自己编 executionId，也不要重复提交。",
+  "- commit 返回 pending_confirmation 或 unknown：结果未确认，不要重试，也不要对用户说成功或失败，如实说「等待确认」。",
+  "- 用户拒绝是终局：不要换个办法重试同一件事，问用户想怎么办。",
+  "- 决策请求返回 pending：把需要用户确认这件事告诉用户，然后停下，不要继续往下做。",
+].join("\n");
+
 const MAX_TITLE = 60;
 const MAX_NOTE = 80;
 

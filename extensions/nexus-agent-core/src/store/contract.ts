@@ -1,10 +1,10 @@
-// Worker contract: one operation per kernel method; input/output are exactly the kernel's own types.
-import type { TaskKernel } from "./kernel.js";
+// Worker contract: one operation per kernel method (Task + Decision kernels); input/output are exactly the kernel's own types.
+import type { NexusKernel } from "./nexus-kernel.js";
 
-export type StoreOperationName = keyof TaskKernel;
+export type StoreOperationName = keyof NexusKernel;
 export type StoreOperations = {
   [K in StoreOperationName]: {
-    input: Parameters<TaskKernel[K]>[0];
-    output: ReturnType<TaskKernel[K]>;
+    input: Parameters<NexusKernel[K]>[0];
+    output: ReturnType<NexusKernel[K]>;
   };
 };

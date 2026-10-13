@@ -4,7 +4,8 @@ import { describe, it } from "vitest";
 import { createEventBridge, type TaskChangedPayload } from "./events.js";
 import { createTaskRpcHandlers } from "./rpc.js";
 import type { TaskStore } from "./store/host.js";
-import { applyMigrations, createTaskKernel } from "./store/kernel.js";
+import { applyMigrations } from "./store/kernel.js";
+import { createNexusKernel } from "./store/nexus-kernel.js";
 import type { Principal } from "./store/types.js";
 
 type Reply = {
@@ -28,7 +29,7 @@ describe("task rpc", () => {
     }
   };
   applyMigrations(db, tx);
-  const kernel = createTaskKernel(db, tx);
+  const kernel = createNexusKernel(db, tx);
   const store = Object.fromEntries(
     Object.entries(kernel).map(([name, fn]) => [
       name,
@@ -38,7 +39,7 @@ describe("task rpc", () => {
   const owner: Principal = { ownerId: "local" };
   const emitted: TaskChangedPayload[] = [];
   const events = createEventBridge();
-  events.attach((_e, payload) => emitted.push(payload));
+  events.attach((_e, payload) => emitted.push(payload as TaskChangedPayload));
   const handlers = (principal: Principal | undefined) =>
     new Map<
       string,

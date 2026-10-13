@@ -20,11 +20,21 @@ export type TaskChangedPayload = {
   updatedAt: number;
 };
 
-type Emitter = (
-  event: string,
-  payload: TaskChangedPayload,
-  opts: { scope: "operator.read" },
-) => void;
+type Emitter = (event: string, payload: unknown, opts: { scope: "operator.read" }) => void;
+
+export const DECISION_CHANGED_EVENT = "decision_changed";
+export const EXECUTION_CHANGED_EVENT = "execution_changed";
+
+/** Outbox-delivered notices. Ids and a status only: clients re-read through nexus.decision.get / nexus.execution.list. */
+export type DecisionChangedPayload = {
+  ownerId: string;
+  kind: string;
+  taskId: string;
+  decisionId?: string;
+  status?: string;
+  resolution?: string;
+  executionId?: string;
+};
 
 export type EventBridge = ReturnType<typeof createEventBridge>;
 
@@ -36,6 +46,20 @@ export function createEventBridge(onError: (error: unknown) => void = () => {}) 
     },
     attached() {
       return emitter !== undefined;
+    },
+    /** decision_pending / decision_resolved notices (section 8.8.3 outbox). */
+    decisionChanged(payload: DecisionChangedPayload) {
+      if (!emitter) {
+        throw new Error("no gateway event emitter attached");
+      }
+      emitter(DECISION_CHANGED_EVENT, payload, { scope: "operator.read" });
+    },
+    /** execution_ready / execution_settled notices. */
+    executionChanged(payload: DecisionChangedPayload) {
+      if (!emitter) {
+        throw new Error("no gateway event emitter attached");
+      }
+      emitter(EXECUTION_CHANGED_EVENT, payload, { scope: "operator.read" });
     },
     /** Payload carries ids and a summary only; clients re-read through nexus.task.get. */
     taskChanged(change: TaskChangeKind, task: TaskIdentity) {

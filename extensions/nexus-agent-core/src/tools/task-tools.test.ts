@@ -4,7 +4,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, it } from "vitest";
 import { createEventBridge, type TaskChangedPayload } from "../events.js";
 import type { TaskStore } from "../store/host.js";
-import { applyMigrations, createTaskKernel } from "../store/kernel.js";
+import { applyMigrations } from "../store/kernel.js";
+import { createNexusKernel } from "../store/nexus-kernel.js";
 import type { Principal } from "../store/types.js";
 import { createTokenLedger } from "../tokens.js";
 import { createTaskTools, normalizeTaskId } from "./task-tools.js";
@@ -26,7 +27,7 @@ describe("task tools", () => {
     }
   };
   applyMigrations(db, tx);
-  const kernel = createTaskKernel(db, tx);
+  const kernel = createNexusKernel(db, tx);
   const store = Object.fromEntries(
     Object.entries(kernel).map(([name, fn]) => [
       name,
@@ -39,7 +40,7 @@ describe("task tools", () => {
   const emitted: TaskChangedPayload[] = [];
   const events = createEventBridge();
   events.attach((_event, payload) => {
-    emitted.push(payload);
+    emitted.push(payload as TaskChangedPayload);
   });
   const ledger = createTokenLedger(
     () => clock,

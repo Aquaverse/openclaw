@@ -1,4 +1,4 @@
-// SQLite worker backend for the Task store (DESIGN section 6). Runs on a worker thread; all calls are sync.
+// SQLite worker backend for the Nexus store: Task + Decision kernels (DESIGN sections 6 and 8). Runs on a worker thread; all calls are sync.
 import fs from "node:fs";
 import path from "node:path";
 import type { SqliteWorkerBackend } from "openclaw/plugin-sdk/sqlite-worker-runtime";
@@ -7,7 +7,8 @@ import {
   runSqliteImmediateTransactionSync,
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
 import type { StoreOperations } from "./contract.js";
-import { applyMigrations, createTaskKernel } from "./kernel.js";
+import { applyMigrations } from "./kernel.js";
+import { createNexusKernel } from "./nexus-kernel.js";
 
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
@@ -32,7 +33,7 @@ export function createSqliteWorkerBackend(
     }
     const transaction = <T>(run: () => T): T => runSqliteImmediateTransactionSync(db, run);
     applyMigrations(db, transaction);
-    const kernel = createTaskKernel(db, transaction);
+    const kernel = createNexusKernel(db, transaction);
     return {
       execute(command) {
         const operation = kernel[command.type] as (input: unknown) => unknown;

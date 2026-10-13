@@ -1,4 +1,7 @@
-// Stage 1 验收步骤 10：订阅 plugin.nexus-agent-core.task_changed 事件并打印。
+// Stage 1/2 验收：订阅 plugin.nexus-agent-core.{task_changed,decision_changed,execution_changed} 并打印。
+// 可用 --event <name> 只看一种（可重复）。
+// 运行（必须经仓库的 tsx 加载器，裸 node --experimental-strip-types 解析不了 .js→.ts）：
+//   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/listen-task-events.mts --seconds 600
 // 只读监听，不写任何数据。用法见 DESIGN §13 Stage 1 验收清单步骤 10。
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -9,7 +12,14 @@ import {
 } from "../../../packages/gateway-protocol/src/client-info.ts";
 import { GatewayClient } from "../../../src/gateway/client.ts";
 
-const EVENT = "plugin.nexus-agent-core.task_changed";
+const ALL_EVENTS = ["task_changed", "decision_changed", "execution_changed"].map(
+  (name) => `plugin.nexus-agent-core.${name}`,
+);
+const picked = process.argv.flatMap((a, i) =>
+  a === "--event" && process.argv[i + 1] ? [`plugin.nexus-agent-core.${process.argv[i + 1]}`] : [],
+);
+const EVENTS = picked.length > 0 ? picked : ALL_EVENTS;
+const EVENT = EVENTS.join(", ");
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -56,7 +66,7 @@ const client = new GatewayClient({
     console.log(`[closed] ${code} ${reason}`);
   },
   onEvent: (evt) => {
-    if (evt.event === EVENT) {
+    if (EVENTS.includes(evt.event)) {
       received += 1;
       console.log(`[event #${received}] ${new Date().toISOString()} ${evt.event}`);
       console.log(JSON.stringify(evt.payload, null, 2));

@@ -1,7 +1,7 @@
 {
   "id": "nexus-agent-core",
   "name": "Nexus Agent Core",
-  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list), off by default. Stage 0 runtime spikes remain behind spikesEnabled (see DESIGN.md section 13).",
+  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Both off by default. Stage 0 runtime spikes remain behind spikesEnabled (see DESIGN.md section 13).",
   "categories": [
     "agent-orchestration"
   ],
@@ -16,7 +16,40 @@
       "tasksEnabled": {
         "type": "boolean",
         "default": false,
-        "description": "Enable the Stage 1 Task module: nexus_task_* tools (optional tools, allow them via tools.allow), nexus.task.* gateway methods, the open-Task prompt list and the nexus.sqlite store. Off by default."
+        "description": "Enable the Stage 1 Task module: nexus_task_* tools (optional tools, allow them via tools.alsoAllow), nexus.task.* gateway methods, the open-Task prompt list and the nexus.sqlite store. Off by default."
+      },
+      "decisionsEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable the Stage 2 decision module (needs tasksEnabled): nexus_action_prepare / nexus_action_authorize / nexus_decision_request / nexus_action_commit (optional tools, allow them via tools.alsoAllow), nexus.decision.* / nexus.execution.* / nexus.grant.* gateway methods, and a FAKE provider. Off by default."
+      },
+      "fakeProviderIdempotent": {
+        "type": "boolean",
+        "default": true,
+        "description": "Stage 2 fake provider: honour the provider idempotency key (retries are safe). Set false to exercise the 'no idempotency support, reconcile only' path."
+      },
+      "fakeProviderMode": {
+        "type": "string",
+        "enum": [
+          "ok",
+          "reject",
+          "drop_after_success",
+          "drop_before_send"
+        ],
+        "default": "ok",
+        "description": "Stage 2 fake provider failure injection: reject = provider declines; drop_after_success = effect happens but the connection drops (execution becomes unknown); drop_before_send = nothing happens and the connection drops."
+      },
+      "coreApprovalEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Attach an optional core approval card to nexus_decision_request on user turns. The Nexus decision page (nexus.decision.*) is always the primary path."
+      },
+      "approvalTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 3600000,
+        "default": 600000,
+        "description": "Timeout for the optional core approval card. Lower it (e.g. 120000) if the host rejects timeouts above 2 minutes."
       },
       "ownerId": {
         "type": "string",
@@ -49,6 +82,10 @@
       "nexus_task_update",
       "nexus_task_note",
       "nexus_task_search",
+      "nexus_action_prepare",
+      "nexus_action_authorize",
+      "nexus_decision_request",
+      "nexus_action_commit",
       "nexus_spike_probe"
     ]
   },
@@ -72,6 +109,18 @@
       "optional": true
     },
     "nexus_spike_probe": {
+      "optional": true
+    },
+    "nexus_action_prepare": {
+      "optional": true
+    },
+    "nexus_action_authorize": {
+      "optional": true
+    },
+    "nexus_decision_request": {
+      "optional": true
+    },
+    "nexus_action_commit": {
       "optional": true
     }
   }
