@@ -147,14 +147,14 @@ GitHub 是研发决策的唯一权威来源：Files 保存长期规则，Issue �
 ## 实现和验证
 
 - 先理解 Issue 和现有约束，再实现满足 AC 的最小变更；保持用户已有改动，避免无关重构。
-- 从 `package.json` 和 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 发现真实命令与选中的 CI lanes，不凭记忆创造测试命令。保留现有 OpenClaw CI 的分片与 `openclaw/ci-gate` 聚合契约；同仓库、非草稿 PR 在该门禁成功后依次运行 Codex QA、Codex Review 和 Merge gate。
+- 从 `package.json` 和 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 发现真实命令与选中的 CI lanes，不凭记忆创造测试命令。`codex-ci` 验证分支只运行独立的 Codex QA 和 Codex Review；它不依赖 OpenClaw CI 或额外 Merge gate。
 - 现有自动化脚本可用 `node --test .github/scripts/automation.test.cjs` 验证。新增或修改功能时，补充有意义的自动测试，并在 PR 中记录实际命令、退出码和证据路径；未执行的测试不能写成通过。
 - 需要 QA 验收时，读取 [`.agents/skills/qa/SKILL.md`](.agents/skills/qa/SKILL.md)，逐项验证 AC，检查异常路径，并按 [`.github/schemas/qa.json`](.github/schemas/qa.json) 生成结构化报告。QA 只产生报告和证据，不替代 Review、Security Review 或 Human Supervisor。
 - 需要 Codex Review 时，遵循 [`.github/prompts/review.md`](.github/prompts/review.md) 和 [`.github/schemas/review.json`](.github/schemas/review.json)，直接检查目标 diff，不依赖 QA 结论；当前 CI 调度在 QA 成功后运行 Review，内容独立不等于并行执行。
 
 ## 证据和沟通
 
-把可复核证据保存到 `evidence/` 或 PR 关联的质量记录中：命令、退出码、日志、测试结果、截图、coverage 和代码定位。长期质量摘要由 Quality Ledger 写入 [`docs/quality/README.md`](docs/quality/README.md) 规定的路径。
+把可复核证据保存到 `evidence/` 或 PR 关联的质量记录中：命令、退出码、日志、测试结果、截图、coverage 和代码定位。QA 和 Review 的结构化报告由工作流作为 artifact 保存。
 
 正式评论使用以下前缀，并在 GitHub 留存：`[AI-PLAN]`、`[AI-QUESTION]`、`[AI-EVIDENCE]`、`[AI-BLOCKED]`、`[HUMAN-DECISION]`、`[AI-RESULT]`。阻塞说明解除条件；可复现产品缺陷说明严重程度、复现步骤和证据；环境阻塞不伪装成 Bug。
 
