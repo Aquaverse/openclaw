@@ -135,6 +135,40 @@ async function main() {
       `select source_group||'|'||kind||'|'||source_ref_kind||'|'||source_version from evidence where blob_key='${blobKey}' and task_id='${taskId}'`,
     ) === `user_upload|uploaded_file|blob|content:${hash}`,
   );
+  // 读句柄：不带字节，60 秒有效，分块读取，每次读都重验 hash
+  const handle = await rpc("nexus.evidence.handle", { taskId, evidenceId: String(up1.evidenceId) });
+  check(
+    "evidence.handle：返回句柄、大小与 hash，不含字节",
+    typeof handle.handleId === "string" &&
+      handle.byteSize === Buffer.byteLength(text) &&
+      handle.contentHash === hash &&
+      !("dataBase64" in handle),
+    handle,
+  );
+  const chunk = await rpc("nexus.evidence.read", { handleId: String(handle.handleId) });
+  check(
+    "evidence.read：取回的字节与上传的一致，eof=true，hash 对得上",
+    Buffer.from(String(chunk.dataBase64), "base64").toString() === text &&
+      chunk.eof === true &&
+      chunk.contentHash === hash,
+    { length: chunk.length, eof: chunk.eof },
+  );
+  check(
+    "evidence.read：offset 越界被拒",
+    (
+      await rpcError("nexus.evidence.read", { handleId: String(handle.handleId), offset: 100000 })
+    ).includes("beyond"),
+  );
+  check(
+    "evidence.read：未知句柄被拒",
+    (await rpcError("nexus.evidence.read", { handleId: "EHNOSUCH" })).includes("expired"),
+  );
+  const taskView = await rpc("nexus.task.get", { taskId });
+  check(
+    "nexus.task.get（RPC）带 pendingDecisions / readyExecutions 两个数组",
+    Array.isArray(taskView.pendingDecisions) && Array.isArray(taskView.readyExecutions),
+    Object.keys(taskView),
+  );
   const recon1 = await rpc("nexus.evidence.reconcile");
   check(
     "reconcile：字节存储与对象表一致（无 missing / sizeMismatch）",

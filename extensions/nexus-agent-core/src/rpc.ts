@@ -108,7 +108,27 @@ export function createTaskRpcHandlers(deps: TaskRpcDeps) {
           reject(respond, "nexus_not_found", "task not found");
           return;
         }
-        respond(true, { ownerId: principal.ownerId, ...detail });
+        // The same two lists the Agent gets from nexus_task_get: what still waits for the user, and what is approved but
+        // not yet committed (a prepared execution does not change the Task's status, so a console needs them here).
+        const pending = await store.listDecisions({
+          principal,
+          taskId,
+          statuses: ["pending"],
+          limit: 5,
+        });
+        const readyExecutions = await store.listReadyExecutions({ principal, taskId, now: now() });
+        respond(true, {
+          ownerId: principal.ownerId,
+          ...detail,
+          pendingDecisions: pending.map((decision) => ({
+            decisionId: decision.id,
+            riskTier: decision.riskTier,
+            question: decision.question,
+            actionIds: decision.actionIds,
+            deadlineAt: decision.deadlineAt,
+          })),
+          readyExecutions,
+        });
       }),
       "operator.read",
     ],

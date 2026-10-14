@@ -901,3 +901,142 @@ describe("nexus.evidence.* RPC", () => {
     assert.ok(STAGING_LIMITS.bytes < SDK_LIMITS.pluginBytes);
   });
 });
+
+describe("read handles (nexus.evidence.handle / nexus.evidence.read)", () => {
+  const readAll = async (w: World, handleId: string, chunk?: number) => {
+    const parts: Uint8Array[] = [];
+    let offset = 0;
+    for (;;) {
+      const out = await service(w).readHandle(P, handleId, offset, chunk ?? 1024 * 1024);
+      assert.equal(out.outcome, "chunk", JSON.stringify(out));
+      if (out.outcome !== "chunk") {
+        throw new Error("unreachable");
+      }
+      parts.push(out.data);
+      offset += out.data.byteLength;
+      if (out.eof) {
+        return Buffer.concat(parts);
+      }
+    }
+  };
+
+  it("opens a short-lived handle without bytes, reads the object in chunks and checks the hash every time", async () => {
+    const w = evidenceWorld();
+    const t = w.newTask();
+    const big = "x".repeat(2_500_000) + "tail";
+    const up1 = await up(w, t, big, { name: "big.txt" });
+    assert.ok(up1.outcome === "registered");
+    const opened = await service(w).openReadHandle(P, t, up1.evidenceId);
+    assert.ok(opened.outcome === "opened");
+    assert.equal(opened.byteSize, big.length);
+    assert.equal(opened.contentHash, hashOf(big));
+    assert.equal(opened.expiresAt, w.now() + 60_000);
+    assert.ok(!("data" in opened), "opening a handle never carries bytes");
+    const whole = await readAll(w, opened.handleId);
+    assert.equal(whole.toString(), big);
+    // a small chunk size and an arbitrary offset
+    const mid = await service(w).readHandle(P, opened.handleId, 2_499_998, 100);
+    assert.ok(mid.outcome === "chunk");
+    assert.equal(Buffer.from(mid.data).toString(), "xxtail");
+    assert.equal(mid.eof, true);
+    const atEnd = await service(w).readHandle(P, opened.handleId, big.length, 10);
+    assert.ok(atEnd.outcome === "chunk" && atEnd.data.byteLength === 0 && atEnd.eof);
+    assert.equal(
+      (await service(w).readHandle(P, opened.handleId, big.length + 1, 10)).outcome,
+      "out_of_range",
+    );
+  });
+
+  it("a handle expires, is scoped to its owner and its evidence, and unknown ids are refused", async () => {
+    const w = evidenceWorld();
+    const t = w.newTask();
+    const other = w.newTask();
+    const a = await up(w, t, "handle bytes");
+    assert.ok(a.outcome === "registered");
+    const opened = await service(w).openReadHandle(P, t, a.evidenceId);
+    assert.ok(opened.outcome === "opened");
+    assert.equal(
+      (await service(w).readHandle({ ...P, ownerId: "someone-else" }, opened.handleId, 0, 10))
+        .outcome,
+      "handle_invalid",
+    );
+    assert.equal((await service(w).readHandle(P, "EHNOSUCH", 0, 10)).outcome, "handle_invalid");
+    // evidence of another Task cannot be opened through this Task
+    assert.equal((await service(w).openReadHandle(P, other, a.evidenceId)).outcome, "not_found");
+    assert.equal((await service(w).openReadHandle(P, t, "EVNOSUCH")).outcome, "not_found");
+    w.advance(60_001);
+    assert.equal(
+      (await service(w).readHandle(P, opened.handleId, 0, 10)).outcome,
+      "handle_invalid",
+    );
+  });
+
+  it("altered or missing bytes are never served, and a deleted piece of evidence closes its open handle", async () => {
+    const w = world({ claims: true, evidence: true, purge: true });
+    const t = w.newTask();
+    const a = await up(w, t, "original bytes here");
+    assert.ok(a.outcome === "registered");
+    const opened = await service(w).openReadHandle(P, t, a.evidenceId);
+    assert.ok(opened.outcome === "opened");
+    const store = prod(w);
+    const original = store.get(a.blobKey);
+    assert.ok(original);
+    store.set(a.blobKey, bytes("tampered bytes here"));
+    const bad = await service(w).readHandle(P, opened.handleId, 0, 100);
+    assert.deepEqual(bad, { outcome: "integrity_error", reason: "hash_mismatch" });
+    store.delete(a.blobKey);
+    assert.deepEqual(await service(w).readHandle(P, opened.handleId, 0, 100), {
+      outcome: "integrity_error",
+      reason: "missing",
+    });
+    store.set(a.blobKey, original);
+    assert.equal((await service(w).readHandle(P, opened.handleId, 0, 100)).outcome, "chunk");
+
+    const deleted = await w.rpc("nexus.evidence.delete", {
+      taskId: t,
+      evidenceId: a.evidenceId,
+      confirmEvidenceId: a.evidenceId,
+    });
+    assert.equal(deleted.ok, true, JSON.stringify(deleted));
+    assert.deepEqual(await service(w).readHandle(P, opened.handleId, 0, 10), { outcome: "gone" });
+    const again = await service(w).openReadHandle(P, t, a.evidenceId);
+    assert.equal(again.outcome, "no_bytes");
+  });
+
+  it("the RPC pair returns base64 chunks and maps every refusal to a stable code", async () => {
+    const w = evidenceWorld();
+    const t = w.newTask();
+    const a = await up(w, t, "rpc handle bytes");
+    assert.ok(a.outcome === "registered");
+    const noParams = await w.rpc("nexus.evidence.handle", {});
+    assert.equal(noParams.error?.code, "nexus_invalid_params");
+    assert.equal(
+      (await w.rpc("nexus.evidence.handle", { taskId: t, evidenceId: "EVNOSUCH" })).error?.code,
+      "nexus_not_found",
+    );
+    const opened = await w.rpc("nexus.evidence.handle", { taskId: t, evidenceId: a.evidenceId });
+    assert.equal(opened.ok, true, JSON.stringify(opened));
+    const handleId = String(opened.payload?.handleId);
+    const chunk = await w.rpc("nexus.evidence.read", { handleId, offset: 4, length: 6 });
+    assert.equal(chunk.ok, true, JSON.stringify(chunk));
+    assert.equal(Buffer.from(String(chunk.payload?.dataBase64), "base64").toString(), "handle");
+    assert.equal(chunk.payload?.totalBytes, "rpc handle bytes".length);
+    assert.equal(chunk.payload?.eof, false);
+    assert.equal(chunk.payload?.contentHash, hashOf("rpc handle bytes"));
+    assert.equal((await w.rpc("nexus.evidence.read", {})).error?.code, "nexus_invalid_params");
+    assert.equal(
+      (await w.rpc("nexus.evidence.read", { handleId, length: 0 })).error?.code,
+      "nexus_invalid_params",
+    );
+    assert.equal(
+      (await w.rpc("nexus.evidence.read", { handleId, offset: 999 })).error?.code,
+      "nexus_invalid_params",
+    );
+    assert.equal(
+      (await w.rpc("nexus.evidence.read", { handleId: "EHNOSUCH" })).error?.code,
+      "nexus_not_found",
+    );
+    w.advance(61_000);
+    assert.equal((await w.rpc("nexus.evidence.read", { handleId })).error?.code, "nexus_not_found");
+  });
+});

@@ -442,6 +442,8 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
       resolution: "succeeded" | "failed";
       note: string;
       confirmation?: string;
+      /** Audit string for the step log; the console is the only caller today. */
+      actor?: string;
     },
   ) {
     const store = await deps.getStore();
@@ -488,6 +490,7 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
           : { kind: "failed", error: { code: "operator_resolved_failed", note: input.note } },
       from: ["unknown", "executing"],
       recordClaim,
+      operatorResolution: { actor: input.actor ?? "operator:nexus-console", note: input.note },
       now: now(),
     });
     if (settled.outcome === "settled") {

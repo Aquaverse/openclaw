@@ -72,6 +72,7 @@ const STORE_OPERATIONS: Record<StoreOperationName, true> = {
   blobStats: true,
   listBlobObjects: true,
   listEvidence: true,
+  evidenceReadRef: true,
   purgeBegin: true,
   purgeClaimReservations: true,
   purgeAdvanceReservations: true,

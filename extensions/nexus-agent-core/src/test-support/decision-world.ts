@@ -18,6 +18,7 @@ import { createEvidenceService, type EvidenceServiceDeps } from "../evidence/evi
 import { createFakeProvider, type ProviderMode } from "../provider/fake-provider.js";
 import { createPurgeRpcHandlers } from "../purge-rpc.js";
 import { createPurgeService } from "../purge/purge-service.js";
+import { createTaskRpcHandlers } from "../rpc.js";
 import type { TaskStore } from "../store/host.js";
 import { applyMigrations } from "../store/kernel.js";
 import { createNexusKernel } from "../store/nexus-kernel.js";
@@ -242,6 +243,14 @@ export function world(
     })) {
       rpc.set(method, handler as never);
     }
+  }
+  for (const [method, handler] of createTaskRpcHandlers({
+    getStore: async () => store,
+    events,
+    resolvePrincipal: () => P,
+    now: () => clock,
+  })) {
+    rpc.set(method, handler as never);
   }
   if (purge) {
     for (const [method, handler] of createPurgeRpcHandlers({

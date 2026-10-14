@@ -527,6 +527,35 @@ describe("commit: admission, concurrency, unknown outcomes", () => {
     assert.equal(w.provider.stats().writeCalls, 1);
   });
 
+  it("nexus.task.get (RPC) lists what still waits for the user and what is approved but not yet committed", async () => {
+    const w = world();
+    const { t, executionId } = await approve(w);
+    const second = await w.booking(t, "Another Hotel");
+    const pending = await w.run("nexus_decision_request", {
+      taskId: t,
+      effect: { actionIds: [second] },
+    });
+    const got = await w.rpc("nexus.task.get", { taskId: t });
+    assert.equal(got.ok, true, JSON.stringify(got));
+    const pendingDecisions = got.payload?.pendingDecisions as Array<Record<string, unknown>>;
+    assert.equal(pendingDecisions.length, 1);
+    assert.equal(pendingDecisions[0]?.decisionId, pending.decisionId);
+    assert.deepEqual(
+      Object.keys(pendingDecisions[0] ?? {}).sort(),
+      ["actionIds", "decisionId", "deadlineAt", "question", "riskTier"].sort(),
+    );
+    const ready = got.payload?.readyExecutions as Array<Record<string, unknown>>;
+    assert.ok(
+      ready.some((entry) => entry.executionId === executionId),
+      JSON.stringify(ready),
+    );
+    // the Task's status still ignores a merely prepared execution: that is exactly why the console needs the list
+    assert.equal(
+      w.row("SELECT status FROM nexus_tasks WHERE id = ?", t).status,
+      "awaiting_decision",
+    );
+  });
+
   it("operator resolve: unknown with no provider record can be ended by a person, with a mandatory note", async () => {
     const w = world({ mode: "drop_before_send", idempotent: false });
     const { t, executionId } = await approve(w);
@@ -549,6 +578,16 @@ describe("commit: admission, concurrency, unknown outcomes", () => {
       w.row("SELECT state FROM action_executions WHERE id = ?", executionId).state,
       "failed",
     );
+    // the step log says WHO closed it by hand and WHY (not only "execution failed")
+    const step = w.row(
+      "SELECT title, detail_json FROM nexus_task_steps WHERE task_id = ? AND title LIKE '人工终结%' ORDER BY seq DESC LIMIT 1",
+      t,
+    );
+    assert.match(String(step.title), /^人工终结为失败/);
+    const detail = JSON.parse(String(step.detail_json)) as Record<string, unknown>;
+    assert.equal(detail.resolvedBy, "operator:nexus-console");
+    assert.equal(detail.note, "供应商后台查无此单");
+    assert.equal(detail.state, "failed");
     assert.equal(w.row("SELECT status FROM nexus_tasks WHERE id = ?", t).status, "planning");
     assert.equal(
       w.provider.stats().writeCalls,

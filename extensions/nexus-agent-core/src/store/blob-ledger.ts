@@ -28,6 +28,7 @@ import type {
   ContentClassification,
   EvidenceBlobView,
   EvidenceLimits,
+  EvidenceReadRef,
   QuotaExceeded,
 } from "./blob-types.js";
 import {
@@ -1129,8 +1130,44 @@ export function createBlobLedger(
     }));
   };
 
+  /** Read-only lookup for the read-handle path: scoped to owner AND task, never returns bytes. */
+  const evidenceReadRef = (input: {
+    principal: Principal;
+    taskId: string;
+    evidenceId: string;
+  }): EvidenceReadRef => {
+    const row = one(
+      "SELECT id, task_id, blob_key, content_hash, byte_size, content_classification, redaction_state, meta_json FROM evidence " +
+        "WHERE owner_id = ? AND task_id = ? AND id = ?",
+      input.principal.ownerId,
+      input.taskId,
+      input.evidenceId,
+    );
+    if (!row) {
+      return { outcome: "not_found" };
+    }
+    if (
+      row.blob_key === null ||
+      row.byte_size === null ||
+      String(row.redaction_state) === "purged"
+    ) {
+      return { outcome: "no_bytes", redactionState: String(row.redaction_state) };
+    }
+    return {
+      outcome: "found",
+      evidenceId: String(row.id),
+      taskId: String(row.task_id),
+      blobKey: String(row.blob_key),
+      contentHash: String(row.content_hash),
+      byteSize: Number(row.byte_size),
+      classification: String(row.content_classification),
+      meta: row.meta_json === null ? null : parseJson(row.meta_json),
+    };
+  };
+
   return {
     blobPrecheck,
+    evidenceReadRef,
     blobPlan,
     blobAdmit,
     blobGcClaim,

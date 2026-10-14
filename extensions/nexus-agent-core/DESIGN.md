@@ -3553,6 +3553,18 @@ purge-flow 覆盖：带完整账本（决策 / 授权 / 执行 / claim / 证据 
 
 **dev 网关验收（2026-10-14，通过）**：`spikes/purge-flow.mts main` 全部通过（单条删除、purge A / B / C、共享对象保留与最终回收、回执只有 hash 与计数、`foreign_key_check` / `integrity_check`、无孤儿行、`task_purged` 事件）；回归 `claim-flow.mts`、`blob-flow.mts` 全部通过。首跑在“同名同字节重传”处 FAIL：网关以 RPC 错误（`nexus_conflict`，message `evidence_purged`）拒绝是对的，探针错把它当普通返回值读，已修探针。`incarnation_gone` 启用清单（`--phase incarnation`）尚未观测，开关保持 off。Mac：`oxfmt --check`、`pnpm tsgo:extensions` 通过，`pnpm test:extension nexus-agent-core` 15 个文件 / 252 条通过。
 
+#### 切片③之后的小缺口收尾（2026-10-14，用户选「Stage 2/3 小缺口收尾」）
+
+打包期间做的三件已记录在案的小缺口，均无新开关、`src/` 零改动：
+
+| 项                                                                 | 落地情况                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nexus.evidence.handle` + `nexus.evidence.read`（`operator.read`） | **句柄不带字节**：`handle {taskId, evidenceId}` 返回 `{handleId, expiresAt, byteSize, contentHash, classification, meta, chunkBytes}`；句柄 60 秒有效、只存在于本进程内存（上限 200 个，重启即失效），绑定 owner + Task + evidence。`read {handleId, offset?, length?}` 一次最多 1 MiB，返回 `dataBase64`、`totalBytes`、`eof`、`contentHash`。**每次读取都整体取回对象并重算 sha256、核对大小**，对不上就报 `evidence_integrity_error:<reason>`，不会提供被篡改或缺失的字节；读时重查 evidence 行，单条删除或 purge 之后句柄即作废（`evidence_gone`），已无字节的证据不能开句柄（`evidence_has_no_bytes`）。Agent 工具白名单不变：**模型仍然读不到字节**。`read` 是对 §12 表的补充（表里只有 `handle`，但没有读取面句柄就没有用） |
+| 人工终结的步骤日志                                                 | `nexus.execution.resolve` 结算时步骤标题为「人工终结为成功/失败（executionId）」，`detail` 带 `resolvedBy`（现在固定 `operator:nexus-console`）与 `note`（≤500 字）。原先只写「执行失败/成功」，审计信息只在 execution 行里                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `nexus.task.get`（RPC）                                            | 补 `pendingDecisions` / `readyExecutions`，字段与 Agent 工具 `nexus_task_get` 一致。已批准待提交的 execution 不改变 Task 状态，控制台只看状态看不到这件事                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+
+验证：Linux VM evidence-flow 31→35（读句柄 4 条：分块读取与 hash 重验、过期/越权/未知句柄、篡改/缺失/删除后作废、RPC 对）、decision-flow 37→38（`task.get` 两个列表；既有的 resolve 测试补了步骤日志断言）；其余套件不变，回归 219/219；dev 探针 `blob-flow.mts` 增加对 `handle` / `read` / `task.get` 的检查。
+
 **验收必须覆盖**：
 
 - `nexus_claim_add(state:"VERIFIED")` 被拒；只有 store 在证据落库事务里能升级。
@@ -3835,7 +3847,7 @@ preference store（§11）、subagent handoff。
 
 - **verifier 只认 `executed` 加操作员声明的 relation**。blob 证据由 Agent 挂上时一律 `unclassified`；要自动判定内容与 claim 的关系，需要内容解析规则，是后续的事。
 - **`tool_output` 引用仍未支持**（需要先做 spike，确认工具输出能稳定回溯到原始字节）。
-- **没有 `nexus.evidence.handle` 短时效读取句柄**：证据字节目前只有 Agent 之外的内部路径能读（校验、reconcile），UI 想展示原文需要这个接口。
+- **没有 `nexus.evidence.handle` 短时效读取句柄**：（**2026-10-14 已补，见「切片③之后的小缺口收尾」**）证据字节目前只有 Agent 之外的内部路径能读（校验、reconcile），UI 想展示原文需要这个接口。
 - **崩溃进程留下的墓碑没有"不存在"证明**：写者原因不是 `committed` / `awaited` 时，证明保持关闭，直到 `incarnation_gone` 启用清单成立或 Purge（切片③）。（**切片③已提供开关 `evidenceIncarnationGoneEnabled`，默认 off**）
 - **暂存区让 I/O 翻倍**：上传先写暂存再 promote 到正式区，大文件成本是两次写；先接受，看真实用量再优化。
 - **没有自动 supersede**：带版本的证据（同 locator 新版本）不会自动取代旧的，旧版本仍可被链接。
@@ -3853,6 +3865,8 @@ preference store（§11）、subagent handoff。
 - **单条删除不改 claim**：已经靠这条证据达成 `VERIFIED` 的 claim 状态不回退（链上事件是历史事实）；`nexus_claim_verify` 的计数以事件为准。
 - **`incarnation_gone` 启用清单第 ②③⑤ 项是环境事实**：同 state 目录只有一个网关、同进程 reload 不误标、真实 crash-restart 的 supersede 观察，要由操作员确认（探针 `--phase incarnation` 观测 ①③⑤，② 只能人工承诺）。没确认之前保持 off。
 - **purge 没有硬超时**：`purge` 一次调用最长约 20 秒预算，之后返回 `cleanup_pending`，续跑靠下一次调用或周期 `resume`；对象被卡住（写者未静默、字节删除持续失败）时会一直停在 `purging`，`purgeStatus` 的 `blockers` / `failures` 给出原因，需要人工介入。
+- **读句柄每读一块都整体取回并重算 hash**（2026-10-14）：16 MB 上限内可接受；真正的大文件或频繁读取需要流式 / 分段哈希或带缓存的句柄。句柄只在进程内存里，网关重启即失效。
+- **人工终结的操作者字符串固定为 `operator:nexus-console`**：RPC 连接上下文里还没有可信的操作者身份（与 purge 回执同一个局限）。
 - **pkg 安装产物尚未回归**（沿用）：安装版仍是 Stage 1 构建。
 
 ## 15. 明确不做（Stage 0–2）

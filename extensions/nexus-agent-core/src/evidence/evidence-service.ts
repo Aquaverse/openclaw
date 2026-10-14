@@ -126,6 +126,48 @@ export function normalizeUploadName(raw: unknown): string | undefined {
 
 const MAX_WAIT_LOOPS = 6;
 
+/** A read handle is a short-lived capability to read ONE piece of evidence in chunks (DESIGN 9.4): never persisted. */
+export const READ_HANDLE_TTL_MS = 60_000;
+export const READ_CHUNK_BYTES = 1024 * 1024;
+const READ_HANDLE_CAP = 200;
+
+type ReadHandle = {
+  ownerId: string;
+  taskId: string;
+  evidenceId: string;
+  expiresAt: number;
+};
+
+export type ReadHandleOpen =
+  | {
+      outcome: "opened";
+      handleId: string;
+      expiresAt: number;
+      evidenceId: string;
+      byteSize: number;
+      contentHash: string;
+      classification: string;
+      meta: unknown;
+      chunkBytes: number;
+    }
+  | { outcome: "not_found" }
+  | { outcome: "no_bytes"; redactionState: string };
+
+export type ReadHandleRead =
+  | {
+      outcome: "chunk";
+      data: Uint8Array;
+      offset: number;
+      totalBytes: number;
+      eof: boolean;
+      contentHash: string;
+    }
+  | { outcome: "handle_invalid" }
+  | { outcome: "gone" }
+  | { outcome: "out_of_range"; totalBytes: number }
+  | { outcome: "integrity_error"; reason: "missing" | "hash_mismatch" | "size_mismatch" }
+  | { outcome: "storage_error"; message: string };
+
 export function createEvidenceService(deps: EvidenceServiceDeps) {
   const now = deps.now ?? Date.now;
   const sleep =
@@ -462,8 +504,115 @@ export function createEvidenceService(deps: EvidenceServiceDeps) {
     return reappeared;
   };
 
+  // Handles live only in this process: a restart invalidates them, which is fine for a 60 s capability.
+  const handles = new Map<string, ReadHandle>();
+  const sweepHandles = () => {
+    const current = now();
+    for (const [id, handle] of handles) {
+      if (handle.expiresAt <= current) {
+        handles.delete(id);
+      }
+    }
+    while (handles.size >= READ_HANDLE_CAP) {
+      const oldest = handles.keys().next().value;
+      if (oldest === undefined) {
+        break;
+      }
+      handles.delete(oldest);
+    }
+  };
+
   return {
     config,
+
+    /**
+     * `nexus.evidence.handle`: a short-lived capability to read ONE piece of evidence, scoped to owner + Task + evidence.
+     * It carries no bytes. Reading re-checks the evidence row, so a deletion or purge in between closes it.
+     */
+    async openReadHandle(
+      principal: Principal,
+      taskId: string,
+      evidenceId: string,
+    ): Promise<ReadHandleOpen> {
+      const store = await deps.getStore();
+      const ref = await store.evidenceReadRef({ principal, taskId, evidenceId });
+      if (ref.outcome !== "found") {
+        return ref;
+      }
+      sweepHandles();
+      const handleId = newId("EH");
+      const expiresAt = now() + READ_HANDLE_TTL_MS;
+      handles.set(handleId, { ownerId: principal.ownerId, taskId, evidenceId, expiresAt });
+      return {
+        outcome: "opened",
+        handleId,
+        expiresAt,
+        evidenceId,
+        byteSize: ref.byteSize,
+        contentHash: ref.contentHash,
+        classification: ref.classification,
+        meta: ref.meta,
+        chunkBytes: READ_CHUNK_BYTES,
+      };
+    },
+
+    /**
+     * `nexus.evidence.read`: one chunk. The WHOLE object is read and hashed every time and compared with the registered
+     * hash: altered or missing bytes are never served, however short the handle lives.
+     */
+    async readHandle(
+      principal: Principal,
+      handleId: string,
+      offset: number,
+      length: number,
+    ): Promise<ReadHandleRead> {
+      const handle = handles.get(handleId);
+      if (!handle || handle.ownerId !== principal.ownerId || handle.expiresAt <= now()) {
+        handles.delete(handleId);
+        return { outcome: "handle_invalid" };
+      }
+      const store = await deps.getStore();
+      const ref = await store.evidenceReadRef({
+        principal,
+        taskId: handle.taskId,
+        evidenceId: handle.evidenceId,
+      });
+      if (ref.outcome !== "found") {
+        handles.delete(handleId);
+        return { outcome: "gone" };
+      }
+      if (!Number.isInteger(offset) || offset < 0 || offset > ref.byteSize) {
+        return { outcome: "out_of_range", totalBytes: ref.byteSize };
+      }
+      const size = Math.min(Math.max(Math.floor(length), 1), READ_CHUNK_BYTES);
+      let bytes: Uint8Array | undefined;
+      try {
+        bytes = await (await deps.blobs.production(principal.ownerId)).get(ref.blobKey);
+      } catch (error) {
+        return {
+          outcome: "storage_error",
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+      if (!bytes) {
+        return { outcome: "integrity_error", reason: "missing" };
+      }
+      if (bytes.byteLength !== ref.byteSize) {
+        return { outcome: "integrity_error", reason: "size_mismatch" };
+      }
+      if (sha256Bytes(bytes) !== ref.contentHash) {
+        return { outcome: "integrity_error", reason: "hash_mismatch" };
+      }
+      const end = Math.min(offset + size, bytes.byteLength);
+      return {
+        outcome: "chunk",
+        data: bytes.slice(offset, end),
+        offset,
+        totalBytes: bytes.byteLength,
+        eof: end >= bytes.byteLength,
+        contentHash: ref.contentHash,
+      };
+    },
 
     /**
      * Operator upload: the bytes arrive through the RPC, never through the model. With a claimId the evidence is linked in

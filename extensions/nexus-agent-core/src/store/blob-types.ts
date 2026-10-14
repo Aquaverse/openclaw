@@ -280,3 +280,19 @@ export type EvidenceBlobView = {
   capturedAt: number;
   linkedClaimIds: string[];
 };
+
+/** What the read-handle path needs to know about one piece of evidence (no bytes). */
+export type EvidenceReadRef =
+  | {
+      outcome: "found";
+      evidenceId: string;
+      taskId: string;
+      blobKey: string;
+      contentHash: string;
+      byteSize: number;
+      classification: string;
+      meta: unknown;
+    }
+  | { outcome: "not_found" }
+  /** The row exists but its bytes were deleted (single-evidence deletion or purge) or never stored. */
+  | { outcome: "no_bytes"; redactionState: string };

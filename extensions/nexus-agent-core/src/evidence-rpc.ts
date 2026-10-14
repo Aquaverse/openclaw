@@ -3,7 +3,7 @@
 import type { GatewayRequestHandlerOptions } from "openclaw/plugin-sdk/gateway-runtime";
 import type { EventBridge } from "./events.js";
 import type { EvidenceOutcome, EvidenceService } from "./evidence/evidence-service.js";
-import { normalizeUploadName } from "./evidence/evidence-service.js";
+import { normalizeUploadName, READ_CHUNK_BYTES } from "./evidence/evidence-service.js";
 import { CONTENT_CLASSIFICATIONS, type ContentClassification } from "./store/blob-types.js";
 import type { TaskStore } from "./store/host.js";
 import type { Principal } from "./store/types.js";
@@ -285,6 +285,84 @@ export function createEvidenceRpcHandlers(deps: EvidenceRpcDeps) {
           limit,
         });
         respond(true, { ownerId: principal.ownerId, taskId, evidence });
+      }),
+      "operator.read",
+    ],
+    [
+      "nexus.evidence.handle",
+      guarded(async ({ principal, params, respond }) => {
+        const taskId = normalizeTaskId(params.taskId);
+        const evidenceId =
+          typeof params.evidenceId === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(params.evidenceId)
+            ? params.evidenceId
+            : undefined;
+        if (!taskId || !evidenceId) {
+          reject(respond, "nexus_invalid_params", "taskId and evidenceId are required");
+          return;
+        }
+        const opened = await deps.evidence.openReadHandle(principal, taskId, evidenceId);
+        if (opened.outcome === "not_found") {
+          reject(respond, "nexus_not_found", "task or evidence not found");
+          return;
+        }
+        if (opened.outcome === "no_bytes") {
+          reject(respond, "nexus_conflict", "evidence_has_no_bytes", {
+            redactionState: opened.redactionState,
+          });
+          return;
+        }
+        respond(true, { ownerId: principal.ownerId, ...opened });
+      }),
+      "operator.read",
+    ],
+    [
+      "nexus.evidence.read",
+      guarded(async ({ principal, params, respond }) => {
+        const handleId =
+          typeof params.handleId === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(params.handleId)
+            ? params.handleId
+            : undefined;
+        if (!handleId) {
+          reject(respond, "nexus_invalid_params", "handleId is required");
+          return;
+        }
+        const offset = params.offset === undefined ? 0 : Number(params.offset);
+        const length = params.length === undefined ? READ_CHUNK_BYTES : Number(params.length);
+        if (!Number.isFinite(offset) || !Number.isFinite(length) || length < 1) {
+          reject(respond, "nexus_invalid_params", "offset / length must be numbers (length >= 1)");
+          return;
+        }
+        const result = await deps.evidence.readHandle(principal, handleId, offset, length);
+        switch (result.outcome) {
+          case "chunk":
+            respond(true, {
+              ownerId: principal.ownerId,
+              offset: result.offset,
+              length: result.data.byteLength,
+              totalBytes: result.totalBytes,
+              eof: result.eof,
+              contentHash: result.contentHash,
+              dataBase64: Buffer.from(result.data).toString("base64"),
+            });
+            return;
+          case "handle_invalid":
+            reject(respond, "nexus_not_found", "handle is unknown or expired; open a new one");
+            return;
+          case "gone":
+            reject(respond, "nexus_conflict", "evidence_gone");
+            return;
+          case "out_of_range":
+            reject(respond, "nexus_invalid_params", "offset is beyond the end", {
+              totalBytes: result.totalBytes,
+            });
+            return;
+          case "integrity_error":
+            reject(respond, "nexus_conflict", `evidence_integrity_error:${result.reason}`);
+            return;
+          case "storage_error":
+            reject(respond, "nexus_store_error", result.message);
+            return;
+        }
       }),
       "operator.read",
     ],

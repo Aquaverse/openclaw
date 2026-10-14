@@ -2042,6 +2042,8 @@ export function createDecisionKernel(
     from?: ExecutionState[];
     /** Stage 3: also write the execution-result claim + its evidence in this transaction (never fails the settle). */
     recordClaim?: boolean;
+    /** An operator closed this execution by hand (`nexus.execution.resolve`): who and why go into the step log. */
+    operatorResolution?: { actor: string; note: string };
     now: number;
   }):
     | { outcome: "settled"; execution: ExecutionRecord; task: TaskRecord | null }
@@ -2088,8 +2090,20 @@ export function createDecisionKernel(
         execution.taskId,
         "execution",
         state === "succeeded" ? "done" : state === "failed" ? "failed" : "unknown",
-        `执行${state === "succeeded" ? "成功" : state === "failed" ? "失败" : "结果待确认"}（${execution.id}）`,
-        { executionId: execution.id, actionId: execution.actionId, state },
+        input.operatorResolution
+          ? `人工终结为${state === "succeeded" ? "成功" : "失败"}（${execution.id}）`
+          : `执行${state === "succeeded" ? "成功" : state === "failed" ? "失败" : "结果待确认"}（${execution.id}）`,
+        {
+          executionId: execution.id,
+          actionId: execution.actionId,
+          state,
+          ...(input.operatorResolution
+            ? {
+                resolvedBy: input.operatorResolution.actor,
+                note: [...input.operatorResolution.note].slice(0, 500).join(""),
+              }
+            : {}),
+        },
         input.now,
       );
       enqueueOutbox(
