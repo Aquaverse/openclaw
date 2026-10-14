@@ -1,6 +1,6 @@
 // Nexus Agent Core plugin entry.
 // Stage 1: the Task module behind `tasksEnabled`; Stage 2: decisions/grants/executions behind `decisionsEnabled`;
-// Stage 3: the Claim / Evidence ledger behind `claimsEnabled`, evidence bytes behind `evidenceBlobsEnabled` (DESIGN section 13). Stage 0 runtime spikes stay behind `spikesEnabled`. Evidence and Preference arrive later.
+// Stage 3: the Claim / Evidence ledger behind `claimsEnabled`, evidence bytes behind `evidenceBlobsEnabled` (DESIGN section 13). Stage 0 runtime spikes stay behind `spikesEnabled`. Stage 4: the Preference Store behind `preferencesEnabled` (DESIGN section 11) and the Watcher behind `watchersEnabled` (section 10).
 import path from "node:path";
 import { definePluginEntry } from "./api.js";
 import { getSharedSpikeRecorder, readObservationFile } from "./src/spikes/recorder.js";
@@ -8,6 +8,7 @@ import { runSpike, type SpikeRunParams } from "./src/spikes/runner.js";
 import { resolveSpikeStateDir } from "./src/spikes/spike1-runtime.js";
 import { createSpikeProbeTool, registerSpike2Hooks } from "./src/spikes/spike2-approval.js";
 import { createProbeService } from "./src/spikes/spike3-service.js";
+import { registerSpike4Hooks } from "./src/spikes/spike4-trigger.js";
 import { registerTaskModule } from "./src/task-module.js";
 
 type NexusPluginConfig = {
@@ -15,6 +16,9 @@ type NexusPluginConfig = {
   decisionsEnabled?: boolean;
   claimsEnabled?: boolean;
   evidenceBlobsEnabled?: boolean;
+  preferencesEnabled?: boolean;
+  watchersEnabled?: boolean;
+  watcherExtraTools?: string[];
   evidenceTaskQuotaBytes?: number;
   evidenceOwnerQuotaBytes?: number;
   evidenceMaxUploadBytes?: number;
@@ -73,6 +77,9 @@ export default definePluginEntry({
         decisionsEnabled: config.decisionsEnabled === true,
         claimsEnabled: config.claimsEnabled === true,
         evidenceBlobsEnabled: config.evidenceBlobsEnabled === true,
+        preferencesEnabled: config.preferencesEnabled === true,
+        watchersEnabled: config.watchersEnabled === true,
+        watcherExtraTools: config.watcherExtraTools,
         evidenceTaskQuotaBytes: config.evidenceTaskQuotaBytes,
         evidenceOwnerQuotaBytes: config.evidenceOwnerQuotaBytes,
         evidenceMaxUploadBytes: config.evidenceMaxUploadBytes,
@@ -100,6 +107,7 @@ export default definePluginEntry({
 
     api.registerTool(createSpikeProbeTool(recorder), { optional: true });
     registerSpike2Hooks(api, recorder);
+    registerSpike4Hooks(api, recorder);
     // Only the live registration owns a service; discovery passes must not consume generations.
     if (api.registrationMode === "full") {
       api.registerService(

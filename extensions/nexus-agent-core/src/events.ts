@@ -28,6 +28,8 @@ export const CLAIM_CHANGED_EVENT = "claim_changed";
 export const CLAIM_VERIFIED_EVENT = "claim_verified";
 export const EVIDENCE_CHANGED_EVENT = "evidence_changed";
 export const TASK_PURGED_EVENT = "task_purged";
+export const PREFERENCE_CHANGED_EVENT = "preference_changed";
+export const WATCH_CHANGED_EVENT = "watch_changed";
 
 /** Outbox-delivered ledger notices. Ids and a state only: clients re-read through nexus.claim.get. */
 export type ClaimChangedPayload = {
@@ -118,6 +120,42 @@ export function createEventBridge(onError: (error: unknown) => void = () => {}) 
       }
       try {
         emitter(TASK_PURGED_EVENT, payload, { scope: "operator.read" });
+      } catch (error) {
+        onError(error);
+      }
+    },
+    /** preference_changed: a preference was set, deleted or purged. Ids, scope and key only (no value); re-read via nexus.preference.get. */
+    preferenceChanged(payload: {
+      ownerId: string;
+      scope: string;
+      key: string;
+      preferenceId?: string;
+      origin?: string;
+      change: "set" | "deleted" | "purged";
+    }) {
+      if (!emitter) {
+        return;
+      }
+      try {
+        emitter(PREFERENCE_CHANGED_EVENT, payload, { scope: "operator.read" });
+      } catch (error) {
+        onError(error);
+      }
+    },
+    /** watch_changed: a watch was created, scheduled, fired, reported on or closed. Ids and a status only; re-read via nexus.watch.get. */
+    watchChanged(payload: {
+      ownerId: string;
+      watchId: string;
+      taskId: string;
+      status: string;
+      change: string;
+      attempts?: number;
+    }) {
+      if (!emitter) {
+        return;
+      }
+      try {
+        emitter(WATCH_CHANGED_EVENT, payload, { scope: "operator.read" });
       } catch (error) {
         onError(error);
       }

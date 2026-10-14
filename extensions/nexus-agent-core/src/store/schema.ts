@@ -717,10 +717,109 @@ CREATE TABLE purge_receipts (
 ) STRICT;
 `;
 
+// Stage 4 (preferences) migration SQL: preferences + preference_revisions, DESIGN section 6.3 copied verbatim (from the
+// "偏好与个人上下文" banner up to, not including, the "回检" banner). It references nexus_tasks only (task_exception rows cascade
+// with the Task, section 11.5); purge_receipts already carries the preference shape from stage3-0003. The watches table
+// arrives with its own migration. Regression group 11 checks this text against DESIGN.md.
+export const STAGE4_PREFERENCE_SQL = `
+---------- 偏好与个人上下文（§11）----------
+CREATE TABLE preferences (
+  id TEXT NOT NULL PRIMARY KEY, owner_id TEXT NOT NULL,
+  scope TEXT NOT NULL,                   -- global|domain:<name>
+  key TEXT NOT NULL, value_json TEXT NOT NULL,
+  origin TEXT NOT NULL,                  -- stated|observed|task_exception
+  task_id TEXT,                          -- 仅 origin='task_exception' 非空
+  asserted_by TEXT NOT NULL,             -- user|agent（与 origin 的组合受 CHECK 约束）
+  -- 由 R0 决策确认时记下 decision id。故意不建外键：decisions 的唯一键带 task_id，
+  -- 而偏好的寿命长于 Task，Task 被 purge 后这条偏好必须还在（同 purge_receipts，§9.4）
+  decision_ref TEXT,
+  confidence REAL,                       -- 仅 origin='observed'
+  head_revision_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  deleted_at INTEGER, purged_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  UNIQUE (owner_id, id),
+  CHECK (origin IN ('stated','observed','task_exception')),
+  -- v0.12：正文的 origin 不变量必须由 schema 兜住。一次 store/RPC 实现错误
+  -- 会把"某个 Task 的例外"写成 owner 级长期偏好，这是静默的越权。
+  CHECK ((origin = 'task_exception') = (task_id IS NOT NULL)),
+  CHECK (CASE WHEN origin = 'observed'
+              THEN confidence IS NOT NULL AND confidence > 0.0 AND confidence <= 1.0
+              ELSE confidence IS NULL END),
+  -- v0.12b：asserted_by 此前是任意文本，库接受 stated+agent 与 observed+user，
+  -- 直接推翻 §11.2 的来源语义。声明者与来源必须对得上。
+  CHECK (asserted_by IN ('user','agent')),
+  CHECK (CASE origin
+    WHEN 'stated'   THEN asserted_by = 'user'
+    WHEN 'observed' THEN asserted_by = 'agent'
+    ELSE 1 END),                         -- task_exception 两者都允许
+  -- 只有 stated 偏好可能来自一条决策（§8.12 的 set_preference）
+  CHECK (decision_ref IS NULL OR (origin = 'stated' AND asserted_by = 'user')),
+  -- 级联：task_exception 只对那个 Task 有意义，Task 被硬清除时一起消失。
+  -- 这里和 §9.4 的账本相反——账本不级联是为了留痕，偏好没有留痕义务，
+  -- 不级联反而会让一条偏好挡死 purge（回归第 12 组实测到过）。
+  FOREIGN KEY (owner_id, task_id) REFERENCES nexus_tasks(owner_id, id) ON DELETE CASCADE,
+  -- 循环引用：与首条 revision 同事务写入，同 claims/claim_events（§9.1）
+  FOREIGN KEY (owner_id, id, head_revision_id)
+    REFERENCES preference_revisions(owner_id, preference_id, id) DEFERRABLE INITIALLY DEFERRED
+) STRICT;
+-- 同一 (scope, key) 下三种 origin 可以并存，读取时按 §11.3 的优先级解析
+CREATE UNIQUE INDEX preferences_active
+  ON preferences(owner_id, scope, key, origin, COALESCE(task_id, ''))
+  WHERE deleted_at IS NULL;
+
+CREATE TABLE preference_revisions (      -- append-only；不进 claim 链，见 §11.5
+  id TEXT NOT NULL PRIMARY KEY, owner_id TEXT NOT NULL, preference_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  op TEXT NOT NULL,                      -- set|supersede|delete
+  value_json TEXT, origin TEXT NOT NULL, asserted_by TEXT NOT NULL,
+  decision_ref TEXT, source_note TEXT,   -- observed 必须写明依据（哪几个 Task 归纳出来的）
+  created_at INTEGER NOT NULL,
+  UNIQUE (preference_id, seq),
+  UNIQUE (owner_id, preference_id, id),  -- 供 preferences.head_revision_id 复合引用
+  CHECK (op IN ('set','supersede','delete')),
+  CHECK (origin IN ('stated','observed','task_exception')),
+  CHECK (asserted_by IN ('user','agent')),
+  CHECK (CASE origin
+    WHEN 'stated'   THEN asserted_by = 'user'
+    WHEN 'observed' THEN asserted_by = 'agent'
+    ELSE 1 END),
+  CHECK (decision_ref IS NULL OR origin = 'stated'),
+  -- observed 必须写明归纳依据，否则与模型凭空臆测无法区分（§11.2）
+  CHECK (origin <> 'observed' OR source_note IS NOT NULL),
+  FOREIGN KEY (owner_id, preference_id) REFERENCES preferences(owner_id, id)
+    ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+) STRICT;
+`;
+
+// Stage 4 (second migration): the watches table, DESIGN section 6.3 copied verbatim (from `---------- 回检` up to the outbox
+// block). `run_triggers.watch_id` and the outbox already exist from stage2-0001. Regression group 11 checks this text.
+export const STAGE4_WATCHES_SQL = `
+---------- 回检 ----------
+CREATE TABLE watches (
+  id TEXT NOT NULL PRIMARY KEY, owner_id TEXT NOT NULL, task_id TEXT NOT NULL,
+  claim_id TEXT, expect_json TEXT NOT NULL, revision INTEGER NOT NULL,
+  scheduler_job_id TEXT,
+  scheduler_revision INTEGER,           -- v0.5：调度时写入的 revision，认证时与 revision 比对
+  session_key TEXT NOT NULL, cron_tag TEXT NOT NULL,
+  scheduled_for INTEGER, next_check_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL,
+  status TEXT NOT NULL,   -- pending_schedule|scheduled|firing|satisfied|exhausted|cancelled
+  UNIQUE (owner_id, task_id, id),
+  FOREIGN KEY (owner_id, task_id) REFERENCES nexus_tasks(owner_id, id) ON DELETE CASCADE,
+  FOREIGN KEY (owner_id, task_id, claim_id) REFERENCES claims(owner_id, task_id, id)
+) STRICT;
+-- watcher 认证要求恰好一行；见 §10.2
+CREATE UNIQUE INDEX watches_job ON watches(owner_id, scheduler_job_id)
+  WHERE scheduler_job_id IS NOT NULL;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { id: "stage1-0001-task-core", sql: STAGE1_TASK_CORE_SQL },
   { id: "stage2-0001-decision-grant-execution", sql: STAGE2_DECISION_SQL },
   { id: "stage3-0001-claim-evidence-ledger", sql: STAGE3_LEDGER_SQL },
   { id: "stage3-0002-blob-reservations", sql: STAGE3_RESERVATIONS_SQL },
   { id: "stage3-0003-purge", sql: STAGE3_PURGE_SQL },
+  { id: "stage4-0001-preferences", sql: STAGE4_PREFERENCE_SQL },
+  { id: "stage4-0002-watches", sql: STAGE4_WATCHES_SQL },
 ];

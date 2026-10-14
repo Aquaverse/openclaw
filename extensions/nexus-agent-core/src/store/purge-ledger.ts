@@ -761,6 +761,7 @@ export function createPurgeLedger(
       const scope = [owner, input.taskId] as const;
       // FK order. The three tables that do NOT cascade from nexus_tasks (claim_events, evidence, blob_reservations) are
       // emptied by hand; everything else (steps, sessions, actions, decisions, grants, executions...) cascades from the Task.
+      run("DELETE FROM watches WHERE owner_id = ? AND task_id = ?", ...scope);
       run("DELETE FROM claim_event_evidence WHERE owner_id = ? AND task_id = ?", ...scope);
       run("DELETE FROM claim_evidence_links WHERE owner_id = ? AND task_id = ?", ...scope);
       run("DELETE FROM nexus_task_completion_claims WHERE owner_id = ? AND task_id = ?", ...scope);

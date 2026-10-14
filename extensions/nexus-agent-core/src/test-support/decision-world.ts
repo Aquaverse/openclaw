@@ -15,6 +15,7 @@ import {
 import { createEventBridge } from "../events.js";
 import { createEvidenceRpcHandlers } from "../evidence-rpc.js";
 import { createEvidenceService, type EvidenceServiceDeps } from "../evidence/evidence-service.js";
+import { createPreferenceRpcHandlers } from "../preference-rpc.js";
 import { createFakeProvider, type ProviderMode } from "../provider/fake-provider.js";
 import { createPurgeRpcHandlers } from "../purge-rpc.js";
 import { createPurgeService } from "../purge/purge-service.js";
@@ -26,7 +27,11 @@ import type { Principal } from "../store/types.js";
 import { createTokenLedger } from "../tokens.js";
 import { createActionTools } from "../tools/action-tools.js";
 import { createClaimTools } from "../tools/claim-tools.js";
+import { createPreferenceTools } from "../tools/preference-tools.js";
 import { createTaskTools } from "../tools/task-tools.js";
+import { createWatchTools } from "../tools/watch-tools.js";
+import { createWatchRpcHandlers } from "../watch-rpc.js";
+import { createWatchRuntime } from "../watch-runtime.js";
 import { createFakeBlobWorld } from "./fake-blob-store.js";
 
 export const P: Principal = { ownerId: "local" };
@@ -201,6 +206,58 @@ export function world(
       },
       { sessionKey, agentId: "main" },
     );
+  const prefTools = (sessionKey: string, decisionsEnabled = true) =>
+    createPreferenceTools(
+      {
+        getStore: async () => store,
+        events,
+        resolvePrincipal: () => P,
+        now: () => clock,
+        decisionsEnabled,
+        onOutboxWritten: () => runtime.kickOutbox(),
+      },
+      { sessionKey, agentId: "main" },
+    );
+  // Watcher: the real runtime over a recording fake of the host scheduler. `claimWaitMs: 0` and an immediate sleep keep tests fast.
+  const schedulerCalls: Array<Record<string, unknown>> = [];
+  let jobSeq = 0;
+  let scheduleMode: "ok" | "fail" = "ok";
+  const watchRuntime = createWatchRuntime({
+    getStore: async () => store,
+    events,
+    resolvePrincipal: () => P,
+    scheduler: {
+      schedule: async (params) => {
+        schedulerCalls.push({ op: "schedule", ...params });
+        if (scheduleMode === "fail") {
+          return undefined;
+        }
+        jobSeq += 1;
+        return { id: `job-${jobSeq}` };
+      },
+      unscheduleByTag: async (params) => {
+        schedulerCalls.push({ op: "unschedule", ...params });
+        return { removed: 1, failed: 0 };
+      },
+    },
+    recordTrigger: (ctx) => runtime.recordTrigger(ctx),
+    onOutboxWritten: () => runtime.kickOutbox(),
+    logger,
+    now: () => clock,
+    claimWaitMs: 0,
+    sleep: () => new Promise<void>((resolve) => setImmediate(resolve)),
+  });
+  const watchTools = (sessionKey: string) =>
+    createWatchTools(
+      {
+        getStore: async () => store,
+        events,
+        resolvePrincipal: () => P,
+        now: () => clock,
+        after: (principal, change) => watchRuntime.afterChange(principal, change),
+      },
+      { sessionKey, agentId: "main" },
+    );
   const taskTools = (sessionKey: string) =>
     createTaskTools(
       {
@@ -249,6 +306,24 @@ export function world(
     events,
     resolvePrincipal: () => P,
     now: () => clock,
+  })) {
+    rpc.set(method, handler as never);
+  }
+  for (const [method, handler] of createPreferenceRpcHandlers({
+    getStore: async () => store,
+    events,
+    resolvePrincipal: () => P,
+    now: () => clock,
+  })) {
+    rpc.set(method, handler as never);
+  }
+  for (const [method, handler] of createWatchRpcHandlers({
+    getStore: async () => store,
+    events,
+    resolvePrincipal: () => P,
+    now: () => clock,
+    afterCancel: (principal, watch) =>
+      watchRuntime.afterChange(principal, { kind: "cancelled", watch }),
   })) {
     rpc.set(method, handler as never);
   }
@@ -430,6 +505,13 @@ export function world(
     booking,
     taskTools,
     claimTools,
+    prefTools,
+    watchTools,
+    watchRuntime,
+    schedulerCalls,
+    setScheduleMode: (mode: "ok" | "fail") => {
+      scheduleMode = mode;
+    },
     setClock: (value: number) => {
       clock = value;
     },

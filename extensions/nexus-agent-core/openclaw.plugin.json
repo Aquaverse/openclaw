@@ -1,7 +1,7 @@
 {
   "id": "nexus-agent-core",
   "name": "Nexus Agent Core",
-  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see DESIGN.md section 13).",
+  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). Stage 4: a Preference Store (tools nexus_preference_*, RPC nexus.preference.*), a read-only Control UI tab, and a Watcher for scheduled re-checks (tools nexus_watch_*, RPC nexus.watch.*). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see DESIGN.md section 13).",
   "categories": [
     "agent-orchestration"
   ],
@@ -32,6 +32,23 @@
         "type": "boolean",
         "default": false,
         "description": "Enable Stage 3 evidence bytes (needs claimsEnabled): the operator upload RPC nexus.evidence.upload / .link and `blob` refs for nexus_evidence_add, stored through the plugin blob store with reservations, soft quotas and reclaim. Off by default."
+      },
+      "preferencesEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable the Stage 4 Preference Store (needs tasksEnabled; confirming a value as the user's stated preference also needs decisionsEnabled): nexus_preference_get / nexus_preference_set / nexus_preference_confirm (optional tools, allow them via tools.alsoAllow) and nexus.preference.* gateway methods. A preference is a default, never authority. Off by default."
+      },
+      "watchersEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable the Stage 4 Watcher (needs claimsEnabled): nexus_watch_create / nexus_watch_cancel / nexus_watch_report (optional tools, allow them via tools.alsoAllow), nexus.watch.* gateway methods, and background re-check turns scheduled through the host cron service. A re-check turn can only read and attach evidence. Off by default."
+      },
+      "watcherExtraTools": {
+        "type": "array",
+        "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "maxItems": 16,
+        "default": ["web_fetch", "web_search"],
+        "description": "Extra READ-ONLY tool names a re-check turn may use besides the Nexus ones (default web_fetch and web_search). Anything that can act outwards (message, exec, browser actions) must not be listed."
       },
       "evidenceTaskQuotaBytes": {
         "type": "integer",
@@ -146,6 +163,12 @@
       "nexus_claim_add",
       "nexus_evidence_add",
       "nexus_claim_verify",
+      "nexus_preference_get",
+      "nexus_preference_set",
+      "nexus_preference_confirm",
+      "nexus_watch_create",
+      "nexus_watch_cancel",
+      "nexus_watch_report",
       "nexus_spike_probe"
     ]
   },
@@ -190,6 +213,24 @@
       "optional": true
     },
     "nexus_claim_verify": {
+      "optional": true
+    },
+    "nexus_preference_get": {
+      "optional": true
+    },
+    "nexus_preference_set": {
+      "optional": true
+    },
+    "nexus_preference_confirm": {
+      "optional": true
+    },
+    "nexus_watch_create": {
+      "optional": true
+    },
+    "nexus_watch_cancel": {
+      "optional": true
+    },
+    "nexus_watch_report": {
       "optional": true
     }
   }

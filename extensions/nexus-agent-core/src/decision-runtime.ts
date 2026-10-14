@@ -75,6 +75,7 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
     sessionKey?: string;
     trigger?: string;
     jobId?: string;
+    watchId?: string;
     agentId?: string;
   }): Promise<void> {
     if (!ctx.runId || !ctx.sessionKey) {
@@ -94,6 +95,7 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
         sessionKey: ctx.sessionKey,
         trigger: ctx.trigger ?? "unknown",
         ...(ctx.jobId ? { jobId: ctx.jobId } : {}),
+        ...(ctx.watchId ? { watchId: ctx.watchId } : {}),
         ttlMs: RUN_TRIGGER_TTL_MS,
         now: now(),
       });

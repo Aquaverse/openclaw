@@ -12,6 +12,7 @@ import {
   runRuntimeIdentity,
 } from "./spike3-blob.js";
 import { runScheduleProbe } from "./spike4-schedule.js";
+import { runTriggerArm } from "./spike4-trigger.js";
 
 export type SpikeRunParams = {
   spike: SpikeNumber;
@@ -75,6 +76,17 @@ export const SPIKE_ITEMS: Record<SpikeNumber, Record<string, SpikeItem>> = {
         delayMs: params.delayMs,
       });
     },
+    // Opt-in only (`item: "trigger-arm"`): schedules real turns that call the model once each.
+    "trigger-arm": async ({ api, recorder, params }) => {
+      if (!params.sessionKey) {
+        recorder.record(4, "trigger.armed", "skipped", { reason: "sessionKey required" });
+        return;
+      }
+      await runTriggerArm(api, recorder, {
+        sessionKey: params.sessionKey,
+        delayMs: params.delayMs,
+      });
+    },
   },
 };
 
@@ -87,7 +99,10 @@ export async function runSpike(
   if (!items) {
     throw new Error(`unknown spike ${String(params.spike)}`);
   }
-  const names = params.item ? [params.item] : Object.keys(items);
+  // Items that call the model stay opt-in: they only run when named.
+  const names = params.item
+    ? [params.item]
+    : Object.keys(items).filter((name) => name !== "trigger-arm");
   const startSeq = (recorder.list().at(-1)?.seq ?? 0) + 1;
   const ran: string[] = [];
   for (const name of names) {

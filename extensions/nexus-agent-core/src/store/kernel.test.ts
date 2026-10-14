@@ -63,6 +63,8 @@ describe("task store kernel", () => {
       "stage3-0001-claim-evidence-ledger",
       "stage3-0002-blob-reservations",
       "stage3-0003-purge",
+      "stage4-0001-preferences",
+      "stage4-0002-watches",
     ]);
     assert.deepEqual(applyMigrations(db, tx), []);
   });

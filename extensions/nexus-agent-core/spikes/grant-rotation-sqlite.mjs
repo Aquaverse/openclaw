@@ -849,14 +849,69 @@ console.log("\n[11] DESIGN.md 的 schema 与命名契约");
             ),
       );
 
+      // ---- Stage 4 第一批（偏好）：STAGE4_PREFERENCE_SQL = §6.3 里「偏好与个人上下文」一段，到「回检」之前，逐字一致。
+      const m6 = schemaTs.match(/STAGE4_PREFERENCE_SQL = `\n([\s\S]*?)\n`;/);
+      const sql6 = m6 ? m6[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
+      const watchesStart = md.indexOf("---------- 回检");
+      check(
+        "Stage 4 第一批迁移 SQL 与 DESIGN §6.3 的 preferences / preference_revisions 逐字一致",
+        [
+          watchesStart > completionEnd,
+          sql6.length > 0,
+          sql6.trim() === md.slice(completionEnd, watchesStart).trim(),
+        ],
+        (x) => x[0] === true && x[1] === true && x[2] === true,
+      );
+      let stage4aError = "ok";
+      try {
+        stacked.exec(sql6);
+      } catch (error) {
+        stage4aError = String(error?.message ?? error);
+      }
+      check(
+        "Stage 4 第一批叠在前三批之上：无错误，foreign_key_check 为空，新增 preferences / preference_revisions",
+        [stage4aError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
+        (x) =>
+          x[0] === "ok" &&
+          x[1] === 0 &&
+          JSON.stringify(x[2]) ===
+            JSON.stringify(
+              [
+                "nexus_task_sessions",
+                "nexus_task_steps",
+                "nexus_tasks",
+                ...STAGE2_TABLES,
+                ...STAGE3_TABLES,
+                "blob_reservations",
+                "purge_receipts",
+                "purge_runs",
+                "purge_work_items",
+                "preferences",
+                "preference_revisions",
+              ].toSorted(),
+            ),
+      );
+
+      // ---- Stage 4 第二批（Watcher）：STAGE4_WATCHES_SQL = §6.3 里「回检」一段，到「通知 outbox」之前，逐字一致。
+      const m7 = schemaTs.match(/STAGE4_WATCHES_SQL = `\n([\s\S]*?)\n`;/);
+      const sql7 = m7 ? m7[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
+      check(
+        "Stage 4 第二批迁移 SQL 与 DESIGN §6.3 的 watches 逐字一致",
+        [
+          seg2Start > watchesStart,
+          sql7.length > 0,
+          sql7.trim() === md.slice(watchesStart, seg2Start).trim(),
+        ],
+        (x) => x[0] === true && x[1] === true && x[2] === true,
+      );
       let restError = "ok";
       try {
-        stacked.exec(md.slice(completionEnd, seg2Start));
+        stacked.exec(sql7);
       } catch (error) {
         restError = String(error?.message ?? error);
       }
       check(
-        "Stage 3 余下与 Stage 4 的表继续只靠追加叠到 Stage 1–3 库上，最终表集合与完整 schema 一致",
+        "Stage 4 第二批（watches）只靠追加叠到已有库上，最终表集合与完整 schema 一致",
         [restError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
         (x) => x[0] === "ok" && x[1] === 0 && JSON.stringify(x[2]) === JSON.stringify(fullTables),
       );

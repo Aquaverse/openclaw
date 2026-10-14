@@ -162,6 +162,47 @@ export function buildDecisionContent(input: {
   };
 }
 
+function previewValue(value: unknown): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  const chars = [...(text ?? "null")];
+  return chars.length > 200 ? `${chars.slice(0, 200).join("")}...` : chars.join("");
+}
+
+/**
+ * Card for a `set_preference` decision (DESIGN section 11.4 / 8.12). Everything shown is built here from the mutation and the
+ * CURRENT stated value; the model supplies neither wording nor options. There are no grant policies: confirming a preference
+ * authorizes nothing.
+ */
+export function buildPreferenceContent(input: {
+  task: TaskLike;
+  mutation: { scope: string; key: string; value: unknown };
+  current: { value: unknown; revision: number } | null;
+}): DecisionContent {
+  const { mutation, current } = input;
+  const question = current
+    ? `是否把偏好「${mutation.key}」（范围 ${mutation.scope}）从 ${previewValue(current.value)} 改为 ${previewValue(mutation.value)}？`
+    : `是否把偏好「${mutation.key}」（范围 ${mutation.scope}）确认为 ${previewValue(mutation.value)}？`;
+  return {
+    question,
+    facts: {
+      task: {
+        id: input.task.id,
+        title: input.task.title,
+        revision: input.task.revision,
+      },
+      mutation: { op: "set", scope: mutation.scope, key: mutation.key, value: mutation.value },
+      current: current ? { value: current.value, revision: current.revision } : null,
+      effect: "只会写入这条偏好；不授权任何操作，也不改变任何动作的风险档。",
+    },
+    options: OPTION_IDS.map((id) => ({ id, label: id === "approve" ? "确认" : "拒绝" })),
+    unknowns: [
+      "这个值是模型根据对话整理的，Nexus 没有核对用户原话；确认前请核对上面列出的值。",
+      "偏好只影响默认选项，不构成授权；之后可以随时在偏好页修改或删除。",
+    ],
+    policies: [],
+  };
+}
+
 export type AuthorityInput = {
   ownerId: string;
   taskId: string;

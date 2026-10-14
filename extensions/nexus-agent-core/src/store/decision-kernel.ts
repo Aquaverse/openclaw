@@ -12,6 +12,7 @@ import { canonicalJson, sha256Hex } from "../canonical.js";
 import { actionHashFor, specFor, tierForCapability } from "../decision/catalog.js";
 import {
   buildDecisionContent,
+  buildPreferenceContent,
   computeAuthorityHash,
   decisionFingerprint,
   decisionTypeFor,
@@ -35,6 +36,12 @@ import type {
   StandingGrantRecord,
 } from "./decision-types.js";
 import { isClosed, parseJson, TASK_COLUMNS, toTask, type TransactionRunner } from "./kernel.js";
+import { canonicalPreferenceValue, preferenceMutationCanonical } from "./preference-ledger.js";
+import {
+  isValidPreferenceKey,
+  isValidPreferenceScope,
+  type PreferenceMutation,
+} from "./preference-types.js";
 import type { Principal, TaskRecord } from "./types.js";
 
 type Row = Record<string, unknown>;
@@ -48,7 +55,8 @@ const DECISION_COLUMNS =
   "id, task_id, decision_type, risk_tier, question, facts_snapshot, options_snapshot, unknowns_snapshot, " +
   "grant_policy_snapshot, authority_hash, task_revision, required_decider, deadline_at, status, resolution, " +
   "resolution_source, resolved_by, resolved_at, core_approval_state, core_approval_attempt_at, " +
-  "core_approval_attempt_id, session_key, run_id, tool_call_id, request_fingerprint, chosen_action_id, effect_kind";
+  "core_approval_attempt_id, session_key, run_id, tool_call_id, request_fingerprint, chosen_action_id, effect_kind, " +
+  "effect_payload_canonical";
 const ACTION_COLUMNS =
   "id, task_id, tool_name, capability, params_canonical, action_hash, amount, currency, merchant, reversible, created_at";
 const EXECUTION_COLUMNS =
@@ -132,6 +140,16 @@ export type DecisionKernelOptions = {
   newId?: (prefix: string) => string;
   /** Stage 3: runs inside settleExecution's transaction when the caller asks for it (`recordClaim`). Must not throw. */
   afterSettleInTx?: (owner: string, executionId: string, now: number) => ExecutionHookResult;
+  /**
+   * Stage 4: runs inside resolveInTx's transaction when a `set_preference` decision is approved. It may write `preferences` +
+   * `preference_revisions` and nothing else (section 8.12); a failure throws, which rolls the whole resolve back.
+   */
+  applyPreferenceInTx?: (
+    owner: string,
+    mutationText: string,
+    decisionId: string,
+    now: number,
+  ) => { ok: true } | { ok: false; reason: string };
 };
 
 export type CreateDecisionInput = {
@@ -153,6 +171,12 @@ export type CreateDecisionInput = {
     facts: unknown;
     unknowns: string[];
   };
+  /**
+   * The mutation a `set_preference` decision asks the human to confirm (section 11.4). Only the preference tool passes it;
+   * `nexus_decision_request` never does, so a bare `set_preference` kind stays unsupported there. The wording shown to the
+   * human is still built here from this mutation and the current stated value, never from model text.
+   */
+  preference?: PreferenceMutation;
   now: number;
 };
 
@@ -162,7 +186,8 @@ export type InvalidEffect =
   | { code: "action_not_found"; actionId: string }
   | { code: "mixed_tier" }
   | { code: "wrong_kind"; expected: EffectKind }
-  | { code: "unsupported_effect"; kind: string };
+  | { code: "unsupported_effect"; kind: string }
+  | { code: "bad_preference"; reason: string };
 
 export type CreateDecisionOutcome =
   | { outcome: "created"; decision: DecisionRecord; task: TaskRecord }
@@ -355,7 +380,13 @@ export function createDecisionKernel(
     } else if (pending > 0) {
       target = "awaiting_decision";
     } else if (task.status === "awaiting_decision" || task.status === "executing") {
-      target = "planning";
+      // An active watch keeps the Task in `watching` once the decision / execution that interrupted it is done.
+      const watching = countOf(
+        "SELECT COUNT(*) AS c FROM watches WHERE owner_id = ? AND task_id = ? AND status IN ('pending_schedule','scheduled','firing')",
+        owner,
+        taskId,
+      );
+      target = watching > 0 ? "watching" : "planning";
     }
     if (target !== task.status) {
       run(
@@ -472,6 +503,9 @@ export function createDecisionKernel(
           effectKind === "issue_action_grant" || effectKind === "issue_standing_grant"
             ? (snapshot?.policies ?? [])
             : null,
+        ...(effectKind === "set_preference"
+          ? { preferenceMutation: parseJson(row.effect_payload_canonical) }
+          : {}),
         deadlineAt: num(row.deadline_at),
         allowedOptionIds: OPTION_IDS,
       }),
@@ -599,15 +633,59 @@ export function createDecisionKernel(
 
       // ---- validate the candidate set and derive the effect from server-side risk tiers ----
       const ids = [...new Set(input.actionIds)];
+      let preferenceMutation: PreferenceMutation | null = null;
+      let preferencePayload: string | null = null;
       if (input.effectKind === "set_preference") {
+        if (!input.preference) {
+          return {
+            outcome: "invalid_effect",
+            invalid: { code: "unsupported_effect", kind: "set_preference" },
+          };
+        }
+        if (ids.length > 0) {
+          return {
+            outcome: "invalid_effect",
+            invalid: { code: "wrong_kind", expected: "issue_action_grant" },
+          };
+        }
+        const wanted = input.preference;
+        if (!isValidPreferenceScope(wanted.scope)) {
+          return {
+            outcome: "invalid_effect",
+            invalid: { code: "bad_preference", reason: "bad_scope" },
+          };
+        }
+        if (!isValidPreferenceKey(wanted.key)) {
+          return {
+            outcome: "invalid_effect",
+            invalid: { code: "bad_preference", reason: "bad_key" },
+          };
+        }
+        const canonical = canonicalPreferenceValue(wanted.value);
+        if (!canonical.ok) {
+          return {
+            outcome: "invalid_effect",
+            invalid: { code: "bad_preference", reason: canonical.code },
+          };
+        }
+        preferenceMutation = {
+          op: "set",
+          scope: wanted.scope,
+          key: wanted.key,
+          value: wanted.value,
+        };
+        preferencePayload = preferenceMutationCanonical(preferenceMutation);
+      } else if (input.preference !== undefined) {
         return {
           outcome: "invalid_effect",
-          invalid: { code: "unsupported_effect", kind: "set_preference" },
+          invalid: { code: "wrong_kind", expected: "set_preference" },
         };
       }
       let effectKind: EffectKind;
       let actions: ActionRecord[] = [];
-      if (input.effectKind === "acknowledge") {
+      if (preferenceMutation) {
+        effectKind = "set_preference";
+      } else if (input.effectKind === "acknowledge") {
         if (ids.length > 0) {
           return {
             outcome: "invalid_effect",
@@ -654,7 +732,12 @@ export function createDecisionKernel(
       }
       actions = actions.toSorted((a, b) => (a.id < b.id ? -1 : 1));
       const decisionType = input.notice?.decisionType ?? decisionTypeFor(effectKind);
-      const fingerprint = decisionFingerprint({ taskId: task.id, decisionType, actionIds: ids });
+      // A preference decision has no candidate actions; its identity is the mutation, so two different keys never reuse a card.
+      const fingerprint = decisionFingerprint({
+        taskId: task.id,
+        decisionType,
+        actionIds: preferencePayload ? [`pref:${sha256Hex(preferencePayload)}`] : ids,
+      });
 
       // ---- 1. idempotency key hit (check-then-write, independent of the unique index) ----
       if (hasKey) {
@@ -731,12 +814,32 @@ export function createDecisionKernel(
       }
 
       // ---- 4. create ----
-      const built = buildDecisionContent({
-        task,
-        effectKind,
-        actions,
-        describe: (action) => describeAction(action),
-      });
+      const currentStated = preferenceMutation
+        ? one(
+            "SELECT value_json, revision FROM preferences WHERE owner_id = ? AND scope = ? AND key = ? AND origin = 'stated' " +
+              "AND deleted_at IS NULL AND purged_at IS NULL",
+            owner,
+            preferenceMutation.scope,
+            preferenceMutation.key,
+          )
+        : undefined;
+      const built = preferenceMutation
+        ? buildPreferenceContent({
+            task,
+            mutation: preferenceMutation,
+            current: currentStated
+              ? {
+                  value: parseJson(currentStated.value_json),
+                  revision: Number(currentStated.revision),
+                }
+              : null,
+          })
+        : buildDecisionContent({
+            task,
+            effectKind,
+            actions,
+            describe: (action) => describeAction(action),
+          });
       const content = input.notice
         ? {
             ...built,
@@ -745,7 +848,7 @@ export function createDecisionKernel(
             unknowns: input.notice.unknowns,
           }
         : built;
-      const riskTier = input.notice ? "R0" : (actions[0]?.riskTier ?? "R1");
+      const riskTier = input.notice || preferenceMutation ? "R0" : (actions[0]?.riskTier ?? "R1");
       const deadlineAt = input.now + DEFAULT_DECISION_DEADLINE_MS;
       const authorityHash = computeAuthorityHash({
         ownerId: owner,
@@ -756,7 +859,11 @@ export function createDecisionKernel(
         requiredDecider: null,
         actions: actions.map((action) => ({ actionId: action.id, actionHash: action.actionHash })),
         effectKind,
-        grantPolicy: effectKind === "acknowledge" ? null : content.policies,
+        grantPolicy:
+          effectKind === "issue_action_grant" || effectKind === "issue_standing_grant"
+            ? content.policies
+            : null,
+        ...(preferenceMutation ? { preferenceMutation } : {}),
         deadlineAt,
         allowedOptionIds: OPTION_IDS,
       });
@@ -764,8 +871,8 @@ export function createDecisionKernel(
       run(
         "INSERT INTO decisions (id, owner_id, task_id, decision_type, risk_tier, question, facts_snapshot, options_snapshot, " +
           "unknowns_snapshot, grant_policy_snapshot, authority_hash, task_revision, required_decider, deadline_at, status, " +
-          "core_approval_state, session_key, run_id, tool_call_id, request_fingerprint, effect_kind) " +
-          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 'pending', 'not_attempted', ?, ?, ?, ?, ?)",
+          "core_approval_state, session_key, run_id, tool_call_id, request_fingerprint, effect_kind, effect_payload_canonical) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 'pending', 'not_attempted', ?, ?, ?, ?, ?, ?)",
         id,
         owner,
         task.id,
@@ -775,7 +882,10 @@ export function createDecisionKernel(
         canonicalJson(content.facts),
         canonicalJson(content.options),
         canonicalJson(content.unknowns),
-        canonicalJson({ policies: effectKind === "acknowledge" ? [] : content.policies }),
+        canonicalJson({
+          policies:
+            effectKind === "acknowledge" || effectKind === "set_preference" ? [] : content.policies,
+        }),
         authorityHash,
         task.revision,
         deadlineAt,
@@ -784,6 +894,7 @@ export function createDecisionKernel(
         hasKey ? input.toolCallId : null,
         fingerprint,
         effectKind,
+        preferencePayload,
       );
       for (const action of actions) {
         run(
@@ -1116,9 +1227,6 @@ export function createDecisionKernel(
     const effect = decision.effectKind;
     let chosen: string | null = null;
     if (input.resolution === "approved") {
-      if (effect === "set_preference") {
-        return { outcome: "effect_unsupported", decision };
-      }
       if (effect === "issue_action_grant" || effect === "issue_standing_grant") {
         chosen =
           input.chosenActionId ??
@@ -1172,8 +1280,19 @@ export function createDecisionKernel(
       } else if (effect === "issue_standing_grant") {
         const action = toAction(actionRow(owner, chosen as string) as Row);
         standingGrantId = issueStandingGrant(owner, decided, action, task, input.now);
+      } else if (effect === "set_preference") {
+        // Writes preferences + preference_revisions in THIS transaction and nothing else: no grant, no execution (section 8.12).
+        const payload = str(row.effect_payload_canonical);
+        const applied =
+          payload !== null && options.applyPreferenceInTx
+            ? options.applyPreferenceInTx(owner, payload, decision.id, input.now)
+            : ({ ok: false, reason: "preference_store_unavailable" } as const);
+        if (!applied.ok) {
+          // Throwing rolls the whole resolve back: the decision stays pending instead of half applied.
+          throw new Error(`preference_apply_failed:${applied.reason}`);
+        }
       }
-      // acknowledge: nothing beyond the decision row itself. set_preference never reaches here (Stage 4).
+      // acknowledge: nothing beyond the decision row itself.
     }
     const refreshed = refreshTaskStatus(owner, taskId, input.now);
     const final = getDecisionRecord(owner, decision.id) as DecisionRecord;
@@ -1658,7 +1777,8 @@ export function createDecisionKernel(
       const same =
         stored.trigger === input.trigger &&
         stored.session_key === input.sessionKey &&
-        (stored.job_id ?? null) === (input.jobId ?? null);
+        (stored.job_id ?? null) === (input.jobId ?? null) &&
+        (stored.watch_id ?? null) === (input.watchId ?? null);
       if (!same) {
         return { outcome: "conflict" as const };
       }

@@ -139,7 +139,7 @@ Agent 可以决定"做什么"，但不能决定"给人看什么事实"、"这次
 | T6  | Agent 绕过 `nexus_booking_commit`，改用通用 `browser`/`exec` 完成下单 | **见 §14 已知缺口**——这是整个风险模型的承重假设                                        |
 | T7  | 多主体数据串读                                                        | `owner_id` 复合外键 + 每条查询强制下推（§5、§6.1）                                     |
 | T8  | 审批回调迟到，副作用先于授权发生                                      | 授权与执行拆成两次调用，core approval 只挂无副作用工具（§8.2）                         |
-| T9  | watcher 被伪造（模型自己发一条 `[nexus:watch]` 文本）                 | 用 `ctx.jobId` + CAS 认领，不认文本（§10.2）                                           |
+| T9  | watcher 被伪造（模型自己发一条 `[nexus:watch]` 文本）                 | 用 `cron_changed` 关联 + CAS 认领，提示词标记只用来对账，不单独认证（§10.2、§10.3）    |
 | T10 | 后续插件在我们消费 grant 之后改参数或拦截                             | 授权判定下沉到自己的工具处理器（§8.2）                                                 |
 | T11 | 外部动作已发出但本地没记录，重试变重复下单                            | 先 admit 后执行；不确定一律 `reconcile_only`，绝不重放（§8.4）                         |
 | T12 | 模型把 action A 和另一次授权的 executionId 拼在一起                   | execution 在签发授权时预创建并绑定唯一 action+grant；commit 只收 `executionId`（§8.3） |
@@ -1119,8 +1119,8 @@ api.on(
 );
 ```
 
-`authenticateWatchJob` 用 `ctx.jobId` 回库匹配 `watches.scheduler_job_id`，
-并校验 owner、`session_key`、`revision`、`status='scheduled'`。
+`authenticateWatchJob` 回库匹配 `watches.scheduler_job_id`，并校验 owner、`session_key`、`revision`、`status='scheduled'`。
+（2026-10-14 实测：`ctx.jobId` 拿不到，job id 改由 `cron_changed` 的 `started` 事件提供，见 §10.2 / §10.3。）
 **不能靠识别 `[nexus:watch]` 文本**——那段文本用户和模型都能伪造。
 
 **lockdown 必须按会话收窄，不是按 owner。** v0.2 的 `riskLockdown(open)` 会因为
@@ -2788,6 +2788,64 @@ const handle = await api.session.workflow.scheduleSessionTurn({
 // handle.id → watches.scheduler_job_id：既是恢复依据（§10.1），也是唯一的身份凭据。
 ```
 
+**实测推翻（spike 4，2026-10-14，dev 网关）：`before_prompt_build` 的 `ctx.jobId` 是 `undefined`。**
+定时 turn 确实触发了（一次、`ctx.trigger="cron"`、`ctx.sessionKey` 等于调度时的 sessionKey、`inputProvenance` 为空），
+`toolsAllow:[]` 也生效（同一场景下 78 个工具 vs 0 个），但上面"认证即认领"的 `scheduler_job_id = :jobId`
+这一步拿不到 `:jobId`。源码侧原因：运行参数里有 `jobId`（`run-executor.ts`、`attempt-tool-run-context.ts`），
+但 `attempt-prompt-build.ts` 构造 `hookCtx` 时没有转发；`llm_input` / `agent_end` 的 ctx 同样没有。
+插件不能改 `src/`，所以这是一条 upstream 提案候选（给 `PluginHookAgentContext` 转发 `jobId`），
+不是我们能补的。这条限制已由 §10.3 解除：认证改走 `cron_changed` 关联，不依赖 `ctx.jobId`。
+
+**已被 §10.3 取代：** `cron_changed` 的 `started` 事件被实测证实可用（先于 prompt 到达，领先 180–836 ms，`jobId` 等于调度返回的 `handle.id`），
+下面的关联规则就是落地的认证规范。上面的 CAS 伪代码里的 `:jobId` 现在来自这条关联，而不是 `ctx.jobId`。
+
+### 10.3 落地的认证规范与工具（Stage 4，2026-10-14）
+
+**实测补充（`spikes/watch-trigger.mts --dump`）：**
+
+- `started` 先于 `before_prompt_build` 到达（两次实测领先 836 ms 和 180 ms），事件带 `jobId`、`sessionTarget:"session:<sessionKey>"`、`job.name`，**没有** `sessionKey` / `runId` 字段，所以只能按「同一会话 + 尚未被认领」关联。
+- 同一会话已经有 turn 在跑时，第二个 job 会收到 `started`，约 72 ms 后 `finished(status:error)`，**没有 turn**；cron 约 30 s 后重试，再来一次 `started`。结论：`finished` 必须把 pending 里的该 job 摘掉，否则下一个 turn 会看到两个候选而 fail closed。
+- `deleteAfterRun` 触发后 job 被移除（`removed` 事件）。
+
+**认证规则（`src/watch-runtime.ts`）。** 一个后台 turn 当且仅当同时满足下面全部条件才被认定是我们的 watcher：
+
+1. prompt 里有标记 `[nexus:watch:W<10位>]`（只用来对账，**不是**凭据——Agent 自己也能 `cron add` 一个带同样标记的 job）；
+2. 该会话恰好有**一个**已 `started`、尚未被认领的 job（0 个或多个都 fail closed；等待 `started` 最多 `claimWaitMs`=2 s）；
+3. 这个 job id 在 `watches.scheduler_job_id` 里能查到，且那条 watch 的 id 等于 prompt 里的标记；
+4. §10.2 的 CAS 成功：`status='scheduled'`、`scheduler_revision = revision`、`session_key` 一致，同一事务里 `status → firing`、`attempts + 1`；
+5. Task 仍然开着（已结束 / 清除中 → 该 watch 被取消，turn 不放行）。
+
+任何一条不满足：返回 `toolsAllow: []` + 一句"只回复 OK"，不挂工具、不改状态。**没有标记的 cron turn（别人的 job、heartbeat）完全不干预。**
+命名为 `plugin:nexus-agent-core:tag:nexus-watch-…` 但账本里查不到的 job（Task 已清除、伪造）：fail closed，并按 tag 把这个 cron job 删掉。
+一个 `started` 事件最多认证一个 turn（取走时先置 `claimed`，再 await）。
+**进程内状态必须全进程唯一（dev 实测，2026-10-14）：** 宿主会把插件注册不止一次（日志里有 `full` 和 `discovery` 两次），并且把 `cron_changed` 与 `before_prompt_build` 派给了不同的注册实例；闭包里的 pending 表因此互相看不见，认证全部 fail closed（`no started job for this session`）。pending 表与 sync 的在途 promise 现在放在 `globalThis[Symbol.for("nexus-agent-core.watch-runtime.state")]`（`getSharedWatchState()`）。凡是「钩子之间靠内存传递」的状态都要这样处理；靠数据库传递的（`run_triggers`、`watches`）不受影响。认证成功后在 `run_triggers` 写一行 `trigger='cron'`、`job_id`、`watch_id`，
+这是工具阶段唯一的凭据。
+
+**watcher turn 的工具：** `nexus_task_get`、`nexus_task_search`、`nexus_task_note`、`nexus_claim_verify`、`nexus_evidence_add`、`nexus_watch_report`，
+加上配置项 `watcherExtraTools`（默认 `web_fetch`、`web_search`，操作员可改）。没有 `nexus_action_*`、`nexus_decision_*`、`nexus_watch_create`、`nexus_preference_*`、
+渠道发送、`exec`、`browser`：watcher 只能读和挂证据，**不能对外动作**。外部内容视为敌意，协议文本（`NEXUS_WATCHER_PROTOCOL`）写明。
+
+**生命周期：** `pending_schedule → scheduled → firing → satisfied | rescheduled | exhausted | cancelled`。
+
+- 调度：意图先落盘（`pending_schedule`），runtime 的 `sync()` 随后「按 tag 先取消、再 `scheduleSessionTurn`（`deleteAfterRun:true`、`deliveryMode:"none"`）、再 `watchMarkScheduled`」；cron 失败留在 `pending_schedule`，服务启动与每次 tick 重试。
+- `nexus_watch_report`：`satisfied` 必须该 watch 的 claim 已是 `SUPPORTED` / `VERIFIED`（账本说了算，Agent 说满足不算）；`not_yet` → 退避 1h / 6h / 24h / 72h 后回到 `pending_schedule`；`blocked` 或 `attempts ≥ max_attempts` → `exhausted`。
+  `finding`（一行）作为 Task 备注写入。
+- cron 的 `finished` 到达时仍是 `firing` 的 watch（模型没汇报）算一次未命中；`scheduled` 超时 15 分钟未触发、`firing` 超时 30 分钟未汇报，由维护 pass 记一次未命中并重建。
+- `exhausted` → 一张 R0 `acknowledge` 决策（固定幂等键，重放不会重复），Task 进入 `awaiting_decision`；服务启动时对仍开着的 Task 重放一遍以修复"耗尽已写、决策未写"的崩溃窗口。
+- Task 状态：有活跃 watch 时为 `watching`；最后一条 watch 结束 / 取消，或决策解决后回到 `planning`（`refreshTaskStatus` 数活跃 watch）。Task 结束 / 清除 → 维护 pass 取消其 watch 并按 tag 删 cron job；purge 同事务删 `watches` 行。
+- 限额：每 Task 最多 3 条、每 owner 最多 50 条活跃 watch；`expect` ≤ 500 字符，被当作数据引用进提示词；同 Task + claim + expect 的活跃 watch 复用。
+
+**接口：** 工具 `nexus_watch_create` / `nexus_watch_cancel` / `nexus_watch_report`；RPC `nexus.watch.list` / `.get`（`operator.read`）、`nexus.watch.cancel`（`operator.write`）；
+事件 `plugin.nexus-agent-core.watch_changed`（`created|scheduled|firing|rescheduled|missed|satisfied|exhausted|cancelled`，只带 id、状态、次数）。
+开关 `watchersEnabled`（默认 false，需 `claimsEnabled`）；三个工具在清单里都是 optional，要加进 `tools.alsoAllow`。
+
+**已知局限（不要假装解决了）：**
+
+- Agent 只能把 `executed` 谓词的 claim 经执行证据抬到 `SUPPORTED`（§9.5）；其他谓词在没有操作员证据时，watch 只会以 `blocked` / 耗尽收场，然后交给用户（`acknowledge`）。Watcher 的价值目前是「按时再看一眼并留下备注、到点交还给用户」，不是「自己把 claim 做成 VERIFIED」。
+- `ctx.jobId` 缺失是 upstream 提案候选（给 `PluginHookAgentContext` 转发 `jobId`，同时给 `PluginHookToolContext` 加 typed trigger）；有了它，关联这一步就能退化成纯 CAS。
+- 关联依赖 `started` 事件在 prompt 之前到达（实测 180–836 ms 领先，没有保证）；到不了时 fail closed，代价是这次回检记一次未命中并重试，不是越权。
+- Handoff、多步 Workflow 没有设计，不在本期。
+
 ## 11. 偏好与个人上下文（Preference Store）
 
 工作表的 `preference_get` / `preference_set` 在 v0.11 里只有 Stage 4 的五个字
@@ -2869,6 +2927,14 @@ task_exception（限定 Task 内）  >  stated  >  observed
 模型不能自称"用户说过"。想把一条 `observed` 升级成 `stated`，就发一条 R0 决策让用户确认
 ——不新造第二套确认通道。这条和 §9.5 "等级不能由声称者自己定"是同一个原则在偏好域的应用。
 
+> **落地偏差（Stage 4，2026-10-14）：** 发起确认的入口不是 `nexus_decision_request`，而是专用工具
+> `nexus_preference_confirm(taskId, key, value, scope?)`。原因：`set_preference` 的 mutation 必须由服务端从
+> 工具参数构造并进入 `authority_hash`；让通用决策工具接受一个模型可随意拼装的 `preference` 载荷，
+> 等于给 `stated` 开了第三扇门。内核只在带 `preference` mutation 时才接受 `set_preference`，
+> 通用 `nexus_decision_request` 带它依旧返回 `unsupported_effect`。确认卡片不尝试 core approval，
+> 只走 Nexus 决策页 / `nexus.decision.resolve`（与 §8.8.2 一致）。同一 Task 下指纹 = mutation 的 sha256，
+> 不同 key 永不复用同一张卡。
+
 ### 11.5 为什么不进 claim 链
 
 偏好是**可变的主体状态**，不是关于世界的事实。把它写进 `claim_events` 会污染
@@ -2913,8 +2979,10 @@ owner 级的数据清除会连带走这两张表，不需要逐条 purge。
 
 ### 11.7 分期与缺口
 
-Stage 4（工作表 M2）。Stage 1–3 期间 `preferences` 建表但只读，不参与任何自动路径，
-以免在决策机器定型之前先引入一个绕过它的旁路。
+Stage 4（工作表 M2，已落地，见 Stage 4 落地记录）。表由迁移 `stage4-0001-preferences` 创建，
+此前不存在；决策机器定型之后才引入，避免在它定型之前先开一个绕过它的旁路。偏好账本只被偏好工具、
+偏好 RPC 与 `set_preference` 的 resolve 分支引用，风险分档、admission、grant 签发都不读它；
+功能由 `preferencesEnabled`（默认关闭）控制，关闭时不注册任何偏好工具与 RPC。
 
 明确不做：偏好的 PII 分级（跟 §9.4 一起推到 M3）、跨 owner 共享（家庭账户）、
 `observed` 归纳质量的离线评估口径——最后一条是真缺口，§14 记一条。
@@ -2925,33 +2993,33 @@ Stage 4（工作表 M2）。Stage 1–3 期间 `preferences` 建表但只读，�
 
 三套名字，一次定死：
 
-| 层          | 规则                                                                                              | 例                                     |
-| ----------- | ------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| Agent 工具  | `nexus_task_*` / `nexus_decision_*` / `nexus_claim_*` / `nexus_evidence_*` / `nexus_preference_*` | `nexus_task_create`                    |
-| Gateway RPC | `nexus.task.*`                                                                                    | `nexus.task.get`                       |
-| 事件        | `plugin.nexus-agent-core.<domain>_<event>`（宿主不接受带 `.` 的事件名，域与事件用下划线连接）     | `plugin.nexus-agent-core.task_changed` |
-| 表          | `nexus_task*`，其余表不加前缀（库内无歧义）                                                       | `nexus_tasks`、`nexus_task_steps`      |
-| 列          | 不加前缀                                                                                          | `task_id`、`task_revision`             |
-| 产品术语    | 对外和代码都叫 **Task**，没有翻译层                                                               | —                                      |
-| core 的概念 | 在我们这边一律叫 **core flow**，字段 `flow_id`                                                    | 见 §4.1                                |
+| 层          | 规则                                                                                                                | 例                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Agent 工具  | `nexus_task_*` / `nexus_decision_*` / `nexus_claim_*` / `nexus_evidence_*` / `nexus_preference_*` / `nexus_watch_*` | `nexus_task_create`                    |
+| Gateway RPC | `nexus.task.*`                                                                                                      | `nexus.task.get`                       |
+| 事件        | `plugin.nexus-agent-core.<domain>_<event>`（宿主不接受带 `.` 的事件名，域与事件用下划线连接）                       | `plugin.nexus-agent-core.task_changed` |
+| 表          | `nexus_task*`，其余表不加前缀（库内无歧义）                                                                         | `nexus_tasks`、`nexus_task_steps`      |
+| 列          | 不加前缀                                                                                                            | `task_id`、`task_revision`             |
+| 产品术语    | 对外和代码都叫 **Task**，没有翻译层                                                                                 | —                                      |
+| core 的概念 | 在我们这边一律叫 **core flow**，字段 `flow_id`                                                                      | 见 §4.1                                |
 
 **与工作表的逐行映射（v0.12）**：v0.11 说"只需补上前缀就对齐，不需要改名"——这句话是错的，
 当时工具其实叫 `nexus_task_open`，照工作表写的前端会调不到。现在工具改名
 `nexus_task_create`，并且用下面这张表代替那句笼统的说法。**这张表是唯一真相**，
 前端、移动端、验收脚本照它实现。
 
-| 工作表写的                                              | 本插件的实现                                                                                                      | 层          |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------- |
-| `task.list` / `task.get` / `task.abort` / `task.delete` | `nexus.task.list` / `.get` / `.abort` / `.delete`                                                                 | Gateway RPC |
-| `task_create` / `task_get` / `task_update`              | `nexus_task_create` / `nexus_task_get` / `nexus_task_update`                                                      | Agent 工具  |
-| `decision_request` / `decision_get`                     | `nexus_decision_request`（工具）/ `nexus.decision.get`（RPC）                                                     | 见下        |
-| `evidence_add` / `claim_verify`                         | `nexus_evidence_add` / `nexus_claim_verify`（§9.5）                                                               | Agent 工具  |
-| `preference_get` / `preference_set`                     | `nexus_preference_get` / `nexus_preference_set`（§11）                                                            | Agent 工具  |
-| `permission_check` / `permission_request`               | `nexus_action_prepare` + `nexus_action_authorize` / `nexus_decision_request`                                      | 见 §8.7     |
-| `watch_create`                                          | 工具名待定：§10 目前只定义了服务端创建路径（Task 进 `watching` 时建 watch），Stage 4 再决定是否给模型一个显式工具 | —           |
-| `notify`                                                | 无工具：通知由服务端在状态变更时经 outbox 发出（§8.8、ARCHITECTURE §4.11）                                        | —           |
-| `handoff`                                               | Stage 4，未定                                                                                                     | —           |
-| `entity_search`                                         | 不做，留接口占位（§15）                                                                                           | —           |
+| 工作表写的                                              | 本插件的实现                                                                    | 层          |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------- | ----------- |
+| `task.list` / `task.get` / `task.abort` / `task.delete` | `nexus.task.list` / `.get` / `.abort` / `.delete`                               | Gateway RPC |
+| `task_create` / `task_get` / `task_update`              | `nexus_task_create` / `nexus_task_get` / `nexus_task_update`                    | Agent 工具  |
+| `decision_request` / `decision_get`                     | `nexus_decision_request`（工具）/ `nexus.decision.get`（RPC）                   | 见下        |
+| `evidence_add` / `claim_verify`                         | `nexus_evidence_add` / `nexus_claim_verify`（§9.5）                             | Agent 工具  |
+| `preference_get` / `preference_set`                     | `nexus_preference_get` / `nexus_preference_set`（§11）                          | Agent 工具  |
+| `permission_check` / `permission_request`               | `nexus_action_prepare` + `nexus_action_authorize` / `nexus_decision_request`    | 见 §8.7     |
+| `watch_create`                                          | `nexus_watch_create`（另有 `nexus_watch_cancel` / `nexus_watch_report`，§10.3） | Agent 工具  |
+| `notify`                                                | 无工具：通知由服务端在状态变更时经 outbox 发出（§8.8、ARCHITECTURE §4.11）      | —           |
+| `handoff`                                               | Stage 4，未定                                                                   | —           |
+| `entity_search`                                         | 不做，留接口占位（§15）                                                         | —           |
 
 两处不是纯加前缀，在这里说清，别到联调时才发现：
 
@@ -2986,6 +3054,8 @@ Stage 4（工作表 M2）。Stage 1–3 期间 `preferences` 建表但只读，�
 | `nexus.preference.list` / `.get`                                           | `operator.read`                    |
 | `nexus.preference.set` / `.delete`（**唯一能写 `stated` 的路径**，§11.4）  | `operator.write`                   |
 | `nexus.preference.purge`（硬清除，二次确认，写 `purge_receipts`，§11.5）   | `operator.admin`                   |
+| `nexus.watch.list` / `.get`（§10.3）                                       | `operator.read`                    |
+| `nexus.watch.cancel`                                                       | `operator.write`                   |
 
 所有返回体带 `ownerId`，便于客户端发现串读。事件 payload 只带 id + 摘要，客户端回查。
 
@@ -3033,13 +3103,13 @@ Stage 4（工作表 M2）。Stage 1–3 期间 `preferences` 建表但只读，�
 
 #### 三、各阶段的准入状态
 
-| 阶段                                        | 状态                                                                                                                                                                                 | 说明                                                                                                                                                                                                                                                                                                                                                   |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Stage 1 Task vertical slice                 | **代码完成；dev 网关验收通过（步骤 0–10）；pkg 安装产物验收通过（步骤 1–4，2026-10-10），已知局限见 Stage 1 一节「pkg 验收的后续发现与处理」**（用户 2026-10-09 选方案一：分批建表） | 首发 migration 只建 Task 相关表，boot id / Blob / Evidence / Claim / Purge 的表随 Stage 3 的 migration 进入。注：§4 的「其余插件私有表 **不加**，且发布后不改」说的是**不加 `nexus_` 前缀、发布后不改名**，并不禁止分批建表——我此前把它读成「不再增表」，这是误读，已更正；真正约束分批建表的是「已发布的表不能再 ALTER」（见 Stage 1 一节的前置审查） |
-| Stage 2 Decision / Grant                    | **代码完成，VM 验证通过，待 dev / pkg 验收**                                                                                                                                         | 带着 §8.9.1 末尾的四项边界开工；排期上在 Stage 1 之后                                                                                                                                                                                                                                                                                                  |
-| Stage 3 Evidence / Blob / Purge             | **切片①验收通过；切片②验收通过（2026-10-13）；切片③验收通过（2026-10-14）；pkg 回归待做（Stage 2 已在安装版通过，Stage 3 待新包）**                                                  | boot id 来源已冻结为候选 D 并写入 §9.5.1 唯一规范；Blob 与异步时序已验证。`incarnation_gone` 仍关闭，需启用清单（§9.5.1）全部成立                                                                                                                                                                                                                      |
-| Stage 4 Watcher / UI / Preference / Handoff | 未开始                                                                                                                                                                               | 依赖 spike 4 的触发后行为；Preference 表 Stage 1–3 期间只建不用                                                                                                                                                                                                                                                                                        |
-| `incarnation_gone`                          | **有开关 `evidenceIncarnationGoneEnabled`（默认关闭）；启用清单第 ②③⑤ 项待操作员确认**                                                                                               | 需要 boot id 来源冻结，且五条耦合契约全部有真实证据                                                                                                                                                                                                                                                                                                    |
+| 阶段                                        | 状态                                                                                                                                                                                                    | 说明                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Stage 1 Task vertical slice                 | **代码完成；dev 网关验收通过（步骤 0–10）；pkg 安装产物验收通过（步骤 1–4，2026-10-10），已知局限见 Stage 1 一节「pkg 验收的后续发现与处理」**（用户 2026-10-09 选方案一：分批建表）                    | 首发 migration 只建 Task 相关表，boot id / Blob / Evidence / Claim / Purge 的表随 Stage 3 的 migration 进入。注：§4 的「其余插件私有表 **不加**，且发布后不改」说的是**不加 `nexus_` 前缀、发布后不改名**，并不禁止分批建表——我此前把它读成「不再增表」，这是误读，已更正；真正约束分批建表的是「已发布的表不能再 ALTER」（见 Stage 1 一节的前置审查） |
+| Stage 2 Decision / Grant                    | **代码完成，VM 验证通过，待 dev / pkg 验收**                                                                                                                                                            | 带着 §8.9.1 末尾的四项边界开工；排期上在 Stage 1 之后                                                                                                                                                                                                                                                                                                  |
+| Stage 3 Evidence / Blob / Purge             | **切片①验收通过；切片②验收通过（2026-10-13）；切片③验收通过（2026-10-14）；pkg 回归待做（Stage 2 已在安装版通过，Stage 3 待新包）**                                                                     | boot id 来源已冻结为候选 D 并写入 §9.5.1 唯一规范；Blob 与异步时序已验证。`incarnation_gone` 仍关闭，需启用清单（§9.5.1）全部成立                                                                                                                                                                                                                      |
+| Stage 4 Watcher / UI / Preference / Handoff | **Preference Store、Control UI 代码完成，dev 偏好探针 ALL PASS（2026-10-14）；Watcher 代码完成、VM 测试通过（认证按 `cron_changed` 关联，§10.3），待 dev 探针 `spikes/watch-flow.mts`；Handoff 无设计** | Watcher 由迁移 stage4-0002 创建，默认关闭；上游缺口：`ctx.jobId`（§10.3）                                                                                                                                                                                                                                                                              |
+| `incarnation_gone`                          | **有开关 `evidenceIncarnationGoneEnabled`（默认关闭）；启用清单第 ②③⑤ 项待操作员确认**                                                                                                                  | 需要 boot id 来源冻结，且五条耦合契约全部有真实证据                                                                                                                                                                                                                                                                                                    |
 
 #### 四、探针本身怎么处理
 
@@ -3739,6 +3809,28 @@ purge-flow 覆盖：带完整账本（决策 / 授权 / 执行 / claim / 证据 
 watcher 重启恢复与权限收窄、notification、Control UI 任务列表/详情/决策/审计页、
 preference store（§11）、subagent handoff。
 
+#### Stage 4 落地记录（2026-10-14）
+
+范围（用户确认）：Preference Store、Control UI / 通知、Watcher（先做 spike 再写）。Handoff 与多步 Workflow 没有设计，不在本期。
+
+| 项                      | 状态                                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Preference Store（§11） | 代码完成，VM 测试 24 条 + 回归脚本 Stage 4 批；`preferencesEnabled` 开关；待 dev 网关探针 `spikes/preference-flow.mts`                                                                                                                                                                                               |
+| Control UI 标签页       | 代码完成：`/plugins/nexus-agent-core/ui`（网关鉴权的插件 HTTP 路由）+ 侧边栏 tab `nexus`；服务端渲染的只读页（事项、事项详情含决策/执行/声明/证据、偏好、清除回执）；严格 CSP（`default-src 'none'`、无脚本、`form-action 'none'`）；GET/HEAD；需 `operator.read                                                     | write | admin` 范围。VM 测试 9 条 |
+| 通知                    | 没有新增推送通道：沿用 `task_changed` / `decision_changed` 等事件与 outbox，新增 `preference_changed` 事件（只带 id/scope/key，不带值）。用户侧推送（手机/渠道）未做                                                                                                                                                 |
+| Watcher（§10）          | 代码完成：迁移 `stage4-0002-watches`（§6.3 回检段逐字，回归脚本核对）、账本/runtime/工具/RPC/事件；认证按 §10.3（`cron_changed` 关联，不依赖 `ctx.jobId`）；开关 `watchersEnabled`（默认关，需 `claimsEnabled`）。VM 测试 25 条（`watch-flow.test.ts`）；待 dev 探针 `spikes/watch-flow.mts`（会真的跑一次模型回合） |
+
+**Watcher 的验收必须覆盖**（认证是承重点，靠它守）：
+
+- 无标记的 cron turn 不被干预；有标记但没有 `started`、标记与 job 对不上、同会话两个候选、同一 job 重放、会话不一致、账本里没有的 Nexus 命名 job、Task 已结束 —— 一律 `toolsAllow: []` 且 watch 状态不变（Task 已结束时 watch 被取消）。
+- 认证成功的 turn：`run_triggers` 里 `trigger='cron'`、`job_id`、`watch_id` 三者齐全；工具列表里没有 `nexus_action_*` / `nexus_decision_*` / `nexus_watch_create` / `nexus_preference_*`。
+- `nexus_watch_report` 在非 watcher run、别的 watch 的 run、未知 run 里都被门拦下；`satisfied` 在 claim 未被证据支持时被拒，watch 保持 `firing`。
+- 退避 1h → 6h；耗尽恰好一张 `acknowledge` 决策，重放不重复，决策解决后 Task 回到 `planning`，且 `action_grants` / `action_executions` 行数不变。
+- 取消 / Task 结束 / purge：cron job 按 tag 被删，`watches` 行随 purge 一起消失。
+- 迁移 SQL 与 §6.3 逐字一致，叠加后 `foreign_key_check` 为空（回归脚本）。
+
+**已知局限：** UI 页没有按钮——决策批准、偏好修改仍走 RPC（`nexus.decision.resolve`、`nexus.preference.set` 等）。原因：iframe 里的 POST 鉴权与 CSRF 行为在宿主侧没有验证过，不引入未验证的写入口。要做交互页，需要先观测 Control UI 对插件页发起的请求带什么凭据。
+
 **preference 的验收必须覆盖**（§11.1 那条硬边界靠它守）：
 
 - `nexus_preference_set(origin:"stated")` 被拒；只有 RPC 与 R0 决策两条路径能写。
@@ -3747,7 +3839,7 @@ preference store（§11）、subagent handoff。
 - `task_exception` 在 Task 进终态后不再被解析命中，也没有被回灌成 `stated`。
 - `nexus_preference_get` 返回被遮挡的条目，决策卡片能据此解释默认值来源。
 - `observed` 缺 `source_note` 时写入被拒。
-- Stage 1–3 期间 `preferences` 只读：断言任何自动路径都读不到它。
+- （Stage 4 改写）偏好不参与任何自动路径：风险档、admission、grant 签发的代码路径不 import 偏好账本；`preferencesEnabled=false` 时不注册偏好工具与 RPC。
 - **`effect_kind` 分派**：批准一条 `set_preference` 决策后，`preferences` 与
   `preference_revisions` 各多一行，而 `action_grants` / `standing_grants` /
   `action_executions` **三张表行数不变**（§8.12）。

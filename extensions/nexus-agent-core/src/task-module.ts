@@ -2,6 +2,7 @@
 // Stage 2 wiring (behind `decisionsEnabled`, which needs `tasksEnabled`): action/decision tools, the decision hook,
 // run-trigger ledger, outbox delivery, decision RPC and startup reconciliation.
 import path from "node:path";
+import { getPluginRuntimeGatewayRequestScope } from "openclaw/plugin-sdk/plugin-runtime";
 import type { OpenClawPluginApi } from "../api.js";
 import { createClaimRpcHandlers } from "./claim-rpc.js";
 import { createDecisionRpcHandlers } from "./decision-rpc.js";
@@ -14,12 +15,15 @@ import {
   DEFAULT_EVIDENCE_CONFIG,
   type EvidenceService,
 } from "./evidence/evidence-service.js";
+import { createPreferenceRpcHandlers } from "./preference-rpc.js";
 import { resolvePrincipal } from "./principal.js";
 import { resolveProcessBootId } from "./process-boot.js";
 import {
   NEXUS_ACTION_PROTOCOL,
   NEXUS_CLAIM_PROTOCOL,
   NEXUS_EVIDENCE_PROTOCOL,
+  NEXUS_PREFERENCE_PROTOCOL,
+  NEXUS_WATCH_PROTOCOL,
   NEXUS_TASK_PROTOCOL,
   renderOpenTasks,
 } from "./prompt.js";
@@ -41,7 +45,12 @@ import {
 import { createTokenLedger } from "./tokens.js";
 import { ACTION_TOOL_NAMES, createActionTools } from "./tools/action-tools.js";
 import { CLAIM_TOOL_NAMES, createClaimTools } from "./tools/claim-tools.js";
+import { createPreferenceTools, PREFERENCE_TOOL_NAMES } from "./tools/preference-tools.js";
 import { createTaskTools, TASK_TOOL_NAMES } from "./tools/task-tools.js";
+import { createWatchTools, WATCH_TOOL_NAMES } from "./tools/watch-tools.js";
+import { createNexusUiHttpHandler, NEXUS_UI_BASE_PATH } from "./ui-http.js";
+import { createWatchRpcHandlers } from "./watch-rpc.js";
+import { createWatchRuntime, getSharedWatchState, type WatchRuntime } from "./watch-runtime.js";
 
 export type TaskModuleConfig = {
   ownerId?: string;
@@ -50,6 +59,12 @@ export type TaskModuleConfig = {
   claimsEnabled?: boolean;
   /** Stage 3 slice 2: evidence bytes (operator upload RPC + `blob` refs). Needs claimsEnabled; uses openBlobStore. */
   evidenceBlobsEnabled?: boolean;
+  /** Stage 4: the Preference Store (tools nexus_preference_*, RPC nexus.preference.*). Confirming a value needs decisionsEnabled. */
+  preferencesEnabled?: boolean;
+  /** Stage 4: the Watcher (tools nexus_watch_*, RPC nexus.watch.*, background re-check turns). Needs claimsEnabled. */
+  watchersEnabled?: boolean;
+  /** Extra read-only tool names a re-check turn may use (default web_fetch, web_search). */
+  watcherExtraTools?: string[];
   evidenceTaskQuotaBytes?: number;
   evidenceOwnerQuotaBytes?: number;
   evidenceMaxUploadBytes?: number;
@@ -294,9 +309,78 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
     api.logger.error("nexus-agent-core: decisionsEnabled but the provider could not be created");
   }
 
+  // ---- Stage 4: the Watcher (DESIGN section 10). Needs the claim ledger: a watch is about one claim. ----
+  let watchRuntime: WatchRuntime | undefined;
+  if (config.watchersEnabled === true && !(claimsEnabled && runtime)) {
+    api.logger.warn("nexus-agent-core: watchersEnabled needs claimsEnabled; the Watcher stays off");
+  }
+  if (config.watchersEnabled === true && claimsEnabled && runtime) {
+    const decisionRuntime = runtime;
+    const watchers = createWatchRuntime({
+      getStore,
+      events,
+      resolvePrincipal: principalFor,
+      scheduler: {
+        schedule: async (params) =>
+          api.session.workflow.scheduleSessionTurn({
+            sessionKey: params.sessionKey,
+            delayMs: params.delayMs,
+            message: params.message,
+            deliveryMode: "none",
+            name: params.name,
+            tag: params.tag,
+            deleteAfterRun: true,
+          }),
+        unscheduleByTag: async (params) => api.session.workflow.unscheduleSessionTurnsByTag(params),
+      },
+      recordTrigger: (ctx) => decisionRuntime.recordTrigger(ctx),
+      onOutboxWritten: () => decisionRuntime.kickOutbox(),
+      logger: api.logger,
+      // The host registers this plugin more than once and routes different hooks to different registrations.
+      state: getSharedWatchState(),
+      ...(config.watcherExtraTools ? { extraTools: config.watcherExtraTools } : {}),
+    });
+    watchRuntime = watchers;
+    api.registerTool(
+      (ctx) =>
+        createWatchTools(
+          {
+            getStore,
+            events,
+            resolvePrincipal: principalFor,
+            after: (principal, change) => watchers.afterChange(principal, change),
+          },
+          ctx,
+        ),
+      { names: [...WATCH_TOOL_NAMES], optional: true },
+    );
+    for (const [method, handler, scope] of createWatchRpcHandlers({
+      getStore,
+      events,
+      resolvePrincipal: () => principalFor(),
+      afterCancel: (principal, watch) =>
+        watchers.afterChange(principal, { kind: "cancelled", watch }),
+    })) {
+      api.registerGatewayMethod(method, handler, { scope });
+    }
+    // The host's own statement of which cron job is running (the hook context has no jobId: spike 4, 2026-10-14).
+    api.on("cron_changed", async (event) => watchers.onCronChanged(event));
+    api.logger.info("nexus-agent-core: watcher hooks registered (cron_changed, before_tool_call)");
+    // nexus_watch_report only counts inside a turn that was authenticated as a watcher.
+    api.on("before_tool_call", async (event, ctx) => watchers.beforeToolCall(event, ctx));
+  }
+
   // Stage 1 only handles user turns. The watcher branch for cron/heartbeat turns comes in front of this
   // check in Stage 4 (DESIGN section 7.1); Stage 2 adds `requiresToolAuthority` for per-session lockdown.
-  api.on("before_prompt_build", async (_event, ctx) => {
+  api.on("before_prompt_build", async (event, ctx) => {
+    // The watcher branch goes in front of the user-trigger check (section 7.1): a background re-check is a cron turn. A turn
+    // that carries our marker is either authenticated here or stripped of every tool; anything else falls through.
+    if (ctx.trigger === "cron" && watchRuntime) {
+      const watcherTurn = await watchRuntime.authenticate(event, ctx);
+      if (watcherTurn) {
+        return watcherTurn;
+      }
+    }
     // Every trigger is recorded (cron and heartbeat too): the tool phase reads it back and fails closed (section 8.8.1).
     await runtime?.recordTrigger(ctx);
     if (ctx.trigger !== "user") {
@@ -315,6 +399,8 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
               NEXUS_ACTION_PROTOCOL,
               ...(claimsEnabled ? [NEXUS_CLAIM_PROTOCOL] : []),
               ...(evidenceEnabled ? [NEXUS_EVIDENCE_PROTOCOL] : []),
+              ...(config.preferencesEnabled === true ? [NEXUS_PREFERENCE_PROTOCOL] : []),
+              ...(watchRuntime ? [NEXUS_WATCH_PROTOCOL] : []),
             ].join("\n\n")
           : NEXUS_TASK_PROTOCOL,
         ...(open.length > 0 ? { prependContext: renderOpenTasks(open) } : {}),
@@ -333,6 +419,57 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
     resolvePrincipal: () => principalFor(),
   })) {
     api.registerGatewayMethod(method, handler, { scope });
+  }
+
+  // ---- Stage 4: Control UI tab (DESIGN section 12): read-only server-rendered pages behind gateway auth. ----
+  api.registerHttpRoute({
+    path: NEXUS_UI_BASE_PATH,
+    match: "prefix",
+    auth: "gateway",
+    handler: createNexusUiHttpHandler({
+      getStore,
+      resolvePrincipal: () => principalFor(),
+      readScopes: () => getPluginRuntimeGatewayRequestScope()?.client?.connect?.scopes ?? [],
+      claimsEnabled: runtime !== undefined,
+      preferencesEnabled: config.preferencesEnabled === true,
+      watchersEnabled: watchRuntime !== undefined,
+    }),
+  });
+  api.session.controls.registerControlUiDescriptor({
+    surface: "tab",
+    id: "nexus",
+    label: "Nexus",
+    slug: "nexus",
+    description: "Nexus tasks, decisions, preferences and purge receipts (read-only).",
+    icon: "kanban",
+    group: "control",
+    requiredScopes: ["operator.read"],
+    path: `${NEXUS_UI_BASE_PATH}/`,
+  });
+
+  // ---- Stage 4: Preference Store (DESIGN section 11). A preference is a default, never authority. ----
+  if (config.preferencesEnabled === true) {
+    api.registerTool(
+      (ctx) =>
+        createPreferenceTools(
+          {
+            getStore,
+            events,
+            resolvePrincipal: principalFor,
+            decisionsEnabled: runtime !== undefined,
+            onOutboxWritten: () => runtime?.kickOutbox(),
+          },
+          ctx,
+        ),
+      { names: [...PREFERENCE_TOOL_NAMES], optional: true },
+    );
+    for (const [method, handler, scope] of createPreferenceRpcHandlers({
+      getStore,
+      events,
+      resolvePrincipal: () => principalFor(),
+    })) {
+      api.registerGatewayMethod(method, handler, { scope });
+    }
   }
 
   // Only the live registration owns the service; discovery passes must not open the database.
@@ -428,6 +565,7 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
           try {
             await runtime.startup();
             await runtime.tick();
+            await watchRuntime?.sync({ healExhausted: true });
           } catch (error) {
             api.logger.warn(
               `nexus-agent-core: startup reconciliation failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -436,6 +574,7 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
           let ticks = 0;
           timer = setInterval(() => {
             void runtime.tick();
+            void watchRuntime?.sync();
             ticks += 1;
             if (evidence && ticks % MAINTAIN_EVERY_TICKS === 0) {
               void maintainEvidence().then(() => resumePurges());
