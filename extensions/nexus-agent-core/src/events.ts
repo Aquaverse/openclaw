@@ -27,6 +27,7 @@ export const EXECUTION_CHANGED_EVENT = "execution_changed";
 export const CLAIM_CHANGED_EVENT = "claim_changed";
 export const CLAIM_VERIFIED_EVENT = "claim_verified";
 export const EVIDENCE_CHANGED_EVENT = "evidence_changed";
+export const TASK_PURGED_EVENT = "task_purged";
 
 /** Outbox-delivered ledger notices. Ids and a state only: clients re-read through nexus.claim.get. */
 export type ClaimChangedPayload = {
@@ -89,12 +90,34 @@ export function createEventBridge(onError: (error: unknown) => void = () => {}) 
       emitter(CLAIM_VERIFIED_EVENT, payload, { scope: "operator.read" });
     },
     /** evidence_changed: material was registered on a Task without a claim link. Ids only; re-read via nexus.evidence.list. */
-    evidenceChanged(payload: { ownerId: string; taskId: string; evidenceId: string }) {
+    evidenceChanged(payload: {
+      ownerId: string;
+      taskId: string;
+      evidenceId: string;
+      /** Absent = registered / linked; `deleted` = the stored bytes were removed by the operator. */
+      change?: "deleted";
+    }) {
       if (!emitter) {
         return;
       }
       try {
         emitter(EVIDENCE_CHANGED_EVENT, payload, { scope: "operator.read" });
+      } catch (error) {
+        onError(error);
+      }
+    },
+    /** task_purged: the Task's ledger no longer exists; only the receipt remains. Ids and a timestamp only. */
+    taskPurged(payload: {
+      ownerId: string;
+      taskId: string;
+      receiptId: string;
+      executedAt: number;
+    }) {
+      if (!emitter) {
+        return;
+      }
+      try {
+        emitter(TASK_PURGED_EVENT, payload, { scope: "operator.read" });
       } catch (error) {
         onError(error);
       }

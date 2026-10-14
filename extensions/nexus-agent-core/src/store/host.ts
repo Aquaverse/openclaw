@@ -72,6 +72,18 @@ const STORE_OPERATIONS: Record<StoreOperationName, true> = {
   blobStats: true,
   listBlobObjects: true,
   listEvidence: true,
+  purgeBegin: true,
+  purgeClaimReservations: true,
+  purgeAdvanceReservations: true,
+  purgeSealWorkset: true,
+  purgeClassify: true,
+  purgeFinalize: true,
+  purgeStatus: true,
+  purgeRelease: true,
+  listPurgeRuns: true,
+  listPurgeReceipts: true,
+  evidenceDelete: true,
+  blobIncarnationSettle: true,
 };
 
 export type StoreHost = {

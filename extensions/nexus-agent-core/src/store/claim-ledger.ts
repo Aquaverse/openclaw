@@ -1224,22 +1224,39 @@ export function createClaimLedger(
   const checkCompletion = (input: { principal: Principal; taskId: string }): CompletionCheck =>
     checkCompletionInTx(input.principal.ownerId, input.taskId);
 
-  /** Per-process provenance row. `incarnation_gone` stays closed (DESIGN section 9.5.1): nothing here marks others gone. */
+  /**
+   * Per-process provenance row. With `supersedeOthers` (only when the operator enabled `incarnation_gone`, DESIGN 9.5.1) the
+   * same transaction also marks every unterminated row whose boot id differs from this process as
+   * `superseded_under_gateway_lock`: a crashed process's boot id always differs from its successor's, a same-process
+   * predecessor (service reload) has the SAME boot id and is never touched. Never done for an unreadable boot id.
+   */
   const registerIncarnation = (input: {
     principal: Principal;
     incarnationId: string;
     bootId: string;
     now: number;
-  }): { registered: boolean } =>
-    transaction(() => ({
-      registered:
+    supersedeOthers?: boolean;
+  }): { registered: boolean; superseded: number } =>
+    transaction(() => {
+      const registered =
         run(
           "INSERT OR IGNORE INTO process_incarnations (incarnation_id, process_boot_id, started_at) VALUES (?, ?, ?)",
           input.incarnationId,
           input.bootId,
           input.now,
-        ) > 0,
-    }));
+        ) > 0;
+      const superseded =
+        input.supersedeOthers === true && input.bootId !== "unavailable"
+          ? run(
+              "UPDATE process_incarnations SET gone_at = ?, gone_basis = 'superseded_under_gateway_lock' " +
+                "WHERE gone_at IS NULL AND incarnation_id <> ? AND process_boot_id <> ?",
+              input.now,
+              input.incarnationId,
+              input.bootId,
+            )
+          : 0;
+      return { registered, superseded };
+    });
 
   const closeIncarnation = (input: {
     principal: Principal;

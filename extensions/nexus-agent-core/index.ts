@@ -21,6 +21,7 @@ type NexusPluginConfig = {
   evidenceWriterLeaseMs?: number;
   evidenceReservationTtlMs?: number;
   evidenceDebugDelayAfterA2Ms?: number;
+  evidenceIncarnationGoneEnabled?: boolean;
   fakeProviderIdempotent?: boolean;
   fakeProviderMode?: string;
   coreApprovalEnabled?: boolean;
@@ -78,6 +79,7 @@ export default definePluginEntry({
         evidenceWriterLeaseMs: config.evidenceWriterLeaseMs,
         evidenceReservationTtlMs: config.evidenceReservationTtlMs,
         evidenceDebugDelayAfterA2Ms: config.evidenceDebugDelayAfterA2Ms,
+        evidenceIncarnationGoneEnabled: config.evidenceIncarnationGoneEnabled === true,
         fakeProviderIdempotent: config.fakeProviderIdempotent,
         fakeProviderMode: config.fakeProviderMode,
         coreApprovalEnabled: config.coreApprovalEnabled,

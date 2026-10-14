@@ -811,13 +811,47 @@ console.log("\n[11] DESIGN.md 的 schema 与命名契约");
             ),
       );
 
+      // ---- Stage 3 第三批（切片③）：STAGE3_PURGE_SQL = §6.3 里 purge_runs + purge_work_items 一段，加上最后的
+      // purge_receipts（故意不对 nexus_tasks 建外键），逐字一致，且只靠追加叠在前两批之上。
+      const m5 = schemaTs.match(/STAGE3_PURGE_SQL = `\n([\s\S]*?)\n`;/);
+      const sql5 = m5 ? m5[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
+      const expected5 = `${md.slice(reservationsEndAt, completionStart).trim()}\n\n${md.slice(seg2End).trim()}`;
+      check(
+        "Stage 3 第三批迁移 SQL 与 DESIGN §6.3 的 purge_runs / purge_work_items / purge_receipts 逐字一致",
+        [sql5.length > 0, sql5.trim() === expected5],
+        (x) => x[0] === true && x[1] === true,
+      );
+      let stage3cError = "ok";
+      try {
+        stacked.exec(sql5);
+      } catch (error) {
+        stage3cError = String(error?.message ?? error);
+      }
+      check(
+        "Stage 3 第三批叠在前两批之上：无错误，foreign_key_check 为空，新增 purge_runs / purge_work_items / purge_receipts",
+        [stage3cError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
+        (x) =>
+          x[0] === "ok" &&
+          x[1] === 0 &&
+          JSON.stringify(x[2]) ===
+            JSON.stringify(
+              [
+                "nexus_task_sessions",
+                "nexus_task_steps",
+                "nexus_tasks",
+                ...STAGE2_TABLES,
+                ...STAGE3_TABLES,
+                "blob_reservations",
+                "purge_receipts",
+                "purge_runs",
+                "purge_work_items",
+              ].toSorted(),
+            ),
+      );
+
       let restError = "ok";
       try {
-        stacked.exec(
-          md.slice(reservationsEndAt, completionStart) +
-            md.slice(completionEnd, seg2Start) +
-            md.slice(seg2End),
-        );
+        stacked.exec(md.slice(completionEnd, seg2Start));
       } catch (error) {
         restError = String(error?.message ?? error);
       }

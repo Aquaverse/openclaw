@@ -236,6 +236,8 @@ export type BlobTombstone = {
   generation: number;
   blobKey: string;
   writerSettledReason: string | null;
+  /** The writer whose I/O the absence proof has to wait for (copied from writer_* when the object left `writing`). */
+  settledWriterAttemptId: string | null;
 };
 export type BlobTombstonesInput = {
   principal: Principal;
@@ -250,6 +252,8 @@ export type BlobTombstoneCheckedInput = {
   reappeared: boolean;
   /** A lookup after the delete found nothing. */
   absent: boolean;
+  /** The settled writer's real Promise settled in THIS process since the object was reclaimed (`awaited`). */
+  writerSettledReason?: "awaited";
   now: number;
 };
 

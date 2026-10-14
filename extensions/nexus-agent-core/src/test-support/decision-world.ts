@@ -16,6 +16,8 @@ import { createEventBridge } from "../events.js";
 import { createEvidenceRpcHandlers } from "../evidence-rpc.js";
 import { createEvidenceService, type EvidenceServiceDeps } from "../evidence/evidence-service.js";
 import { createFakeProvider, type ProviderMode } from "../provider/fake-provider.js";
+import { createPurgeRpcHandlers } from "../purge-rpc.js";
+import { createPurgeService } from "../purge/purge-service.js";
 import type { TaskStore } from "../store/host.js";
 import { applyMigrations } from "../store/kernel.js";
 import { createNexusKernel } from "../store/nexus-kernel.js";
@@ -58,6 +60,9 @@ export function world(
     /** Stage 3 slice 2: evidence bytes (fake byte store, evidence service, `nexus.evidence.*` RPC, blob refs on the tool). */
     evidence?: boolean;
     evidenceConfig?: EvidenceServiceDeps["config"];
+    /** Stage 3 slice 3: purge service + `nexus.task.purge*` / `nexus.evidence.delete` RPC (needs `evidence`). */
+    purge?: boolean;
+    purgeWorkerLeaseMs?: number;
     bootId?: string | null;
   } = {},
 ) {
@@ -132,6 +137,20 @@ export function world(
         logger,
       })
     : undefined;
+  const purge =
+    options.purge && evidence
+      ? createPurgeService({
+          getStore: async () => store,
+          evidence,
+          leases: evidence.config.leases,
+          incarnationGoneEnabled: evidence.config.incarnationGoneEnabled,
+          ...(options.purgeWorkerLeaseMs ? { workerLeaseMs: options.purgeWorkerLeaseMs } : {}),
+          now: () => clock,
+          sleep: () => new Promise<void>((resolve) => setImmediate(resolve)),
+          onPurged: (payload) => events.taskPurged(payload),
+          logger,
+        })
+      : undefined;
   const runtime = createDecisionRuntime({
     getStore: async () => store,
     events,
@@ -220,6 +239,16 @@ export function world(
       resolvePrincipal: () => P,
       kickOutbox: () => runtime.kickOutbox(),
       now: () => clock,
+    })) {
+      rpc.set(method, handler as never);
+    }
+  }
+  if (purge) {
+    for (const [method, handler] of createPurgeRpcHandlers({
+      getStore: async () => store,
+      purge,
+      events,
+      resolvePrincipal: () => P,
     })) {
       rpc.set(method, handler as never);
     }
@@ -368,6 +397,7 @@ export function world(
   return {
     blobs,
     evidence,
+    purge,
     setEnqueue: (mode: "ok" | "throw" | "refused") => {
       enqueueMode = mode;
     },

@@ -13,8 +13,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import type {
   BlobAdmitOutcome,
+  BlobGcItem,
   BlobPlan,
   BlobSourceFacts,
+  BlobTombstone,
   ContentClassification,
   EvidenceLeases,
   EvidenceLimits,
@@ -37,6 +39,12 @@ export type EvidenceConfig = {
   tombstoneIntervalMs: number;
   /** Dev only: sleep between phase A2 and phase B, so a test can kill the process inside that window. */
   debugDelayAfterA2Ms: number;
+  /**
+   * `incarnation_gone` (DESIGN 9.5.1): trust "the writer's process has terminated" as the reason a writer is quiet. Off by
+   * default; the operator turns it on only after the enablement checklist holds. Also makes the service terminate other
+   * boot ids' incarnation rows when it registers itself.
+   */
+  incarnationGoneEnabled: boolean;
 };
 
 export const DEFAULT_EVIDENCE_CONFIG: EvidenceConfig = {
@@ -45,6 +53,7 @@ export const DEFAULT_EVIDENCE_CONFIG: EvidenceConfig = {
   zeroRefGraceMs: 60_000,
   tombstoneIntervalMs: 10 * 60_000,
   debugDelayAfterA2Ms: 0,
+  incarnationGoneEnabled: false,
 };
 
 export type EvidenceOutcome =
@@ -359,6 +368,100 @@ export function createEvidenceService(deps: EvidenceServiceDeps) {
   ): Promise<EvidenceOutcome> =>
     failed.outcome === "quota_exceeded" ? failedQuota(principal, taskId, failed) : failed;
 
+  /**
+   * Delete the bytes of reclaim items that the caller has just CLAIMED, then settle them (object -> `deleted` tombstone,
+   * reservation -> abandoned). The writer's real Promise may still be in flight in THIS process: it is awaited first,
+   * otherwise its write could land after the delete. Another process's writers are not visible here.
+   */
+  const reclaimItems = async (
+    principal: Principal,
+    items: BlobGcItem[],
+  ): Promise<{ deleted: number; skipped: Array<{ blobKey: string; reason: string }> }> => {
+    if (items.length === 0) {
+      return { deleted: 0, skipped: [] };
+    }
+    const store = await deps.getStore();
+    const production = await deps.blobs.production(principal.ownerId);
+    const settleItems: Array<BlobGcItem & { absent: boolean; writerSettledReason?: "awaited" }> =
+      [];
+    for (const item of items) {
+      try {
+        let reason: "awaited" | undefined;
+        if (item.writerAttemptId) {
+          const writerKey = `${item.blobKey}#${item.writerAttemptId}`;
+          const pending = inflightWriters.get(writerKey);
+          if (pending) {
+            await pending;
+            reason = "awaited";
+          } else if (settledWriters.has(writerKey)) {
+            reason = "awaited";
+          }
+        }
+        await production.remove(item.blobKey);
+        const still = await production.get(item.blobKey);
+        settleItems.push({
+          ...item,
+          absent: still === undefined,
+          ...(reason ? { writerSettledReason: reason } : {}),
+        });
+      } catch (error) {
+        // Leave it `reclaiming`: the lease runs out and a later pass takes it over with a new attempt id.
+        deps.logger?.warn(
+          `nexus-agent-core: evidence reclaim of ${item.blobKey} failed, will retry: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return settleItems.length > 0
+      ? await store.blobGcSettle({ principal, items: settleItems, now: now() })
+      : { deleted: 0, skipped: [] };
+  };
+
+  /**
+   * Tombstones: delete again by key (idempotent, keys are never reused) to catch a late write. A writer whose Promise
+   * settled in this process AFTER the reclaim is recognised here, so its object can finally get the absence proof.
+   * Returns how many had bytes again.
+   */
+  const recheckTombstones = async (
+    principal: Principal,
+    tombstones: BlobTombstone[],
+  ): Promise<number> => {
+    if (tombstones.length === 0) {
+      return 0;
+    }
+    const store = await deps.getStore();
+    const production = await deps.blobs.production(principal.ownerId);
+    let reappeared = 0;
+    for (const tombstone of tombstones) {
+      try {
+        const writerKey = `${tombstone.blobKey}#${tombstone.settledWriterAttemptId ?? ""}`;
+        // Read the registries BEFORE the delete: a writer that is already settled cannot write after it.
+        const writerSettled =
+          tombstone.writerSettledReason === null &&
+          tombstone.settledWriterAttemptId !== null &&
+          settledWriters.has(writerKey) &&
+          !inflightWriters.has(writerKey);
+        const removed = await production.remove(tombstone.blobKey);
+        const absent = removed ? false : (await production.get(tombstone.blobKey)) === undefined;
+        if (removed) {
+          reappeared += 1;
+        }
+        await store.blobTombstoneChecked({
+          principal,
+          blobKey: tombstone.blobKey,
+          reappeared: removed,
+          absent,
+          ...(writerSettled ? { writerSettledReason: "awaited" as const } : {}),
+          now: now(),
+        });
+      } catch (error) {
+        deps.logger?.warn(
+          `nexus-agent-core: tombstone re-delete of ${tombstone.blobKey} failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return reappeared;
+  };
+
   return {
     config,
 
@@ -497,9 +600,9 @@ export function createEvidenceService(deps: EvidenceServiceDeps) {
       skipped: Array<{ blobKey: string; reason: string }>;
       tombstonesChecked: number;
       tombstonesReappeared: number;
+      incarnationSettled: number;
     }> {
       const store = await deps.getStore();
-      const production = await deps.blobs.production(principal.ownerId);
       const claim = await store.blobGcClaim({
         principal,
         attemptId: newId("G"),
@@ -508,71 +611,18 @@ export function createEvidenceService(deps: EvidenceServiceDeps) {
         zeroRefGraceMs: config.zeroRefGraceMs,
         now: now(),
       });
-      const settleItems: Array<
-        (typeof claim.items)[number] & { absent: boolean; writerSettledReason?: "awaited" }
-      > = [];
-      for (const item of claim.items) {
-        try {
-          // The writer's real Promise may still be in flight in THIS process: wait for it before deleting, otherwise its
-          // write could land after the delete. Another process's writers are not visible here (incarnation_gone is closed).
-          let reason: "awaited" | undefined;
-          if (item.writerAttemptId) {
-            const writerKey = `${item.blobKey}#${item.writerAttemptId}`;
-            const pending = inflightWriters.get(writerKey);
-            if (pending) {
-              await pending;
-              reason = "awaited";
-            } else if (settledWriters.has(writerKey)) {
-              reason = "awaited";
-            }
-          }
-          await production.remove(item.blobKey);
-          const still = await production.get(item.blobKey);
-          settleItems.push({
-            ...item,
-            absent: still === undefined,
-            ...(reason ? { writerSettledReason: reason } : {}),
-          });
-        } catch (error) {
-          // Leave it `reclaiming`: the lease runs out and a later pass takes it over with a new attempt id.
-          deps.logger?.warn(
-            `nexus-agent-core: evidence reclaim of ${item.blobKey} failed, will retry: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      }
-      const settled =
-        settleItems.length > 0
-          ? await store.blobGcSettle({ principal, items: settleItems, now: now() })
-          : { deleted: 0, skipped: [] };
-
-      // Tombstones: delete again by key (idempotent, keys are never reused) to catch a late write.
+      const settled = await reclaimItems(principal, claim.items);
+      // A writer in a process that is provably gone is quiet (DESIGN 9.5.1). Only when the operator enabled it.
+      const incarnationSettled = config.incarnationGoneEnabled
+        ? (await store.blobIncarnationSettle({ principal, limit: 100, now: now() })).settled.length
+        : 0;
       const tombstones = await store.blobTombstones({
         principal,
         olderThanMs: config.tombstoneIntervalMs,
         limit: 25,
         now: now(),
       });
-      let reappeared = 0;
-      for (const tombstone of tombstones) {
-        try {
-          const removed = await production.remove(tombstone.blobKey);
-          const absent = removed ? false : (await production.get(tombstone.blobKey)) === undefined;
-          if (removed) {
-            reappeared += 1;
-          }
-          await store.blobTombstoneChecked({
-            principal,
-            blobKey: tombstone.blobKey,
-            reappeared: removed,
-            absent,
-            now: now(),
-          });
-        } catch (error) {
-          deps.logger?.warn(
-            `nexus-agent-core: tombstone re-delete of ${tombstone.blobKey} failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      }
+      const reappeared = await recheckTombstones(principal, tombstones);
       return {
         claimed: claim.items.length,
         deleted: settled.deleted,
@@ -580,8 +630,14 @@ export function createEvidenceService(deps: EvidenceServiceDeps) {
         skipped: settled.skipped,
         tombstonesChecked: tombstones.length,
         tombstonesReappeared: reappeared,
+        incarnationSettled,
       };
     },
+
+    /** Delete the bytes of items the CALLER has claimed (state `reclaiming`) and settle them. Shared with purge. */
+    reclaim: reclaimItems,
+    /** Delete tombstones again by key and record what the lookup found. Shared with purge. */
+    recheckTombstones,
 
     /** gateway_start scan (DESIGN 9.4): compare the object table with the byte store. Reports; never deletes. */
     async reconcile(principal: Principal): Promise<{

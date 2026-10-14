@@ -18,6 +18,8 @@ const ALL_EVENTS = [
   "execution_changed",
   "claim_changed",
   "claim_verified",
+  "evidence_changed",
+  "task_purged",
 ].map((name) => `plugin.nexus-agent-core.${name}`);
 const picked = process.argv.flatMap((a, i) =>
   a === "--event" && process.argv[i + 1] ? [`plugin.nexus-agent-core.${process.argv[i + 1]}`] : [],

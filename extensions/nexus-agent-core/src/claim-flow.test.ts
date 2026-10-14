@@ -579,7 +579,7 @@ describe("boot id and orphan attempts (section 9.5.1)", () => {
       bootId: "111:5000",
       now: 10,
     });
-    assert.deepEqual(a, { registered: true });
+    assert.deepEqual(a, { registered: true, superseded: 0 });
     assert.deepEqual(
       await w.store.registerIncarnation({
         principal: P,
@@ -589,6 +589,7 @@ describe("boot id and orphan attempts (section 9.5.1)", () => {
       }),
       {
         registered: false,
+        superseded: 0,
       },
     );
     // a second incarnation under another boot id registers fine and does not touch the first one

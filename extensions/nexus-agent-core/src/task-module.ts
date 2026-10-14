@@ -29,6 +29,8 @@ import {
   type FakeProvider,
   type ProviderMode,
 } from "./provider/fake-provider.js";
+import { createPurgeRpcHandlers } from "./purge-rpc.js";
+import { createPurgeService, type PurgeService } from "./purge/purge-service.js";
 import { createTaskRpcHandlers } from "./rpc.js";
 import {
   createStoreHost,
@@ -55,6 +57,8 @@ export type TaskModuleConfig = {
   evidenceReservationTtlMs?: number;
   /** Dev only: pause between the byte write and the final admission so a test can kill the process in that window. */
   evidenceDebugDelayAfterA2Ms?: number;
+  /** Enables the `incarnation_gone` absence-proof reason and the supersede-on-start step (DESIGN 9.5.1 checklist). */
+  evidenceIncarnationGoneEnabled?: boolean;
   /** Fake provider: does it honour the idempotency key? (default true) */
   fakeProviderIdempotent?: boolean;
   /** Fake provider failure injection (default "ok"). */
@@ -162,6 +166,7 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
     );
   }
   let evidence: EvidenceService | undefined;
+  let purge: PurgeService | undefined;
   const runtime = provider
     ? createDecisionRuntime({
         getStore,
@@ -215,9 +220,18 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
               reclaimLeaseMs: defaults.leases.reclaimLeaseMs,
             },
             debugDelayAfterA2Ms: config.evidenceDebugDelayAfterA2Ms ?? 0,
+            incarnationGoneEnabled: config.evidenceIncarnationGoneEnabled === true,
           },
           onOutboxWritten: () => runtime.kickOutbox(),
           onEvidenceRegistered: (payload) => events.evidenceChanged(payload),
+          logger: api.logger,
+        });
+        purge = createPurgeService({
+          getStore,
+          evidence,
+          leases: evidence.config.leases,
+          incarnationGoneEnabled: config.evidenceIncarnationGoneEnabled === true,
+          onPurged: (payload) => events.taskPurged(payload),
           logger: api.logger,
         });
       }
@@ -241,6 +255,16 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
           events,
           resolvePrincipal: () => principalFor(),
           kickOutbox: () => runtime.kickOutbox(),
+        })) {
+          api.registerGatewayMethod(method, handler, { scope });
+        }
+      }
+      if (purge) {
+        for (const [method, handler, scope] of createPurgeRpcHandlers({
+          getStore,
+          purge,
+          events,
+          resolvePrincipal: () => principalFor(),
         })) {
           api.registerGatewayMethod(method, handler, { scope });
         }
@@ -315,6 +339,26 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
   let timer: ReturnType<typeof setInterval> | undefined;
   let incarnationRegistered = false;
   let maintaining = false;
+  let resuming = false;
+  const resumePurges = async () => {
+    const principal = principalFor();
+    if (!purge || !principal || resuming) {
+      return;
+    }
+    resuming = true;
+    try {
+      const resumed = await purge.resume(principal);
+      if (resumed > 0) {
+        api.logger.info(`nexus-agent-core: resumed ${resumed} purge run(s)`);
+      }
+    } catch (error) {
+      api.logger.warn(
+        `nexus-agent-core: purge resume failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      resuming = false;
+    }
+  };
   const maintainEvidence = async () => {
     const principal = principalFor();
     if (!evidence || !principal || maintaining) {
@@ -368,6 +412,7 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
                 principal,
                 incarnationId,
                 bootId: bootId ?? "unavailable",
+                supersedeOthers: config.evidenceIncarnationGoneEnabled === true,
                 now: Date.now(),
               });
               incarnationRegistered = true;
@@ -393,7 +438,7 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
             void runtime.tick();
             ticks += 1;
             if (evidence && ticks % MAINTAIN_EVERY_TICKS === 0) {
-              void maintainEvidence();
+              void maintainEvidence().then(() => resumePurges());
             }
           }, TICK_MS);
           timer.unref?.();
@@ -418,6 +463,7 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
               );
             }
             await maintainEvidence();
+            await resumePurges();
           }
         }
       },

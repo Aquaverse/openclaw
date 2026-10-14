@@ -968,7 +968,7 @@ export function createBlobLedger(
 
   const blobTombstones = (input: BlobTombstonesInput): BlobTombstone[] =>
     all(
-      "SELECT content_hash, generation, blob_key, writer_settled_reason FROM blob_objects " +
+      "SELECT content_hash, generation, blob_key, writer_settled_reason, settled_writer_attempt_id FROM blob_objects " +
         "WHERE owner_id = ? AND state = 'deleted' AND absence_verified_at IS NULL AND updated_at < ? ORDER BY updated_at LIMIT ?",
       input.principal.ownerId,
       input.now - input.olderThanMs,
@@ -978,6 +978,7 @@ export function createBlobLedger(
       generation: Number(row.generation),
       blobKey: String(row.blob_key),
       writerSettledReason: (row.writer_settled_reason as string | null) ?? null,
+      settledWriterAttemptId: (row.settled_writer_attempt_id as string | null) ?? null,
     }));
 
   const blobTombstoneChecked = (
@@ -1002,17 +1003,31 @@ export function createBlobLedger(
           owner,
           input.blobKey,
         );
+        // Same transaction (DESIGN 9.4 P4, v0.12k): a purge work item must not keep a proof that no longer exists, or
+        // nothing would drive it again.
+        run(
+          "UPDATE purge_work_items SET state = 'pending', absence_proof_attempt_id = NULL, updated_at = ? " +
+            "WHERE owner_id = ? AND blob_key = ? AND state = 'absence_verified'",
+          input.now,
+          owner,
+          input.blobKey,
+        );
         return { updated: true, proven: false };
       }
-      const canProve =
-        input.absent &&
-        object.writer_settled_reason !== null &&
-        object.settled_writer_attempt_id !== null &&
-        object.settled_writer_incarnation !== null;
+      const haveSettledWriter =
+        object.settled_writer_attempt_id !== null && object.settled_writer_incarnation !== null;
+      // The reason is a lifecycle fact: it can be learned later (the writer's Promise settled after the reclaim) but is
+      // never overwritten once set.
+      const reason =
+        (object.writer_settled_reason as string | null) ??
+        (haveSettledWriter ? (input.writerSettledReason ?? null) : null);
+      const canProve = input.absent && reason !== null && haveSettledWriter;
       run(
-        "UPDATE blob_objects SET absence_verified_at = ?, absence_verified_attempt_id = ?, updated_at = ? WHERE owner_id = ? AND blob_key = ? AND state = 'deleted'",
+        "UPDATE blob_objects SET absence_verified_at = ?, absence_verified_attempt_id = ?, " +
+          "writer_settled_reason = COALESCE(writer_settled_reason, ?), updated_at = ? WHERE owner_id = ? AND blob_key = ? AND state = 'deleted'",
         canProve ? input.now : null,
         canProve ? `tombstone:${input.now}` : null,
+        reason,
         input.now,
         owner,
         input.blobKey,

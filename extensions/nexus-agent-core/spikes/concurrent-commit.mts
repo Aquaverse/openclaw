@@ -5,7 +5,9 @@ import {
 // Stage 2 验收：对同一个 executionId 同时发 N 个 nexus_action_commit（经 tools.invoke，绕过模型）。
 // 期望：供应商账本只增加 1 行；恰好 1 个调用是首次执行，其余是重放或被拒（见输出）。
 // 用法：node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/concurrent-commit.mts \
-//        --execution-id <id> [--n 6] --token <gateway.auth.token>
+//        (--execution-id <id> | --task <仍打开的 taskId>) [--n 6] --token <gateway.auth.token>
+//   给 --task 时脚本自己登记一个动作、请求决策、批准，得到一个 prepared 的 executionId 再并发 commit
+//   （假供应商需处于 ok 模式）。
 import { GatewayClient } from "../../../src/gateway/client.ts";
 
 function arg(flag: string): string | undefined {
@@ -15,15 +17,49 @@ function arg(flag: string): string | undefined {
 
 const url = arg("--url") ?? process.env.OPENCLAW_GATEWAY_URL ?? "ws://127.0.0.1:19001";
 const token = arg("--token") ?? process.env.OPENCLAW_GATEWAY_TOKEN;
-const executionId = arg("--execution-id");
+let executionId = arg("--execution-id");
+const taskId = arg("--task");
 const n = Math.max(2, Number(arg("--n") ?? "6"));
 
-if (!executionId) {
-  console.error("缺少 --execution-id");
+if (!executionId && !taskId) {
+  console.error("缺少 --execution-id（或给 --task 让脚本自己准备一个 prepared 的执行）");
   process.exit(2);
 }
 
 type InvokeResult = { ok?: boolean; output?: { content?: Array<{ text?: string }> } };
+
+async function tool(client: GatewayClient, name: string, args: Record<string, unknown>) {
+  const res = await client.request<InvokeResult>("tools.invoke", { name, args });
+  try {
+    return JSON.parse(res.output?.content?.[0]?.text ?? "{}") as Record<string, unknown>;
+  } catch {
+    return {} as Record<string, unknown>;
+  }
+}
+
+/** Prepared, approved, not yet committed: what the race needs. */
+async function prepareExecution(client: GatewayClient): Promise<string> {
+  const prepared = await tool(client, "nexus_action_prepare", {
+    taskId,
+    toolName: "fake_booking",
+    params: {
+      vendor: "Acme Rooms",
+      item: `并发 commit ${Date.now().toString(36)}`,
+      date: "2026-10-27",
+    },
+  });
+  const actionId = String(prepared.actionId ?? "");
+  const dec = await tool(client, "nexus_decision_request", {
+    taskId,
+    effect: { actionIds: [actionId] },
+  });
+  const res = await client.request<Record<string, unknown>>("nexus.decision.resolve", {
+    decisionId: String(dec.decisionId),
+    resolution: "approved",
+    chosenActionId: actionId,
+  });
+  return String(res.executionId ?? "");
+}
 
 async function fire(client: GatewayClient, index: number) {
   const started = Date.now();
@@ -51,9 +87,18 @@ const client = new GatewayClient({
   clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
   clientDisplayName: "nexus concurrent commit probe",
   mode: GATEWAY_CLIENT_MODES.BACKEND,
-  scopes: ["operator.write"],
+  scopes: ["operator.write", "operator.read"],
   onConnectError: (err) => console.error(`[connect-error] ${err.message}`),
   onHelloOk: async () => {
+    if (!executionId) {
+      executionId = await prepareExecution(client);
+      if (!executionId) {
+        console.error(
+          "没能准备出 prepared 的 executionId（Task 是否仍打开？假供应商是 ok 模式？）",
+        );
+        process.exit(2);
+      }
+    }
     console.log(`[connected] 同时发出 ${n} 个 commit，executionId=${executionId}`);
     const results = await Promise.all(Array.from({ length: n }, (_, i) => fire(client, i + 1)));
     for (const r of results) {

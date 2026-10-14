@@ -75,6 +75,11 @@
         "default": 0,
         "description": "DEV ONLY: pause between the byte write and the final admission, to let a test kill the gateway inside that window."
       },
+      "evidenceIncarnationGoneEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable the `incarnation_gone` absence-proof reason (DESIGN 9.5.1): a new gateway start marks earlier process rows with a different boot id as gone, which lets purge and GC treat their unfinished blob writes as settled. Only enable it after the checklist holds: readable boot id, ONE gateway per state directory, no mis-marking on same-process reload, and an observed crash-restart. Off by default."
+      },
       "fakeProviderIdempotent": {
         "type": "boolean",
         "default": true,

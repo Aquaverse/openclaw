@@ -62,6 +62,7 @@ describe("task store kernel", () => {
       "stage2-0001-decision-grant-execution",
       "stage3-0001-claim-evidence-ledger",
       "stage3-0002-blob-reservations",
+      "stage3-0003-purge",
     ]);
     assert.deepEqual(applyMigrations(db, tx), []);
   });

@@ -571,7 +571,7 @@ CREATE TABLE nexus_task_completion_claims (
 
 // Stage 3 (slice 2) migration SQL: blob_reservations, DESIGN section 6.3 copied verbatim (from `CREATE TABLE
 // blob_reservations` through the `blob_reservations_hash_live` index). It references blob_objects (slice 1) and nexus_tasks.
-// purge_runs / purge_work_items / purge_receipts arrive with the purge slice. Regression group 11 checks this text.
+// purge_runs / purge_work_items / purge_receipts are in the next migration (STAGE3_PURGE_SQL). Regression group 11 checks this text.
 export const STAGE3_RESERVATIONS_SQL = `
 CREATE TABLE blob_reservations (
   id TEXT NOT NULL PRIMARY KEY, owner_id TEXT NOT NULL, task_id TEXT NOT NULL,
@@ -610,9 +610,117 @@ CREATE UNIQUE INDEX blob_reservations_hash_live
   WHERE state IN ('reserved','reclaiming');
 `;
 
+// Stage 3 (slice 3) migration SQL: the purge machinery, DESIGN section 6.3 copied verbatim in two pieces (purge_runs +
+// purge_work_items, then purge_receipts). purge_receipts has no foreign key to nexus_tasks on purpose (it outlives the Task),
+// and it carries the preference shape too (section 11.5) because a published table cannot be altered later.
+// Regression group 11 checks this text.
+export const STAGE3_PURGE_SQL = `
+-- v0.12j：hard purge 的 run owner。v0.12i 只有 purge_work_items，而 P5 的前置
+-- "本次 purge_id 的全部工作项终态"对空集合真空成立：P1 提交后 P3 前崩溃，
+-- 或换了新 purge_id 重试（此时 evidence.blob_key 已被清空，新 id 推不出工作集），
+-- P5 都会在没结算引用的情况下直接删账本。所以 purge 必须有**持久化的 run 与阶段**：
+--   · 一个 Task 一生只有一个 purge run（PK = owner+task），重试**沿用同一个 purge_id**；
+--   · worker_attempt_id 与业务 purge_id 分开（谁在干活 ≠ 这是哪一次 purge）；
+--   · workset_item_count 在 P3 提交时写下（可以是 0），P5 用它判"工作集是否真的封好"。
+-- P1 在同一个事务里把 nexus_tasks.status 置 purging 并建本行（跨表一致性由事务保证）。
+CREATE TABLE purge_runs (
+  owner_id TEXT NOT NULL, task_id TEXT NOT NULL,
+  purge_id TEXT NOT NULL,
+  phase TEXT NOT NULL,                   -- sealed|reservations_settled|workset_sealed
+  workset_item_count INTEGER,            -- P3 提交时写入；0 是合法值
+  workset_sealed_at INTEGER,
+  worker_attempt_id TEXT, worker_lease_until INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, task_id),
+  UNIQUE (owner_id, task_id, purge_id),
+  CHECK (phase IN ('sealed','reservations_settled','workset_sealed')),
+  CHECK ((phase = 'workset_sealed')
+         = (workset_sealed_at IS NOT NULL AND workset_item_count IS NOT NULL)),
+  CHECK (workset_item_count IS NULL OR workset_item_count >= 0),
+  CHECK ((worker_attempt_id IS NULL) = (worker_lease_until IS NULL)),
+  FOREIGN KEY (owner_id, task_id) REFERENCES nexus_tasks(owner_id, id)
+) STRICT;
+
+-- hard purge 的工作集。P3 会把本 Task 的 evidence.blob_key 全部置 NULL，
+-- 而 attach_live_object 分支根本不建 reservation——所以 P3 提交之后，
+-- "这次 purge 影响了哪些物理对象"在库里没有任何地方记着。进程此刻崩溃，
+-- 重启后的 coordinator 就枚举不出来。工作项与引用释放同事务落盘。
+CREATE TABLE purge_work_items (
+  owner_id TEXT NOT NULL, task_id TEXT NOT NULL,
+  purge_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL, generation INTEGER NOT NULL,
+  blob_key TEXT NOT NULL,                -- P3 清空 evidence.blob_key 之前抄下来的
+  -- v0.12k：工作项有两种来源。evidence：P3 从 evidence.blob_key 抄来；
+  -- reservation：P2 从该 Task 尚未 consumed 的 reservation 抄来——A1/A2 已经产生了
+  -- 物理对象、阶段 B 还没产生 evidence，这类对象 v0.12j 的 P3 根本看不见，
+  -- P5 一删 reservation，Task 到它的最后一条持久化关系就没了。
+  source_kind TEXT NOT NULL,             -- evidence|reservation
+  refs_released INTEGER NOT NULL,        -- evidence 来源：摘掉了几条引用；reservation 来源恒为 0
+  -- disposition 是**最近一次重算**的结论，不是 P3 时刻的永久分类：
+  -- P3 与 P4 之间别的 Task 可以 attach 或释放同一个对象，所以 P4 在同步事务里
+  -- 按最新权威引用数 CAS 改写它，然后才走对应路径（§9.4）。
+  disposition TEXT NOT NULL,             -- shared_retained|reclaim_pending
+  state TEXT NOT NULL,                   -- pending|absence_verified|retained_verified|failed
+  -- v0.12k：P4 置 absence_verified 时记下**当时**对象上的 absence_verified_attempt_id。
+  -- 终态是 P4 某一刻的快照，对象上的证明之后可能被作废（§9.5.1 的墓碑复查），
+  -- P5 必须拿它和对象**当前**的 token 比，不一致就不放行。
+  absence_proof_attempt_id TEXT,
+  last_error TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, task_id, purge_id, blob_key),
+  CHECK (source_kind IN ('evidence','reservation')),
+  CHECK ((source_kind = 'evidence' AND refs_released > 0)
+         OR (source_kind = 'reservation' AND refs_released = 0)),
+  CHECK ((state = 'absence_verified') = (absence_proof_attempt_id IS NOT NULL)),
+  CHECK (disposition IN ('shared_retained','reclaim_pending')),
+  CHECK (state IN ('pending','absence_verified','retained_verified','failed')),
+  -- 终态必须和 disposition 对得上：留下的只能是 retained_verified，
+  -- 要删的只能是 absence_verified（§9.4 的 P5 据此判完成）
+  CHECK (state NOT IN ('absence_verified','retained_verified')
+         OR (disposition = 'reclaim_pending') = (state = 'absence_verified')),
+  FOREIGN KEY (owner_id, task_id, purge_id)
+    REFERENCES purge_runs(owner_id, task_id, purge_id),
+  -- 四列：(hash, generation) 与 blob_key 必须指向**同一个**物理对象
+  FOREIGN KEY (owner_id, content_hash, generation, blob_key)
+    REFERENCES blob_objects(owner_id, content_hash, generation, blob_key)
+) STRICT;
+CREATE INDEX purge_work_items_open
+  ON purge_work_items(owner_id, task_id, purge_id)
+  WHERE state IN ('pending','failed');
+
+---------- purge 回执：独立于 Task，purge 不会删掉它（v0.4 新增） ----------
+CREATE TABLE purge_receipts (
+  id TEXT NOT NULL PRIMARY KEY, owner_id TEXT NOT NULL,
+  subject_kind TEXT NOT NULL,            -- task|preference（v0.12：偏好也有硬清除，§11.5）
+  task_id TEXT,                       -- subject_kind='task' 时必填；故意不加外键：目标行已被删除
+  task_title_hash TEXT,               -- 只存 hash，不存内容
+  preference_key_hash TEXT,           -- subject_kind='preference' 时填，同样只存 hash
+  ledger_head_digest TEXT,               -- 被销毁的链尾 digest
+  claim_event_count INTEGER, evidence_count INTEGER, revision_count INTEGER,
+  purged_scope TEXT NOT NULL,            -- ledger|evidence|all|preferences
+  requested_by TEXT NOT NULL, executed_at INTEGER NOT NULL,
+  CHECK (subject_kind IN ('task','preference')),
+  -- v0.12b：两种形状互斥。此前只要求"本类型字段齐全"，没禁止另一类型的字段同时存在，
+  -- 于是偏好回执里仍可能留着 Task 标题 hash 和账本 digest——违背最小化承诺。
+  CHECK (CASE subject_kind
+    WHEN 'task' THEN
+      task_id IS NOT NULL AND task_title_hash IS NOT NULL
+      AND preference_key_hash IS NULL AND revision_count IS NULL
+      AND purged_scope IN ('ledger','evidence','all')
+    ELSE
+      preference_key_hash IS NOT NULL AND revision_count IS NOT NULL
+      AND task_id IS NULL AND task_title_hash IS NULL
+      AND ledger_head_digest IS NULL
+      AND claim_event_count IS NULL AND evidence_count IS NULL
+      AND purged_scope = 'preferences'
+  END)
+) STRICT;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { id: "stage1-0001-task-core", sql: STAGE1_TASK_CORE_SQL },
   { id: "stage2-0001-decision-grant-execution", sql: STAGE2_DECISION_SQL },
   { id: "stage3-0001-claim-evidence-ledger", sql: STAGE3_LEDGER_SQL },
   { id: "stage3-0002-blob-reservations", sql: STAGE3_RESERVATIONS_SQL },
+  { id: "stage3-0003-purge", sql: STAGE3_PURGE_SQL },
 ];
