@@ -28,6 +28,53 @@
         "default": false,
         "description": "Enable the Stage 3 Claim / Evidence ledger (needs decisionsEnabled): nexus_claim_add / nexus_evidence_add / nexus_claim_verify (optional tools, allow them via tools.alsoAllow), nexus.claim.* gateway methods, completion gating for nexus_task_update(succeeded) and execution-result claims. Off by default."
       },
+      "evidenceBlobsEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable Stage 3 evidence bytes (needs claimsEnabled): the operator upload RPC nexus.evidence.upload / .link and `blob` refs for nexus_evidence_add, stored through the plugin blob store with reservations, soft quotas and reclaim. Off by default."
+      },
+      "evidenceTaskQuotaBytes": {
+        "type": "integer",
+        "minimum": 1048576,
+        "maximum": 536870912,
+        "default": 209715200,
+        "description": "Soft evidence quota per Task in bytes (default 200 MB). Overflow fails closed and creates an R0 notice decision."
+      },
+      "evidenceOwnerQuotaBytes": {
+        "type": "integer",
+        "minimum": 1048576,
+        "maximum": 536870912,
+        "default": 419430400,
+        "description": "Soft evidence quota per owner in bytes, counted over physical objects (default 400 MB). The SDK's own ceiling is 512 MB for the whole plugin."
+      },
+      "evidenceMaxUploadBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 104857600,
+        "default": 16777216,
+        "description": "Largest single piece of evidence in bytes (default 16 MB; the SDK allows 100 MB). Uploads travel base64-encoded in one RPC frame, so keep it below the gateway payload limit."
+      },
+      "evidenceWriterLeaseMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 600000,
+        "default": 30000,
+        "description": "Writer lease for an evidence write in flight. Expiry only allows reclaim to claim the object; it never proves the write stopped."
+      },
+      "evidenceReservationTtlMs": {
+        "type": "integer",
+        "minimum": 2000,
+        "maximum": 3600000,
+        "default": 60000,
+        "description": "How long an unsettled reservation counts against the quota before reclaim may claim it. Lower it only for testing."
+      },
+      "evidenceDebugDelayAfterA2Ms": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 120000,
+        "default": 0,
+        "description": "DEV ONLY: pause between the byte write and the final admission, to let a test kill the gateway inside that window."
+      },
       "fakeProviderIdempotent": {
         "type": "boolean",
         "default": true,

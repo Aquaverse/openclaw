@@ -139,7 +139,7 @@ describe("completion gate and evidence (section 9)", () => {
     const unsupported = await claimCall(w, "nexus_evidence_add", {
       taskId: t,
       claimId,
-      ref: { kind: "blob", id: "B1" },
+      ref: { kind: "blob", id: `${"a".repeat(64)}.1` },
     });
     assert.equal(unsupported.code, "ref_kind_not_supported");
     assert.equal(

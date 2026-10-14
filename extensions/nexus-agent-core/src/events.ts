@@ -26,6 +26,7 @@ export const DECISION_CHANGED_EVENT = "decision_changed";
 export const EXECUTION_CHANGED_EVENT = "execution_changed";
 export const CLAIM_CHANGED_EVENT = "claim_changed";
 export const CLAIM_VERIFIED_EVENT = "claim_verified";
+export const EVIDENCE_CHANGED_EVENT = "evidence_changed";
 
 /** Outbox-delivered ledger notices. Ids and a state only: clients re-read through nexus.claim.get. */
 export type ClaimChangedPayload = {
@@ -86,6 +87,17 @@ export function createEventBridge(onError: (error: unknown) => void = () => {}) 
         throw new Error("no gateway event emitter attached");
       }
       emitter(CLAIM_VERIFIED_EVENT, payload, { scope: "operator.read" });
+    },
+    /** evidence_changed: material was registered on a Task without a claim link. Ids only; re-read via nexus.evidence.list. */
+    evidenceChanged(payload: { ownerId: string; taskId: string; evidenceId: string }) {
+      if (!emitter) {
+        return;
+      }
+      try {
+        emitter(EVIDENCE_CHANGED_EVENT, payload, { scope: "operator.read" });
+      } catch (error) {
+        onError(error);
+      }
     },
     /** Payload carries ids and a summary only; clients re-read through nexus.task.get. */
     taskChanged(change: TaskChangeKind, task: TaskIdentity) {

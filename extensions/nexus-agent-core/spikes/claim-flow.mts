@@ -168,9 +168,14 @@ async function run() {
   const blob = await tool("nexus_evidence_add", {
     taskId,
     claimId,
-    ref: { kind: "blob", id: "B1" },
+    ref: { kind: "blob", id: `${"a".repeat(64)}.1` },
   });
-  check("blob 引用本期不支持", blob.code === "ref_kind_not_supported", blob);
+  // 切片②起：evidenceBlobsEnabled=false → ref_kind_not_supported；打开后 → 不存在的 blobKey 报 ref_not_found
+  check(
+    "不存在的 blob 引用被拒（未开启字节存储 → ref_kind_not_supported，开启后 → ref_not_found）",
+    blob.code === "ref_kind_not_supported" || blob.code === "ref_not_found",
+    blob,
+  );
   const nope = await tool("nexus_evidence_add", {
     taskId,
     claimId,

@@ -143,6 +143,16 @@ export type CreateDecisionInput = {
   sessionKey: string | null;
   runId: string | null;
   toolCallId: string | null;
+  /**
+   * Server-built notice for an `acknowledge` decision (slice 2: evidence quota exceeded, tier R0). Only trusted service
+   * code passes it - never a tool parameter - so the wording and facts are still not the model's.
+   */
+  notice?: {
+    decisionType: string;
+    question: string;
+    facts: unknown;
+    unknowns: string[];
+  };
   now: number;
 };
 
@@ -636,8 +646,14 @@ export function createDecisionKernel(
         }
         effectKind = expected;
       }
+      if (input.notice !== undefined && effectKind !== "acknowledge") {
+        return {
+          outcome: "invalid_effect",
+          invalid: { code: "wrong_kind", expected: "acknowledge" },
+        };
+      }
       actions = actions.toSorted((a, b) => (a.id < b.id ? -1 : 1));
-      const decisionType = decisionTypeFor(effectKind);
+      const decisionType = input.notice?.decisionType ?? decisionTypeFor(effectKind);
       const fingerprint = decisionFingerprint({ taskId: task.id, decisionType, actionIds: ids });
 
       // ---- 1. idempotency key hit (check-then-write, independent of the unique index) ----
@@ -715,13 +731,21 @@ export function createDecisionKernel(
       }
 
       // ---- 4. create ----
-      const content = buildDecisionContent({
+      const built = buildDecisionContent({
         task,
         effectKind,
         actions,
         describe: (action) => describeAction(action),
       });
-      const riskTier = actions[0]?.riskTier ?? "R1";
+      const content = input.notice
+        ? {
+            ...built,
+            question: input.notice.question,
+            facts: input.notice.facts,
+            unknowns: input.notice.unknowns,
+          }
+        : built;
+      const riskTier = input.notice ? "R0" : (actions[0]?.riskTier ?? "R1");
       const deadlineAt = input.now + DEFAULT_DECISION_DEADLINE_MS;
       const authorityHash = computeAuthorityHash({
         ownerId: owner,

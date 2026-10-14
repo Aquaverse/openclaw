@@ -30,7 +30,10 @@ type Row = Record<string, unknown>;
 
 /** Bumped whenever classifyExecutionEvidence or the group mapping changes (rules are re-computable and auditable). */
 export const RELATION_RULE_VERSION = 1;
-export const SOURCE_GROUP_RULE_VERSION = 1;
+/** v2 = v1 plus the `user_upload` group for operator uploads (slice 2). Execution evidence maps exactly as in v1. */
+export const SOURCE_GROUP_RULE_VERSION = 2;
+/** Relation verdicts that are an operator declaration rather than a verifier rule (slice 2). */
+export const OPERATOR_RELATION_RULE_VERSION = 2;
 export const DEFAULT_MIN_GROUPS_FOR_VERIFIED = 2;
 export const EVENT_TAIL = 20;
 export const OPERATOR_ATTESTATION_GROUP = "operator_attestation";
@@ -493,6 +496,109 @@ export function createClaimLedger(
     };
   };
 
+  /** Has this evidence already been linked to (or detached from) this claim? Newest link event wins. */
+  const priorLink = (
+    owner: string,
+    taskId: string,
+    claimId: string,
+    evidenceId: string,
+  ): { relation: string } | undefined =>
+    one(
+      "SELECT cee.relation FROM claim_event_evidence cee " +
+        "JOIN claim_events ce ON ce.owner_id = cee.owner_id AND ce.task_id = cee.task_id AND ce.id = cee.claim_event_id " +
+        "WHERE cee.owner_id = ? AND cee.task_id = ? AND ce.claim_id = ? AND cee.evidence_id = ? ORDER BY ce.seq DESC LIMIT 1",
+      owner,
+      taskId,
+      claimId,
+      evidenceId,
+    ) as { relation: string } | undefined;
+
+  /**
+   * Link a registered evidence row to a claim: append the event, the link event row and the projection, then recompute.
+   * Shared by execution evidence, blob evidence and the operator paths; the caller decides the verdict.
+   */
+  const linkEvidenceRow = (args: {
+    owner: string;
+    taskId: string;
+    claimId: string;
+    evidenceId: string;
+    sourceGroup: string;
+    verdict: { relation: "supports" | "contradicts" | "unclassified"; reason: string };
+    ruleVersion: number;
+    source: string;
+    actor: string;
+    now: number;
+    reusedEvidence: boolean;
+    extraPayload?: Record<string, unknown>;
+  }): Extract<AddEvidenceOutcome, { outcome: "linked" }> => {
+    const { owner, taskId, claimId, evidenceId, verdict } = args;
+    const claim = toClaim(owner, claimRow(owner, taskId, claimId) as Row);
+    const stateBefore = claim.state;
+    const event = appendEvent(
+      owner,
+      taskId,
+      claimId,
+      "evidence",
+      args.source,
+      args.actor,
+      {
+        evidenceId,
+        relation: verdict.relation,
+        reason: verdict.reason,
+        ruleVersion: args.ruleVersion,
+        sourceGroup: args.sourceGroup,
+        stateBefore,
+        ...args.extraPayload,
+      },
+      args.now,
+    );
+    run(
+      "INSERT INTO claim_event_evidence (owner_id, task_id, claim_event_id, evidence_id, relation, relation_rule_version, relation_reason, supersedes_evidence_id) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
+      owner,
+      taskId,
+      event.id,
+      evidenceId,
+      verdict.relation,
+      args.ruleVersion,
+      verdict.reason,
+    );
+    if (verdict.relation !== "unclassified") {
+      run(
+        "INSERT INTO claim_evidence_links (owner_id, task_id, claim_id, evidence_id, relation, effective, head_link_event_id, updated_at) " +
+          "VALUES (?, ?, ?, ?, ?, 1, ?, ?) ON CONFLICT (owner_id, task_id, claim_id, evidence_id) DO UPDATE SET " +
+          "relation = excluded.relation, effective = 1, head_link_event_id = excluded.head_link_event_id, updated_at = excluded.updated_at",
+        owner,
+        taskId,
+        claimId,
+        evidenceId,
+        verdict.relation,
+        event.id,
+        args.now,
+      );
+    }
+    const stateAfter = settleProjection(
+      owner,
+      taskId,
+      claimId,
+      event.id,
+      stateBefore,
+      "evidence",
+      args.now,
+    );
+    return {
+      outcome: "linked",
+      claim: toClaim(owner, claimRow(owner, taskId, claimId) as Row),
+      evidenceId,
+      reusedEvidence: args.reusedEvidence,
+      relation: verdict.relation,
+      reason: verdict.reason,
+      stateBefore,
+      stateAfter,
+      eventId: event.id,
+    };
+  };
+
   /** Shared by nexus_evidence_add and the settle hook. Runs inside the caller's transaction. */
   const linkExecutionEvidence = (
     owner: string,
@@ -522,15 +628,7 @@ export function createClaimLedger(
       identity,
     );
     const evidenceId = existing ? String(existing.id) : newId("EV");
-    const previous = one(
-      "SELECT ce.transition, cee.relation FROM claim_event_evidence cee " +
-        "JOIN claim_events ce ON ce.owner_id = cee.owner_id AND ce.task_id = cee.task_id AND ce.id = cee.claim_event_id " +
-        "WHERE cee.owner_id = ? AND cee.task_id = ? AND ce.claim_id = ? AND cee.evidence_id = ? ORDER BY ce.seq DESC LIMIT 1",
-      owner,
-      taskId,
-      claimId,
-      evidenceId,
-    );
+    const previous = priorLink(owner, taskId, claimId, evidenceId);
     if (previous) {
       return previous.relation === "detach"
         ? { outcome: "detached_by_operator", evidenceId }
@@ -569,69 +667,19 @@ export function createClaimLedger(
       state: facts.state,
       actionId: facts.actionId,
     });
-    const stateBefore = claim.state;
-    const event = appendEvent(
+    return linkEvidenceRow({
       owner,
       taskId,
       claimId,
-      "evidence",
+      evidenceId,
+      sourceGroup,
+      verdict,
+      ruleVersion: RELATION_RULE_VERSION,
       source,
       actor,
-      {
-        evidenceId,
-        relation: verdict.relation,
-        reason: verdict.reason,
-        ruleVersion: RELATION_RULE_VERSION,
-        sourceGroup,
-        stateBefore,
-      },
       now,
-    );
-    run(
-      "INSERT INTO claim_event_evidence (owner_id, task_id, claim_event_id, evidence_id, relation, relation_rule_version, relation_reason, supersedes_evidence_id) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
-      owner,
-      taskId,
-      event.id,
-      evidenceId,
-      verdict.relation,
-      RELATION_RULE_VERSION,
-      verdict.reason,
-    );
-    if (verdict.relation !== "unclassified") {
-      run(
-        "INSERT INTO claim_evidence_links (owner_id, task_id, claim_id, evidence_id, relation, effective, head_link_event_id, updated_at) " +
-          "VALUES (?, ?, ?, ?, ?, 1, ?, ?) ON CONFLICT (owner_id, task_id, claim_id, evidence_id) DO UPDATE SET " +
-          "relation = excluded.relation, effective = 1, head_link_event_id = excluded.head_link_event_id, updated_at = excluded.updated_at",
-        owner,
-        taskId,
-        claimId,
-        evidenceId,
-        verdict.relation,
-        event.id,
-        now,
-      );
-    }
-    const stateAfter = settleProjection(
-      owner,
-      taskId,
-      claimId,
-      event.id,
-      stateBefore,
-      "evidence",
-      now,
-    );
-    return {
-      outcome: "linked",
-      claim: toClaim(owner, claimRow(owner, taskId, claimId) as Row),
-      evidenceId,
       reusedEvidence: existing !== undefined,
-      relation: verdict.relation,
-      reason: verdict.reason,
-      stateBefore,
-      stateAfter,
-      eventId: event.id,
-    };
+    });
   };
 
   /** Create a claim row + its first event (the circular FK is deferred, both rows are written in this transaction). */
@@ -1221,6 +1269,19 @@ export function createClaimLedger(
       closeIncarnation,
     },
     hooks: { recordExecutionResultInTx, checkCompletionInTx },
+    /** Building blocks for sibling kernels that share this ledger's transaction (blob-ledger.ts). Not a worker operation. */
+    internals: {
+      one,
+      all,
+      run,
+      newId,
+      claimRow,
+      toClaim,
+      writableTask,
+      priorLink,
+      linkEvidenceRow,
+      enqueueOutbox,
+    },
   };
 }
 

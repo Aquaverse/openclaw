@@ -62,6 +62,16 @@ const STORE_OPERATIONS: Record<StoreOperationName, true> = {
   checkCompletion: true,
   registerIncarnation: true,
   closeIncarnation: true,
+  blobPrecheck: true,
+  blobPlan: true,
+  blobAdmit: true,
+  blobGcClaim: true,
+  blobGcSettle: true,
+  blobTombstones: true,
+  blobTombstoneChecked: true,
+  blobStats: true,
+  listBlobObjects: true,
+  listEvidence: true,
 };
 
 export type StoreHost = {

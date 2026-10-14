@@ -13,6 +13,8 @@ import {
   type ApprovalHookResult,
 } from "../decision-runtime.js";
 import { createEventBridge } from "../events.js";
+import { createEvidenceRpcHandlers } from "../evidence-rpc.js";
+import { createEvidenceService, type EvidenceServiceDeps } from "../evidence/evidence-service.js";
 import { createFakeProvider, type ProviderMode } from "../provider/fake-provider.js";
 import type { TaskStore } from "../store/host.js";
 import { applyMigrations } from "../store/kernel.js";
@@ -22,6 +24,7 @@ import { createTokenLedger } from "../tokens.js";
 import { createActionTools } from "../tools/action-tools.js";
 import { createClaimTools } from "../tools/claim-tools.js";
 import { createTaskTools } from "../tools/task-tools.js";
+import { createFakeBlobWorld } from "./fake-blob-store.js";
 
 export const P: Principal = { ownerId: "local" };
 export const T0 = Date.UTC(2026, 9, 12, 8, 0, 0);
@@ -52,6 +55,9 @@ export function world(
     coreApproval?: boolean;
     /** Stage 3: Claim / Evidence ledger on (completion gating, execution-result claims, claim tools and RPC). */
     claims?: boolean;
+    /** Stage 3 slice 2: evidence bytes (fake byte store, evidence service, `nexus.evidence.*` RPC, blob refs on the tool). */
+    evidence?: boolean;
+    evidenceConfig?: EvidenceServiceDeps["config"];
     bootId?: string | null;
   } = {},
 ) {
@@ -70,6 +76,11 @@ export function world(
   };
   applyMigrations(db, tx);
   const k = createNexusKernel(db, tx);
+  const INCARNATION = "inc-test";
+  if (options.evidence) {
+    k.registerIncarnation({ principal: P, incarnationId: INCARNATION, bootId: "1:1", now: T0 });
+  }
+  const blobs = createFakeBlobWorld();
   let failNext: string | undefined;
   const store = Object.fromEntries(
     Object.entries(k).map(([name, fn]) => [
@@ -107,6 +118,20 @@ export function world(
     warn: (m: string) => logs.push(`warn ${m}`),
     error: (m: string) => logs.push(`error ${m}`),
   };
+  const evidence = options.evidence
+    ? createEvidenceService({
+        getStore: async () => store,
+        blobs,
+        incarnationId: INCARNATION,
+        ...(options.evidenceConfig ? { config: options.evidenceConfig } : {}),
+        now: () => clock,
+        // Tests never wait in real time: they move the clock explicitly.
+        sleep: () => new Promise<void>((resolve) => setImmediate(resolve)),
+        onOutboxWritten: () => {},
+        onEvidenceRegistered: (payload) => events.evidenceChanged(payload),
+        logger,
+      })
+    : undefined;
   const runtime = createDecisionRuntime({
     getStore: async () => store,
     events,
@@ -152,6 +177,7 @@ export function world(
         resolvePrincipal: () => P,
         now: () => clock,
         onOutboxWritten: () => runtime.kickOutbox(),
+        ...(evidence ? { evidence } : {}),
       },
       { sessionKey, agentId: "main" },
     );
@@ -185,6 +211,18 @@ export function world(
     now: () => clock,
   })) {
     rpc.set(method, handler as never);
+  }
+  if (evidence) {
+    for (const [method, handler] of createEvidenceRpcHandlers({
+      getStore: async () => store,
+      evidence,
+      events,
+      resolvePrincipal: () => P,
+      kickOutbox: () => runtime.kickOutbox(),
+      now: () => clock,
+    })) {
+      rpc.set(method, handler as never);
+    }
   }
   const call = async (method: string, params: Record<string, unknown> = {}) => {
     let reply:
@@ -328,6 +366,8 @@ export function world(
     prepare(taskId, "fake_booking", { vendor: "Hotelier", item, date: "2026-10-20" });
 
   return {
+    blobs,
+    evidence,
     setEnqueue: (mode: "ok" | "throw" | "refused") => {
       enqueueMode = mode;
     },

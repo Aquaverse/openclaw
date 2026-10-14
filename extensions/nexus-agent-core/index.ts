@@ -1,6 +1,6 @@
 // Nexus Agent Core plugin entry.
 // Stage 1: the Task module behind `tasksEnabled`; Stage 2: decisions/grants/executions behind `decisionsEnabled`;
-// Stage 3: the Claim / Evidence ledger behind `claimsEnabled` (DESIGN section 13). Stage 0 runtime spikes stay behind `spikesEnabled`. Evidence and Preference arrive later.
+// Stage 3: the Claim / Evidence ledger behind `claimsEnabled`, evidence bytes behind `evidenceBlobsEnabled` (DESIGN section 13). Stage 0 runtime spikes stay behind `spikesEnabled`. Evidence and Preference arrive later.
 import path from "node:path";
 import { definePluginEntry } from "./api.js";
 import { getSharedSpikeRecorder, readObservationFile } from "./src/spikes/recorder.js";
@@ -14,6 +14,13 @@ type NexusPluginConfig = {
   tasksEnabled?: boolean;
   decisionsEnabled?: boolean;
   claimsEnabled?: boolean;
+  evidenceBlobsEnabled?: boolean;
+  evidenceTaskQuotaBytes?: number;
+  evidenceOwnerQuotaBytes?: number;
+  evidenceMaxUploadBytes?: number;
+  evidenceWriterLeaseMs?: number;
+  evidenceReservationTtlMs?: number;
+  evidenceDebugDelayAfterA2Ms?: number;
   fakeProviderIdempotent?: boolean;
   fakeProviderMode?: string;
   coreApprovalEnabled?: boolean;
@@ -64,6 +71,13 @@ export default definePluginEntry({
         ownerId: config.ownerId,
         decisionsEnabled: config.decisionsEnabled === true,
         claimsEnabled: config.claimsEnabled === true,
+        evidenceBlobsEnabled: config.evidenceBlobsEnabled === true,
+        evidenceTaskQuotaBytes: config.evidenceTaskQuotaBytes,
+        evidenceOwnerQuotaBytes: config.evidenceOwnerQuotaBytes,
+        evidenceMaxUploadBytes: config.evidenceMaxUploadBytes,
+        evidenceWriterLeaseMs: config.evidenceWriterLeaseMs,
+        evidenceReservationTtlMs: config.evidenceReservationTtlMs,
+        evidenceDebugDelayAfterA2Ms: config.evidenceDebugDelayAfterA2Ms,
         fakeProviderIdempotent: config.fakeProviderIdempotent,
         fakeProviderMode: config.fakeProviderMode,
         coreApprovalEnabled: config.coreApprovalEnabled,

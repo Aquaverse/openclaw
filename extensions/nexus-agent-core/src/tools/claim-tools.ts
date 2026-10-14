@@ -3,6 +3,7 @@
 // from the evidence it can check itself; nothing here accepts a state the model could use to promote its own claim.
 import { Type } from "typebox";
 import type { AnyAgentTool } from "../../api.js";
+import type { EvidenceOutcome, EvidenceService } from "../evidence/evidence-service.js";
 import type { ClaimDetail, ClaimPolicy, ClaimRecord } from "../store/claim-types.js";
 import { AGENT_CLAIM_STATES, COMPLETION_STATES, EVIDENCE_REF_KINDS } from "../store/claim-types.js";
 import type { TaskStore } from "../store/host.js";
@@ -23,6 +24,8 @@ export const CLAIM_LIMITS = {
 } as const;
 
 const ID = /^[A-Za-z0-9_-]{1,40}$/;
+/** `<sha256 hex>.<generation>`: the physical key of an evidence object (DESIGN 9.5.1). */
+export const BLOB_KEY = /^[0-9a-f]{64}\.[0-9]{1,6}$/;
 const NO_SESSION = "(no-session)";
 
 export type ClaimToolDeps = {
@@ -31,6 +34,8 @@ export type ClaimToolDeps = {
   now?: () => number;
   /** Called after a write that produced outbox rows (claim_changed / claim_verified). */
   onOutboxWritten?: () => void;
+  /** Present only when evidence blobs are enabled; without it `blob` refs are reported as not supported. */
+  evidence?: Pick<EvidenceService, "attachBlob">;
 };
 
 type ToolContext = { agentId?: string; sessionKey?: string };
@@ -80,6 +85,86 @@ export function detailView(detail: ClaimDetail) {
       at: event.createdAt,
     })),
   };
+}
+
+/** Maps the evidence service outcome to a tool result. Never reports a claim as supported unless the store derived it. */
+function blobEvidenceResult(result: EvidenceOutcome): Record<string, unknown> {
+  switch (result.outcome) {
+    case "not_found":
+      return fail("not_found", "找不到这个事项。");
+    case "claim_not_found":
+      return fail("claim_not_found", "找不到这个 claim。");
+    case "task_closed":
+      return fail("task_closed", `事项已结束（${result.status}），不能再挂证据。`);
+    case "stale_head":
+      return fail("stale_head", "这个 claim 已被修改；请先 nexus_claim_verify 读取最新状态。", {
+        headEventId: result.headEventId,
+      });
+    case "ref_not_found":
+      return fail("ref_not_found", "找不到这份证据材料（blobKey 不存在，或不属于当前账户）。");
+    case "ref_not_ready":
+      return fail("ref_not_ready", `这份材料现在不可用（${result.state}）。`);
+    case "quota_exceeded":
+      return fail(
+        "quota_exceeded",
+        result.scope === "entry"
+          ? "这份材料超过单条证据的大小上限，没有保存。"
+          : "证据空间已满，这份证据没有保存；已经通知用户。不要把相关结论说成已证实。",
+        {
+          scope: result.scope,
+          ...("noticeDecisionId" in result && result.noticeDecisionId
+            ? { noticeDecisionId: result.noticeDecisionId }
+            : {}),
+        },
+      );
+    case "busy":
+      return fail("busy", "同一份材料正在写入或回收，稍后再试。", {
+        retryAfterMs: result.retryAfterMs,
+      });
+    case "storage_error":
+      return fail("storage_error", `证据存储失败（${result.stage}），没有挂上证据。`);
+    case "blob_corrupt":
+      return fail("blob_corrupt", `证据对象与记录不符（${result.reason}），没有挂上证据。`, {
+        blobKey: result.blobKey,
+      });
+    case "reservation_lost":
+    case "object_not_live":
+      return fail("conflict", "写入期间这份材料被回收或改变，没有挂上证据；请重试。");
+    case "evidence_purged":
+      return fail(
+        "evidence_purged",
+        "这份证据已按用户要求删除，不能静默恢复；需要用户重新提供材料。",
+        { evidenceId: result.evidenceId },
+      );
+    case "detached_by_operator":
+      return fail("detached_by_operator", "这条证据已被操作员撤下，不能再挂回去。", {
+        evidenceId: result.evidenceId,
+      });
+    case "already_linked":
+      return {
+        ok: true,
+        alreadyLinked: true,
+        evidenceId: result.evidenceId,
+        ...claimView(result.claim),
+      };
+    case "registered":
+      return { ok: true, registered: true, evidenceId: result.evidenceId };
+    case "linked":
+      return {
+        ok: true,
+        alreadyLinked: false,
+        evidenceId: result.evidenceId,
+        relation: result.relation,
+        reason: result.reason,
+        stateBefore: result.stateBefore,
+        stateAfter: result.stateAfter,
+        ...claimView(result.claim),
+        notice:
+          result.stateAfter === "SUPPORTED" || result.stateAfter === "VERIFIED"
+            ? undefined
+            : "The claim is NOT supported by this evidence. Do not tell the user it is true.",
+      };
+  }
 }
 
 function readPolicy(raw: unknown): ClaimPolicy | undefined | "invalid" {
@@ -290,7 +375,7 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
       name: "nexus_evidence_add",
       label: "Nexus: attach evidence to a claim",
       description:
-        'Attach evidence to a claim by REFERENCE. Currently only kind="execution" with the executionId returned by nexus_action_commit is accepted (tool_output and blob refs are not supported yet). The store reads the settled execution itself, decides whether it supports or contradicts the claim, and recomputes the claim state; you cannot set the relation or the state. Pass expectedHeadEventId (from the claim) to detect a concurrent change.',
+        'Attach evidence to a claim by REFERENCE, never by pasting content. kind="execution" takes the executionId returned by nexus_action_commit. kind="blob" takes the blobKey of material the user already uploaded (listed as unlinkedEvidence by nexus_claim_verify). tool_output refs are not supported yet. The store reads the evidence itself, decides whether it supports or contradicts the claim (an uploaded document you attach stays unclassified until the operator declares its relation), and recomputes the claim state; you cannot set the relation or the state. Pass expectedHeadEventId (from the claim) to detect a concurrent change.',
       parameters: Type.Object({
         taskId: Type.String(),
         claimId: Type.String(),
@@ -315,15 +400,32 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
             typeof ref.kind !== "string" ||
             !(EVIDENCE_REF_KINDS as readonly string[]).includes(ref.kind) ||
             typeof ref.id !== "string" ||
-            !ID.test(ref.id)
+            !(ref.kind === "blob" ? BLOB_KEY.test(ref.id) : ID.test(ref.id))
           ) {
-            return fail("invalid_ref", "ref 需为 {kind: execution|tool_output|blob, id}。");
+            return fail(
+              "invalid_ref",
+              "ref 需为 {kind: execution|tool_output|blob, id}；blob 的 id 是形如 <64位hex>.<数字> 的 blobKey。",
+            );
           }
           if (
             params.expectedHeadEventId !== undefined &&
             typeof params.expectedHeadEventId !== "string"
           ) {
             return fail("invalid_expected_head", "expectedHeadEventId 为字符串。");
+          }
+          if (ref.kind === "blob" && deps.evidence) {
+            const result = await deps.evidence.attachBlob({
+              principal,
+              taskId,
+              claimId: params.claimId,
+              blobKey: ref.id,
+              ...(typeof params.expectedHeadEventId === "string"
+                ? { expectedHeadEventId: params.expectedHeadEventId }
+                : {}),
+              actor,
+              eventSource: "store",
+            });
+            return blobEvidenceResult(result);
           }
           const result = await store.addEvidence({
             principal,
@@ -354,7 +456,7 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
             case "ref_kind_not_supported":
               return fail(
                 "ref_kind_not_supported",
-                `当前版本只支持 execution 证据；${result.kind} 需要证据字节存储（后续版本）。`,
+                `当前版本不支持 ${result.kind} 这种证据引用（支持 execution；blob 需要开启 evidenceBlobsEnabled）。`,
               );
             case "ref_not_found":
               return fail("ref_not_found", "找不到这个 execution（或它不属于这个事项）。");
@@ -425,11 +527,32 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
             limit: CLAIM_LIMITS.claimsReturned,
           });
           const completion = await store.checkCompletion({ principal, taskId });
+          const unlinked = deps.evidence
+            ? await store.listEvidence({ principal, taskId, onlyUnlinked: true, limit: 10 })
+            : [];
           return {
             ok: true,
             taskId,
             claims: claims.map(claimView),
             completion: { ok: completion.ok, reason: completion.reason, items: completion.items },
+            ...(unlinked.length > 0
+              ? {
+                  unlinkedEvidence: unlinked
+                    .filter((row) => row.blobKey !== null)
+                    .map((row) => ({
+                      blobKey: row.blobKey,
+                      sourceGroup: row.sourceGroup,
+                      bytes: row.byteSize,
+                      classification: row.classification,
+                      // Names of financial / sensitive material are not shown to the model.
+                      ...(row.classification === "personal" &&
+                      row.meta &&
+                      typeof (row.meta as { name?: unknown }).name === "string"
+                        ? { name: (row.meta as { name: string }).name }
+                        : {}),
+                    })),
+                }
+              : {}),
           };
         });
       },

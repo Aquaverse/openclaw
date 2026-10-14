@@ -39,6 +39,15 @@ export const NEXUS_CLAIM_PROTOCOL = [
   "- nexus_claim_verify 只读：用它看 store 实际确认了什么，而不是看你以为确认了什么。",
 ].join("\n");
 
+/** Added to the claim protocol when evidence bytes are enabled (slice 2). */
+export const NEXUS_EVIDENCE_PROTOCOL = [
+  "[Nexus 证据材料]",
+  "- 证据材料（截图、邮件原文、回执文件）只能由用户通过 Nexus 页面上传，你不能也不需要把内容抄进参数里。",
+  "- nexus_claim_verify（不带 claimId）会列出该事项里已上传但还没挂到 claim 的材料（unlinkedEvidence，含 blobKey）。",
+  '- 用 nexus_evidence_add(taskId, claimId, ref={kind:"blob", id:blobKey}) 把它挂到 claim 上。材料对 claim 是支持还是反驳由服务端或操作员判定；你挂上去的文件在被判定之前不算数，不要因此说成已证实。',
+  "- 返回 quota_exceeded 表示证据空间已满、没有保存；已经通知用户，不要重试，也不要把结论说成已证实。",
+].join("\n");
+
 const MAX_TITLE = 60;
 const MAX_NOTE = 80;
 

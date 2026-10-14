@@ -569,8 +569,50 @@ CREATE TABLE nexus_task_completion_claims (
 ) STRICT;
 `;
 
+// Stage 3 (slice 2) migration SQL: blob_reservations, DESIGN section 6.3 copied verbatim (from `CREATE TABLE
+// blob_reservations` through the `blob_reservations_hash_live` index). It references blob_objects (slice 1) and nexus_tasks.
+// purge_runs / purge_work_items / purge_receipts arrive with the purge slice. Regression group 11 checks this text.
+export const STAGE3_RESERVATIONS_SQL = `
+CREATE TABLE blob_reservations (
+  id TEXT NOT NULL PRIMARY KEY, owner_id TEXT NOT NULL, task_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  generation INTEGER NOT NULL,           -- v0.12g：绑定到具体那个物理对象
+  byte_size INTEGER NOT NULL,
+  -- v0.12f：多了 reclaiming。GC 必须先原子认领才能去删字节，否则阶段 B 可以在
+  -- "查完 evidence"与"删 blob"之间抢先消费 reservation 并写 evidence，
+  -- 结果 GC 把刚被引用的字节删了（TOCTOU）。B 只能 reserved→consumed，
+  -- GC 只能 reserved→reclaiming，两者互斥，只有一个赢。
+  state TEXT NOT NULL,                   -- reserved|reclaiming|consumed|abandoned
+  reclaim_attempt_id TEXT,               -- 认领者身份，用于丢弃迟到的收尾写
+  reclaim_lease_until INTEGER,           -- 租期到了，maintenance 可以接管
+  expires_at INTEGER NOT NULL,           -- 超过它且仍为 reserved 才允许认领
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  UNIQUE (owner_id, task_id, id),
+  CHECK (state IN ('reserved','reclaiming','consumed','abandoned')),
+  CHECK (byte_size > 0),
+  CHECK ((state = 'reclaiming')
+         = (reclaim_attempt_id IS NOT NULL AND reclaim_lease_until IS NOT NULL)),
+  -- v0.12f：**不级联**。正式区的字节不在这个事务里，级联只会把"谁负责这份字节"
+  -- 的记录删掉而留下无主字节（实测：DELETE nexus_tasks 之后两条 reserved 行静默消失）。
+  -- 不级联 → purge 必须先结算 reservation 才能删 Task，见 §9.4 的 purge 协议。
+  FOREIGN KEY (owner_id, task_id) REFERENCES nexus_tasks(owner_id, id),
+  FOREIGN KEY (owner_id, content_hash, generation)
+    REFERENCES blob_objects(owner_id, content_hash, generation)
+) STRICT;
+-- 配额计算与 GC 都扫这个索引：reserved 与 reclaiming 的字节都还占着额度
+CREATE INDEX blob_reservations_live ON blob_reservations(owner_id, task_id, expires_at)
+  WHERE state IN ('reserved','reclaiming');
+-- v0.12f：同一 owner 的同一份字节同时最多只有一个在世持有者。
+-- 否则旧 reservation 过期被 GC 处理时，只查 evidence 会漏掉"另一条 reservation
+-- 正在 A2/B 之间用着同一个物理 blob"（实测：两条 reserved 行可以并存）。
+CREATE UNIQUE INDEX blob_reservations_hash_live
+  ON blob_reservations(owner_id, content_hash)
+  WHERE state IN ('reserved','reclaiming');
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { id: "stage1-0001-task-core", sql: STAGE1_TASK_CORE_SQL },
   { id: "stage2-0001-decision-grant-execution", sql: STAGE2_DECISION_SQL },
   { id: "stage3-0001-claim-evidence-ledger", sql: STAGE3_LEDGER_SQL },
+  { id: "stage3-0002-blob-reservations", sql: STAGE3_RESERVATIONS_SQL },
 ];

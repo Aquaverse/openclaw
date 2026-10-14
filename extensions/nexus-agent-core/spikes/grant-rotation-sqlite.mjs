@@ -768,10 +768,53 @@ console.log("\n[11] DESIGN.md 的 schema 与命名契约");
             ),
       );
 
+      // ---- Stage 3 第二批（切片②）：STAGE3_RESERVATIONS_SQL = §6.3 里从 CREATE TABLE blob_reservations 到
+      // blob_reservations_hash_live 索引结束的那一段，逐字一致，且只靠追加叠在第一批之上。
+      const m4 = schemaTs.match(/STAGE3_RESERVATIONS_SQL = `\n([\s\S]*?)\n`;/);
+      const sql4 = m4 ? m4[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
+      const hashLiveAt = md.indexOf("CREATE UNIQUE INDEX blob_reservations_hash_live", ledgerEnd);
+      const reservationsEndMarker = "  WHERE state IN ('reserved','reclaiming');\n";
+      const reservationsEndAt =
+        hashLiveAt > 0
+          ? md.indexOf(reservationsEndMarker, hashLiveAt) + reservationsEndMarker.length
+          : -1;
+      check(
+        "Stage 3 第二批迁移 SQL 与 DESIGN §6.3 的 blob_reservations 一段逐字一致",
+        [
+          reservationsEndAt > ledgerEnd,
+          sql4.trim() === md.slice(ledgerEnd, reservationsEndAt).trim(),
+        ],
+        (x) => x[0] === true && x[1] === true,
+      );
+      let stage3bError = "ok";
+      try {
+        stacked.exec(sql4);
+      } catch (error) {
+        stage3bError = String(error?.message ?? error);
+      }
+      check(
+        "Stage 3 第二批叠在第一批之上：无错误，foreign_key_check 为空，新增 blob_reservations",
+        [stage3bError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
+        (x) =>
+          x[0] === "ok" &&
+          x[1] === 0 &&
+          JSON.stringify(x[2]) ===
+            JSON.stringify(
+              [
+                "nexus_task_sessions",
+                "nexus_task_steps",
+                "nexus_tasks",
+                ...STAGE2_TABLES,
+                ...STAGE3_TABLES,
+                "blob_reservations",
+              ].toSorted(),
+            ),
+      );
+
       let restError = "ok";
       try {
         stacked.exec(
-          md.slice(ledgerEnd, completionStart) +
+          md.slice(reservationsEndAt, completionStart) +
             md.slice(completionEnd, seg2Start) +
             md.slice(seg2End),
         );
