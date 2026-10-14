@@ -45,9 +45,16 @@
       },
       "watcherExtraTools": {
         "type": "array",
-        "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
         "maxItems": 16,
-        "default": ["web_fetch", "web_search"],
+        "default": [
+          "web_fetch",
+          "web_search"
+        ],
         "description": "Extra READ-ONLY tool names a re-check turn may use besides the Nexus ones (default web_fetch and web_search). Anything that can act outwards (message, exec, browser actions) must not be listed."
       },
       "evidenceTaskQuotaBytes": {
@@ -233,5 +240,8 @@
     "nexus_watch_report": {
       "optional": true
     }
+  },
+  "controlUi": {
+    "entry": "dist/control-ui/555ab42194574a0fea3b9bd1e1dc8a5d105babca024e1530cc19f525b5e0e6ca/index.js"
   }
 }
