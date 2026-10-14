@@ -2458,6 +2458,7 @@ v0.12i 写"不在存活列表里"，但没有任何文档定义这张列表。�
   任何一条不成立：`incarnation_gone` 不可用，设计退化为只认 `committed` / `awaited`；
   崩溃遗留的 `writing` 对象停在 `cleanup_pending` 由人工确认。
   **切片③的实现**：配置开关 `evidenceIncarnationGoneEnabled`（默认 off）同时控制两件事——新 `service.start` 才会 supersede boot id 不同的旧行，maintain / purge 才会签 `incarnation_gone`；开关关闭时这两条路径都不存在。探针 `spikes/purge-flow.mts --phase incarnation` 在开关打开并经历一次 `kill -9` 重启后观测 ①③⑤；② 只能由操作员承诺。
+  **dev 网关观测（2026-10-14）**：开关打开、`kill -9` 重启后，探针 ①③⑤ 全部通过（boot id 可读；被 supersede 的行 boot id 均不同于当前进程；真实 crash-restart 后旧行标为 `superseded_under_gateway_lock`，仅剩 1 个未终止 incarnation）；② 仍由操作员承诺。开关观察后已关回，默认值保持 off。
 
 - incarnation 是 `service.start` 生成的随机 id，作用域是**一个 `nexus.sqlite`**，记在
   `process_incarnations`。**`service.start` 的登记永远不依赖旧行状态**（v0.12n）：新行直接
