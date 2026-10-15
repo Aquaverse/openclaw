@@ -3,8 +3,10 @@
 // sets a CSP with no script and no form target. The pages read the store directly and change nothing.
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { langFromAcceptLanguage, tr } from "./i18n.js";
 import type { TaskStore } from "./store/host.js";
 import type { Principal } from "./store/types.js";
+import { filterToRpc, hasInvalidTime, pageInfo, parseTaskFilter } from "./task-query.js";
 import { normalizeTaskId } from "./tools/task-tools.js";
 import {
   page,
@@ -30,6 +32,9 @@ export type UiHttpDeps = {
 
 const READ_SCOPES = new Set(["operator.read", "operator.write", "operator.admin"]);
 
+const CSP = (formAction: "'none'" | "'self'", nonce: string) =>
+  `default-src 'none'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action ${formAction}; frame-ancestors 'self'`;
+
 export function createNexusUiHttpHandler(deps: UiHttpDeps) {
   const basePath = deps.basePath ?? NEXUS_UI_BASE_PATH;
   const now = deps.now ?? Date.now;
@@ -45,7 +50,7 @@ export function createNexusUiHttpHandler(deps: UiHttpDeps) {
         "Content-Type": `${contentType}; charset=utf-8`,
         "Content-Length": Buffer.byteLength(body),
         "Cache-Control": "private, no-store",
-        "Content-Security-Policy": `default-src 'none'; style-src 'nonce-${nonce}'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'`,
+        "Content-Security-Policy": CSP("'none'", nonce),
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",
         ...headers,
@@ -75,7 +80,18 @@ export function createNexusUiHttpHandler(deps: UiHttpDeps) {
     if (!principal) {
       return send(403, "text/plain", "Forbidden: cannot resolve the owner.\n");
     }
-    const render = (title: string, active: "tasks" | "preferences" | "receipts", body: string) =>
+    // The page speaks the language the browser asks for (it has no script, so no other way to know the user's locale).
+    const lang = langFromAcceptLanguage(
+      Array.isArray(req.headers?.["accept-language"])
+        ? req.headers["accept-language"].join(",")
+        : req.headers?.["accept-language"],
+    );
+    const render = (
+      title: string,
+      active: "tasks" | "preferences" | "receipts",
+      body: string,
+      headers: Record<string, string> = {},
+    ) =>
       send(
         200,
         "text/html",
@@ -86,19 +102,58 @@ export function createNexusUiHttpHandler(deps: UiHttpDeps) {
           active,
           body,
           preferencesEnabled: deps.preferencesEnabled,
+          lang,
         }),
+        headers,
       );
     try {
       const store = await deps.getStore();
       const [first, second] = segments;
       if (segments.length === 0) {
-        const tasks = await store.list({ principal, includeClosed: true, limit: 100 });
+        // The list has a GET filter form, so this one page (and only this one) allows a same-origin form target. The handler
+        // answers GET and HEAD only, so a form can never reach a state-changing route.
+        const query = new URL(req.url ?? "", "http://nexus.invalid").searchParams;
+        const read = (name: string) => query.get(name) ?? undefined;
+        let filter = parseTaskFilter(read);
+        const fetchPage = async () => {
+          const rpc = filterToRpc(filter);
+          return store.queryTasks({
+            principal,
+            includeClosed: rpc.includeClosed,
+            ...(rpc.statuses ? { statuses: rpc.statuses } : {}),
+            limit: rpc.limit,
+            offset: rpc.offset,
+            ...(rpc.id ? { idQuery: rpc.id } : {}),
+            ...(rpc.title ? { titleQuery: rpc.title } : {}),
+            ...(rpc.keyword ? { keyword: rpc.keyword } : {}),
+            ...(rpc.createdFrom !== undefined ? { createdFrom: rpc.createdFrom } : {}),
+            ...(rpc.createdTo !== undefined ? { createdTo: rpc.createdTo } : {}),
+          });
+        };
+        let result = await fetchPage();
+        if (result.tasks.length === 0 && result.total > 0 && filter.page > 1) {
+          // A stale page number (rows were removed since the link was made): show the last page instead.
+          filter = { ...filter, page: pageInfo(filter, result.total).pages };
+          result = await fetchPage();
+        }
         const pending = await store.listDecisions({ principal, statuses: ["pending"], limit: 200 });
         const counts = new Map<string, number>();
         for (const decision of pending) {
           counts.set(decision.taskId, (counts.get(decision.taskId) ?? 0) + 1);
         }
-        return render("Nexus 事项", "tasks", renderTaskList(tasks, counts, basePath));
+        return render(
+          tr(lang, "title.httpTasks"),
+          "tasks",
+          renderTaskList(result.tasks, counts, basePath, {
+            filter,
+            total: result.total,
+            form: true,
+            now: new Date(now()),
+            lang,
+            timeProblem: hasInvalidTime(read),
+          }),
+          { "Content-Security-Policy": CSP("'self'", nonce) },
+        );
       }
       if (first === "tasks" && second && segments.length === 2) {
         const taskId = normalizeTaskId(second);
@@ -117,14 +172,22 @@ export function createNexusUiHttpHandler(deps: UiHttpDeps) {
           deps.watchersEnabled ? store.watchList({ principal, taskId, limit: 50 }) : undefined,
         ]);
         return render(
-          `Nexus 事项 ${taskId}`,
+          tr(lang, "title.httpTask", { id: taskId }),
           "tasks",
-          renderTaskDetail({ detail, decisions, executions, claims, evidence, watches }, basePath),
+          renderTaskDetail(
+            { detail, decisions, executions, claims, evidence, watches },
+            basePath,
+            lang,
+          ),
         );
       }
       if (first === "preferences" && segments.length === 1 && deps.preferencesEnabled) {
         const preferences = await store.preferenceList({ principal, limit: 200 });
-        return render("Nexus 偏好", "preferences", renderPreferences(preferences));
+        return render(
+          tr(lang, "title.httpPreferences"),
+          "preferences",
+          renderPreferences(preferences, { lang }),
+        );
       }
       if (first === "receipts" && segments.length === 1) {
         const taskReceipts = await store.listPurgeReceipts({ principal, limit: 100 });
@@ -132,9 +195,9 @@ export function createNexusUiHttpHandler(deps: UiHttpDeps) {
           ? await store.listPreferenceReceipts({ principal, limit: 100 })
           : undefined;
         return render(
-          "Nexus 清除回执",
+          tr(lang, "title.httpReceipts"),
           "receipts",
-          renderReceipts(taskReceipts, preferenceReceipts),
+          renderReceipts(taskReceipts, preferenceReceipts, lang),
         );
       }
       return send(404, "text/plain", "Not found\n");

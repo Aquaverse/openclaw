@@ -1,3 +1,4 @@
+import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
 import type { EvidenceBlobView } from "../src/store/blob-types.js";
 import type { ClaimRecord } from "../src/store/claim-types.js";
 // Reads for the Nexus Control UI module. Everything goes through the plugin's existing read-only gateway methods
@@ -7,6 +8,7 @@ import type { PreferenceReceiptRow, PreferenceRecord } from "../src/store/prefer
 import type { PurgeReceiptRow } from "../src/store/purge-types.js";
 import type { TaskDetail, TaskRecord } from "../src/store/types.js";
 import type { WatchRecord } from "../src/store/watch-types.js";
+import { filterToRpc, pageInfo, type TaskFilter } from "../src/task-query.js";
 import {
   renderPreferences,
   renderReceipts,
@@ -43,6 +45,8 @@ export type NexusView = { title: string; html: string; model: NexusModel };
 export type LoadOptions = {
   /** Render action buttons. Off when the connection cannot write. */
   actions?: boolean;
+  /** Page text language; follows the host's locale. */
+  lang?: Lang;
 };
 
 export async function loadView(
@@ -52,10 +56,14 @@ export async function loadView(
   options: LoadOptions = {},
 ): Promise<NexusView> {
   const actions = options.actions === true;
+  const lang = options.lang ?? DEFAULT_LANG;
   switch (route.view) {
     case "tasks": {
-      const [tasks, pending] = await Promise.all([
-        request<{ tasks: TaskRecord[] }>("nexus.task.list", { includeClosed: true, limit: 100 }),
+      let filter = route.filter;
+      const fetchList = (next: TaskFilter) =>
+        request<{ tasks: TaskRecord[]; total?: number }>("nexus.task.list", filterToRpc(next));
+      const [first, pending] = await Promise.all([
+        fetchList(filter),
         optional(() =>
           request<{ decisions: DecisionRecord[] }>("nexus.decision.list", {
             statuses: ["pending"],
@@ -63,13 +71,21 @@ export async function loadView(
           }),
         ),
       ]);
+      let list = first;
+      let total = list.total ?? list.tasks.length;
+      if (list.tasks.length === 0 && total > 0 && filter.page > 1) {
+        // A stale page number (rows were removed since the link was made): show the last page instead.
+        filter = { ...filter, page: pageInfo(filter, total).pages };
+        list = await fetchList(filter);
+        total = list.total ?? total;
+      }
       const counts = new Map<string, number>();
       for (const decision of pending?.decisions ?? []) {
         counts.set(decision.taskId, (counts.get(decision.taskId) ?? 0) + 1);
       }
       return {
-        title: "事项",
-        html: renderTaskList(tasks.tasks, counts, NAV_BASE),
+        title: tr(lang, "title.tasks"),
+        html: renderTaskList(list.tasks, counts, NAV_BASE, { filter, total, lang }),
         model: EMPTY_MODEL,
       };
     }
@@ -101,7 +117,7 @@ export async function loadView(
         ),
       ]);
       return {
-        title: `事项 ${taskId}`,
+        title: tr(lang, "title.task", { id: taskId }),
         html: renderTaskDetail(
           {
             detail,
@@ -113,6 +129,7 @@ export async function loadView(
             actions,
           },
           NAV_BASE,
+          lang,
         ),
         model: {
           decisions: decisions?.decisions ?? [],
@@ -126,8 +143,8 @@ export async function loadView(
         limit: 200,
       });
       return {
-        title: "偏好",
-        html: renderPreferences(out.preferences, { actions }),
+        title: tr(lang, "title.preferences"),
+        html: renderPreferences(out.preferences, { actions, lang }),
         model: { decisions: [], watches: [], preferences: out.preferences },
       };
     }
@@ -143,8 +160,8 @@ export async function loadView(
           : Promise.resolve(undefined),
       ]);
       return {
-        title: "清除回执",
-        html: renderReceipts(tasks.receipts, preferences?.receipts),
+        title: tr(lang, "title.receipts"),
+        html: renderReceipts(tasks.receipts, preferences?.receipts, lang),
         model: EMPTY_MODEL,
       };
     }

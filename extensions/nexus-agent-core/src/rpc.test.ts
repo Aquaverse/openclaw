@@ -114,6 +114,79 @@ describe("task rpc", () => {
       "nexus_not_found",
     );
   });
+  it("pages and filters the list, and always reports the total", async () => {
+    for (const [id, title, dest, created] of [
+      ["T00000002", "订大阪酒店", "osaka", 2000],
+      ["T00000003", "订京都酒店", "kyoto", 3000],
+      ["T00000004", "查天气", "paris", 4000],
+    ] as const) {
+      kernel.create({
+        principal: owner,
+        id,
+        kind: "hotel",
+        title,
+        goal: { dest },
+        entities: null,
+        idempotencyKey: `k_${id}`,
+        fingerprint: `f_${id}`,
+        sessionKey: "s",
+        now: created,
+      });
+    }
+    const ids = async (params: Record<string, unknown>) =>
+      ((await call(owner, "nexus.task.list", params)).payload?.tasks as Array<{ id: string }>).map(
+        (task) => task.id,
+      );
+    const page1 = await call(owner, "nexus.task.list", { limit: 2, includeClosed: true });
+    assert.equal(page1.payload?.total, 4);
+    assert.equal(page1.payload?.offset, 0);
+    assert.deepEqual(await ids({ limit: 2, includeClosed: true }), ["T00000004", "T00000003"]);
+    const page2 = await call(owner, "nexus.task.list", {
+      limit: 2,
+      offset: 2,
+      includeClosed: true,
+    });
+    assert.equal(page2.payload?.total, 4);
+    assert.equal(page2.payload?.offset, 2);
+    assert.deepEqual(
+      (page2.payload?.tasks as Array<{ id: string }>).map((task) => task.id),
+      ["T00000002", "T00000001"],
+    );
+    assert.deepEqual(await ids({ id: "t0000000" }), [
+      "T00000004",
+      "T00000003",
+      "T00000002",
+      "T00000001",
+    ]);
+    assert.deepEqual(await ids({ id: "0003" }), ["T00000003"]);
+    assert.deepEqual(await ids({ title: "酒店" }), ["T00000003", "T00000002"]);
+    assert.deepEqual(await ids({ keyword: "kyoto" }), ["T00000003"]);
+    assert.deepEqual(await ids({ keyword: "酒店 osaka" }), ["T00000002"]);
+    assert.deepEqual(await ids({ createdFrom: 3000 }), ["T00000004", "T00000003"]);
+    assert.deepEqual(await ids({ createdFrom: 2000, createdTo: 4000 }), ["T00000003", "T00000002"]);
+    assert.deepEqual(await ids({ statuses: ["succeeded"] }), []);
+    // The total follows the filter, not the page.
+    const filtered = await call(owner, "nexus.task.list", { title: "酒店", limit: 1 });
+    assert.equal(filtered.payload?.total, 2);
+    assert.equal((filtered.payload?.tasks as unknown[]).length, 1);
+  });
+  it("rejects malformed search and time params", async () => {
+    for (const params of [
+      { id: 5 },
+      { id: "x".repeat(65) },
+      { title: "x".repeat(201) },
+      { keyword: ["a"] },
+      { createdFrom: "yesterday" },
+      { createdTo: -1 },
+      { createdFrom: Number.NaN },
+    ]) {
+      assert.equal(
+        (await call(owner, "nexus.task.list", params)).error?.code,
+        "nexus_invalid_params",
+        JSON.stringify(params),
+      );
+    }
+  });
   it("fails closed without a principal", async () => {
     assert.equal((await call(undefined, "nexus.task.list", {})).error?.code, "nexus_no_principal");
   });

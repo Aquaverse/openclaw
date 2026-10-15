@@ -1,6 +1,7 @@
 import type { ControlUiHost, ControlUiViewContext } from "openclaw/plugin-sdk/control-ui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNexusPage } from "./page.ts";
+import { NEXUS_CSS } from "./style.ts";
 
 type Handler = (payload: unknown) => void;
 
@@ -18,12 +19,18 @@ const task = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-function fixture(responses: Record<string, unknown | Error>, props: Record<string, string> = {}) {
+function fixture(
+  responses: Record<string, unknown | Error>,
+  props: Record<string, string> = {},
+  locale?: string,
+) {
   const events = new Map<string, Handler>();
   const opened: unknown[] = [];
   let listeners: Array<() => void> = [];
-  const request = vi.fn(async (method: string) => {
-    const response = responses[method];
+  const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
+    const raw = responses[method];
+    const response =
+      typeof raw === "function" ? (raw as (p?: Record<string, unknown>) => unknown)(params) : raw;
     if (response instanceof Error) {
       throw response;
     }
@@ -33,8 +40,12 @@ function fixture(responses: Record<string, unknown | Error>, props: Record<strin
     return response;
   });
   const connection = { connected: true } as ControlUiHost["connection"];
+  let currentLocale = locale;
   const host = {
     request,
+    get locale() {
+      return currentLocale;
+    },
     connection,
     redact: (text: string) => text,
     subscribe: (listener: () => void) => {
@@ -73,6 +84,9 @@ function fixture(responses: Record<string, unknown | Error>, props: Record<strin
     view,
     context,
     connection,
+    setLocale: (next: string) => {
+      currentLocale = next;
+    },
     notify: () => listeners.forEach((listener) => listener()),
     text: () => container.textContent ?? "",
   };
@@ -196,5 +210,307 @@ describe("nexus page", () => {
     await flush();
     expect(f.request.mock.calls.length).toBe(calls);
     expect(f.container.childElementCount).toBe(0);
+  });
+
+  describe("list filters and paging", () => {
+    const fillAndSubmit = (f: ReturnType<typeof fixture>, values: Record<string, string>) => {
+      const form = f.container.querySelector("form.nx-filters") as HTMLFormElement;
+      for (const [name, value] of Object.entries(values)) {
+        (form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement).value = value;
+      }
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    };
+    const control = (f: ReturnType<typeof fixture>, name: string) =>
+      (f.container.querySelector("form.nx-filters") as HTMLFormElement).elements.namedItem(
+        name,
+      ) as HTMLInputElement;
+
+    it("shows the bar on the list only, filled from the route, and asks the RPC for that page", async () => {
+      const f = fixture(
+        { ...LIST, "nexus.task.list": { tasks: [task()], total: 45 } },
+        { qkw: "发票", status: "open", page: "2" },
+      );
+      await flush();
+      const bar = f.container.querySelector("form.nx-filters") as HTMLFormElement;
+      expect(bar.hidden).toBe(false);
+      expect(control(f, "qkw").value).toBe("发票");
+      expect(control(f, "status").value).toBe("open");
+      expect(f.request).toHaveBeenCalledWith("nexus.task.list", {
+        includeClosed: false,
+        limit: 20,
+        offset: 20,
+        keyword: "发票",
+      });
+      expect(f.text()).toContain("共 45 条");
+      expect(f.text()).toContain("第 2 / 3 页");
+      // Page links go through the host navigation and keep the filter.
+      const next = [...f.container.querySelectorAll("a[data-nexus-route]")].find(
+        (a) => a.textContent === "下一页 ›",
+      );
+      expect(next?.getAttribute("href")).toContain("page=3");
+      expect(next?.getAttribute("href")).toContain("qkw=");
+      f.container
+        .querySelector("a[data-nexus-route]") // a task link: opening a task hides the bar
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      const detail = fixture(
+        {
+          "nexus.task.get": {
+            task: task(),
+            steps: [],
+            sessions: [],
+            pending: [],
+            readyExecutions: [],
+          },
+        },
+        { view: "task", task: "T1ABC" },
+      );
+      await flush();
+      expect((detail.container.querySelector("form.nx-filters") as HTMLFormElement).hidden).toBe(
+        true,
+      );
+    });
+
+    it("submits a new search at page 1 through the host navigation", async () => {
+      const f = fixture(
+        { ...LIST, "nexus.task.list": { tasks: [task()], total: 1 } },
+        { page: "3" },
+      );
+      await flush();
+      fillAndSubmit(f, { qtitle: "发票", status: "planning", size: "50" });
+      expect(f.opened).toEqual([
+        { id: "nexus", params: { qtitle: "发票", status: "planning", size: "50" } },
+      ]);
+    });
+
+    it("does not navigate on a time that is not a date, and sends the other fields once it is fixed", async () => {
+      const f = fixture({ ...LIST, "nexus.task.list": { tasks: [task()], total: 1 } });
+      await flush();
+      fillAndSubmit(f, { from: "not-a-date", qid: "T9" });
+      expect(f.opened).toEqual([]);
+      expect((f.container.querySelector(".f-error") as HTMLElement).hidden).toBe(false);
+      fillAndSubmit(f, { from: "", qid: "T9" });
+      expect(f.opened).toEqual([{ id: "nexus", params: { qid: "T9" } }]);
+    });
+
+    it("fills a date range from a preset", async () => {
+      vi.setSystemTime(new Date(2026, 9, 15, 12, 0));
+      const f = fixture({ ...LIST, "nexus.task.list": { tasks: [task()], total: 1 } });
+      await flush();
+      const preset = [...f.container.querySelectorAll("button.nx-link")].find(
+        (b) => b.textContent === "近 7 天",
+      ) as HTMLButtonElement;
+      preset.click();
+      expect(f.opened).toEqual([
+        { id: "nexus", params: { from: "2026-10-09T00:00", to: "2026-10-15T23:59" } },
+      ]);
+    });
+
+    it("reloads in place when the same search is submitted again, and resets to the plain list", async () => {
+      const f = fixture(
+        { ...LIST, "nexus.task.list": { tasks: [task()], total: 1 } },
+        { qtitle: "发票" },
+      );
+      await flush();
+      const before = f.request.mock.calls.filter(([m]) => m === "nexus.task.list").length;
+      fillAndSubmit(f, {});
+      await flush();
+      expect(f.opened).toEqual([]);
+      expect(f.request.mock.calls.filter(([m]) => m === "nexus.task.list").length).toBe(before + 1);
+      (
+        [...f.container.querySelectorAll("form.nx-filters button")].find(
+          (b) => b.textContent === "重置",
+        ) as HTMLButtonElement
+      ).click();
+      expect(f.opened).toEqual([{ id: "nexus", params: {} }]);
+    });
+
+    it("keeps what is being typed when a change event refreshes the list", async () => {
+      const f = fixture({ ...LIST, "nexus.task.list": { tasks: [task()], total: 1 } });
+      await flush();
+      control(f, "qtitle").value = "还没提交";
+      f.events.get("plugin.nexus-agent-core.task_changed")?.({});
+      vi.advanceTimersByTime(500);
+      await flush();
+      expect(control(f, "qtitle").value).toBe("还没提交");
+    });
+
+    it("shows the last page when the requested one has run out", async () => {
+      const calls: Array<Record<string, unknown> | undefined> = [];
+      const f = fixture(
+        {
+          ...LIST,
+          "nexus.task.list": (params?: Record<string, unknown>) => {
+            calls.push(params);
+            return params?.offset === 40
+              ? { tasks: [task()], total: 41 }
+              : { tasks: [], total: 41 };
+          },
+        },
+        { page: "9" },
+      );
+      await flush();
+      expect(calls.map((p) => p?.offset)).toEqual([160, 40]);
+      expect(f.text()).toContain("第 3 / 3 页");
+      expect(f.text()).toContain("整理发票");
+    });
+
+    it("says so when nothing matches", async () => {
+      const f = fixture({ ...LIST, "nexus.task.list": { tasks: [], total: 0 } }, { qkw: "不存在" });
+      await flush();
+      expect(f.text()).toContain("没有符合条件的事项");
+      expect(f.text()).toContain("清除筛选");
+    });
+  });
+
+  describe("language and visibility", () => {
+    const han = /[\u4e00-\u9fff]/;
+    const english = (overrides: Record<string, unknown> = {}) => ({
+      ...LIST,
+      "nexus.task.list": { tasks: [task({ title: "Rebook the flight", ...overrides })], total: 1 },
+      "nexus.preference.list": { preferences: [] },
+    });
+
+    it("shows the whole list page in English when the host locale is English", async () => {
+      const f = fixture(english(), {}, "en-US");
+      await flush();
+      expect(f.text()).not.toMatch(han);
+      expect([...f.container.querySelectorAll("nav a")].map((a) => a.textContent)).toEqual([
+        "Tasks",
+        "Preferences",
+        "Purge receipts",
+      ]);
+      expect(f.container.querySelector("nav button")?.textContent).toBe("Refresh");
+      expect(f.text()).toContain("1 pending");
+      expect(f.text()).toContain("1 in total");
+      expect(f.text()).toContain("Keyword");
+      expect(f.text()).toContain("Last 7 days");
+      expect(
+        f.container.querySelector<HTMLButtonElement>('form.nx-filters button[type="submit"]')
+          ?.textContent,
+      ).toBe("Filter");
+      const status = f.container.querySelector<HTMLSelectElement>('select[name="status"]');
+      expect([...(status?.options ?? [])].slice(0, 4).map((o) => o.textContent)).toEqual([
+        "all",
+        "open",
+        "closed",
+        "draft",
+      ]);
+    });
+
+    it("keeps the status options English in Chinese too, and translates the rest", async () => {
+      const f = fixture(english(), {}, "zh-CN");
+      await flush();
+      const status = f.container.querySelector<HTMLSelectElement>('select[name="status"]');
+      expect([...(status?.options ?? [])].slice(0, 3).map((o) => o.textContent)).toEqual([
+        "all",
+        "open",
+        "closed",
+      ]);
+      expect(f.text()).toContain("关键字");
+      expect(f.text()).toContain("筛选");
+    });
+
+    it("switches language on the next load without losing what is typed", async () => {
+      const f = fixture(english(), {}, "en");
+      await flush();
+      const title = f.container.querySelector<HTMLInputElement>(
+        'input[name="qtitle"]',
+      ) as HTMLInputElement;
+      title.value = "半截的搜索";
+      f.setLocale("zh-CN");
+      f.events.get("plugin.nexus-agent-core.task_changed")?.({});
+      vi.advanceTimersByTime(500);
+      await flush();
+      expect(f.container.querySelector("nav a")?.textContent).toBe("事项");
+      expect(f.text()).toContain("关键字");
+      expect(f.container.querySelector<HTMLInputElement>('input[name="qtitle"]')?.value).toBe(
+        "半截的搜索",
+      );
+    });
+
+    it("shows the filter bar only on the task list", async () => {
+      // The bar sets its own `display`, so the stylesheet must not let that beat the `hidden` attribute.
+      expect(NEXUS_CSS).toContain(".nexus-page [hidden]{display:none !important}");
+      const others: Array<Record<string, string>> = [
+        { view: "preferences" },
+        { view: "receipts" },
+        { view: "task", task: "T1ABC" },
+      ];
+      for (const props of others) {
+        const f = fixture(
+          {
+            ...LIST,
+            "nexus.preference.list": { preferences: [] },
+            "nexus.task.purgeReceipts": { receipts: [] },
+            "nexus.preference.purgeReceipts": { receipts: [] },
+            "nexus.task.get": {
+              task: task(),
+              steps: [],
+              sessions: [],
+              pending: [],
+              readyExecutions: [],
+            },
+          },
+          props,
+        );
+        await flush();
+        const bar = f.container.querySelector("form.nx-filters") as HTMLFormElement;
+        expect(bar.hidden, JSON.stringify(props)).toBe(true);
+      }
+      const list = fixture(english(), {});
+      await flush();
+      expect((list.container.querySelector("form.nx-filters") as HTMLFormElement).hidden).toBe(
+        false,
+      );
+    });
+  });
+
+  describe("typed time boxes", () => {
+    const setup = async (props: Record<string, string> = {}, locale = "en") => {
+      const f = fixture(
+        { ...LIST, "nexus.task.list": { tasks: [task()], total: 1 } },
+        props,
+        locale,
+      );
+      await flush();
+      const form = f.container.querySelector("form.nx-filters") as HTMLFormElement;
+      const box = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
+      return { f, form, box };
+    };
+
+    it("uses plain text boxes showing the date as typed, with a space", async () => {
+      const { box } = await setup({ from: "2026-10-01T08:30" });
+      expect(box("from").type).toBe("text");
+      expect(box("to").type).toBe("text");
+      expect(box("from").value).toBe("2026-10-01 08:30");
+      expect(box("from").placeholder).toBe("YYYY-MM-DD HH:mm");
+    });
+
+    it("accepts a typed time and navigates with the canonical form", async () => {
+      const { f, form, box } = await setup();
+      box("from").value = "2026-10-01 08:30";
+      box("to").value = "2026-10-15";
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      expect(f.opened).toEqual([
+        { id: "nexus", params: { from: "2026-10-01T08:30", to: "2026-10-15T23:59" } },
+      ]);
+    });
+
+    it("says so, and does not navigate, when a time box is not a date", async () => {
+      const { f, form, box } = await setup();
+      const message = f.container.querySelector(".f-error") as HTMLElement;
+      expect(message.hidden).toBe(true);
+      box("from").value = "2026年10月15日";
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      expect(f.opened).toEqual([]);
+      expect(message.hidden).toBe(false);
+      expect(message.textContent).toBe(
+        "Time must look like YYYY-MM-DD or YYYY-MM-DD HH:mm (local time).",
+      );
+      box("from").value = "2026-10-15";
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      expect(message.hidden).toBe(true);
+      expect(f.opened.length).toBe(1);
+    });
   });
 });

@@ -15,6 +15,9 @@ export type TaskRpcDeps = {
 };
 
 const LIST_LIMIT_MAX = 200;
+const LIST_OFFSET_MAX = 100_000;
+const SEARCH_ID_MAX = 64;
+const SEARCH_TEXT_MAX = 200;
 const RPC_STEP_LIMIT = 100;
 
 type GatewayRequestHandler = (opts: GatewayRequestHandlerOptions) => Promise<void> | void;
@@ -35,6 +38,22 @@ function readStatuses(raw: unknown): TaskStatus[] | undefined | "invalid" {
   return raw.every((entry) => typeof entry === "string" && known.has(entry))
     ? (raw as TaskStatus[])
     : "invalid";
+}
+
+/** An optional string param of at most `max` characters; anything else is invalid. */
+function readSearch(raw: unknown, max: number): string | undefined | "invalid" {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  return typeof raw === "string" && raw.length <= max ? raw : "invalid";
+}
+
+/** An optional epoch-milliseconds param. */
+function readTimestamp(raw: unknown): number | undefined | "invalid" {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : "invalid";
 }
 
 /** Returns [method, handler, scope] triples; the caller registers them. */
@@ -79,13 +98,42 @@ export function createTaskRpcHandlers(deps: TaskRpcDeps) {
           typeof params.limit === "number" && params.limit >= 1
             ? Math.min(Math.floor(params.limit), LIST_LIMIT_MAX)
             : 50;
-        const tasks = await store.list({
+        const offset =
+          typeof params.offset === "number" && params.offset >= 1
+            ? Math.min(Math.floor(params.offset), LIST_OFFSET_MAX)
+            : 0;
+        const idQuery = readSearch(params.id, SEARCH_ID_MAX);
+        const titleQuery = readSearch(params.title, SEARCH_TEXT_MAX);
+        const keyword = readSearch(params.keyword, SEARCH_TEXT_MAX);
+        const createdFrom = readTimestamp(params.createdFrom);
+        const createdTo = readTimestamp(params.createdTo);
+        if (
+          idQuery === "invalid" ||
+          titleQuery === "invalid" ||
+          keyword === "invalid" ||
+          createdFrom === "invalid" ||
+          createdTo === "invalid"
+        ) {
+          reject(
+            respond,
+            "nexus_invalid_params",
+            "id, title and keyword must be short strings; createdFrom and createdTo must be epoch milliseconds",
+          );
+          return;
+        }
+        const { tasks, total } = await store.queryTasks({
           principal,
           ...(statuses ? { statuses } : {}),
           includeClosed: params.includeClosed === true,
           limit,
+          offset,
+          ...(idQuery ? { idQuery } : {}),
+          ...(titleQuery ? { titleQuery } : {}),
+          ...(keyword ? { keyword } : {}),
+          ...(createdFrom !== undefined ? { createdFrom } : {}),
+          ...(createdTo !== undefined ? { createdTo } : {}),
         });
-        respond(true, { ownerId: principal.ownerId, tasks });
+        respond(true, { ownerId: principal.ownerId, tasks, total, offset });
       }),
       "operator.read",
     ],

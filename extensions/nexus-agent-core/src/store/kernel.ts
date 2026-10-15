@@ -180,12 +180,12 @@ export function createTaskKernel(
     ).run(owner, taskId, sessionKey, now, now);
   };
 
-  const list = (input: {
+  /** Owner-scoped WHERE for the Task list; `queryTasks` adds its search and time filters on top. */
+  const listWhere = (input: {
     principal: Principal;
     statuses?: TaskStatus[];
     includeClosed: boolean;
-    limit: number;
-  }): TaskRecord[] => {
+  }) => {
     const where = ["owner_id = ?", "deleted_at IS NULL", "status NOT IN ('deleted','purging')"];
     const params: (string | number)[] = [input.principal.ownerId];
     if (input.statuses && input.statuses.length > 0) {
@@ -194,6 +194,16 @@ export function createTaskKernel(
     } else if (!input.includeClosed) {
       where.push("status NOT IN ('succeeded','failed','cancelled')");
     }
+    return { where, params };
+  };
+
+  const list = (input: {
+    principal: Principal;
+    statuses?: TaskStatus[];
+    includeClosed: boolean;
+    limit: number;
+  }): TaskRecord[] => {
+    const { where, params } = listWhere(input);
     params.push(input.limit);
     const rows = db
       .prepare(
@@ -201,6 +211,64 @@ export function createTaskKernel(
       )
       .all(...params) as Row[];
     return rows.map(toTask);
+  };
+
+  /** Paged, filtered Task list with the total match count (the console's list page). */
+  const queryTasks = (input: {
+    principal: Principal;
+    statuses?: TaskStatus[];
+    includeClosed: boolean;
+    limit: number;
+    offset: number;
+    /** Contains-match on the Task id. */
+    idQuery?: string;
+    /** Contains-match on the title. */
+    titleQuery?: string;
+    /** Whitespace-separated terms; every term must appear in the title, goal, summary or entities. */
+    keyword?: string;
+    /** created_at >= createdFrom (ms). */
+    createdFrom?: number;
+    /** created_at < createdTo (ms). */
+    createdTo?: number;
+  }): { tasks: TaskRecord[]; total: number } => {
+    const { where, params } = listWhere(input);
+    const like = (value: string) => `%${value.replace(/[\\%_]/g, "\\$&")}%`;
+    const idQuery = input.idQuery?.trim();
+    if (idQuery) {
+      where.push("id LIKE ? ESCAPE '\\'");
+      params.push(like(idQuery));
+    }
+    const titleQuery = input.titleQuery?.trim();
+    if (titleQuery) {
+      where.push("title LIKE ? ESCAPE '\\'");
+      params.push(like(titleQuery));
+    }
+    for (const term of (input.keyword ?? "").split(/\s+/).filter((term) => term !== "")) {
+      where.push(
+        "(title LIKE ? ESCAPE '\\' OR goal_json LIKE ? ESCAPE '\\' " +
+          "OR summary LIKE ? ESCAPE '\\' OR entities_json LIKE ? ESCAPE '\\')",
+      );
+      const pattern = like(term);
+      params.push(pattern, pattern, pattern, pattern);
+    }
+    if (input.createdFrom !== undefined) {
+      where.push("created_at >= ?");
+      params.push(input.createdFrom);
+    }
+    if (input.createdTo !== undefined) {
+      where.push("created_at < ?");
+      params.push(input.createdTo);
+    }
+    const clause = where.join(" AND ");
+    const total = Number(
+      (db.prepare(`SELECT COUNT(*) AS n FROM nexus_tasks WHERE ${clause}`).get(...params) as Row).n,
+    );
+    const rows = db
+      .prepare(
+        `SELECT ${TASK_COLUMNS} FROM nexus_tasks WHERE ${clause} ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`,
+      )
+      .all(...params, input.limit, input.offset) as Row[];
+    return { tasks: rows.map(toTask), total };
   };
 
   return {
@@ -345,6 +413,7 @@ export function createTaskKernel(
     },
 
     list,
+    queryTasks,
 
     update(input: UpdateInput): UpdateOutcome {
       const owner = input.principal.ownerId;

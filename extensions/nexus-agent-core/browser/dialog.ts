@@ -19,6 +19,8 @@ export type DialogOptions = {
   signal: AbortSignal;
   onClose?: () => void;
   redact: (text: string) => string;
+  /** The close button's text (the caller's language). */
+  cancelLabel: string;
 };
 
 export function openDialog(options: DialogOptions): () => void {
@@ -66,7 +68,7 @@ export function openDialog(options: DialogOptions): () => void {
   const cancel = document.createElement("button");
   cancel.type = "button";
   cancel.className = "nx-btn";
-  cancel.textContent = "取消";
+  cancel.textContent = options.cancelLabel;
   cancel.addEventListener("click", close);
   footer.append(cancel);
   for (const action of options.actions) {

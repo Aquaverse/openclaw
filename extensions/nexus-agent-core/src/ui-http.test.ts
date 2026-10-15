@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { describe, it } from "vitest";
 import { P, world } from "./test-support/decision-world.js";
 import { createNexusUiHttpHandler, NEXUS_UI_BASE_PATH } from "./ui-http.js";
+import { tzLabel } from "./ui-render.js";
 
 const EVIL = `<script>alert(1)</script><img src=x onerror=alert(2)>`;
 
@@ -18,9 +19,10 @@ async function request(
   handler: ReturnType<typeof createNexusUiHttpHandler>,
   url: string,
   method = "GET",
+  headers: Record<string, string> = {},
 ): Promise<Out> {
   const out: Out = { status: 0, headers: {}, body: "", handled: false };
-  const req = { url, method } as unknown as IncomingMessage;
+  const req = { url, method, headers } as unknown as IncomingMessage;
   const res = {
     writeHead(status: number, headers: Record<string, string | number>) {
       out.status = status;
@@ -51,7 +53,7 @@ function setup(
 }
 
 describe("Nexus Control UI pages", () => {
-  it("lists tasks and escapes hostile titles; the CSP allows no script and no form target", async () => {
+  it("lists tasks and escapes hostile titles; the CSP allows no script and only a same-origin form target", async () => {
     const { w, handler } = setup();
     const taskId = w.newTask(EVIL);
     const list = await request(handler, `${NEXUS_UI_BASE_PATH}/`);
@@ -63,14 +65,246 @@ describe("Nexus Control UI pages", () => {
     assert.ok(list.body.includes("&lt;script&gt;"));
     const csp = String(list.headers["Content-Security-Policy"]);
     assert.ok(csp.includes("default-src 'none'"));
-    assert.ok(csp.includes("form-action 'none'"));
+    // The list page has a GET filter form; every other page keeps `form-action 'none'`.
+    assert.ok(csp.includes("form-action 'self'"));
     assert.ok(!csp.includes("script-src"));
     assert.ok(!csp.includes("unsafe-inline"));
     assert.equal(list.headers["Cache-Control"], "private, no-store");
     // The inline style is the only inline thing, and it carries the nonce from the CSP.
     const nonce = /style-src 'nonce-([^']+)'/.exec(csp)?.[1];
     assert.ok(nonce && list.body.includes(`nonce="${nonce}"`));
-    assert.ok(!/<form\b|<script\b|<iframe\b|<[^>]*\son\w+=/i.test(list.body));
+    assert.ok(!/<script\b|<iframe\b|<[^>]*\son\w+=/i.test(list.body));
+    assert.ok(
+      /<form class="filters" method="get"/.test(list.body),
+      "the filter form submits with GET",
+    );
+    assert.ok(!/method="post"/i.test(list.body));
+    const detail = await request(handler, `${NEXUS_UI_BASE_PATH}/tasks/${taskId}`);
+    assert.ok(String(detail.headers["Content-Security-Policy"]).includes("form-action 'none'"));
+    assert.ok(!/<form\b/i.test(detail.body));
+  });
+
+  describe("page language", () => {
+    const HAN = /[\u4e00-\u9fff]/;
+    const ask = (handler: ReturnType<typeof setup>["handler"], path: string, lang?: string) =>
+      request(
+        handler,
+        `${NEXUS_UI_BASE_PATH}${path}`,
+        "GET",
+        lang ? { "accept-language": lang } : {},
+      );
+
+    it("answers in English for an English browser, with no Chinese chrome left", async () => {
+      const { w, handler } = setup();
+      w.newTask("Rebook the flight");
+      await w.rpc("nexus.preference.set", { key: "seat", value: "aisle" });
+      const list = await ask(handler, "/", "en-US,en;q=0.9");
+      assert.ok(list.body.includes('<html lang="en">'));
+      assert.ok(list.body.includes("<title>Nexus tasks</title>"));
+      assert.ok(list.body.includes(">Tasks</a>") && list.body.includes(">Preferences</a>"));
+      assert.ok(list.body.includes(">Purge receipts</a>"));
+      assert.ok(list.body.includes(">Filter</button>") && list.body.includes(">Reset</a>"));
+      assert.ok(list.body.includes("1 in total, showing 1–1 (page 1 of 1)"));
+      assert.ok(list.body.includes("Last 7 days"));
+      assert.ok(!HAN.test(list.body), "no Chinese on the English list page");
+      for (const path of ["/preferences", "/receipts"]) {
+        const other = await ask(handler, path, "en");
+        assert.equal(other.status, 200);
+        assert.ok(!HAN.test(other.body), `no Chinese on ${path}`);
+      }
+      const detail = await ask(handler, "/tasks/T00000001", "en");
+      assert.ok(detail.body.includes("← Tasks") && detail.body.includes("Pending decisions"));
+      assert.ok(detail.body.includes("<h2>Goal</h2>") && detail.body.includes("<h2>Entities</h2>"));
+      assert.ok(detail.body.includes("<title>Nexus task T00000001</title>"));
+    });
+
+    it("answers in Chinese by default and for a Chinese browser", async () => {
+      const { w, handler } = setup();
+      w.newTask("Rebook the flight");
+      for (const header of [undefined, "zh-CN,zh;q=0.9,en;q=0.8"]) {
+        const list = await ask(handler, "/", header);
+        assert.ok(list.body.includes('<html lang="zh-CN">'));
+        assert.ok(list.body.includes(">筛选</button>") && list.body.includes(">重置</a>"));
+        assert.ok(list.body.includes("<title>Nexus 事项</title>"));
+      }
+      // A language we have no text for gets English.
+      assert.ok((await ask(handler, "/", "de-DE,de;q=0.9")).body.includes('<html lang="en">'));
+    });
+
+    it("keeps the status options in English whatever the language", async () => {
+      const { w, handler } = setup();
+      w.newTask("Rebook the flight");
+      for (const header of ["en", "zh-CN"]) {
+        const body = (await ask(handler, "/", header)).body;
+        const select = /<select name="status">(.*?)<\/select>/s.exec(body)?.[1] ?? "";
+        const labels = [...select.matchAll(/<option[^>]*>([^<]*)<\/option>/g)].map((m) => m[1]);
+        assert.deepEqual(labels, [
+          "all",
+          "open",
+          "closed",
+          "draft",
+          "clarifying",
+          "planning",
+          "awaiting_decision",
+          "executing",
+          "watching",
+          "succeeded",
+          "failed",
+          "cancelled",
+        ]);
+      }
+    });
+  });
+
+  describe("task list filters and paging", () => {
+    const DAY = 86_400_000;
+    const localDate = (ms: number) => {
+      const d = new Date(ms);
+      const two = (n: number) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+    };
+    // 45 Tasks, one per day starting at T0: "任务 01".."任务 45", with 退票 as the 7th.
+    function many() {
+      const { w, handler } = setup();
+      const created = w.now();
+      const ids: string[] = [];
+      for (let i = 1; i <= 45; i += 1) {
+        ids.push(w.newTask(i === 7 ? "退票" : `任务 ${String(i).padStart(2, "0")}`));
+        w.advance(DAY);
+      }
+      return { w, handler, ids, created };
+    }
+    const rows = (body: string) => (body.match(/href="[^"]*\/tasks\/T\d+"/g) ?? []).length;
+    const list = (handler: ReturnType<typeof setup>["handler"], query = "") =>
+      request(handler, `${NEXUS_UI_BASE_PATH}/${query}`);
+
+    it("shows one page at a time with the total and page links that keep the filter", async () => {
+      const { handler } = many();
+      const first = await list(handler);
+      assert.equal(rows(first.body), 20);
+      assert.ok(first.body.includes("共 45 条"));
+      assert.ok(first.body.includes("第 1 / 3 页"));
+      assert.ok(first.body.includes(`${NEXUS_UI_BASE_PATH}/?page=2`));
+      assert.ok(!first.body.includes("上一页"));
+      const last = await list(handler, "?page=3");
+      assert.equal(rows(last.body), 5);
+      assert.ok(last.body.includes("上一页") && !last.body.includes("下一页"));
+      const sized = await list(handler, "?size=50");
+      assert.equal(rows(sized.body), 45);
+      assert.ok(sized.body.includes("第 1 / 1 页"));
+      const filtered = await list(handler, "?qkw=%E4%BB%BB%E5%8A%A1&size=20");
+      assert.ok(
+        filtered.body.includes("qkw=%E4%BB%BB%E5%8A%A1&amp;page=2"),
+        "page links keep the filter",
+      );
+    });
+
+    it("clamps a page number past the end instead of showing an empty list", async () => {
+      const { handler } = many();
+      const stale = await list(handler, "?page=99");
+      assert.equal(rows(stale.body), 5);
+      assert.ok(stale.body.includes("第 3 / 3 页"));
+    });
+
+    it("filters by id, title and keyword", async () => {
+      const { handler, ids } = many();
+      const byId = await list(handler, `?qid=${ids[6]}`);
+      assert.equal(rows(byId.body), 1);
+      assert.ok(byId.body.includes("退票"));
+      assert.equal(rows((await list(handler, "?qtitle=%E9%80%80%E7%A5%A8")).body), 1);
+      assert.equal(rows((await list(handler, "?qtitle=%E4%BB%BB%E5%8A%A1")).body), 20);
+      // Keyword also reads the goal (the world writes the title into goal.want).
+      assert.equal(rows((await list(handler, "?qkw=%E9%80%80%E7%A5%A8")).body), 1);
+      assert.equal(rows((await list(handler, "?qkw=tokyo")).body), 20);
+    });
+
+    it("filters by status and by creation date", async () => {
+      const { handler, created } = many();
+      const none = await list(handler, "?status=closed");
+      assert.equal(rows(none.body), 0);
+      assert.ok(none.body.includes("没有符合条件的事项"));
+      assert.ok(none.body.includes("清除筛选"));
+      assert.equal(rows((await list(handler, "?status=open&size=100")).body), 45);
+      assert.equal(rows((await list(handler, "?status=clarifying&size=100")).body), 45);
+      const day = localDate(created);
+      assert.equal(rows((await list(handler, `?from=${day}&to=${day}`)).body), 1);
+      const tail = await list(handler, `?from=${localDate(created + 10 * DAY)}&size=100`);
+      assert.equal(rows(tail.body), 35);
+      assert.equal(rows((await list(handler, `?to=${day}`)).body), 1);
+    });
+
+    it("shows local times with the zone, and searches by local time", async () => {
+      // Zone-independent: expectations come from the same machine's local calendar.
+      const two = (n: number) => String(n).padStart(2, "0");
+      const stamp = (ms: number) => {
+        const d = new Date(ms);
+        return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}T${two(d.getHours())}:${two(d.getMinutes())}`;
+      };
+      const { w, handler, created } = many();
+      const page = await list(handler, "?size=100");
+      const first = stamp(created);
+      // The header names the offset in force now (it can differ from a row's across a daylight-saving change).
+      const zone = tzLabel(new Date(w.now()));
+      // The first Task, as the list shows it: local time with seconds, no UTC "Z".
+      assert.ok(page.body.includes(`${first.replace("T", " ")}:00`));
+      assert.ok(page.body.includes(`创建（${zone}）`));
+      assert.ok(page.body.includes(`更新（${zone}）`));
+      assert.ok(!/\d{2}:\d{2}:\d{2}Z/.test(page.body), "no UTC timestamps");
+      const before = stamp(created - 60_000);
+      const after = stamp(created + 60_000);
+      assert.equal(rows((await list(handler, `?to=${before}`)).body), 0);
+      assert.equal(rows((await list(handler, `?to=${first}`)).body), 1);
+      assert.equal(rows((await list(handler, `?from=${first}&to=${first}`)).body), 1);
+      assert.equal(
+        rows((await list(handler, `?from=${after}&to=${stamp(created + DAY - 60_000)}`)).body),
+        0,
+      );
+      assert.equal(
+        rows((await list(handler, `?from=${after}&to=${stamp(created + DAY)}`)).body),
+        1,
+      );
+      // The controls echo the local times back.
+      const echoed = await list(handler, `?from=${first}`);
+      assert.ok(echoed.body.includes(`value="${first.replace("T", " ")}"`));
+      // Plain text boxes: a native date control would show the browser's own language and format.
+      assert.ok(!/type="(date|datetime-local)"/.test(echoed.body));
+      assert.ok(echoed.body.includes('placeholder="YYYY-MM-DD HH:mm"'));
+      assert.equal(
+        rows(
+          (await list(handler, `?from=${encodeURIComponent(first.replace("T", " "))}&to=${first}`))
+            .body,
+        ),
+        1,
+      );
+      assert.ok(echoed.body.includes(`${zone} 本地时间`));
+    });
+
+    it("says so when a time box is not a date, instead of silently ignoring it", async () => {
+      const { handler } = many();
+      const bad = await list(handler, `?from=${encodeURIComponent("2026年10月15日")}`);
+      assert.ok(bad.body.includes("Time must look like") || bad.body.includes("时间格式应为"));
+      assert.ok(bad.body.includes('class="f-error bad"'));
+      const fine = await list(handler, "?from=2026-10-15");
+      assert.ok(!fine.body.includes("f-error"));
+      const english = await request(handler, `${NEXUS_UI_BASE_PATH}/?to=soon`, "GET", {
+        "accept-language": "en",
+      });
+      assert.ok(
+        english.body.includes("Time must look like YYYY-MM-DD or YYYY-MM-DD HH:mm (local time)."),
+      );
+    });
+
+    it("ignores malformed parameters and escapes what it echoes back", async () => {
+      const { handler } = many();
+      const odd = await list(
+        handler,
+        `?status=bogus&from=2026-02-30&page=abc&size=7&qtitle=${encodeURIComponent('"><script>alert(1)</script>')}`,
+      );
+      assert.equal(odd.status, 200);
+      assert.ok(!odd.body.includes("<script"));
+      assert.ok(odd.body.includes("&quot;&gt;&lt;script&gt;"));
+      assert.ok(odd.body.includes("没有符合条件的事项"));
+    });
   });
 
   it("task detail renders, and refuses ids that are not task ids", async () => {

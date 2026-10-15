@@ -2,6 +2,7 @@
 // dialog built from the records the page itself loaded (never from the clicked markup, which only carries an id), then
 // calls the existing operator.write RPC. The RPCs stay the authority: they re-check status, revision and authority hash,
 // so a stale dialog can at worst be refused, never wrongly applied.
+import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
 import type { DecisionRecord } from "../src/store/decision-types.js";
 import type { PreferenceRecord } from "../src/store/preference-types.js";
 import {
@@ -30,6 +31,8 @@ export type ActionContext = {
   parent: HTMLElement;
   signal: AbortSignal;
   redact: (text: string) => string;
+  /** Dialog and notice language; follows the host's locale. */
+  lang: Lang;
   model: () => NexusModel;
   /** Something changed (or turned out to be stale): show the notice and reload. */
   changed: (notice: ActionNotice) => void;
@@ -75,30 +78,47 @@ export type ResolveReply = {
 export function describeResolve(
   reply: ResolveReply,
   decisionId: string,
+  lang: Lang = DEFAULT_LANG,
 ): { kind: "done" | "stale" | "error"; text: string } {
+  const id = decisionId;
   switch (reply.outcome) {
     case "approved":
       return {
         kind: "done",
-        text: `已批准 ${decisionId}${reply.executionId ? `（执行 ${reply.executionId} 已就绪，等 Agent 提交）` : ""}。`,
+        text: reply.executionId
+          ? tr(lang, "resolve.approvedReady", { id, exec: reply.executionId })
+          : tr(lang, "resolve.approved", { id }),
       };
     case "denied":
-      return { kind: "done", text: `已拒绝 ${decisionId}。` };
+      return { kind: "done", text: tr(lang, "resolve.denied", { id }) };
     case "already_resolved":
-      return { kind: "stale", text: `${decisionId} 已经被处理过，没有再次改变。` };
+      return { kind: "stale", text: tr(lang, "resolve.already", { id }) };
     case "superseded":
       return {
         kind: "stale",
-        text: `${decisionId} 已失效：${reply.reason ?? "事项已变化"}。请看最新的待决策。`,
+        text: tr(lang, "resolve.superseded", {
+          id,
+          reason: reply.reason ?? tr(lang, "resolve.supersededReason"),
+        }),
       };
     case "expired":
-      return { kind: "stale", text: `${decisionId} 已过期。` };
+      return { kind: "stale", text: tr(lang, "resolve.expired", { id }) };
     case "effect_unsupported":
-      return { kind: "error", text: "当前配置不支持这类决策的效果，未批准。" };
+      return { kind: "error", text: tr(lang, "resolve.unsupported") };
     case "effect_apply_failed":
-      return { kind: "error", text: `批准没有生效：${reply.message ?? "效果应用失败"}。` };
+      return {
+        kind: "error",
+        text: tr(lang, "resolve.applyFailed", {
+          message: reply.message ?? tr(lang, "resolve.applyFailedMessage"),
+        }),
+      };
     default:
-      return { kind: "error", text: `意外的返回：${reply.outcome ?? "无"}。` };
+      return {
+        kind: "error",
+        text: tr(lang, "resolve.unexpected", {
+          outcome: reply.outcome ?? tr(lang, "resolve.none"),
+        }),
+      };
   }
 }
 
@@ -107,7 +127,7 @@ function decisionDialog(ctx: ActionContext, id: string): void {
     .model()
     .decisions.find((item) => item.id === id && item.status === "pending");
   if (!decision) {
-    ctx.changed({ ok: false, text: `${id} 已不在待决策列表里，已刷新。` });
+    ctx.changed({ ok: false, text: tr(ctx.lang, "decision.gone", { id }) });
     return;
   }
   const high = needsSecondConfirmation(decision.riskTier);
@@ -120,7 +140,7 @@ function decisionDialog(ctx: ActionContext, id: string): void {
       resolution,
       ...(resolution === "approved" && chosen ? { chosenActionId: chosen } : {}),
     });
-    const shown = describeResolve(reply, decision.id);
+    const shown = describeResolve(reply, decision.id, ctx.lang);
     if (shown.kind === "error") {
       throw new Error(shown.text);
     }
@@ -128,41 +148,42 @@ function decisionDialog(ctx: ActionContext, id: string): void {
   };
   const actions: DialogAction[] = [
     {
-      label: "批准",
+      label: tr(ctx.lang, "dlg.approve"),
       tone: "primary",
       enabled: () => (!multiple || chosen !== "") && (!high || acknowledged),
       run: () => resolve("approved"),
     },
-    { label: "拒绝", tone: "danger", run: () => resolve("denied") },
+    { label: tr(ctx.lang, "dlg.deny"), tone: "danger", run: () => resolve("denied") },
   ];
   openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
     redact: ctx.redact,
-    title: `处理待决策 ${decision.id}`,
+    cancelLabel: tr(ctx.lang, "btn.cancel"),
+    title: tr(ctx.lang, "decision.title", { id: decision.id }),
     actions,
     build: (body, changed) => {
-      row(body, "事项", decision.taskId);
-      row(body, "问题", decision.question);
-      row(body, "类型", decision.effectKind);
-      row(body, "风险", decision.riskTier);
-      row(body, "截止", fmtTime(decision.deadlineAt));
+      row(body, tr(ctx.lang, "dlg.task"), decision.taskId);
+      row(body, tr(ctx.lang, "dlg.question"), decision.question);
+      row(body, tr(ctx.lang, "dlg.type"), decision.effectKind);
+      row(body, tr(ctx.lang, "dlg.risk"), decision.riskTier);
+      row(body, tr(ctx.lang, "dlg.deadline"), fmtTime(decision.deadlineAt));
       if (decision.facts !== null && decision.facts !== undefined) {
-        row(body, "事实", json(decision.facts, 800), true);
+        row(body, tr(ctx.lang, "dlg.facts"), json(decision.facts, 800), true);
       }
       if (decision.options !== null && decision.options !== undefined) {
-        row(body, "选项", json(decision.options, 800), true);
+        row(body, tr(ctx.lang, "dlg.options"), json(decision.options, 800), true);
       }
       if (multiple) {
         const line = document.createElement("div");
         line.className = "nx-row";
         const label = document.createElement("span");
         label.className = "nx-label";
-        label.textContent = "批准哪个动作";
+        label.textContent = tr(ctx.lang, "decision.which");
         const select = document.createElement("select");
         const blank = document.createElement("option");
         blank.value = "";
-        blank.textContent = "请选择…";
+        blank.textContent = tr(ctx.lang, "decision.choose");
         select.append(blank);
         for (const actionId of decision.actionIds) {
           const option = document.createElement("option");
@@ -187,11 +208,11 @@ function decisionDialog(ctx: ActionContext, id: string): void {
           changed();
         });
         const text = document.createElement("span");
-        text.textContent = `这是 ${decision.riskTier} 决策：我已核对上面的动作和影响，同意授权。`;
+        text.textContent = tr(ctx.lang, "decision.ack", { risk: decision.riskTier });
         line.append(box, text);
         body.append(line);
       }
-      note(body, "批准会产生真实授权；拒绝是终局，Agent 不会再就同一件事重复询问。");
+      note(body, tr(ctx.lang, "decision.warn"));
     },
   });
 }
@@ -199,29 +220,38 @@ function decisionDialog(ctx: ActionContext, id: string): void {
 function watchDialog(ctx: ActionContext, id: string): void {
   const watch = ctx.model().watches.find((item) => item.id === id);
   if (!watch) {
-    ctx.changed({ ok: false, text: `${id} 已不在回检列表里，已刷新。` });
+    ctx.changed({ ok: false, text: tr(ctx.lang, "watch.gone", { id }) });
     return;
   }
   openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
     redact: ctx.redact,
-    title: `取消回检 ${watch.id}`,
+    cancelLabel: tr(ctx.lang, "btn.cancel"),
+    title: tr(ctx.lang, "watch.title", { id: watch.id }),
     actions: [
       {
-        label: "取消回检",
+        label: tr(ctx.lang, "watch.cancel"),
         tone: "danger",
         run: async () => {
           await ctx.request("nexus.watch.cancel", { watchId: watch.id });
-          ctx.changed({ ok: true, text: `已取消回检 ${watch.id}。` });
+          ctx.changed({ ok: true, text: tr(ctx.lang, "watch.cancelled", { id: watch.id }) });
         },
       },
     ],
     build: (body) => {
-      row(body, "事项", watch.taskId);
-      row(body, "条件", clip(watch.expect, 300));
-      row(body, "状态", `${watch.status}（已查 ${watch.attempts}/${watch.maxAttempts}）`);
-      note(body, "取消后不再回检，对应的定时任务会被删除。");
+      row(body, tr(ctx.lang, "dlg.task"), watch.taskId);
+      row(body, tr(ctx.lang, "dlg.condition"), clip(watch.expect, 300));
+      row(
+        body,
+        tr(ctx.lang, "dlg.status"),
+        tr(ctx.lang, "watch.state", {
+          status: watch.status,
+          attempts: watch.attempts,
+          max: watch.maxAttempts,
+        }),
+      );
+      note(body, tr(ctx.lang, "watch.note"));
     },
   });
 }
@@ -229,33 +259,34 @@ function watchDialog(ctx: ActionContext, id: string): void {
 function preferenceDeleteDialog(ctx: ActionContext, id: string): void {
   const preference = ctx.model().preferences.find((item) => item.id === id);
   if (!preference) {
-    ctx.changed({ ok: false, text: `${id} 已不在偏好列表里，已刷新。` });
+    ctx.changed({ ok: false, text: tr(ctx.lang, "pref.gone", { id }) });
     return;
   }
   openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
     redact: ctx.redact,
-    title: "删除偏好",
+    cancelLabel: tr(ctx.lang, "btn.cancel"),
+    title: tr(ctx.lang, "pref.deleteTitle"),
     actions: [
       {
-        label: "删除",
+        label: tr(ctx.lang, "btn.delete"),
         tone: "danger",
         run: async () => {
           await ctx.request("nexus.preference.delete", { preferenceId: preference.id });
-          ctx.changed({ ok: true, text: `已删除偏好 ${preference.scope} / ${preference.key}。` });
+          ctx.changed({
+            ok: true,
+            text: tr(ctx.lang, "pref.deleted", { scope: preference.scope, key: preference.key }),
+          });
         },
       },
     ],
     build: (body) => {
-      row(body, "范围", preference.scope);
-      row(body, "键", preference.key);
-      row(body, "值", json(preference.value, 400), true);
-      row(body, "来源", preference.origin);
-      note(
-        body,
-        "删除后这条偏好不再生效，历史修订保留；要彻底清除请用 nexus.preference.purge（operator.admin）。",
-      );
+      row(body, tr(ctx.lang, "dlg.scope"), preference.scope);
+      row(body, tr(ctx.lang, "dlg.key"), preference.key);
+      row(body, tr(ctx.lang, "dlg.value"), json(preference.value, 400), true);
+      row(body, tr(ctx.lang, "dlg.source"), preference.origin);
+      note(body, tr(ctx.lang, "pref.deleteNote"));
     },
   });
 }
@@ -269,22 +300,26 @@ export function validatePreferenceDraft(
   scope: string,
   key: string,
   rawValue: string,
+  lang: Lang = DEFAULT_LANG,
 ): PreferenceDraft {
   if (!isValidPreferenceScope(scope)) {
-    return { ok: false, message: "范围只能是 global 或 domain:名称（小写字母、数字、._-）。" };
+    return { ok: false, message: tr(lang, "pref.badScope") };
   }
   if (!isValidPreferenceKey(key)) {
-    return { ok: false, message: "键需以小写字母或数字开头，只含小写字母、数字、._-，最长 64。" };
+    return { ok: false, message: tr(lang, "pref.badKey") };
   }
   let value: unknown;
   try {
     value = JSON.parse(rawValue);
   } catch {
-    return { ok: false, message: "值必须是合法的 JSON（字符串要带引号）。" };
+    return { ok: false, message: tr(lang, "pref.badJson") };
   }
   const bytes = new TextEncoder().encode(JSON.stringify(value)).length;
   if (bytes > MAX_PREFERENCE_VALUE_BYTES) {
-    return { ok: false, message: `值太长（${bytes} 字节，上限 ${MAX_PREFERENCE_VALUE_BYTES}）。` };
+    return {
+      ok: false,
+      message: tr(lang, "pref.tooLong", { bytes, max: MAX_PREFERENCE_VALUE_BYTES }),
+    };
   }
   return { ok: true, scope, key, value };
 }
@@ -293,16 +328,17 @@ function preferenceFormDialog(ctx: ActionContext, existing: PreferenceRecord | u
   let scope = existing?.scope ?? "global";
   let key = existing?.key ?? "";
   let raw = existing ? (JSON.stringify(existing.value, null, 2) ?? "null") : "";
-  const draft = () => validatePreferenceDraft(scope, key, raw);
+  const draft = () => validatePreferenceDraft(scope, key, raw, ctx.lang);
   let hint: HTMLElement | undefined;
   openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
     redact: ctx.redact,
-    title: existing ? "编辑偏好" : "新增偏好",
+    cancelLabel: tr(ctx.lang, "btn.cancel"),
+    title: tr(ctx.lang, existing ? "pref.editTitle" : "pref.newTitle"),
     actions: [
       {
-        label: "保存",
+        label: tr(ctx.lang, "dlg.save"),
         tone: "primary",
         enabled: () => draft().ok,
         run: async () => {
@@ -319,8 +355,12 @@ function preferenceFormDialog(ctx: ActionContext, existing: PreferenceRecord | u
             ok: true,
             text:
               reply.outcome === "unchanged"
-                ? "值没有变化。"
-                : `已保存偏好 ${checked.scope} / ${checked.key}（${reply.outcome ?? "ok"}）。`,
+                ? tr(ctx.lang, "pref.unchanged")
+                : tr(ctx.lang, "pref.saved", {
+                    scope: checked.scope,
+                    key: checked.key,
+                    outcome: reply.outcome ?? "ok",
+                  }),
           });
         },
       },
@@ -354,17 +394,17 @@ function preferenceFormDialog(ctx: ActionContext, existing: PreferenceRecord | u
       const valueInput = document.createElement("textarea");
       valueInput.rows = 6;
       valueInput.value = raw;
-      valueInput.placeholder = '例如 "简体中文" 或 {"seat":"aisle"}';
+      valueInput.placeholder = tr(ctx.lang, "pref.placeholder");
       valueInput.addEventListener("input", () => {
         raw = valueInput.value;
         sync();
         changed();
       });
-      field("范围", scopeInput);
-      field("键", keyInput);
-      field("值（JSON）", valueInput);
+      field(tr(ctx.lang, "dlg.scope"), scopeInput);
+      field(tr(ctx.lang, "dlg.key"), keyInput);
+      field(tr(ctx.lang, "pref.valueJson"), valueInput);
       hint = note(body, "");
-      note(body, "保存后这条偏好的来源记为 stated（你亲自声明）。偏好只改变默认选项，不构成授权。");
+      note(body, tr(ctx.lang, "pref.statedNote"));
       function sync() {
         const checked = draft();
         if (hint) {
@@ -389,7 +429,7 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
     case "pref-edit": {
       const existing = ctx.model().preferences.find((item) => item.id === action.id);
       if (!existing || existing.origin !== "stated") {
-        ctx.changed({ ok: false, text: "只有你亲自声明（stated）的偏好可以在这里编辑，已刷新。" });
+        ctx.changed({ ok: false, text: tr(ctx.lang, "pref.onlyStated") });
         return;
       }
       return preferenceFormDialog(ctx, existing);

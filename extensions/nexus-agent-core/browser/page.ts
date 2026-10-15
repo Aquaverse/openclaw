@@ -2,9 +2,12 @@
 // descriptor tab would otherwise use: no cookie grant, no sandboxed frame, so it works inside the macOS app's WebView too.
 // Read-only by construction: it calls list/get methods only.
 import type { ControlUiView } from "openclaw/plugin-sdk/control-ui";
+import { resolveLang, tr, type Lang } from "../src/i18n.js";
+import { filterToParams, type TaskFilter } from "../src/task-query.js";
 import { EMPTY_MODEL, runAction, type ActionNotice, type NexusModel } from "./actions.ts";
 import { loadView, probeFeatures, type NexusFeatures } from "./data.ts";
-import { parseRoute, routeParams, type NexusRoute } from "./route.ts";
+import { createFilterBar } from "./filters.ts";
+import { parseRoute, routeParams, TASKS_HOME, type NexusRoute } from "./route.ts";
 import { mountSanitized } from "./sanitize.ts";
 import { NEXUS_CSS } from "./style.ts";
 
@@ -44,7 +47,27 @@ export function createNexusPage(): ControlUiView {
     notice.setAttribute("role", "status");
     notice.hidden = true;
     const main = document.createElement("main");
-    root.append(style, nav, notice, main);
+    // The page text follows the host's locale, read afresh on every load so a language switch applies at once.
+    const currentLang = (): Lang => resolveLang(context.host.locale);
+    const bar = createFilterBar({
+      lang: currentLang(),
+      apply(filter) {
+        const next: NexusRoute = { view: "tasks", filter };
+        // Same filter, same URL: the host would not react, so searching again reloads in place.
+        if (
+          JSON.stringify(routeParams(next)) ===
+          JSON.stringify(routeParams(parseRoute(context.props)))
+        ) {
+          void load();
+          return;
+        }
+        open(next);
+      },
+      reset: () => open(TASKS_HOME),
+    });
+    bar.element.hidden = true;
+    let barKey: string | undefined;
+    root.append(style, nav, notice, bar.element, main);
     container.replaceChildren(root);
 
     const hrefOf = (route: NexusRoute) => context.host.navigation.pageHref(target(route));
@@ -57,18 +80,19 @@ export function createNexusPage(): ControlUiView {
     };
 
     const renderNav = (route: NexusRoute) => {
+      const lang = currentLang();
       const items: Array<[string, NexusRoute, boolean]> = [
-        ["事项", { view: "tasks" }, route.view === "tasks" || route.view === "task"],
+        [tr(lang, "nav.tasks"), TASKS_HOME, route.view === "tasks" || route.view === "task"],
         ...(features.preferences
           ? [
-              ["偏好", { view: "preferences" }, route.view === "preferences"] as [
-                string,
-                NexusRoute,
-                boolean,
-              ],
+              [
+                tr(lang, "nav.preferences"),
+                { view: "preferences" },
+                route.view === "preferences",
+              ] as [string, NexusRoute, boolean],
             ]
           : []),
-        ["清除回执", { view: "receipts" }, route.view === "receipts"],
+        [tr(lang, "nav.receipts"), { view: "receipts" }, route.view === "receipts"],
       ];
       const links = items.map(([label, to, on]) => {
         const link = document.createElement("a");
@@ -90,7 +114,7 @@ export function createNexusPage(): ControlUiView {
       spacer.className = "spacer";
       const refresh = document.createElement("button");
       refresh.type = "button";
-      refresh.textContent = "刷新";
+      refresh.textContent = tr(lang, "nav.refresh");
       refresh.addEventListener("click", () => void load());
       nav.replaceChildren(...links, spacer, refresh);
     };
@@ -104,15 +128,33 @@ export function createNexusPage(): ControlUiView {
       main.replaceChildren(paragraph);
     };
 
+    // The controls follow the route's filter only when that filter changes, so a refresh never wipes what is being typed.
+    const syncBar = (route: NexusRoute) => {
+      if (route.view !== "tasks") {
+        bar.element.hidden = true;
+        barKey = undefined;
+        return;
+      }
+      bar.element.hidden = false;
+      const key = JSON.stringify(filterToParams({ ...route.filter, page: 1 } as TaskFilter));
+      if (key !== barKey) {
+        barKey = key;
+        bar.set(route.filter);
+      }
+    };
+
     async function load(keepNotice = false): Promise<void> {
       const mine = ++sequence;
       const route = parseRoute(context.props);
       if (!keepNotice) {
         showNotice(undefined);
       }
+      const lang = currentLang();
+      bar.setLang(lang);
       renderNav(route);
+      syncBar(route);
       if (!context.host.connection.connected) {
-        showMessage("正在连接网关…", "muted");
+        showMessage(tr(lang, "page.connecting"), "muted");
         return;
       }
       try {
@@ -126,6 +168,7 @@ export function createNexusPage(): ControlUiView {
         }
         const view = await loadView(context.host.request, route, features, {
           actions: context.host.connection.canWrite,
+          lang,
         });
         if (mine !== sequence || context.signal.aborted) {
           return;
@@ -139,6 +182,7 @@ export function createNexusPage(): ControlUiView {
               parent: root,
               signal: context.signal,
               redact: context.host.redact,
+              lang,
               model: () => model,
               changed: (result) => {
                 showNotice(result);
@@ -151,7 +195,9 @@ export function createNexusPage(): ControlUiView {
       } catch (error) {
         if (mine === sequence && !context.signal.aborted) {
           showMessage(
-            `Nexus 读取失败：${error instanceof Error ? error.message : String(error)}`,
+            tr(lang, "page.loadFailed", {
+              message: error instanceof Error ? error.message : String(error),
+            }),
             "error",
           );
         }

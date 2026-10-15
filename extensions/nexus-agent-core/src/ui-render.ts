@@ -1,3 +1,4 @@
+import { DEFAULT_LANG, tr, trHtml, type Lang, type MsgKey } from "./i18n.js";
 import type { EvidenceBlobView } from "./store/blob-types.js";
 import type { ClaimRecord } from "./store/claim-types.js";
 import type { DecisionRecord, ExecutionRecord } from "./store/decision-types.js";
@@ -8,6 +9,20 @@ import type { PreferenceReceiptRow, PreferenceRecord } from "./store/preference-
 import type { PurgeReceiptRow } from "./store/purge-types.js";
 import type { TaskDetail, TaskRecord } from "./store/types.js";
 import type { WatchRecord } from "./store/watch-types.js";
+import {
+  EMPTY_FILTER,
+  FILTER_FIELDS,
+  FILTER_PARAMS,
+  TIME_PRESETS,
+  filterFieldOptions,
+  filterFieldValue,
+  filterIsActive,
+  filterToQuery,
+  pageInfo,
+  pageWindow,
+  presetRange,
+  type TaskFilter,
+} from "./task-query.js";
 
 export function esc(value: unknown): string {
   return String(value ?? "")
@@ -24,11 +39,25 @@ export function clip(value: unknown, max = 240): string {
   return chars.length <= max ? text : `${chars.slice(0, max - 1).join("")}…`;
 }
 
+/** Local time of the machine that renders (the browser for the Control UI module, the gateway host for the HTTP page). */
 export function fmtTime(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) {
     return "-";
   }
-  return `${new Date(ms).toISOString().replace("T", " ").slice(0, 19)}Z`;
+  const d = new Date(ms);
+  const two = (value: number) => String(value).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ` +
+    `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}`
+  );
+}
+
+/** "UTC+08:00" for the zone `fmtTime` uses at that moment. */
+export function tzLabel(at: Date): string {
+  const minutes = -at.getTimezoneOffset();
+  const sign = minutes < 0 ? "-" : "+";
+  const abs = Math.abs(minutes);
+  return `UTC${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
 }
 
 export type PageOptions = {
@@ -38,6 +67,7 @@ export type PageOptions = {
   active: "tasks" | "preferences" | "receipts";
   body: string;
   preferencesEnabled: boolean;
+  lang?: Lang;
 };
 
 const CSS = `
@@ -51,25 +81,31 @@ h1{font-size:20px;margin:12px 0}h2{font-size:15px;margin:20px 0 6px;color:var(--
 table{border-collapse:collapse;width:100%}th,td{text-align:left;border-bottom:1px solid var(--line);padding:6px 8px;vertical-align:top}
 th{color:var(--muted);font-weight:500}code,pre{font:12px/1.4 ui-monospace,monospace}pre{margin:0;white-space:pre-wrap;word-break:break-word}
 a{color:var(--accent)}.muted{color:var(--muted)}.pill{border:1px solid var(--line);border-radius:10px;padding:0 8px}
+.filters{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:8px 0}
+.filters label{display:flex;gap:4px;align-items:center;color:var(--muted)}
+.filters input,.filters select,.filters button{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+.filters .f-keyword input{width:22em}.filters .f-from input,.filters .f-to input{width:11em}.filters .f-presets{flex-basis:100%}
+.pager{margin:8px 0;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}.pager .cur{font-weight:600}
 .pending{color:var(--warn)}.bad{color:var(--bad)}.ok{color:var(--ok)}.hint{border:1px solid var(--line);border-radius:6px;padding:8px 12px;margin:8px 0}
 `;
 
 export function page(options: PageOptions): string {
-  const link = (href: string, label: string, key: PageOptions["active"]) =>
-    `<a href="${esc(href)}"${options.active === key ? ' class="on"' : ""}>${esc(label)}</a>`;
+  const lang = options.lang ?? DEFAULT_LANG;
+  const link = (href: string, label: MsgKey, key: PageOptions["active"]) =>
+    `<a href="${esc(href)}"${options.active === key ? ' class="on"' : ""}>${esc(tr(lang, label))}</a>`;
   return [
     "<!doctype html>",
-    '<html lang="zh-CN"><head><meta charset="utf-8">',
+    `<html lang="${lang === "zh" ? "zh-CN" : "en"}"><head><meta charset="utf-8">`,
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
     `<title>${esc(options.title)}</title>`,
     `<style nonce="${esc(options.nonce)}">${CSS}</style>`,
     "</head><body>",
     "<nav>",
-    link(`${options.basePath}/`, "事项", "tasks"),
+    link(`${options.basePath}/`, "nav.tasks", "tasks"),
     ...(options.preferencesEnabled
-      ? [link(`${options.basePath}/preferences`, "偏好", "preferences")]
+      ? [link(`${options.basePath}/preferences`, "nav.preferences", "preferences")]
       : []),
-    link(`${options.basePath}/receipts`, "清除回执", "receipts"),
+    link(`${options.basePath}/receipts`, "nav.receipts", "receipts"),
     "</nav>",
     `<main>${options.body}</main>`,
     "</body></html>",
@@ -82,13 +118,114 @@ const STATUS_CLASS: Record<string, string> = {
   succeeded: "ok",
 };
 
+export type TaskListView = {
+  filter: TaskFilter;
+  /** Matches across all pages. */
+  total: number;
+  /** Render the filter form (the HTTP page; the Control UI module builds its own controls). */
+  form?: boolean;
+  now?: Date;
+  lang?: Lang;
+  /** A time box held text that is not a date: say so instead of silently ignoring it. */
+  timeProblem?: boolean;
+};
+
+function listLink(basePath: string, filter: TaskFilter, patch: Partial<TaskFilter>): string {
+  return `${basePath}/${filterToQuery({ ...filter, ...patch })}`;
+}
+
+function renderFilterForm(
+  filter: TaskFilter,
+  basePath: string,
+  now: Date,
+  lang: Lang,
+  timeProblem: boolean,
+): string {
+  const controls = FILTER_FIELDS.map((field) => {
+    const value = filterFieldValue(filter, field.key);
+    const name = FILTER_PARAMS[field.key];
+    let control: string;
+    if (field.kind === "select") {
+      control =
+        `<select name="${name}">` +
+        filterFieldOptions(field, lang)
+          .map(
+            ([optionValue, label]) =>
+              `<option value="${esc(optionValue)}"${optionValue === value ? " selected" : ""}>${esc(label)}</option>`,
+          )
+          .join("") +
+        "</select>";
+    } else {
+      control =
+        `<input type="${field.kind}" name="${name}" value="${esc(value)}"` +
+        (field.placeholder ? ` placeholder="${esc(tr(lang, field.placeholder))}"` : "") +
+        (field.maxLength ? ` maxlength="${field.maxLength}"` : "") +
+        ">";
+    }
+    return `<label class="f-${field.key}">${esc(tr(lang, field.label))} ${control}</label>`;
+  });
+  const presets = TIME_PRESETS.map(
+    ([key, label]) =>
+      `<a href="${esc(listLink(basePath, filter, { ...presetRange(now, key), page: 1 }))}">${esc(tr(lang, label))}</a>`,
+  );
+  return (
+    `<form class="filters" method="get" action="${esc(`${basePath}/`)}">` +
+    controls.join("") +
+    `<span class="f-actions"><button type="submit">${esc(tr(lang, "f.apply"))}</button> ` +
+    `<a href="${esc(`${basePath}/`)}">${esc(tr(lang, "f.reset"))}</a></span>` +
+    (timeProblem ? `<span class="f-error bad">${esc(tr(lang, "f.timeFormat"))}</span>` : "") +
+    `<span class="f-presets muted">${esc(tr(lang, "f.presets", { zone: tzLabel(now) }))}${presets.join(" · ")}</span>` +
+    "</form>"
+  );
+}
+
+function renderPager(filter: TaskFilter, total: number, basePath: string, lang: Lang): string {
+  const { page, pages, first, last } = pageInfo(filter, total);
+  const summary = `<span class="muted">${esc(tr(lang, "pager.summary", { total, first, last, page, pages }))}</span>`;
+  if (pages <= 1) {
+    return `<p class="pager">${summary}</p>`;
+  }
+  const link = (label: string, target: number) =>
+    `<a href="${esc(listLink(basePath, filter, { page: target }))}">${esc(label)}</a>`;
+  const items: string[] = [];
+  if (page > 1) {
+    items.push(link(tr(lang, "pager.first"), 1), link(tr(lang, "pager.prev"), page - 1));
+  }
+  for (const n of pageWindow(page, pages)) {
+    items.push(
+      n === null
+        ? '<span class="muted">…</span>'
+        : n === page
+          ? `<span class="cur">${n}</span>`
+          : link(String(n), n),
+    );
+  }
+  if (page < pages) {
+    items.push(link(tr(lang, "pager.next"), page + 1), link(tr(lang, "pager.last"), pages));
+  }
+  return `<p class="pager">${summary} ${items.join(" ")}</p>`;
+}
+
 export function renderTaskList(
   tasks: readonly TaskRecord[],
   pendingByTask: ReadonlyMap<string, number>,
   basePath: string,
+  view?: TaskListView,
 ): string {
+  const lang = view?.lang ?? DEFAULT_LANG;
+  const filter = view?.filter ?? EMPTY_FILTER;
+  const heading = `<h1>${esc(tr(lang, "nav.tasks"))}</h1>`;
+  const now = view?.now ?? new Date();
+  const zone = tzLabel(now);
+  const form = view?.form
+    ? renderFilterForm(filter, basePath, now, lang, view.timeProblem === true)
+    : "";
   if (tasks.length === 0) {
-    return '<h1>事项</h1><p class="muted">还没有事项。</p>';
+    const empty =
+      view && filterIsActive(filter)
+        ? `<p class="muted">${esc(tr(lang, "list.noMatch"))}<a href="${esc(`${basePath}/`)}">${esc(tr(lang, "list.clear"))}</a></p>`
+        : `<p class="muted">${esc(tr(lang, "list.empty"))}</p>`;
+    return heading + form + empty;
   }
   const rows = tasks.map((task) => {
     const pending = pendingByTask.get(task.id) ?? 0;
@@ -97,16 +234,29 @@ export function renderTaskList(
       `<td><a href="${esc(`${basePath}/tasks/${task.id}`)}"><code>${esc(task.id)}</code></a></td>` +
       `<td>${esc(clip(task.title, 80))}</td>` +
       `<td class="${STATUS_CLASS[task.status] ?? ""}">${esc(task.status)}</td>` +
-      `<td>${pending > 0 ? `<span class="pill pending">${pending} 待决策</span>` : ""}</td>` +
+      `<td>${pending > 0 ? `<span class="pill pending">${esc(tr(lang, "list.pending", { n: pending }))}</span>` : ""}</td>` +
+      `<td class="muted">${esc(fmtTime(task.createdAt))}</td>` +
       `<td class="muted">${esc(fmtTime(task.updatedAt))}</td>` +
       "</tr>"
     );
   });
+  const pager = view ? renderPager(filter, view.total, basePath, lang) : "";
+  const head = [
+    tr(lang, "col.id"),
+    tr(lang, "col.title"),
+    tr(lang, "col.status"),
+    "",
+    tr(lang, "col.created", { zone }),
+    tr(lang, "col.updated", { zone }),
+  ];
   return (
-    "<h1>事项</h1>" +
-    "<table><thead><tr><th>编号</th><th>标题</th><th>状态</th><th></th><th>更新</th></tr></thead><tbody>" +
+    heading +
+    form +
+    pager +
+    `<table><thead><tr>${head.map((cell) => `<th>${esc(cell)}</th>`).join("")}</tr></thead><tbody>` +
     rows.join("") +
-    "</tbody></table>"
+    "</tbody></table>" +
+    pager
   );
 }
 
@@ -130,16 +280,17 @@ function button(act: string, id: string, label: string, extra = ""): string {
   return `<button type="button" class="nx-btn${extra}" data-nx-act="${esc(act)}" data-nx-id="${esc(id)}">${esc(label)}</button>`;
 }
 
-function section(title: string, count: number | undefined, body: string): string {
-  return `<h2>${esc(title)}${count === undefined ? "" : `（${count}）`}</h2>${body}`;
+function section(lang: Lang, title: MsgKey, count: number | undefined, body: string): string {
+  const suffix = count === undefined ? "" : lang === "zh" ? `（${count}）` : ` (${count})`;
+  return `<h2>${esc(tr(lang, title))}${suffix}</h2>${body}`;
 }
 
-function table(head: string[], rows: string[][]): string {
+function table(lang: Lang, head: MsgKey[], rows: string[][]): string {
   if (rows.length === 0) {
-    return '<p class="muted">没有记录。</p>';
+    return `<p class="muted">${esc(tr(lang, "table.empty"))}</p>`;
   }
   return (
-    `<table><thead><tr>${head.map((cell) => `<th>${esc(cell)}</th>`).join("")}</tr></thead><tbody>` +
+    `<table><thead><tr>${head.map((cell) => `<th>${esc(tr(lang, cell))}</th>`).join("")}</tr></thead><tbody>` +
     rows.map((row) => `<tr>${row.join("")}</tr>`).join("") +
     "</tbody></table>"
   );
@@ -148,44 +299,71 @@ function table(head: string[], rows: string[][]): string {
 const td = (value: unknown, cls = "") => `<td${cls ? ` class="${cls}"` : ""}>${esc(value)}</td>`;
 const tdCode = (value: unknown) => `<td><code>${esc(value)}</code></td>`;
 
-export function renderTaskDetail(data: TaskPageData, basePath: string): string {
+const OPEN_WATCH_DONE = new Set(["satisfied", "exhausted", "cancelled"]);
+
+export function renderTaskDetail(
+  data: TaskPageData,
+  basePath: string,
+  lang: Lang = DEFAULT_LANG,
+): string {
   const { task, steps } = data.detail;
   const pending = data.decisions.filter((decision) => decision.status === "pending");
   const rest = data.decisions.filter((decision) => decision.status !== "pending");
+  const code = (text: string) => `<code>${esc(text)}</code>`;
   const parts = [
-    `<p><a href="${esc(`${basePath}/`)}">← 事项</a></p>`,
+    `<p><a href="${esc(`${basePath}/`)}">${esc(tr(lang, "detail.back"))}</a></p>`,
     `<h1>${esc(clip(task.title, 120))} <code class="muted">${esc(task.id)}</code></h1>`,
     `<p><span class="pill ${STATUS_CLASS[task.status] ?? ""}">${esc(task.status)}</span> ` +
-      `<span class="muted">${esc(task.kind)} · 版本 ${task.revision} · 风险上限 ${esc(task.riskCeiling)} · 更新 ${esc(fmtTime(task.updatedAt))}</span></p>`,
+      `<span class="muted">${esc(
+        tr(lang, "detail.meta", {
+          kind: task.kind,
+          revision: task.revision,
+          risk: task.riskCeiling,
+          updated: fmtTime(task.updatedAt),
+        }),
+      )}</span></p>`,
     task.summary ? `<p>${esc(task.summary)}</p>` : "",
-    section("目标", undefined, `<pre>${esc(clip(task.goal, 1200))}</pre>`),
-    section("要素", undefined, `<pre>${esc(clip(task.entities, 1200))}</pre>`),
+    section(lang, "sec.goal", undefined, `<pre>${esc(clip(task.goal, 1200))}</pre>`),
+    section(lang, "sec.entities", undefined, `<pre>${esc(clip(task.entities, 1200))}</pre>`),
   ];
   const withActions = data.actions === true;
   parts.push(
     section(
-      "待决策",
+      lang,
+      "sec.pending",
       pending.length,
       (pending.length > 0 && !withActions
-        ? '<div class="hint">在这里只能查看。批准或拒绝请在控制台调用 <code>nexus.decision.resolve</code>（需要 operator.write）。</div>'
+        ? `<div class="hint">${trHtml(lang, "hint.decisionReadOnly", esc, { code: code("nexus.decision.resolve") })}</div>`
         : "") +
         table(
-          ["编号", "问题", "类型", "风险", "截止", ...(withActions ? ["操作"] : [])],
+          lang,
+          [
+            "col.id",
+            "col.question",
+            "col.type",
+            "col.risk",
+            "col.deadline",
+            ...(withActions ? (["col.actions"] as const) : []),
+          ],
           pending.map((decision) => [
             tdCode(decision.id),
             td(clip(decision.question, 200)),
             td(decision.effectKind),
             td(decision.riskTier),
             td(fmtTime(decision.deadlineAt)),
-            ...(withActions ? [`<td>${button("decision", decision.id, "查看并决定")}</td>`] : []),
+            ...(withActions
+              ? [`<td>${button("decision", decision.id, tr(lang, "btn.reviewDecide"))}</td>`]
+              : []),
           ]),
         ),
     ),
     section(
-      "已处理的决策",
+      lang,
+      "sec.resolved",
       rest.length,
       table(
-        ["编号", "问题", "结果", "来源", "时间"],
+        lang,
+        ["col.id", "col.question", "col.result", "col.source", "col.time"],
         rest.map((decision) => [
           tdCode(decision.id),
           td(clip(decision.question, 160)),
@@ -196,10 +374,12 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
       ),
     ),
     section(
-      "执行",
+      lang,
+      "sec.executions",
       data.executions.length,
       table(
-        ["编号", "动作", "状态", "尝试", "时间"],
+        lang,
+        ["col.id", "col.action", "col.status", "col.attempts", "col.time"],
         data.executions.map((execution) => [
           tdCode(execution.id),
           tdCode(execution.actionId),
@@ -216,10 +396,12 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
   if (data.claims) {
     parts.push(
       section(
-        "声明（claim）",
+        lang,
+        "sec.claims",
         data.claims.length,
         table(
-          ["编号", "对象", "谓词", "状态", "完成条件"],
+          lang,
+          ["col.id", "col.subject", "col.predicate", "col.status", "col.required"],
           data.claims.map((claim) => [
             tdCode(claim.id),
             td(clip(claim.subject, 80)),
@@ -237,17 +419,19 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
   if (data.watches) {
     parts.push(
       section(
-        "回检（watch）",
+        lang,
+        "sec.watches",
         data.watches.length,
         table(
+          lang,
           [
-            "编号",
-            "条件",
-            "状态",
-            "已查/上限",
-            "下次检查",
-            "声明",
-            ...(withActions ? ["操作"] : []),
+            "col.id",
+            "col.condition",
+            "col.status",
+            "col.checked",
+            "col.nextCheck",
+            "col.claim",
+            ...(withActions ? (["col.actions"] as const) : []),
           ],
           data.watches.map((watch) => [
             tdCode(watch.id),
@@ -257,21 +441,13 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
               watch.status === "satisfied" ? "ok" : watch.status === "exhausted" ? "bad" : "",
             ),
             td(`${watch.attempts}/${watch.maxAttempts}`),
-            td(
-              watch.status === "satisfied" ||
-                watch.status === "exhausted" ||
-                watch.status === "cancelled"
-                ? "-"
-                : fmtTime(watch.nextCheckAt),
-            ),
+            td(OPEN_WATCH_DONE.has(watch.status) ? "-" : fmtTime(watch.nextCheckAt)),
             tdCode(watch.claimId ?? "-"),
             ...(withActions
               ? [
-                  watch.status === "satisfied" ||
-                  watch.status === "exhausted" ||
-                  watch.status === "cancelled"
+                  OPEN_WATCH_DONE.has(watch.status)
                     ? "<td></td>"
-                    : `<td>${button("watch-cancel", watch.id, "取消")}</td>`,
+                    : `<td>${button("watch-cancel", watch.id, tr(lang, "btn.cancel"))}</td>`,
                 ]
               : []),
           ]),
@@ -282,11 +458,21 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
   if (data.evidence) {
     parts.push(
       section(
-        "证据",
+        lang,
+        "sec.evidence",
         data.evidence.length,
-        '<p class="muted">这里不显示证据内容；读取原文需要经 <code>nexus.evidence.handle</code> / <code>nexus.evidence.read</code>。</p>' +
+        `<p class="muted">${trHtml(lang, "hint.evidence", esc, { handle: code("nexus.evidence.handle"), read: code("nexus.evidence.read") })}</p>` +
           table(
-            ["编号", "类型", "大小", "密级", "来源组", "字节", "挂到"],
+            lang,
+            [
+              "col.id",
+              "col.kind",
+              "col.size",
+              "col.classification",
+              "col.sourceGroup",
+              "col.bytes",
+              "col.linked",
+            ],
             data.evidence.map((item) => [
               tdCode(item.evidenceId),
               td(item.kind),
@@ -296,8 +482,8 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
               td(
                 item.redactionState === "none"
                   ? item.blobKey
-                    ? "在库"
-                    : "无"
+                    ? tr(lang, "bytes.stored")
+                    : tr(lang, "bytes.none")
                   : item.redactionState,
               ),
               td(item.linkedClaimIds.join(", ") || "-"),
@@ -308,10 +494,12 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
   }
   parts.push(
     section(
-      "步骤日志",
+      lang,
+      "sec.steps",
       steps.length,
       table(
-        ["#", "类型", "状态", "标题", "说明"],
+        lang,
+        ["col.seq", "col.kind", "col.status", "col.title", "col.detail"],
         steps.map((step) => [
           td(step.seq),
           td(step.kind),
@@ -327,24 +515,36 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
 
 export function renderPreferences(
   preferences: readonly PreferenceRecord[],
-  options: { actions?: boolean } = {},
+  options: { actions?: boolean; lang?: Lang } = {},
 ): string {
+  const lang = options.lang ?? DEFAULT_LANG;
   const withActions = options.actions === true;
+  const code = (text: string) => `<code>${esc(text)}</code>`;
   return (
-    "<h1>偏好</h1>" +
+    `<h1>${esc(tr(lang, "nav.preferences"))}</h1>` +
     (withActions
-      ? '<div class="hint">偏好只改变默认选项，不构成授权。在这里新增或修改的偏好会记为你亲自声明（stated）。' +
-        `${button("pref-new", "new", "新增偏好")}</div>`
-      : '<div class="hint">偏好只改变默认选项，不构成授权。修改或删除请调用 <code>nexus.preference.set</code> / <code>nexus.preference.delete</code>。</div>') +
+      ? `<div class="hint">${esc(tr(lang, "pref.hintActions"))}` +
+        `${button("pref-new", "new", tr(lang, "btn.newPreference"))}</div>`
+      : `<div class="hint">${trHtml(lang, "pref.hintReadOnly", esc, { set: code("nexus.preference.set"), del: code("nexus.preference.delete") })}</div>`) +
     table(
-      ["范围", "键", "值", "来源", "置信度", "版本", "更新", ...(withActions ? ["操作"] : [])],
+      lang,
+      [
+        "col.scope",
+        "col.key",
+        "col.value",
+        "col.source",
+        "col.confidence",
+        "col.revision",
+        "col.updatedAt",
+        ...(withActions ? (["col.actions"] as const) : []),
+      ],
       preferences.map((preference) => [
         td(preference.scope),
         tdCode(preference.key),
         `<td><pre>${esc(clip(preference.value, 200))}</pre></td>`,
         td(
           preference.origin === "task_exception"
-            ? `task_exception（${preference.taskId ?? ""}）`
+            ? `task_exception (${preference.taskId ?? ""})`
             : preference.origin,
         ),
         td(preference.confidence === null ? "-" : preference.confidence),
@@ -352,7 +552,7 @@ export function renderPreferences(
         td(fmtTime(preference.updatedAt)),
         ...(withActions
           ? [
-              `<td>${preference.origin === "stated" ? button("pref-edit", preference.id, "编辑") + " " : ""}${button("pref-delete", preference.id, "删除")}</td>`,
+              `<td>${preference.origin === "stated" ? button("pref-edit", preference.id, tr(lang, "btn.edit")) + " " : ""}${button("pref-delete", preference.id, tr(lang, "btn.delete"))}</td>`,
             ]
           : []),
       ]),
@@ -363,15 +563,25 @@ export function renderPreferences(
 export function renderReceipts(
   taskReceipts: readonly PurgeReceiptRow[],
   preferenceReceipts: readonly PreferenceReceiptRow[] | undefined,
+  lang: Lang = DEFAULT_LANG,
 ): string {
   const parts = [
-    "<h1>清除回执</h1>",
-    '<p class="muted">这里只记录你主动执行过的彻底清除（nexus.task.purge / nexus.preference.purge）。回执证明清除确实发生过，但只保留哈希和数量，不保留内容；被清除的内容无法恢复。没有执行过彻底清除时这里是空的。</p>',
+    `<h1>${esc(tr(lang, "nav.receipts"))}</h1>`,
+    `<p class="muted">${esc(tr(lang, "receipts.note"))}</p>`,
     section(
-      "事项",
+      lang,
+      "sec.tasks",
       taskReceipts.length,
       table(
-        ["回执", "事项", "声明事件", "证据", "链尾摘要", "时间"],
+        lang,
+        [
+          "col.receipt",
+          "col.task",
+          "col.claimEvents",
+          "col.evidenceCount",
+          "col.ledgerHead",
+          "col.time",
+        ],
         taskReceipts.map((receipt) => [
           tdCode(receipt.id),
           tdCode(receipt.taskId),
@@ -386,10 +596,12 @@ export function renderReceipts(
   if (preferenceReceipts) {
     parts.push(
       section(
-        "偏好",
+        lang,
+        "sec.preferences",
         preferenceReceipts.length,
         table(
-          ["回执", "键哈希", "历史条数", "时间"],
+          lang,
+          ["col.receipt", "col.keyHash", "col.revisionCount", "col.time"],
           preferenceReceipts.map((receipt) => [
             tdCode(receipt.id),
             tdCode(receipt.preferenceKeyHash.slice(0, 16)),

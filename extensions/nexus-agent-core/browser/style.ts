@@ -1,6 +1,7 @@
 // Scoped under .nexus-page so nothing leaks into the host. Colors follow the host theme through currentColor; only the
 // status accents are fixed (mid-tone, readable on light and dark).
 export const NEXUS_CSS = `
+.nexus-page [hidden]{display:none !important}
 .nexus-page{padding:16px 20px;font:14px/1.5 system-ui,sans-serif;color:inherit;max-width:1040px}
 .nexus-page nav{display:flex;gap:16px;align-items:center;border-bottom:1px solid color-mix(in srgb,currentColor 18%,transparent);padding-bottom:8px;margin-bottom:8px}
 .nexus-page nav a{color:inherit;opacity:.65;text-decoration:none}
@@ -37,5 +38,14 @@ export const NEXUS_CSS = `
 .nexus-page .nx-row textarea{font:12px/1.4 ui-monospace,monospace}
 .nexus-page .nx-check{align-items:center}
 .nexus-page .nx-check input{flex:0 0 auto}
+.nexus-page .nx-filters{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:6px;padding:8px 12px;margin:8px 0}
+.nexus-page .nx-filters label{display:flex;gap:4px;align-items:center;opacity:.85}
+.nexus-page .nx-filters input,.nexus-page .nx-filters select{font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:2px 8px}
+.nexus-page .nx-filters .f-keyword input{width:22em;max-width:100%}
+.nexus-page .nx-filters .f-presets{flex-basis:100%}
+.nexus-page .nx-filters .f-from input,.nexus-page .nx-filters .f-to input{width:11em}
+.nexus-page .nx-link{font:inherit;color:#4f7cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
+.nexus-page .pager{margin:8px 0;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.nexus-page .pager .cur{font-weight:600}
 .nexus-page .nx-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
 `;

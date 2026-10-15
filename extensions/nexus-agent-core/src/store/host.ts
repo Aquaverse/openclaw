@@ -21,6 +21,7 @@ const STORE_OPERATIONS: Record<StoreOperationName, true> = {
   findSimilar: true,
   get: true,
   list: true,
+  queryTasks: true,
   update: true,
   note: true,
   abort: true,

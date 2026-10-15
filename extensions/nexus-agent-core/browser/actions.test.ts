@@ -67,6 +67,7 @@ function fixture(
   },
   props: Record<string, string>,
   canWrite = true,
+  locale?: string,
 ) {
   const writes: Array<{ method: string; params: Record<string, unknown> | undefined }> = [];
   const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
@@ -102,6 +103,7 @@ function fixture(
   });
   const host = {
     request,
+    locale,
     connection: { connected: true, canWrite } as ControlUiHost["connection"],
     redact: (text: string) => text,
     subscribe: () => () => {},
@@ -373,5 +375,83 @@ describe("preference buttons", () => {
     expect(f.writes).toEqual([
       { method: "nexus.preference.delete", params: { preferenceId: "P1" } },
     ]);
+  });
+});
+
+describe("dialogs in the host's language", () => {
+  const han = /[\u4e00-\u9fff]/;
+
+  it("describes every resolve outcome in English without Chinese", () => {
+    for (const reply of [
+      { outcome: "approved", executionId: "EX1" },
+      { outcome: "approved" },
+      { outcome: "denied" },
+      { outcome: "already_resolved" },
+      { outcome: "superseded" },
+      { outcome: "superseded", reason: "price changed" },
+      { outcome: "expired" },
+      { outcome: "effect_unsupported" },
+      { outcome: "effect_apply_failed" },
+      { outcome: "weird" },
+      {},
+    ]) {
+      expect(describeResolve(reply, "D1", "en").text).not.toMatch(han);
+      expect(describeResolve(reply, "D1", "zh").text).toMatch(han);
+    }
+    expect(describeResolve({ outcome: "approved", executionId: "EX1" }, "D1", "en").text).toBe(
+      "Approved D1 (execution EX1 is ready; waiting for the agent to commit it).",
+    );
+  });
+
+  it("validates a preference draft in English", () => {
+    for (const [scope, key, value] of [
+      ["Bad Scope", "k", '"v"'],
+      ["global", "Bad Key", '"v"'],
+      ["global", "k", "{nope"],
+      ["global", "k", JSON.stringify("x".repeat(5000))],
+    ] as const) {
+      const out = validatePreferenceDraft(scope, key, value, "en");
+      expect(out.ok).toBe(false);
+      expect(out.ok ? "" : out.message).not.toMatch(han);
+    }
+  });
+
+  it("builds the decision, watch and preference dialogs in English", async () => {
+    const f = fixture(
+      { decisions: [decision()], watches: [watch()], preferences: [preference()] },
+      detailProps,
+      true,
+      "en-US",
+    );
+    await flush();
+    click(f.container, 'button[data-nx-act="decision"]');
+    expect(f.dialog()?.textContent).toContain("Resolve decision DEC1");
+    expect(f.dialog()?.textContent).toContain("Approve");
+    expect(f.dialog()?.textContent).toContain("Deny");
+    expect(f.dialog()?.textContent).toContain("This is an R2 decision");
+    expect(buttonByText(f.dialog() as ParentNode, "Cancel") !== undefined).toBe(true);
+    // The question comes from the server and is shown as is; everything else around it is English.
+    const chrome = (f.dialog()?.textContent ?? "").replace(decision().question, "");
+    expect(chrome).not.toMatch(han);
+    buttonByText(f.dialog() as ParentNode, "Cancel")?.click();
+
+    click(f.container, 'button[data-nx-act="watch-cancel"]');
+    expect(f.dialog()?.textContent).toContain("Cancel watch W1");
+    expect(f.dialog()?.textContent).toContain("checked 0/4");
+    buttonByText(f.dialog() as ParentNode, "Cancel")?.click();
+  });
+
+  it("builds the preference dialogs in English", async () => {
+    const f = fixture({ preferences: [preference()] }, { view: "preferences" }, true, "en");
+    await flush();
+    click(f.container, 'button[data-nx-act="pref-new"]');
+    expect(f.dialog()?.textContent).toContain("New preference");
+    expect(f.dialog()?.textContent).toContain("Value (JSON)");
+    expect(f.dialog()?.textContent).toContain("declared by you");
+    expect(f.dialog()?.textContent).not.toMatch(han);
+    buttonByText(f.dialog() as ParentNode, "Cancel")?.click();
+    click(f.container, 'button[data-nx-act="pref-delete"]');
+    expect(f.dialog()?.textContent).toContain("Delete preference");
+    expect(f.dialog()?.textContent).not.toMatch(han);
   });
 });
