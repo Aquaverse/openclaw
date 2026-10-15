@@ -6,16 +6,13 @@
 // 前提：dev 网关已启动，decisionsEnabled / claimsEnabled / evidenceBlobsEnabled = true，fakeProviderMode=ok，
 //   tools.alsoAllow 含 nexus_claim_add / nexus_evidence_add / nexus_claim_verify，本机装有 sqlite3。
 //   默认阶段可重复运行；配额检查要把 evidenceTaskQuotaBytes 设成 1048576（否则打印 SKIP）；
-//   crash-a / crash-b 要把 evidenceDebugDelayAfterA2Ms 设成 20000，并把 evidenceWriterLeaseMs=5000、evidenceReservationTtlMs=6000。
+//   crash-a / crash-b 要打开 spikesEnabled=true，并用环境变量 NEXUS_EVIDENCE_DEBUG_DELAY_AFTER_A2_MS=20000 启动网关（不是插件配置项，上限 120000，只有 spikesEnabled 时才生效），并把 evidenceWriterLeaseMs=5000、evidenceReservationTtlMs=6000。
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  GATEWAY_CLIENT_MODES,
-  GATEWAY_CLIENT_NAMES,
-} from "../../../packages/gateway-protocol/src/client-info.ts";
-import { GatewayClient } from "../../../src/gateway/client.ts";
+import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
+import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -440,7 +437,7 @@ async function main() {
   console.log(`\n探针 Task：${taskId}`);
 }
 
-// crash-a：在 A2 之后、B 之前的窗口里等你 kill -9 网关（网关需 evidenceDebugDelayAfterA2Ms=20000）
+// crash-a：在 A2 之后、B 之前的窗口里等你 kill -9 网关（网关需 spikesEnabled=true 并带环境变量 NEXUS_EVIDENCE_DEBUG_DELAY_AFTER_A2_MS=20000）
 async function crashA() {
   const stamp = Date.now().toString(36);
   const taskId = await newTask(`crash-${stamp}`);

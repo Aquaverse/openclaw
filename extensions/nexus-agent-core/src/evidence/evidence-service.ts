@@ -37,8 +37,6 @@ export type EvidenceConfig = {
   zeroRefGraceMs: number;
   /** A tombstone is re-deleted (and re-checked) at most this often. */
   tombstoneIntervalMs: number;
-  /** Dev only: sleep between phase A2 and phase B, so a test can kill the process inside that window. */
-  debugDelayAfterA2Ms: number;
   /**
    * `incarnation_gone` (DESIGN 9.5.1): trust "the writer's process has terminated" as the reason a writer is quiet. Off by
    * default; the operator turns it on only after the enablement checklist holds. Also makes the service terminate other
@@ -52,7 +50,6 @@ export const DEFAULT_EVIDENCE_CONFIG: EvidenceConfig = {
   leases: { writerLeaseMs: 30_000, reservationTtlMs: 60_000, reclaimLeaseMs: 60_000 },
   zeroRefGraceMs: 60_000,
   tombstoneIntervalMs: 10 * 60_000,
-  debugDelayAfterA2Ms: 0,
   incarnationGoneEnabled: false,
 };
 
@@ -76,6 +73,11 @@ export type EvidenceServiceDeps = {
   };
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Test seam: awaited between the byte write (A2) and phase B. Production wiring never sets it; only the spike module
+   * (src/spikes/crash-window.ts, behind `spikesEnabled`) and tests do, to hold a crash probe inside that window.
+   */
+  afterA2?: () => Promise<void>;
   newId?: (prefix: string) => string;
   /** The service wrote outbox rows (claim_changed / decision_pending): ask the runtime to deliver them. */
   onOutboxWritten?: () => void;
@@ -393,9 +395,7 @@ export function createEvidenceService(deps: EvidenceServiceDeps) {
           message: `blob key ${plan.blobKey} already existed`,
         };
       }
-      if (config.debugDelayAfterA2Ms > 0) {
-        await sleep(config.debugDelayAfterA2Ms);
-      }
+      await deps.afterA2?.();
       const admitted = await admitFor(plan);
       await dropStaging();
       return finish(admitted);

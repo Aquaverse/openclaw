@@ -256,8 +256,9 @@ status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 
   `claim_evidence_links` 里 `relation='supports' AND effective=1` 的关联——被反证、
   被 detach、被新版本取代的证据不再计数，反证单独算（DESIGN §9.5.4）。
 - **来源身份**：`source_identity_hash = sha256(locator + version + content_hash)`，
-  标定的是**一份材料**而不是一个位置或实体；`tool_output` 另存 run/session 作用域。
+  标定的是**一份材料**而不是一个位置或实体。（设计里 `tool_output` 还要另存 run/session 作用域，但 `tool_output` 引用**尚未实现**，是后续 spike，见下。）
   同一份材料在一个 Task 内只有一行，`agent_assertion` 被 CHECK 挡在表外（DESIGN §9.5.3）。
+- **当前真实可用的证据路径（2026-10-15）**：只有 `execution`（settle 时自动登记）与操作员上传的 `blob`。`tool_output`（按 `{runId, sessionKey, toolCallId}` 持久化并重启后取回原始工具输出字节）**未实现**，需要先 spike 确认宿主能稳定回溯；工具和账本现在都返回 `ref_kind_not_supported`。所以 Watcher 用 `web_fetch` 找到的材料，不能直接挂到 Claim：必须由操作员把材料上传成 blob（`nexus.evidence.upload`，来源组 `user_upload`），再挂到 Claim（`nexus.evidence.link` 或上传时带 `claimId`）。
 - **时机**：任何获得新事实或新证据时；watcher 回检时；commit 拿到结果时。
 - **四个阶段**：A0 同步初检（读字节前就拒掉跨 owner 的 ref）→ A1 异步**取原始
   `Uint8Array` → 算 hash/identity → 同步事务判三分支**（`reuse_evidence` /
@@ -546,7 +547,7 @@ extensions/nexus-agent-core/
 │   └── notify/               # 4.11
 ├── spikes/                   # Stage 0 的可执行观察/回归脚本（无依赖，node 直接跑）
 │                             # （运行时观测代码在 src/spikes/，由 spikesEnabled 开关控制，见 DESIGN §13）
-│   └── grant-rotation-sqlite.mjs   # 210 项 SQLite 约束回归：grant 轮换、复合外键、
+│   └── grant-rotation-sqlite.mjs   # 222 项 SQLite 约束回归：grant 轮换、复合外键、
 │                                    # 唯一索引 NULL、run_triggers owner 隔离、
 │                                    # outbox CAS、core approval 租约；第 11 组直接
 │                                    # 执行 DESIGN.md §6.3 的 SQL，验建表可行、

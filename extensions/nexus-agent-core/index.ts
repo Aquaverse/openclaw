@@ -3,6 +3,7 @@
 // Stage 3: the Claim / Evidence ledger behind `claimsEnabled`, evidence bytes behind `evidenceBlobsEnabled` (DESIGN section 13). Stage 0 runtime spikes stay behind `spikesEnabled`. Stage 4: the Preference Store behind `preferencesEnabled` (DESIGN section 11) and the Watcher behind `watchersEnabled` (section 10).
 import path from "node:path";
 import { definePluginEntry } from "./api.js";
+import { createCrashWindowHook } from "./src/spikes/crash-window.js";
 import { getSharedSpikeRecorder, readObservationFile } from "./src/spikes/recorder.js";
 import { runSpike, type SpikeRunParams } from "./src/spikes/runner.js";
 import { resolveSpikeStateDir } from "./src/spikes/spike1-runtime.js";
@@ -24,7 +25,6 @@ type NexusPluginConfig = {
   evidenceMaxUploadBytes?: number;
   evidenceWriterLeaseMs?: number;
   evidenceReservationTtlMs?: number;
-  evidenceDebugDelayAfterA2Ms?: number;
   evidenceIncarnationGoneEnabled?: boolean;
   fakeProviderIdempotent?: boolean;
   fakeProviderMode?: string;
@@ -72,26 +72,32 @@ export default definePluginEntry({
       );
     }
     if (config.tasksEnabled === true) {
-      registerTaskModule(api, {
-        ownerId: config.ownerId,
-        decisionsEnabled: config.decisionsEnabled === true,
-        claimsEnabled: config.claimsEnabled === true,
-        evidenceBlobsEnabled: config.evidenceBlobsEnabled === true,
-        preferencesEnabled: config.preferencesEnabled === true,
-        watchersEnabled: config.watchersEnabled === true,
-        watcherExtraTools: config.watcherExtraTools,
-        evidenceTaskQuotaBytes: config.evidenceTaskQuotaBytes,
-        evidenceOwnerQuotaBytes: config.evidenceOwnerQuotaBytes,
-        evidenceMaxUploadBytes: config.evidenceMaxUploadBytes,
-        evidenceWriterLeaseMs: config.evidenceWriterLeaseMs,
-        evidenceReservationTtlMs: config.evidenceReservationTtlMs,
-        evidenceDebugDelayAfterA2Ms: config.evidenceDebugDelayAfterA2Ms,
-        evidenceIncarnationGoneEnabled: config.evidenceIncarnationGoneEnabled === true,
-        fakeProviderIdempotent: config.fakeProviderIdempotent,
-        fakeProviderMode: config.fakeProviderMode,
-        coreApprovalEnabled: config.coreApprovalEnabled,
-        approvalTimeoutMs: config.approvalTimeoutMs,
-      });
+      // The crash-probe kill window is a spike seam: it exists only when the spikes are switched on.
+      const crashWindow =
+        config.spikesEnabled === true ? createCrashWindowHook(process.env) : undefined;
+      registerTaskModule(
+        api,
+        {
+          ownerId: config.ownerId,
+          decisionsEnabled: config.decisionsEnabled === true,
+          claimsEnabled: config.claimsEnabled === true,
+          evidenceBlobsEnabled: config.evidenceBlobsEnabled === true,
+          preferencesEnabled: config.preferencesEnabled === true,
+          watchersEnabled: config.watchersEnabled === true,
+          watcherExtraTools: config.watcherExtraTools,
+          evidenceTaskQuotaBytes: config.evidenceTaskQuotaBytes,
+          evidenceOwnerQuotaBytes: config.evidenceOwnerQuotaBytes,
+          evidenceMaxUploadBytes: config.evidenceMaxUploadBytes,
+          evidenceWriterLeaseMs: config.evidenceWriterLeaseMs,
+          evidenceReservationTtlMs: config.evidenceReservationTtlMs,
+          evidenceIncarnationGoneEnabled: config.evidenceIncarnationGoneEnabled === true,
+          fakeProviderIdempotent: config.fakeProviderIdempotent,
+          fakeProviderMode: config.fakeProviderMode,
+          coreApprovalEnabled: config.coreApprovalEnabled,
+          approvalTimeoutMs: config.approvalTimeoutMs,
+        },
+        crashWindow ? { evidenceAfterA2: crashWindow } : {},
+      );
     }
     if (config.spikesEnabled !== true) {
       return;

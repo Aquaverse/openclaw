@@ -47,15 +47,17 @@
         "type": "array",
         "items": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 80
+          "enum": [
+            "web_fetch",
+            "web_search"
+          ]
         },
         "maxItems": 16,
         "default": [
           "web_fetch",
           "web_search"
         ],
-        "description": "Extra READ-ONLY tool names a re-check turn may use besides the Nexus ones (default web_fetch and web_search). Anything that can act outwards (message, exec, browser actions) must not be listed."
+        "description": "Extra read-only tools a re-check turn may use besides the Nexus ones. Only web_fetch and web_search are accepted: a re-check turn reads untrusted content, so the list is fixed by the plugin, not open to other tool names."
       },
       "evidenceTaskQuotaBytes": {
         "type": "integer",
@@ -91,13 +93,6 @@
         "maximum": 3600000,
         "default": 60000,
         "description": "How long an unsettled reservation counts against the quota before reclaim may claim it. Lower it only for testing."
-      },
-      "evidenceDebugDelayAfterA2Ms": {
-        "type": "integer",
-        "minimum": 0,
-        "maximum": 120000,
-        "default": 0,
-        "description": "DEV ONLY: pause between the byte write and the final admission, to let a test kill the gateway inside that window."
       },
       "evidenceIncarnationGoneEnabled": {
         "type": "boolean",

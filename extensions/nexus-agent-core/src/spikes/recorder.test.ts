@@ -1,13 +1,15 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   createSpikeRecorder,
   describeError,
   getSharedSpikeRecorder,
   readObservationFile,
 } from "./recorder.js";
+
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("createSpikeRecorder", () => {
   it("numbers observations in order and filters by spike and item", () => {
@@ -42,20 +44,16 @@ describe("createSpikeRecorder", () => {
   });
 
   it("appends JSON lines to the file", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-rec-"));
-    try {
-      const filePath = path.join(dir, "nested", "observations.jsonl");
-      const recorder = createSpikeRecorder({ filePath });
-      recorder.record(4, "schedule.handle", "ok", { id: "job-1" });
-      recorder.record(4, "schedule.unschedule-by-tag", "ok", { removed: 1 });
-      const lines = fs.readFileSync(filePath, "utf8").trim().split("\n");
-      expect(lines.map((line) => JSON.parse(line).item)).toEqual([
-        "schedule.handle",
-        "schedule.unschedule-by-tag",
-      ]);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    const dir = tempDirs.make("nexus-rec-");
+    const filePath = path.join(dir, "nested", "observations.jsonl");
+    const recorder = createSpikeRecorder({ filePath });
+    recorder.record(4, "schedule.handle", "ok", { id: "job-1" });
+    recorder.record(4, "schedule.unschedule-by-tag", "ok", { removed: 1 });
+    const lines = fs.readFileSync(filePath, "utf8").trim().split("\n");
+    expect(lines.map((line) => JSON.parse(line).item)).toEqual([
+      "schedule.handle",
+      "schedule.unschedule-by-tag",
+    ]);
   });
 
   it("renders a markdown table and escapes pipes", () => {
@@ -74,43 +72,31 @@ describe("createSpikeRecorder", () => {
 
 describe("observation file continuity", () => {
   it("continues seq across recorder instances and records the pid", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-rec-"));
-    try {
-      const filePath = path.join(dir, "observations.jsonl");
-      createSpikeRecorder({ filePath }).record(3, "service.start", "ok");
-      const second = createSpikeRecorder({ filePath }).record(3, "service.start", "ok");
-      expect(second.seq).toBe(2);
-      expect(second.pid).toBe(process.pid);
-      expect(readObservationFile(filePath).map((row) => row.seq)).toEqual([1, 2]);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    const dir = tempDirs.make("nexus-rec-");
+    const filePath = path.join(dir, "observations.jsonl");
+    createSpikeRecorder({ filePath }).record(3, "service.start", "ok");
+    const second = createSpikeRecorder({ filePath }).record(3, "service.start", "ok");
+    expect(second.seq).toBe(2);
+    expect(second.pid).toBe(process.pid);
+    expect(readObservationFile(filePath).map((row) => row.seq)).toEqual([1, 2]);
   });
 
   it("ignores a torn last line left by kill -9", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-rec-"));
-    try {
-      const filePath = path.join(dir, "observations.jsonl");
-      createSpikeRecorder({ filePath }).record(3, "service.start", "ok");
-      fs.appendFileSync(filePath, '{"seq":2,"at":"2026');
-      expect(readObservationFile(filePath)).toHaveLength(1);
-      expect(readObservationFile(path.join(dir, "missing.jsonl"))).toEqual([]);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    const dir = tempDirs.make("nexus-rec-");
+    const filePath = path.join(dir, "observations.jsonl");
+    createSpikeRecorder({ filePath }).record(3, "service.start", "ok");
+    fs.appendFileSync(filePath, '{"seq":2,"at":"2026');
+    expect(readObservationFile(filePath)).toHaveLength(1);
+    expect(readObservationFile(path.join(dir, "missing.jsonl"))).toEqual([]);
   });
 
   it("shares one recorder per file so a reload keeps earlier rows", () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-rec-"));
-    try {
-      const filePath = path.join(dir, "observations.jsonl");
-      const first = getSharedSpikeRecorder(filePath);
-      first.record(3, "service.stop.end", "ok");
-      const afterReload = getSharedSpikeRecorder(filePath);
-      expect(afterReload).toBe(first);
-      expect(afterReload.list()).toHaveLength(1);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+    const dir = tempDirs.make("nexus-rec-");
+    const filePath = path.join(dir, "observations.jsonl");
+    const first = getSharedSpikeRecorder(filePath);
+    first.record(3, "service.stop.end", "ok");
+    const afterReload = getSharedSpikeRecorder(filePath);
+    expect(afterReload).toBe(first);
+    expect(afterReload.list()).toHaveLength(1);
   });
 });

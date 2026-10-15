@@ -6,6 +6,7 @@ import { parseDecisionRequest } from "./decision/request.js";
 import type { EventBridge } from "./events.js";
 import { resolveProcessBootId, workerIdFor } from "./process-boot.js";
 import type { FakeProvider } from "./provider/fake-provider.js";
+import { assertProviderAllowed } from "./provider/provider-guard.js";
 import type { OutboxRecord } from "./store/decision-types.js";
 import type { TaskStore } from "./store/host.js";
 import type { Principal } from "./store/types.js";
@@ -62,6 +63,8 @@ export type DecisionRuntimeDeps = {
 };
 
 export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
+  // Every provider enters the execution path here (DESIGN section 14, T6).
+  assertProviderAllowed(deps.provider);
   const now = deps.now ?? Date.now;
   const bootId = deps.bootId !== undefined ? deps.bootId : resolveProcessBootId();
   const workerId = deps.workerId ?? workerIdFor(bootId, Math.random().toString(36).slice(2, 8));

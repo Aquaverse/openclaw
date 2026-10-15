@@ -1711,6 +1711,9 @@ importers:
         specifier: 1.3.30
         version: 1.3.30
     devDependencies:
+      '@openclaw/gateway-protocol':
+        specifier: workspace:*
+        version: link:../../packages/gateway-protocol
       '@openclaw/plugin-sdk':
         specifier: workspace:*
         version: link:../../packages/plugin-sdk

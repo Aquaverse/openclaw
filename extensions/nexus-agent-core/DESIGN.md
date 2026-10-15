@@ -1361,7 +1361,7 @@ INSERT INTO action_grants (...) VALUES (:newGrantId, ...);
 
 > 上面四条结论都有可执行的回归：`spikes/grant-rotation-sqlite.mjs`（用 `node:sqlite`，
 > 无外部依赖，`node extensions/nexus-agent-core/spikes/grant-rotation-sqlite.mjs` 直接跑，
-> **215 项断言**，覆盖 grant 轮换、复合外键、唯一索引的 NULL 行为、`run_triggers`
+> **222 项断言**，覆盖 grant 轮换、复合外键、唯一索引的 NULL 行为、`run_triggers`
 > 的不可变/新鲜度/owner 隔离、outbox 认领 CAS、`action_executions_prepared`、
 > core approval 租约与审批超时的关系、偏好表（§11）的 origin 不变量（含五条负例）、
 > decision `effect_kind` 与授权两表的跨表隔断（复合外键，不只是 CHECK）、
@@ -2546,6 +2546,8 @@ v0.12k：否则终态工作项仍挂着已过期的证明），再删字节、�
 
 `ref` 只有三种形态，没有第四种：
 
+> **落地口径（2026-10-15 审查后）：** Stage 3 实际提供 `execution` 与 `blob`（操作员上传）两种；`tool_output` 尚未实现，是后续工作（需先 spike，见 §14）。所以现阶段"正式引用集合"是 execution + 操作员上传的 blob，下表第一行是目标形态，不是已交付能力。
+
 | `ref.kind`    | `ref.id`                             | store 做什么                                                                                                                                          |
 | ------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tool_output` | 本 run 内某次工具调用的 `toolCallId` | 从 run 记录里取**原始**输出字节，算 hash，写 blob；**同时持久化 `source_run_id` / `source_session_key`**，因为 toolCallId 没有跨 run 唯一性（§9.5.3） |
@@ -2822,7 +2824,7 @@ const handle = await api.session.workflow.scheduleSessionTurn({
 这是工具阶段唯一的凭据。
 
 **watcher turn 的工具：** `nexus_task_get`、`nexus_task_search`、`nexus_task_note`、`nexus_claim_verify`、`nexus_evidence_add`、`nexus_watch_report`，
-加上配置项 `watcherExtraTools`（默认 `web_fetch`、`web_search`，操作员可改）。没有 `nexus_action_*`、`nexus_decision_*`、`nexus_watch_create`、`nexus_preference_*`、
+加上配置项 `watcherExtraTools`——**但它只是在 Nexus 持有的允许列表（`WATCHER_EXTRA_TOOL_ALLOWLIST` = `web_fetch`、`web_search`）里选子集**，manifest 用 enum 约束，运行时再按同一列表过滤并告警，配置里写 `exec` 之类不会生效（2026-10-15 审查后收口）。没有 `nexus_action_*`、`nexus_decision_*`、`nexus_watch_create`、`nexus_preference_*`、
 渠道发送、`exec`、`browser`：watcher 只能读和挂证据，**不能对外动作**。外部内容视为敌意，协议文本（`NEXUS_WATCHER_PROTOCOL`）写明。
 
 **生命周期：** `pending_schedule → scheduled → firing → satisfied | rescheduled | exhausted | cancelled`。
@@ -3075,7 +3077,7 @@ Stage 4（工作表 M2，已落地，见 Stage 4 落地记录）。表由迁移 
 | Stage 3 Evidence / Blob / Purge | **切片①（账本 + boot id）VM 与 dev 网关验收通过（2026-10-13）；切片②（Blob 字节存储 + 操作员上传）VM 与 dev 网关验收通过（含 kill -9 崩溃恢复），Mac 静态检查通过；切片③（Purge + 单条证据删除 + `incarnation_gone` 开关）VM、dev 网关与 Mac 静态检查验收通过（2026-10-14）；pkg 回归待做（Stage 2 已在安装版通过）** | Blob Store 与异步时序已验证；boot id 来源已冻结为候选 D 并写入 §9.5.1；`incarnation_gone` 仍关闭                                                                                                                                                                            |
 | `incarnation_gone`              | **有开关 `evidenceIncarnationGoneEnabled`，默认关闭**                                                                                                                                                                                                                                                                 | 五条耦合契约全部有真实证据，且 boot id 来源已冻结                                                                                                                                                                                                                           |
 
-回归脚本的 215 项只证 SQLite 形状与同事务原子性；上表每一格"否"背后，都是它**证不到**的真实运行时行为。
+回归脚本的 222 项只证 SQLite 形状与同事务原子性；上表每一格"否"背后，都是它**证不到**的真实运行时行为。
 
 ### Stage 0 结论汇总（2026-10-09）
 
@@ -3585,7 +3587,7 @@ override token、`before_prompt_build` 注入、`nexus.task.list/get` + `plugin.
 | 命名空间                                  | `nexus-ev-<sha256(owner)前32hex>`（reject-new，512 MB，单条 100 MB，50000 条）；`nexus-stg-<…>`（evict-oldest，128 MB，64 条，10 分钟 TTL）                                                                                                                                                                                                                             |
 | 新增 RPC                                  | `nexus.evidence.upload` / `link` / `maintain`（`operator.write`）；`list` / `stats` / `reconcile`（`operator.read`）。事件 `plugin.nexus-agent-core.evidence_changed`。工具白名单不变（仍是那 13 个）                                                                                                                                                                   |
 | 生命周期                                  | gateway 启动时 reconcile + maintain；之后每第 4 个 15 秒 tick 跑 maintain；`stop()` 排空在途写者（3.5 秒），**仅排空成功才写 `clean_shutdown`**；boot id 读不到时 incarnation 以 `unavailable` 登记                                                                                                                                                                     |
-| 新配置                                    | `evidenceBlobsEnabled`、`evidenceTaskQuotaBytes`、`evidenceOwnerQuotaBytes`、`evidenceMaxUploadBytes`、`evidenceWriterLeaseMs`、`evidenceReservationTtlMs`、`evidenceDebugDelayAfterA2Ms`（仅 dev，在 A2 之后插一段延迟用来做崩溃测试）                                                                                                                                 |
+| 新配置                                    | `evidenceBlobsEnabled`、`evidenceTaskQuotaBytes`、`evidenceOwnerQuotaBytes`、`evidenceMaxUploadBytes`、`evidenceWriterLeaseMs`、`evidenceReservationTtlMs`（崩溃测试的 A2 后延迟不再是配置项，见 §14「审查后收口」）                                                                                                                                                    |
 
 验证（Linux VM，`node:sqlite` + 假字节存储）：kernel 20、decision-kernel 61、task-tools 17、rpc 6、prompt-events 8、claim-flow 16、**evidence-flow 31（新）**、process-boot 2、decision-flow 37、tokens 5、similarity 10，回归脚本 217/217；`tsc --noEmit` 只剩"缺 openclaw 构建声明"类老报错；`src/` 零改动。
 evidence-flow 覆盖：迟到的 A2 写入、迟到的删除、崩溃后接管、配额 fail closed + R0 卡片及去重、跨 Task 挂载、篡改/缺失检测、reconcile、RPC 参数校验、操作员 relation 升级、写者租约未过期时过期 reservation 也不可回收（变异检查后补）。
@@ -3595,7 +3597,7 @@ evidence-flow 覆盖：迟到的 A2 写入、迟到的删除、崩溃后接管�
 - `main`：全部通过（上传 / 复用 / Agent 挂载 `unclassified` → 操作员 link / `agent_call` + `user_upload` 两个来源组端到端到 `VERIFIED` / 完成判定 / 结束后拒绝上传 / digest 链）。首次运行有两处 FAIL，原因是探针自己多登记了一条从未挂证据的完成条件，已修探针，插件无问题。
 - 回归：`claim-flow.mts` 全部通过；`r1-flow.mts`（用一个仍打开的事项）全部通过。注意 `claim-flow` 会把它的探针事项做到 `succeeded`，不能再拿来跑 `r1-flow`。
 - 崩溃（`crash-a` → kill -9 → 重启 → `crash-b`，writerLease 5 s / reservationTtl 6 s / A2 后延迟 20 s）：结果符合设计。重启耗时超过租期，网关启动时的 maintain 已把对象回收成 `deleted`、reservation 成 `abandoned`；没有 evidence 行指向这份字节；`stats.tombstonesWithoutProof=1`（崩溃进程的写者无 `committed` / `awaited` 原因，不出"不存在"证明，停在等 Purge）；`reconcile` 的 `missing` / `sizeMismatch` / `untracked` 全空，存储键数 7 = live 对象数（字节已真实删除）。探针首跑有两处 FAIL，原因是探针假定重启后对象仍是 `writing`、并拿"已回收后的 ownerBytes"和自己比较，已改成两种起点都接受、并按物理对象求和核对配额，插件无问题。
-- 调试配置没恢复时跑 `main` 会得到 `reservation_lost`（`reservation_abandoned`）：`evidenceDebugDelayAfterA2Ms=20000` 把写者停在 A2 之后，租期只有 5–6 秒，maintain 把 reservation 回收了，迟到的阶段 B 被拒——保护在按设计工作。三项配置恢复默认后重跑，`main` 全部通过。
+- 调试配置没恢复时跑 `main` 会得到 `reservation_lost`（`reservation_abandoned`）：环境变量 `NEXUS_EVIDENCE_DEBUG_DELAY_AFTER_A2_MS=20000`（当时是配置项 `evidenceDebugDelayAfterA2Ms`，2026-10-15 起改为环境变量）把写者停在 A2 之后，租期只有 5–6 秒，maintain 把 reservation 回收了，迟到的阶段 B 被拒——保护在按设计工作。三项配置恢复默认后重跑，`main` 全部通过。
 - Mac 侧：`pnpm test:extension nexus-agent-core` 14 个文件 / 237 条全部通过；`pnpm tsgo:extensions` 报 `blob-ledger.ts` 的 `db` 参数未使用（TS6133，VM 的 tsc 没开 noUnusedParameters 所以没看到），已删掉该参数并同步调用方，之后 `tsgo:extensions` 与 `oxfmt --check` 均通过（2026-10-13）。
 
 #### 切片③落地记录：Purge + 单条证据删除 + `incarnation_gone` 开关（2026-10-14，用户选「Task 硬清除 + 单条证据删除 + incarnation_gone 开关」「Task 有在途工作时拒绝（task_busy）」）
@@ -3974,6 +3976,28 @@ preference store（§11）、subagent handoff。
 - **读句柄每读一块都整体取回并重算 hash**（2026-10-14）：16 MB 上限内可接受；真正的大文件或频繁读取需要流式 / 分段哈希或带缓存的句柄。句柄只在进程内存里，网关重启即失效。
 - **人工终结的操作者字符串固定为 `operator:nexus-console`**：RPC 连接上下文里还没有可信的操作者身份（与 purge 回执同一个局限）。
 - **pkg 安装产物尚未回归**（沿用）：安装版仍是 Stage 1 构建。
+
+### 审查后收口（2026-10-15）
+
+一次整体代码审查提出 8 条问题，逐条核对后的处理如下。
+
+**交付口径。** Stage 2–4 的**代码切片**按 fake-provider 范围完成：决策、授权、执行、账本、证据、清除、偏好、回检、控制台的代码都已落地；各环境（VM / dev 网关 / pkg 安装版）的验收状态以 §13 阶段表为准，不在这里重述。执行面只有假供应商，**不得**据此宣称真实高风险（R2/R3）执行已获得强授权保证（T6，见上）。
+
+**T6 会话级 lockdown：未实现，只有一道开发约束，不是硬门槛。** §7.1 的 `resolveSessionActiveTask` / `riskLockdownFor` / `requiresToolAuthority: true` 没有实现，`before_prompt_build` 只注入协议与开放 Task 清单。因此 R2/R3 Task 在等待审批或执行时，同一会话里模型仍可调用其他有副作用的通用工具，绕过 grant 与 execution admission。现在能做到的只有两层：① `createDecisionRuntime`（provider 进入执行路径的唯一入口）调用 `assertProviderAllowed`，非 `kind: "fake"` 的 provider 会抛错并指向本节，`t6-gate.test.ts` 在这个入口上测试；② 评审要求：任何接入真实 provider 的改动必须同时实现 lockdown、在 dev 与安装版验证，再把 `T6_SESSION_LOCKDOWN_IMPLEMENTED` 改为 true。这两层都**挡不住有意绕过**（自称 `kind: "fake"`、直接改常量、从别处另起执行路径），所以是开发约束加评审要求，不是安全边界。
+
+**`tool_output` 引用：Stage 3 的完成口径降级为 `execution` + 操作员上传的 `blob`。** 工具说明与账本都拒绝 `tool_output`（`ref_kind_not_supported`），所以 watcher 用 `web_fetch` 找到的材料不能直接挂到 Claim，只能由操作员先上传。实现持久化原始工具输出的追溯路径（含重启后按 `{runId, sessionKey, toolCallId}` 取回）是后续工作，需要先做 spike。
+
+**Kysely：现状不符合仓库规范，作为合入前待决项记录，不在本期迁移。** 根 `AGENTS.md` 要求普通 SQLite 读写用 Kysely，raw SQL 仅限 schema、migration、bootstrap 与有明确理由的 primitive。当前 `kernel.ts`、`decision-kernel.ts`、`claim-ledger.ts` 及其传播到 blob / purge / preference / watch ledger 的 `one` / `all` / `run(sql, params)` 都是手写 SQL，表名、列名与返回形状不受类型检查。原因（不是免责）：这些代码跑在 SQLite worker 线程里，大量依赖手写的同步事务、SAVEPOINT 与 schema CHECK 约束，是按"原生 SQL + 回归脚本对 DDL 逐字核对"设计的。SDK 已公开同步的 `getNodeSqliteKysely` / `executeSqliteQuerySync`，所以迁移可行，只是改动面覆盖七个 ledger。合入前需要二选一：向仓库维护者申请例外并记录理由，或按 task → decision → claim → evidence → purge → preference → watch 的顺序分批迁移（每批跑全套测试与探针）。
+
+**已修复。**
+
+- `watcherExtraTools` 可注入写能力：改为 Nexus 持有的允许列表（见 §10.2），manifest enum + 运行时过滤 + 告警 + 测试。
+- HTTP UI 的 Claims 开关：原先传 `runtime !== undefined`（决策运行时是否存在），现在传 `claimsEnabled`。
+- 11 个验收脚本越界导入：`GatewayClient` 改从 `openclaw/plugin-sdk/gateway-runtime` 导入；客户端名常量改从 `@openclaw/gateway-protocol/client-info` 导入，并在插件 `package.json` 的 `devDependencies` 声明 `@openclaw/gateway-protocol: workspace:*`（写法同 `extensions/workboard`，需 `pnpm install` 更新 lockfile）。通用依赖契约检查不覆盖这些 `.mts`，所以通过它并不能证明依赖归属正确。
+- `evidenceDebugDelayAfterA2Ms` 不再是插件配置：manifest 里已删除；证据服务只 `await` 一个注入的 `afterA2` 钩子，生产注册不传它。只有 `spikesEnabled=true` 时，`index.ts` 才用 `src/spikes/crash-window.ts` 根据环境变量 `NEXUS_EVIDENCE_DEBUG_DELAY_AFTER_A2_MS`（上限 120000 ms）构造这个钩子。真实影响：在开了 `spikesEnabled` 的实例上，带上该环境变量会让每次证据写入在字节落盘后、最终入账前暂停，可能跨过 writer / reservation 租期；所以它只能用于 dev 崩溃探针。仍是一个测试缝隙，但已经不在正常生产路径上。dev 配置里若还留着旧键 `evidenceDebugDelayAfterA2Ms`，需先清掉，否则配置校验会拒绝。
+- `recorder.test.ts` 的临时目录改用 `useAutoCleanupTempDirTracker`。
+
+---
 
 ## 15. 明确不做（Stage 0–2）
 

@@ -29,6 +29,32 @@ export const WATCHER_BASE_TOOLS = [
 ] as const;
 export const DEFAULT_WATCHER_EXTRA_TOOLS = ["web_fetch", "web_search"] as const;
 
+/**
+ * The only host tools a watcher turn may ever be given beyond WATCHER_BASE_TOOLS. A watcher turn reads untrusted web
+ * content, so this list is owned here and is not extensible through config (DESIGN section 10.2): a config value outside
+ * it (exec, browser, channel send, ...) is dropped, not trusted.
+ */
+export const WATCHER_EXTRA_TOOL_ALLOWLIST: readonly string[] = ["web_fetch", "web_search"];
+
+export function resolveWatcherExtraTools(configured: readonly string[] | undefined): {
+  tools: string[];
+  rejected: string[];
+} {
+  const wanted = configured ?? DEFAULT_WATCHER_EXTRA_TOOLS;
+  const tools: string[] = [];
+  const rejected: string[] = [];
+  for (const name of wanted) {
+    if (WATCHER_EXTRA_TOOL_ALLOWLIST.includes(name)) {
+      if (!tools.includes(name)) {
+        tools.push(name);
+      }
+    } else {
+      rejected.push(name);
+    }
+  }
+  return { tools, rejected };
+}
+
 export function buildWatchMessage(watch: Pick<WatchRecord, "id" | "taskId">): string {
   return `${WATCH_MARKER_PREFIX}${watch.id}] Nexus 回检：事项 ${watch.taskId}。按「Nexus 回检回合」协议执行，最后调用一次 nexus_watch_report。`;
 }
@@ -130,7 +156,7 @@ export function createWatchRuntime(deps: WatchRuntimeDeps) {
   const claimWaitMs = deps.claimWaitMs ?? 2_000;
   const allowedTools = [
     ...WATCHER_BASE_TOOLS,
-    ...(deps.extraTools ?? DEFAULT_WATCHER_EXTRA_TOOLS).filter(
+    ...resolveWatcherExtraTools(deps.extraTools).tools.filter(
       (name) => !(WATCHER_BASE_TOOLS as readonly string[]).includes(name),
     ),
   ];

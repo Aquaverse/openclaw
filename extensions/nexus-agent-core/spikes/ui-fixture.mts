@@ -10,11 +10,8 @@
 //   D-多   R2 风险，两个候选预订                                  → 必须先选一个动作才能批准
 //   一条 60 分钟后检查的回检                                      → 可点「取消」
 // 处理完以后，用页面把这些决策逐个批准/拒绝，再取消回检；剩下的事项用 nexus.task.abort 结束即可。
-import {
-  GATEWAY_CLIENT_MODES,
-  GATEWAY_CLIENT_NAMES,
-} from "../../../packages/gateway-protocol/src/client-info.ts";
-import { GatewayClient } from "../../../src/gateway/client.ts";
+import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
+import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);

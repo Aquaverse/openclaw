@@ -4,11 +4,8 @@
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/watch-trigger.mts --token "$TOKEN" --delay-ms 60000
 // 前提：dev 网关已启动，spikesEnabled=true，plugins.entries.nexus-agent-core.hooks.allowConversationAccess=true，
 //   模型可用（定时 turn 会真的调用一次模型）。脚本会等触发（默认 90 秒 + 缓冲），最多约 4 分钟。
-import {
-  GATEWAY_CLIENT_MODES,
-  GATEWAY_CLIENT_NAMES,
-} from "../../../packages/gateway-protocol/src/client-info.ts";
-import { GatewayClient } from "../../../src/gateway/client.ts";
+import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
+import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);

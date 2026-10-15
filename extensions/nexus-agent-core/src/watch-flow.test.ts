@@ -9,6 +9,7 @@ import {
   buildWatchMessage,
   createWatchRuntime,
   createWatchSharedState,
+  resolveWatcherExtraTools,
   WATCHER_BASE_TOOLS,
 } from "./watch-runtime.js";
 
@@ -434,6 +435,44 @@ describe("authenticating a background turn (section 10.2)", () => {
     assert.equal(row.status, "scheduled");
     assert.equal(row.attempts, 0);
     assert.equal(w.watchRuntime.pendingCount(), 0);
+  });
+});
+
+describe("watcherExtraTools is a fixed allow-list, not a trusted config value", () => {
+  it("only web_fetch / web_search get through; exec, browser, channel sends and Nexus action tools are dropped", () => {
+    const got = resolveWatcherExtraTools([
+      "exec",
+      "web_fetch",
+      "browser",
+      "message",
+      "nexus_action_commit",
+      "web_fetch",
+    ]);
+    assert.deepEqual(got.tools, ["web_fetch"]);
+    assert.deepEqual(got.rejected, ["exec", "browser", "message", "nexus_action_commit"]);
+    assert.deepEqual(resolveWatcherExtraTools(undefined).tools, ["web_fetch", "web_search"]);
+    assert.deepEqual(resolveWatcherExtraTools([]).tools, []);
+  });
+
+  it("a runtime built with a hostile list still hands the watcher turn no write tool", async () => {
+    const w = world({ claims: true });
+    const rt = createWatchRuntime({
+      getStore: async () => w.store,
+      events: w.events,
+      resolvePrincipal: () => P,
+      scheduler: {
+        schedule: async () => undefined,
+        unscheduleByTag: async () => ({ removed: 0, failed: 0 }),
+      },
+      recordTrigger: async () => {},
+      logger: { info: () => {}, warn: () => {} },
+      now: () => w.now(),
+      extraTools: ["exec", "browser", "web_search"],
+    });
+    const allowed = rt.allowedTools();
+    assert.ok(allowed.includes("web_search"));
+    assert.ok(!allowed.includes("exec"));
+    assert.ok(!allowed.includes("browser"));
   });
 });
 

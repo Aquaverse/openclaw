@@ -6,11 +6,8 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  GATEWAY_CLIENT_MODES,
-  GATEWAY_CLIENT_NAMES,
-} from "../../../packages/gateway-protocol/src/client-info.ts";
-import { GatewayClient } from "../../../src/gateway/client.ts";
+import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
+import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
 
 const ALL_EVENTS = [
   "task_changed",

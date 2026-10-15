@@ -50,7 +50,12 @@ import { createTaskTools, TASK_TOOL_NAMES } from "./tools/task-tools.js";
 import { createWatchTools, WATCH_TOOL_NAMES } from "./tools/watch-tools.js";
 import { createNexusUiHttpHandler, NEXUS_UI_BASE_PATH } from "./ui-http.js";
 import { createWatchRpcHandlers } from "./watch-rpc.js";
-import { createWatchRuntime, getSharedWatchState, type WatchRuntime } from "./watch-runtime.js";
+import {
+  createWatchRuntime,
+  getSharedWatchState,
+  resolveWatcherExtraTools,
+  type WatchRuntime,
+} from "./watch-runtime.js";
 
 export type TaskModuleConfig = {
   ownerId?: string;
@@ -63,15 +68,13 @@ export type TaskModuleConfig = {
   preferencesEnabled?: boolean;
   /** Stage 4: the Watcher (tools nexus_watch_*, RPC nexus.watch.*, background re-check turns). Needs claimsEnabled. */
   watchersEnabled?: boolean;
-  /** Extra read-only tool names a re-check turn may use (default web_fetch, web_search). */
+  /** Extra tools a re-check turn may use; only web_fetch / web_search are accepted (WATCHER_EXTRA_TOOL_ALLOWLIST). */
   watcherExtraTools?: string[];
   evidenceTaskQuotaBytes?: number;
   evidenceOwnerQuotaBytes?: number;
   evidenceMaxUploadBytes?: number;
   evidenceWriterLeaseMs?: number;
   evidenceReservationTtlMs?: number;
-  /** Dev only: pause between the byte write and the final admission so a test can kill the process in that window. */
-  evidenceDebugDelayAfterA2Ms?: number;
   /** Enables the `incarnation_gone` absence-proof reason and the supersede-on-start step (DESIGN 9.5.1 checklist). */
   evidenceIncarnationGoneEnabled?: boolean;
   /** Fake provider: does it honour the idempotency key? (default true) */
@@ -120,7 +123,17 @@ function sharedHost(databasePath: string, workerUrl: URL): StoreHost {
   return host;
 }
 
-export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleConfig): void {
+/** Wiring that only tests and spikes supply; the normal registration passes nothing. */
+export type TaskModuleSeams = {
+  /** Awaited between the evidence byte write (A2) and phase B (crash probes). */
+  evidenceAfterA2?: () => Promise<void>;
+};
+
+export function registerTaskModule(
+  api: OpenClawPluginApi,
+  config: TaskModuleConfig,
+  seams: TaskModuleSeams = {},
+): void {
   const workerUrl = resolveStoreWorkerUrl(api.runtimeSource);
   if (!workerUrl) {
     api.logger.error(
@@ -223,6 +236,7 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
             api.runtime.state.openBlobStore<{ owner: string }>(options),
           ),
           incarnationId,
+          ...(seams.evidenceAfterA2 ? { afterA2: seams.evidenceAfterA2 } : {}),
           config: {
             limits: {
               taskQuotaBytes: config.evidenceTaskQuotaBytes ?? defaults.limits.taskQuotaBytes,
@@ -234,7 +248,6 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
               reservationTtlMs: config.evidenceReservationTtlMs ?? defaults.leases.reservationTtlMs,
               reclaimLeaseMs: defaults.leases.reclaimLeaseMs,
             },
-            debugDelayAfterA2Ms: config.evidenceDebugDelayAfterA2Ms ?? 0,
             incarnationGoneEnabled: config.evidenceIncarnationGoneEnabled === true,
           },
           onOutboxWritten: () => runtime.kickOutbox(),
@@ -316,6 +329,12 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
   }
   if (config.watchersEnabled === true && claimsEnabled && runtime) {
     const decisionRuntime = runtime;
+    const watcherExtraTools = resolveWatcherExtraTools(config.watcherExtraTools);
+    if (watcherExtraTools.rejected.length > 0) {
+      api.logger.warn(
+        `nexus-agent-core: watcherExtraTools ignores ${watcherExtraTools.rejected.join(", ")}: a re-check turn reads untrusted content and may only be given web_fetch / web_search`,
+      );
+    }
     const watchers = createWatchRuntime({
       getStore,
       events,
@@ -338,7 +357,7 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
       logger: api.logger,
       // The host registers this plugin more than once and routes different hooks to different registrations.
       state: getSharedWatchState(),
-      ...(config.watcherExtraTools ? { extraTools: config.watcherExtraTools } : {}),
+      ...(config.watcherExtraTools ? { extraTools: watcherExtraTools.tools } : {}),
     });
     watchRuntime = watchers;
     api.registerTool(
@@ -430,7 +449,7 @@ export function registerTaskModule(api: OpenClawPluginApi, config: TaskModuleCon
       getStore,
       resolvePrincipal: () => principalFor(),
       readScopes: () => getPluginRuntimeGatewayRequestScope()?.client?.connect?.scopes ?? [],
-      claimsEnabled: runtime !== undefined,
+      claimsEnabled,
       preferencesEnabled: config.preferencesEnabled === true,
       watchersEnabled: watchRuntime !== undefined,
     }),

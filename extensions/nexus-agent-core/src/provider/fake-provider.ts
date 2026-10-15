@@ -87,6 +87,8 @@ export function createFakeProvider(options: FakeProviderOptions) {
   });
 
   return {
+    /** What kind of provider this is; the T6 guard (provider-guard.ts) only lets "fake" through. */
+    kind: "fake" as const,
     caps(): ProviderCaps {
       return Object.fromEntries(FAKE_TOOLS.map((name) => [name, idempotent]));
     },

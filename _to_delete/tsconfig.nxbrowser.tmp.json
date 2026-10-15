@@ -1,6 +1,0 @@
-{
-  "extends": "/sessions/rcw-01sxak48x2wwt6gqwlkferec/mnt/openclaw/tsconfig.json",
-  "compilerOptions": {"noEmit": true, "allowImportingTsExtensions": true, "noUnusedLocals": true, "noUnusedParameters": true, "skipLibCheck": true, "rootDir": "/sessions/rcw-01sxak48x2wwt6gqwlkferec/mnt/openclaw", "baseUrl": "/sessions/rcw-01sxak48x2wwt6gqwlkferec/mnt/openclaw"},
-  "include": ["/sessions/rcw-01sxak48x2wwt6gqwlkferec/mnt/openclaw/extensions/nexus-agent-core/browser/*.ts", "/sessions/rcw-01sxak48x2wwt6gqwlkferec/mnt/openclaw/src/**/*.d.ts"],
-  "exclude": []
-}

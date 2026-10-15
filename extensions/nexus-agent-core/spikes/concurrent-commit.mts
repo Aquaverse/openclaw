@@ -1,14 +1,11 @@
-import {
-  GATEWAY_CLIENT_MODES,
-  GATEWAY_CLIENT_NAMES,
-} from "../../../packages/gateway-protocol/src/client-info.ts";
+import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
 // Stage 2 验收：对同一个 executionId 同时发 N 个 nexus_action_commit（经 tools.invoke，绕过模型）。
 // 期望：供应商账本只增加 1 行；恰好 1 个调用是首次执行，其余是重放或被拒（见输出）。
 // 用法：node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/concurrent-commit.mts \
 //        (--execution-id <id> | --task <仍打开的 taskId>) [--n 6] --token <gateway.auth.token>
 //   给 --task 时脚本自己登记一个动作、请求决策、批准，得到一个 prepared 的 executionId 再并发 commit
 //   （假供应商需处于 ok 模式）。
-import { GatewayClient } from "../../../src/gateway/client.ts";
+import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
