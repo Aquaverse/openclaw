@@ -73,3 +73,73 @@ describe("mountSanitized", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 });
+
+describe("action markers", () => {
+  it("keeps a known marker as an inert button and reports it on click", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const onAction = vi.fn();
+    mountSanitized(
+      container,
+      '<button type="submit" class="nx-btn" data-nx-act="decision" data-nx-id="DEC1" onclick="x()" formaction="https://evil.example/">go</button>',
+      hrefOf,
+      vi.fn(),
+      onAction,
+    );
+    const button = container.querySelector("button") as HTMLButtonElement;
+    expect(button.getAttributeNames().sort()).toEqual([
+      "class",
+      "data-nx-act",
+      "data-nx-id",
+      "type",
+    ]);
+    expect(button.getAttribute("type")).toBe("button");
+    button.click();
+    expect(onAction).toHaveBeenCalledWith({ kind: "decision", id: "DEC1" });
+  });
+
+  it("turns forged or malformed markers into plain text", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const onAction = vi.fn();
+    mountSanitized(
+      container,
+      [
+        '<button data-nx-act="delete-everything" data-nx-id="X1">a</button>',
+        '<button data-nx-act="decision" data-nx-id="../etc">b</button>',
+        '<button data-nx-act="watch-cancel">c</button>',
+        "<button>d</button>",
+      ].join(""),
+      hrefOf,
+      vi.fn(),
+      onAction,
+    );
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).toBe("abcd");
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("needs no id for the new-preference marker, and ignores clicks without a handler", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const onAction = vi.fn();
+    mountSanitized(
+      container,
+      '<button data-nx-act="pref-new" data-nx-id="new">n</button>',
+      hrefOf,
+      vi.fn(),
+      onAction,
+    );
+    (container.querySelector("button") as HTMLButtonElement).click();
+    expect(onAction).toHaveBeenCalledWith({ kind: "pref-new" });
+    const bare = document.createElement("div");
+    document.body.append(bare);
+    mountSanitized(
+      bare,
+      '<button data-nx-act="decision" data-nx-id="D1">x</button>',
+      hrefOf,
+      vi.fn(),
+    );
+    expect(() => (bare.querySelector("button") as HTMLButtonElement).click()).not.toThrow();
+  });
+});

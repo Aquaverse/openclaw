@@ -13,6 +13,7 @@ import {
   renderTaskDetail,
   renderTaskList,
 } from "../src/ui-render.js";
+import { EMPTY_MODEL, type NexusModel } from "./actions.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
 
 export type NexusRequest = <T = unknown>(
@@ -36,13 +37,21 @@ export async function probeFeatures(request: NexusRequest): Promise<NexusFeature
   return { preferences: listed !== undefined };
 }
 
-export type NexusView = { title: string; html: string };
+/** `model` keeps the records the page rendered; action dialogs are built from it, never from the markup. */
+export type NexusView = { title: string; html: string; model: NexusModel };
+
+export type LoadOptions = {
+  /** Render action buttons. Off when the connection cannot write. */
+  actions?: boolean;
+};
 
 export async function loadView(
   request: NexusRequest,
   route: NexusRoute,
   features: NexusFeatures,
+  options: LoadOptions = {},
 ): Promise<NexusView> {
+  const actions = options.actions === true;
   switch (route.view) {
     case "tasks": {
       const [tasks, pending] = await Promise.all([
@@ -58,7 +67,11 @@ export async function loadView(
       for (const decision of pending?.decisions ?? []) {
         counts.set(decision.taskId, (counts.get(decision.taskId) ?? 0) + 1);
       }
-      return { title: "事项", html: renderTaskList(tasks.tasks, counts, NAV_BASE) };
+      return {
+        title: "事项",
+        html: renderTaskList(tasks.tasks, counts, NAV_BASE),
+        model: EMPTY_MODEL,
+      };
     }
     case "task": {
       const { taskId } = route;
@@ -97,16 +110,26 @@ export async function loadView(
             claims: claims?.claims,
             evidence: evidence?.evidence,
             watches: watches?.watches,
+            actions,
           },
           NAV_BASE,
         ),
+        model: {
+          decisions: decisions?.decisions ?? [],
+          watches: watches?.watches ?? [],
+          preferences: [],
+        },
       };
     }
     case "preferences": {
       const out = await request<{ preferences: PreferenceRecord[] }>("nexus.preference.list", {
         limit: 200,
       });
-      return { title: "偏好", html: renderPreferences(out.preferences) };
+      return {
+        title: "偏好",
+        html: renderPreferences(out.preferences, { actions }),
+        model: { decisions: [], watches: [], preferences: out.preferences },
+      };
     }
     case "receipts": {
       const [tasks, preferences] = await Promise.all([
@@ -122,6 +145,7 @@ export async function loadView(
       return {
         title: "清除回执",
         html: renderReceipts(tasks.receipts, preferences?.receipts),
+        model: EMPTY_MODEL,
       };
     }
   }

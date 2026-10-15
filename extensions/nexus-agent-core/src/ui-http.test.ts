@@ -105,6 +105,7 @@ describe("Nexus Control UI pages", () => {
     assert.ok(body.body.includes("seat"));
     assert.ok(!body.body.includes("<img"));
     assert.ok(body.body.includes("&lt;img"));
+    assert.ok(!body.body.includes("<button"), "the HTTP page stays read-only");
     const off = setup({ preferences: false });
     assert.equal((await request(off.handler, `${NEXUS_UI_BASE_PATH}/preferences`)).status, 404);
   });
@@ -197,6 +198,10 @@ describe("Nexus Control UI pages", () => {
     assert.equal(shown.status, 200);
     assert.ok(shown.body.includes(watchId));
     assert.ok(shown.body.includes("回检"));
+    assert.ok(
+      !shown.body.includes("<button"),
+      "the HTTP page stays read-only: action buttons belong to the module",
+    );
     assert.ok(!shown.body.includes("<script"), "the Agent's text is escaped");
     const off = setup({ watchers: false });
     const other = off.w.newTask();

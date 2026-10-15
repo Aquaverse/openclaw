@@ -118,7 +118,17 @@ export type TaskPageData = {
   evidence: readonly EvidenceBlobView[] | undefined;
   /** Only when the Watcher is on. */
   watches?: readonly WatchRecord[] | undefined;
+  /** Emit action buttons. Only the Control UI module sets this (it confirms and calls the RPC); the HTTP page never does. */
+  actions?: boolean;
 };
+
+/**
+ * An action button is only a marker: a validated action name and id, nothing else. The module that mounts the markup
+ * decides what the click does and rebuilds the confirmation from the record it loaded, never from these attributes.
+ */
+function button(act: string, id: string, label: string, extra = ""): string {
+  return `<button type="button" class="nx-btn${extra}" data-nx-act="${esc(act)}" data-nx-id="${esc(id)}">${esc(label)}</button>`;
+}
 
 function section(title: string, count: number | undefined, body: string): string {
   return `<h2>${esc(title)}${count === undefined ? "" : `（${count}）`}</h2>${body}`;
@@ -151,21 +161,23 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
     section("目标", undefined, `<pre>${esc(clip(task.goal, 1200))}</pre>`),
     section("要素", undefined, `<pre>${esc(clip(task.entities, 1200))}</pre>`),
   ];
+  const withActions = data.actions === true;
   parts.push(
     section(
       "待决策",
       pending.length,
-      (pending.length > 0
+      (pending.length > 0 && !withActions
         ? '<div class="hint">在这里只能查看。批准或拒绝请在控制台调用 <code>nexus.decision.resolve</code>（需要 operator.write）。</div>'
         : "") +
         table(
-          ["编号", "问题", "类型", "风险", "截止"],
+          ["编号", "问题", "类型", "风险", "截止", ...(withActions ? ["操作"] : [])],
           pending.map((decision) => [
             tdCode(decision.id),
             td(clip(decision.question, 200)),
             td(decision.effectKind),
             td(decision.riskTier),
             td(fmtTime(decision.deadlineAt)),
+            ...(withActions ? [`<td>${button("decision", decision.id, "查看并决定")}</td>`] : []),
           ]),
         ),
     ),
@@ -228,7 +240,15 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
         "回检（watch）",
         data.watches.length,
         table(
-          ["编号", "条件", "状态", "已查/上限", "下次检查", "声明"],
+          [
+            "编号",
+            "条件",
+            "状态",
+            "已查/上限",
+            "下次检查",
+            "声明",
+            ...(withActions ? ["操作"] : []),
+          ],
           data.watches.map((watch) => [
             tdCode(watch.id),
             td(clip(watch.expect, 120)),
@@ -245,6 +265,15 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
                 : fmtTime(watch.nextCheckAt),
             ),
             tdCode(watch.claimId ?? "-"),
+            ...(withActions
+              ? [
+                  watch.status === "satisfied" ||
+                  watch.status === "exhausted" ||
+                  watch.status === "cancelled"
+                    ? "<td></td>"
+                    : `<td>${button("watch-cancel", watch.id, "取消")}</td>`,
+                ]
+              : []),
           ]),
         ),
       ),
@@ -296,12 +325,19 @@ export function renderTaskDetail(data: TaskPageData, basePath: string): string {
   return parts.join("\n");
 }
 
-export function renderPreferences(preferences: readonly PreferenceRecord[]): string {
+export function renderPreferences(
+  preferences: readonly PreferenceRecord[],
+  options: { actions?: boolean } = {},
+): string {
+  const withActions = options.actions === true;
   return (
     "<h1>偏好</h1>" +
-    '<div class="hint">偏好只改变默认选项，不构成授权。修改或删除请调用 <code>nexus.preference.set</code> / <code>nexus.preference.delete</code>。</div>' +
+    (withActions
+      ? '<div class="hint">偏好只改变默认选项，不构成授权。在这里新增或修改的偏好会记为你亲自声明（stated）。' +
+        `${button("pref-new", "new", "新增偏好")}</div>`
+      : '<div class="hint">偏好只改变默认选项，不构成授权。修改或删除请调用 <code>nexus.preference.set</code> / <code>nexus.preference.delete</code>。</div>') +
     table(
-      ["范围", "键", "值", "来源", "置信度", "版本", "更新"],
+      ["范围", "键", "值", "来源", "置信度", "版本", "更新", ...(withActions ? ["操作"] : [])],
       preferences.map((preference) => [
         td(preference.scope),
         tdCode(preference.key),
@@ -314,6 +350,11 @@ export function renderPreferences(preferences: readonly PreferenceRecord[]): str
         td(preference.confidence === null ? "-" : preference.confidence),
         td(preference.revision),
         td(fmtTime(preference.updatedAt)),
+        ...(withActions
+          ? [
+              `<td>${preference.origin === "stated" ? button("pref-edit", preference.id, "编辑") + " " : ""}${button("pref-delete", preference.id, "删除")}</td>`,
+            ]
+          : []),
       ]),
     )
   );

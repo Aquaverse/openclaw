@@ -20,4 +20,22 @@ export const NEXUS_CSS = `
 .nexus-page .pending{color:#d98a1f}.nexus-page .bad{color:#e5534b}.nexus-page .ok{color:#2fa56b}
 .nexus-page .hint{border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:6px;padding:8px 12px;margin:8px 0}
 .nexus-page .error{color:#e5534b;margin:12px 0}
+.nexus-page .nx-notice{margin:8px 0;padding:6px 12px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:6px}
+.nexus-page .nx-notice.ok{color:#2fa56b}
+.nexus-page .nx-btn{font:inherit;color:inherit;background:none;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:1px 10px;cursor:pointer}
+.nexus-page .nx-btn:disabled{opacity:.45;cursor:not-allowed}
+.nexus-page .nx-primary{background:#4f7cff;border-color:#4f7cff;color:#fff}
+.nexus-page .nx-danger{border-color:#e5534b;color:#e5534b}
+.nexus-page .hint .nx-btn{margin-left:8px}
+.nexus-page .nx-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
+.nexus-page .nx-dialog{background:Canvas;color:CanvasText;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:10px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:16px 20px;box-shadow:0 12px 40px rgba(0,0,0,.35)}
+.nexus-page .nx-title{font-size:16px;margin:0 0 8px;opacity:1}
+.nexus-page .nx-row{display:flex;gap:12px;align-items:flex-start;margin:6px 0}
+.nexus-page .nx-label{flex:0 0 88px;opacity:.65}
+.nexus-page .nx-value{flex:1;min-width:0;word-break:break-word}
+.nexus-page .nx-row input,.nexus-page .nx-row textarea,.nexus-page .nx-row select{flex:1;min-width:0;font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:4px 8px}
+.nexus-page .nx-row textarea{font:12px/1.4 ui-monospace,monospace}
+.nexus-page .nx-check{align-items:center}
+.nexus-page .nx-check input{flex:0 0 auto}
+.nexus-page .nx-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
 `;

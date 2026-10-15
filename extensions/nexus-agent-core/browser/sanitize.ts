@@ -2,11 +2,41 @@
 // Task store may become markup there. The renderers already escape every value; this is the second, independent layer: the
 // HTML is parsed inertly (DOMParser never runs scripts) and rebuilt from an allow-list of tags and attributes. Unknown
 // tags are replaced by their text, every attribute but `class` (plain tokens only) is dropped, and the only link target
-// that survives is a `nexus-nav:` route.
+// that survives is a `nexus-nav:` route. A <button> survives only as an action marker: a known action name plus an id,
+// which the page maps to a confirmation dialog built from its own loaded records, never from the markup.
 import { routeFromHref, type NexusRoute } from "./route.ts";
+
+export type NexusAction =
+  | { kind: "decision"; id: string }
+  | { kind: "watch-cancel"; id: string }
+  | { kind: "pref-new" }
+  | { kind: "pref-edit"; id: string }
+  | { kind: "pref-delete"; id: string };
+
+const ACTION_ID = /^[A-Za-z0-9_-]{1,40}$/;
+
+/** Maps a marker's (name, id) pair to an action, or undefined when it is not one we render. */
+export function actionFromMarker(act: string | null, id: string | null): NexusAction | undefined {
+  if (act === "pref-new") {
+    return { kind: "pref-new" };
+  }
+  if (!id || !ACTION_ID.test(id)) {
+    return undefined;
+  }
+  if (
+    act === "decision" ||
+    act === "watch-cancel" ||
+    act === "pref-edit" ||
+    act === "pref-delete"
+  ) {
+    return { kind: act, id };
+  }
+  return undefined;
+}
 
 const ALLOWED_TAGS = new Set([
   "a",
+  "button",
   "code",
   "div",
   "h1",
@@ -24,6 +54,7 @@ const ALLOWED_TAGS = new Set([
 const CLASS_TOKEN = /^[A-Za-z0-9_-]+$/;
 
 export type NavigateHandler = (route: NexusRoute) => void;
+export type ActionHandler = (action: NexusAction) => void;
 
 function clean(source: Node, target: Node, doc: Document, hrefOf: (route: NexusRoute) => string) {
   for (const child of Array.from(source.childNodes)) {
@@ -57,6 +88,22 @@ function clean(source: Node, target: Node, doc: Document, hrefOf: (route: NexusR
         copy.dataset.nexusRoute = JSON.stringify(route);
       }
     }
+    if (tag === "button") {
+      const action = actionFromMarker(
+        element.getAttribute("data-nx-act"),
+        element.getAttribute("data-nx-id"),
+      );
+      if (!action) {
+        // Not a marker we rendered: keep the label as text, nothing clickable.
+        target.appendChild(doc.createTextNode(element.textContent ?? ""));
+        continue;
+      }
+      copy.setAttribute("type", "button");
+      copy.setAttribute("data-nx-act", action.kind);
+      if ("id" in action) {
+        copy.setAttribute("data-nx-id", action.id);
+      }
+    }
     clean(element, copy, doc, hrefOf);
     target.appendChild(copy);
   }
@@ -71,6 +118,7 @@ export function mountSanitized(
   html: string,
   hrefOf: (route: NexusRoute) => string,
   navigate: NavigateHandler,
+  onAction?: ActionHandler,
 ): () => void {
   const parsed = new DOMParser().parseFromString(
     `<!doctype html><body>${html}</body>`,
@@ -89,7 +137,20 @@ export function mountSanitized(
     ) {
       return;
     }
-    const anchor = (event.target as Element | null)?.closest?.("a[data-nexus-route]");
+    const target = event.target as Element | null;
+    const marker = target?.closest?.("button[data-nx-act]");
+    if (marker) {
+      const action = actionFromMarker(
+        marker.getAttribute("data-nx-act"),
+        marker.getAttribute("data-nx-id"),
+      );
+      if (action && onAction) {
+        event.preventDefault();
+        onAction(action);
+      }
+      return;
+    }
+    const anchor = target?.closest?.("a[data-nexus-route]");
     const raw = anchor?.getAttribute("data-nexus-route");
     if (!raw) {
       return;
