@@ -127,6 +127,7 @@ export async function loadView(
             evidence: evidence?.evidence,
             watches: watches?.watches,
             actions,
+            preview: true,
           },
           NAV_BASE,
           lang,
@@ -135,6 +136,7 @@ export async function loadView(
           decisions: decisions?.decisions ?? [],
           watches: watches?.watches ?? [],
           preferences: [],
+          evidence: evidence?.evidence ?? [],
         },
       };
     }
@@ -145,7 +147,7 @@ export async function loadView(
       return {
         title: tr(lang, "title.preferences"),
         html: renderPreferences(out.preferences, { actions, lang }),
-        model: { decisions: [], watches: [], preferences: out.preferences },
+        model: { decisions: [], watches: [], preferences: out.preferences, evidence: [] },
       };
     }
     case "receipts": {

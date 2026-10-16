@@ -3,7 +3,7 @@
 // Read-only by construction: it calls list/get methods only.
 import type { ControlUiView } from "openclaw/plugin-sdk/control-ui";
 import { resolveLang, tr, type Lang } from "../src/i18n.js";
-import { filterToParams, type TaskFilter } from "../src/task-query.js";
+import { EMPTY_FILTER, filterToParams, type TaskFilter } from "../src/task-query.js";
 import { EMPTY_MODEL, runAction, type ActionNotice, type NexusModel } from "./actions.ts";
 import { loadView, probeFeatures, type NexusFeatures } from "./data.ts";
 import { createFilterBar } from "./filters.ts";
@@ -28,6 +28,9 @@ const REFRESH_DEBOUNCE_MS = 400;
 const target = (route: NexusRoute) => ({ id: NEXUS_PAGE_ID, params: routeParams(route) });
 
 export function createNexusPage(): ControlUiView {
+  // The last list filter, kept for as long as the module is loaded: a task detail, the preference tab or a reload of the
+  // page hands the list back exactly as the user left it. Only "reset" and a new search change it.
+  let remembered: TaskFilter = EMPTY_FILTER;
   return (container, initial) => {
     let context = initial;
     let features: NexusFeatures = { preferences: false };
@@ -70,8 +73,16 @@ export function createNexusPage(): ControlUiView {
     root.append(style, nav, notice, bar.element, main);
     container.replaceChildren(root);
 
-    const hrefOf = (route: NexusRoute) => context.host.navigation.pageHref(target(route));
-    const open = (route: NexusRoute) => context.host.navigation.openPage(target(route));
+    // Links back to the plain list (the tab, "back to list") come from another view: give them the remembered filter.
+    // From the list itself the same link still means "start over".
+    const resolve = (route: NexusRoute): NexusRoute =>
+      route.view === "tasks" &&
+      parseRoute(context.props).view !== "tasks" &&
+      Object.keys(routeParams(route)).length === 0
+        ? { view: "tasks", filter: remembered }
+        : route;
+    const hrefOf = (route: NexusRoute) => context.host.navigation.pageHref(target(resolve(route)));
+    const open = (route: NexusRoute) => context.host.navigation.openPage(target(resolve(route)));
 
     const showNotice = (next: ActionNotice | undefined) => {
       notice.hidden = next === undefined;
@@ -151,6 +162,9 @@ export function createNexusPage(): ControlUiView {
       }
       const lang = currentLang();
       bar.setLang(lang);
+      if (route.view === "tasks") {
+        remembered = route.filter;
+      }
       renderNav(route);
       syncBar(route);
       if (!context.host.connection.connected) {

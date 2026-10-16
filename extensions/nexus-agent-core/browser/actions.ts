@@ -3,6 +3,7 @@
 // calls the existing operator.write RPC. The RPCs stay the authority: they re-check status, revision and authority hash,
 // so a stale dialog can at worst be refused, never wrongly applied.
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
+import type { EvidenceBlobView } from "../src/store/blob-types.js";
 import type { DecisionRecord } from "../src/store/decision-types.js";
 import type { PreferenceRecord } from "../src/store/preference-types.js";
 import {
@@ -14,15 +15,22 @@ import type { WatchRecord } from "../src/store/watch-types.js";
 import { clip, fmtTime } from "../src/ui-render.js";
 import type { NexusRequest } from "./data.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
+import { evidenceViewDialog } from "./evidence-view.ts";
 import type { NexusAction } from "./sanitize.ts";
 
 export type NexusModel = {
   decisions: readonly DecisionRecord[];
   watches: readonly WatchRecord[];
   preferences: readonly PreferenceRecord[];
+  evidence: readonly EvidenceBlobView[];
 };
 
-export const EMPTY_MODEL: NexusModel = { decisions: [], watches: [], preferences: [] };
+export const EMPTY_MODEL: NexusModel = {
+  decisions: [],
+  watches: [],
+  preferences: [],
+  evidence: [],
+};
 
 export type ActionNotice = { ok: boolean; text: string };
 
@@ -375,7 +383,15 @@ function preferenceFormDialog(ctx: ActionContext, existing: PreferenceRecord | u
         line.append(name, input);
         body.append(line);
       };
-      const scopeInput = document.createElement("input");
+      // Machine identifiers and JSON: the OS must not capitalise ("hi" -> "Hi"), autocorrect or spell-check them.
+      const plainText = <T extends HTMLInputElement | HTMLTextAreaElement>(el: T): T => {
+        el.setAttribute("autocapitalize", "off");
+        el.setAttribute("autocorrect", "off");
+        el.setAttribute("autocomplete", "off");
+        el.setAttribute("spellcheck", "false");
+        return el;
+      };
+      const scopeInput = plainText(document.createElement("input"));
       scopeInput.value = scope;
       scopeInput.readOnly = existing !== undefined;
       scopeInput.addEventListener("input", () => {
@@ -383,7 +399,7 @@ function preferenceFormDialog(ctx: ActionContext, existing: PreferenceRecord | u
         sync();
         changed();
       });
-      const keyInput = document.createElement("input");
+      const keyInput = plainText(document.createElement("input"));
       keyInput.value = key;
       keyInput.readOnly = existing !== undefined;
       keyInput.addEventListener("input", () => {
@@ -391,7 +407,7 @@ function preferenceFormDialog(ctx: ActionContext, existing: PreferenceRecord | u
         sync();
         changed();
       });
-      const valueInput = document.createElement("textarea");
+      const valueInput = plainText(document.createElement("textarea"));
       valueInput.rows = 6;
       valueInput.value = raw;
       valueInput.placeholder = tr(ctx.lang, "pref.placeholder");
@@ -418,6 +434,8 @@ function preferenceFormDialog(ctx: ActionContext, existing: PreferenceRecord | u
 
 export function runAction(ctx: ActionContext, action: NexusAction): void {
   switch (action.kind) {
+    case "evidence-view":
+      return evidenceViewDialog(ctx, action.id);
     case "decision":
       return decisionDialog(ctx, action.id);
     case "watch-cancel":

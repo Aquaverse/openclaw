@@ -146,6 +146,71 @@ describe("nexus page", () => {
     expect(f.opened).toEqual([{ id: "nexus", params: { view: "task", task: "T1ABC" } }]);
   });
 
+  it("shows a time on every claim, evidence and step row", async () => {
+    const f = fixture(
+      {
+        "nexus.task.get": {
+          task: task(),
+          steps: [
+            {
+              id: "S1",
+              seq: 1,
+              kind: "note",
+              status: "done",
+              title: "第一步",
+              detail: null,
+              flowId: null,
+              startedAt: 1_700_000_000_000,
+              endedAt: 1_700_000_060_000,
+            },
+          ],
+          sessions: [],
+        },
+        "nexus.claim.list": {
+          claims: [
+            {
+              id: "C1",
+              taskId: "T1ABC",
+              subject: "s",
+              predicate: "p",
+              state: "UNVERIFIED",
+              requiredForCompletion: null,
+              createdAt: 1_700_000_100_000,
+              updatedAt: 1_700_000_200_000,
+            },
+          ],
+        },
+        "nexus.evidence.list": {
+          evidence: [
+            {
+              evidenceId: "EV1",
+              taskId: "T1ABC",
+              kind: "file",
+              blobKey: null,
+              contentHash: "h",
+              byteSize: null,
+              sourceGroup: "g",
+              classification: "personal",
+              redactionState: "raw",
+              meta: null,
+              capturedAt: 1_700_000_300_000,
+              linkedClaimIds: [],
+            },
+          ],
+        },
+      },
+      { view: "task", task: "T1ABC" },
+    );
+    await flush();
+    const stamp = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/g;
+    const rowText = (needle: string) =>
+      [...f.container.querySelectorAll("tr")].find((row) => row.textContent?.includes(needle))
+        ?.textContent ?? "";
+    expect(rowText("第一步").match(stamp)?.length).toBe(2);
+    expect(rowText("C1").match(stamp)?.length).toBe(2);
+    expect(rowText("EV1").match(stamp)?.length).toBe(1);
+  });
+
   it("renders a task detail from read-only methods and tolerates disabled modules", async () => {
     const f = fixture(
       {
@@ -268,6 +333,38 @@ describe("nexus page", () => {
       expect((detail.container.querySelector("form.nx-filters") as HTMLFormElement).hidden).toBe(
         true,
       );
+    });
+
+    it("gives the list back with its filter when leaving a task detail", async () => {
+      const f = fixture(
+        {
+          ...LIST,
+          "nexus.task.list": { tasks: [task()], total: 1 },
+          "nexus.task.get": {
+            task: task(),
+            steps: [],
+            sessions: [],
+            pending: [],
+            readyExecutions: [],
+          },
+        },
+        { status: "open", qkw: "invoice" },
+      );
+      await flush();
+      // Open the detail: the host swaps the page parameters in place.
+      f.view.update?.(f.context({ view: "task", task: "T1ABC" }));
+      await flush();
+      const back = [...f.container.querySelectorAll("a[data-nexus-route]")].find(
+        (a) => a.textContent === "← 事项",
+      ) as HTMLElement | undefined;
+      expect(back === undefined).toBe(false);
+      back?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      const tab = [...f.container.querySelectorAll("nav a")].find((a) => a.textContent === "事项");
+      tab?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      expect(f.opened).toEqual([
+        { id: "nexus", params: { status: "open", qkw: "invoice" } },
+        { id: "nexus", params: { status: "open", qkw: "invoice" } },
+      ]);
     });
 
     it("submits a new search at page 1 through the host navigation", async () => {

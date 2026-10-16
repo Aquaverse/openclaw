@@ -36,6 +36,7 @@ export const NEXUS_CSS = `
 .nexus-page .nx-value{flex:1;min-width:0;word-break:break-word}
 .nexus-page .nx-row input,.nexus-page .nx-row textarea,.nexus-page .nx-row select{flex:1;min-width:0;font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:4px 8px}
 .nexus-page .nx-row textarea{font:12px/1.4 ui-monospace,monospace}
+.nexus-page .nx-original{max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-word;font:12px/1.4 ui-monospace,monospace;margin:8px 0 0;padding:8px;border:1px solid color-mix(in srgb,currentColor 20%,transparent);border-radius:6px}
 .nexus-page .nx-check{align-items:center}
 .nexus-page .nx-check input{flex:0 0 auto}
 .nexus-page .nx-filters{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:6px;padding:8px 12px;margin:8px 0}

@@ -1,6 +1,7 @@
 import type { ControlUiHost, ControlUiViewContext } from "openclaw/plugin-sdk/control-ui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { describeResolve, needsSecondConfirmation, validatePreferenceDraft } from "./actions.ts";
+import { decodePreviewText, PREVIEW_MAX_BYTES } from "./evidence-view.ts";
 import { createNexusPage } from "./page.ts";
 
 const task = {
@@ -62,6 +63,9 @@ function fixture(
     decisions?: unknown[];
     watches?: unknown[];
     preferences?: unknown[];
+    evidence?: unknown[];
+    readData?: Uint8Array;
+    totalBytes?: number;
     resolveReply?: unknown;
     fail?: Record<string, string>;
   },
@@ -70,6 +74,7 @@ function fixture(
   locale?: string,
 ) {
   const writes: Array<{ method: string; params: Record<string, unknown> | undefined }> = [];
+  const reads: Array<{ method: string; params: Record<string, unknown> | undefined }> = [];
   const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
     if (data.fail?.[method]) {
       throw new Error(data.fail[method]);
@@ -87,6 +92,21 @@ function fixture(
         return { watches: data.watches ?? [] };
       case "nexus.preference.list":
         return { preferences: data.preferences ?? [] };
+      case "nexus.evidence.list":
+        return { evidence: data.evidence ?? [] };
+      case "nexus.evidence.handle":
+        reads.push({ method, params });
+        return { handleId: "EH1", byteSize: data.totalBytes ?? 0, contentHash: "sha256:abc" };
+      case "nexus.evidence.read": {
+        reads.push({ method, params });
+        const bytes = data.readData ?? new Uint8Array();
+        return {
+          dataBase64: btoa(String.fromCharCode(...bytes)),
+          totalBytes: data.totalBytes ?? bytes.length,
+          length: bytes.length,
+          contentHash: "sha256:abc",
+        };
+      }
       case "nexus.decision.resolve":
         writes.push({ method, params });
         return data.resolveReply ?? { outcome: "approved", executionId: "EX1" };
@@ -124,7 +144,7 @@ function fixture(
   const container = document.createElement("div");
   document.body.append(container);
   createNexusPage()(container, context(props));
-  return { container, request, writes, dialog: () => container.querySelector(".nx-dialog") };
+  return { container, request, writes, reads, dialog: () => container.querySelector(".nx-dialog") };
 }
 
 const flush = async () => {
@@ -339,6 +359,20 @@ describe("preference buttons", () => {
     expect(f.container.querySelector(".nx-notice")?.textContent).toContain("已保存偏好");
   });
 
+  it("scope, key and value boxes opt out of capitalisation, autocorrect and spell-check (macOS turned `hi` into `Hi`)", async () => {
+    const f = fixture({ preferences: [] }, props);
+    await flush();
+    click(f.container, 'button[data-nx-act="pref-new"]');
+    const dialog = f.dialog() as HTMLElement;
+    const boxes = Array.from(dialog.querySelectorAll("input, textarea"));
+    expect(boxes).toHaveLength(3);
+    for (const box of boxes) {
+      expect(box.getAttribute("autocapitalize")).toBe("off");
+      expect(box.getAttribute("autocorrect")).toBe("off");
+      expect(box.getAttribute("spellcheck")).toBe("false");
+    }
+  });
+
   it("edits only stated preferences, with scope and key locked", async () => {
     const f = fixture(
       {
@@ -453,5 +487,114 @@ describe("dialogs in the host's language", () => {
     click(f.container, 'button[data-nx-act="pref-delete"]');
     expect(f.dialog()?.textContent).toContain("Delete preference");
     expect(f.dialog()?.textContent).not.toMatch(han);
+  });
+
+  describe("view original", () => {
+    const stored = (overrides: Record<string, unknown> = {}) => ({
+      evidenceId: "EV1",
+      taskId: "T1ABC",
+      kind: "file",
+      blobKey: "k1",
+      contentHash: "sha256:abc",
+      byteSize: 12,
+      sourceGroup: "g",
+      classification: "internal",
+      redactionState: "raw",
+      meta: null,
+      capturedAt: 1_700_000_000_000,
+      linkedClaimIds: [],
+      ...overrides,
+    });
+    const encode = (text: string) => new TextEncoder().encode(text);
+
+    it("offers the button only for evidence that has stored bytes", async () => {
+      const f = fixture(
+        {
+          evidence: [
+            stored(),
+            stored({ evidenceId: "EV2", blobKey: null, kind: "execution" }),
+            stored({ evidenceId: "EV3", blobKey: null, redactionState: "purged" }),
+          ],
+        },
+        detailProps,
+      );
+      await flush();
+      const buttons = f.container.querySelectorAll('button[data-nx-act="evidence-view"]');
+      expect(buttons.length).toBe(1);
+      expect(buttons[0]?.getAttribute("data-nx-id")).toBe("EV1");
+      // The "Bytes" column says so too: stored, none (metadata only), purged.
+      const cells = [...f.container.querySelectorAll("tr")]
+        .filter((tr) => tr.textContent?.includes("EV"))
+        .map((tr) => tr.textContent ?? "");
+      expect(cells.some((text) => text.includes("EV1") && text.includes("在库"))).toBe(true);
+      expect(cells.some((text) => text.includes("EV2") && text.includes("无"))).toBe(true);
+      expect(cells.some((text) => text.includes("EV3") && text.includes("purged"))).toBe(true);
+    });
+
+    it("previews the text through handle and read, and shows it as text, not markup", async () => {
+      const f = fixture(
+        { evidence: [stored()], readData: encode("你好 <img src=x onerror=alert(1)>") },
+        detailProps,
+      );
+      await flush();
+      click(f.container, 'button[data-nx-act="evidence-view"]');
+      await flush();
+      expect(f.reads).toEqual([
+        { method: "nexus.evidence.handle", params: { taskId: "T1ABC", evidenceId: "EV1" } },
+        {
+          method: "nexus.evidence.read",
+          params: { handleId: "EH1", offset: 0, length: PREVIEW_MAX_BYTES },
+        },
+      ]);
+      expect(f.dialog()?.querySelector("img")).toBeNull();
+      expect(f.dialog()?.querySelector("pre.nx-original")?.textContent).toBe(
+        "你好 <img src=x onerror=alert(1)>",
+      );
+      expect(f.dialog()?.textContent).toContain("sha256:abc");
+    });
+
+    it("says how much is shown when the original is longer than the limit", async () => {
+      const f = fixture(
+        { evidence: [stored({ byteSize: 200_000 })], readData: encode("abc"), totalBytes: 200_000 },
+        detailProps,
+      );
+      await flush();
+      click(f.container, 'button[data-nx-act="evidence-view"]');
+      await flush();
+      expect(f.dialog()?.textContent).toContain("前 3 字节，共 200000 字节");
+    });
+
+    it("does not preview binary content", async () => {
+      const f = fixture(
+        { evidence: [stored()], readData: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 1, 2]) },
+        detailProps,
+      );
+      await flush();
+      click(f.container, 'button[data-nx-act="evidence-view"]');
+      await flush();
+      expect(f.dialog()?.querySelector("pre.nx-original")).toBeNull();
+      expect(f.dialog()?.textContent).toContain("不是文本");
+    });
+
+    it("explains evidence_has_no_bytes instead of showing the raw error", async () => {
+      const f = fixture(
+        { evidence: [stored()], fail: { "nexus.evidence.handle": "evidence_has_no_bytes" } },
+        detailProps,
+      );
+      await flush();
+      click(f.container, 'button[data-nx-act="evidence-view"]');
+      await flush();
+      expect(f.dialog()?.textContent).toContain("没有原文");
+      expect(f.dialog()?.textContent).not.toContain("evidence_has_no_bytes");
+    });
+
+    it("decodes text, drops a cut multi-byte tail, and refuses binary", () => {
+      expect(decodePreviewText(encode("héllo"), false)).toBe("héllo");
+      expect(decodePreviewText(encode("a你").subarray(0, 3), true)).toBe("a");
+      expect(decodePreviewText(encode("a你").subarray(0, 3), false)).toBeUndefined();
+      expect(decodePreviewText(new Uint8Array([104, 0, 105]), false)).toBeUndefined();
+      expect(decodePreviewText(new Uint8Array([0xff, 0xfe, 0x41]), false)).toBeUndefined();
+      expect(decodePreviewText(new Uint8Array(), false)).toBe("");
+    });
   });
 });

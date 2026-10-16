@@ -11,7 +11,8 @@ export type NexusAction =
   | { kind: "watch-cancel"; id: string }
   | { kind: "pref-new" }
   | { kind: "pref-edit"; id: string }
-  | { kind: "pref-delete"; id: string };
+  | { kind: "pref-delete"; id: string }
+  | { kind: "evidence-view"; id: string };
 
 const ACTION_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
@@ -27,7 +28,8 @@ export function actionFromMarker(act: string | null, id: string | null): NexusAc
     act === "decision" ||
     act === "watch-cancel" ||
     act === "pref-edit" ||
-    act === "pref-delete"
+    act === "pref-delete" ||
+    act === "evidence-view"
   ) {
     return { kind: act, id };
   }

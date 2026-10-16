@@ -3997,6 +3997,12 @@ preference store（§11）、subagent handoff。
 - `evidenceDebugDelayAfterA2Ms` 不再是插件配置：manifest 里已删除；证据服务只 `await` 一个注入的 `afterA2` 钩子，生产注册不传它。只有 `spikesEnabled=true` 时，`index.ts` 才用 `src/spikes/crash-window.ts` 根据环境变量 `NEXUS_EVIDENCE_DEBUG_DELAY_AFTER_A2_MS`（上限 120000 ms）构造这个钩子。真实影响：在开了 `spikesEnabled` 的实例上，带上该环境变量会让每次证据写入在字节落盘后、最终入账前暂停，可能跨过 writer / reservation 租期；所以它只能用于 dev 崩溃探针。仍是一个测试缝隙，但已经不在正常生产路径上。dev 配置里若还留着旧键 `evidenceDebugDelayAfterA2Ms`，需先清掉，否则配置校验会拒绝。
 - `recorder.test.ts` 的临时目录改用 `useAutoCleanupTempDirTracker`。
 
+### 控制台改动（2026-10-16）
+
+- **筛选在详情返回后保留**：模块记住最后一次列表筛选（含页码），从任务详情点「← 事项」或顶部「事项」标签回到列表时带回；在列表页里再点标签仍是"重来"（清空）。记忆只在模块存活期间有效（刷新应用即清空）。
+- **查看原文**：任务详情的证据表在"有字节"的行（`blob_key` 非空且 `redactionState` 不是 `purged`（存了字节的正常状态是 `raw`））显示按钮，对话框走 `nexus.evidence.handle` + 一次 `nexus.evidence.read`（`operator.read`），最多取前 64 KiB，仅当内容是 UTF-8 文本时显示（含 NUL、非法 UTF-8 或控制字符占比超过 2% 视为非文本，不预览）；文本经 `textContent` 放进 `<pre>`，先过宿主的 `redact`。显示哈希与大小，截断时注明"前 N 字节，共 M 字节"。没有字节的证据（如 `execution` 引用、已清除）不显示按钮；`evidence_has_no_bytes` 在对话框里翻成"这条证据没有原文"。
+- **详情页补时间列**：声明（创建、更新）、证据（创建 = 采集时间）、步骤日志（开始、结束）都显示本地时间 `YYYY-MM-DD HH:mm:ss`，与已有的决策 / 执行时间格式一致。待决策列表没有创建时间（`DecisionRecord` 无此字段），保持只显示截止时间。
+
 ---
 
 ## 15. 明确不做（Stage 0–2）

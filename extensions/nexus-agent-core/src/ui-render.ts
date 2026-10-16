@@ -260,6 +260,11 @@ export function renderTaskList(
   );
 }
 
+/** Evidence whose bytes are still stored: a blob key and not purged ("raw" is the normal state of stored bytes). */
+export function hasBytes(item: Pick<EvidenceBlobView, "blobKey" | "redactionState">): boolean {
+  return item.blobKey !== null && item.redactionState !== "purged";
+}
+
 export type TaskPageData = {
   detail: TaskDetail;
   decisions: readonly DecisionRecord[];
@@ -270,6 +275,8 @@ export type TaskPageData = {
   watches?: readonly WatchRecord[] | undefined;
   /** Emit action buttons. Only the Control UI module sets this (it confirms and calls the RPC); the HTTP page never does. */
   actions?: boolean;
+  /** Offer "view original" on evidence that has bytes. Only the Control UI module sets this; it reads through the handle RPCs. */
+  preview?: boolean;
 };
 
 /**
@@ -401,7 +408,15 @@ export function renderTaskDetail(
         data.claims.length,
         table(
           lang,
-          ["col.id", "col.subject", "col.predicate", "col.status", "col.required"],
+          [
+            "col.id",
+            "col.subject",
+            "col.predicate",
+            "col.status",
+            "col.required",
+            "col.createdAt",
+            "col.updatedAt",
+          ],
           data.claims.map((claim) => [
             tdCode(claim.id),
             td(clip(claim.subject, 80)),
@@ -411,6 +426,8 @@ export function renderTaskDetail(
               claim.state === "VERIFIED" ? "ok" : claim.state === "REFUTED" ? "bad" : "",
             ),
             td(claim.requiredForCompletion ?? "-"),
+            td(fmtTime(claim.createdAt)),
+            td(fmtTime(claim.updatedAt)),
           ]),
         ),
       ),
@@ -461,7 +478,7 @@ export function renderTaskDetail(
         lang,
         "sec.evidence",
         data.evidence.length,
-        `<p class="muted">${trHtml(lang, "hint.evidence", esc, { handle: code("nexus.evidence.handle"), read: code("nexus.evidence.read") })}</p>` +
+        `<p class="muted">${trHtml(lang, data.preview ? "hint.evidencePreview" : "hint.evidence", esc, { handle: code("nexus.evidence.handle"), read: code("nexus.evidence.read") })}</p>` +
           table(
             lang,
             [
@@ -472,6 +489,8 @@ export function renderTaskDetail(
               "col.sourceGroup",
               "col.bytes",
               "col.linked",
+              "col.createdAt",
+              ...(data.preview ? (["col.original"] as const) : []),
             ],
             data.evidence.map((item) => [
               tdCode(item.evidenceId),
@@ -480,13 +499,21 @@ export function renderTaskDetail(
               td(item.classification),
               td(item.sourceGroup),
               td(
-                item.redactionState === "none"
-                  ? item.blobKey
-                    ? tr(lang, "bytes.stored")
-                    : tr(lang, "bytes.none")
-                  : item.redactionState,
+                hasBytes(item)
+                  ? tr(lang, "bytes.stored")
+                  : item.redactionState === "purged"
+                    ? item.redactionState
+                    : tr(lang, "bytes.none"),
               ),
               td(item.linkedClaimIds.join(", ") || "-"),
+              td(fmtTime(item.capturedAt)),
+              ...(data.preview
+                ? [
+                    hasBytes(item)
+                      ? `<td>${button("evidence-view", item.evidenceId, tr(lang, "btn.viewOriginal"))}</td>`
+                      : td("-"),
+                  ]
+                : []),
             ]),
           ),
       ),
@@ -499,12 +526,22 @@ export function renderTaskDetail(
       steps.length,
       table(
         lang,
-        ["col.seq", "col.kind", "col.status", "col.title", "col.detail"],
+        [
+          "col.seq",
+          "col.kind",
+          "col.status",
+          "col.title",
+          "col.startedAt",
+          "col.endedAt",
+          "col.detail",
+        ],
         steps.map((step) => [
           td(step.seq),
           td(step.kind),
           td(step.status),
           td(clip(step.title, 160)),
+          td(fmtTime(step.startedAt)),
+          td(fmtTime(step.endedAt)),
           `<td class="muted"><pre>${esc(step.detail === null || step.detail === undefined ? "" : clip(step.detail, 300))}</pre></td>`,
         ]),
       ),
