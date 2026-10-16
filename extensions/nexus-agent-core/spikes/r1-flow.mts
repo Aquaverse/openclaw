@@ -2,6 +2,7 @@
 // 用法：node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/r1-flow.mts --task <taskId> --token <token>
 // 前提：dev 网关已启动，decisionsEnabled=true，fakeProviderMode=ok，本机装有 sqlite3。
 // 结尾会撤销本次签发的 standing grant，所以同一个 Task 可以重复运行。
+// vendor 每次运行都不同，所以事项上已有的 standing grant（包括在页面里批准过的 D-R1）不会影响结果。
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -60,7 +61,8 @@ async function run() {
     const out = await tool("nexus_action_prepare", {
       taskId,
       toolName: "fake_vendor_message",
-      params: { vendor: "Acme Rooms", message: `R1 探针 ${stamp} #${n}` },
+      // 每次运行用不同的 vendor：同一事项上已有的（含 UI 里批准过的）standing grant 不会让本次的“无 policy”判断误报。
+      params: { vendor: `Acme Rooms ${stamp}`, message: `R1 探针 ${stamp} #${n}` },
     });
     return out;
   };
