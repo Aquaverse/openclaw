@@ -55,6 +55,66 @@ export type PluginBlobStoreLike = {
   delete(key: string): Promise<boolean>;
 };
 
+/**
+ * The host hands `openBlobStore` only to bundled plugins and to plugins in the official external catalog. Any other install
+ * (a local archive, a third-party npm or ClawHub package) is refused when the store is opened. That refusal is an
+ * environment fact, not a fault: evidence bytes are off, everything else keeps working.
+ */
+export class EvidenceBytesUnavailableError extends Error {
+  readonly code = "evidence_bytes_unavailable";
+  readonly reason: string;
+  constructor(reason: string) {
+    super(`evidence bytes are unavailable: ${reason}`);
+    this.name = "EvidenceBytesUnavailableError";
+    this.reason = reason;
+  }
+}
+
+const TRUST_REFUSAL = /\b(\w+) is only available for trusted plugins in this release/u;
+
+/** The host's refusal text for an untrusted plugin, or undefined when the error is something else. */
+export function blobStoreTrustRefusal(error: unknown): string | undefined {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = TRUST_REFUSAL.exec(message);
+  return match ? match[0] : undefined;
+}
+
+/**
+ * Turns the host's trust refusal into one typed, sticky error. `onUnavailable` runs once, on the first refusal, so the
+ * module can log a clear line instead of a stack of per-call failures. Other errors pass through unchanged.
+ */
+export function guardBlobStores(
+  inner: EvidenceBlobStores,
+  hooks: { onUnavailable(reason: string): void },
+): EvidenceBlobStores & { unavailableReason(): string | undefined } {
+  let reason: string | undefined;
+  const guard =
+    (open: (ownerId: string) => Promise<EvidenceBlobStore>) =>
+    async (ownerId: string): Promise<EvidenceBlobStore> => {
+      if (reason !== undefined) {
+        throw new EvidenceBytesUnavailableError(reason);
+      }
+      try {
+        return await open(ownerId);
+      } catch (error) {
+        const refusal = blobStoreTrustRefusal(error);
+        if (refusal === undefined) {
+          throw error;
+        }
+        if (reason === undefined) {
+          reason = refusal;
+          hooks.onUnavailable(refusal);
+        }
+        throw new EvidenceBytesUnavailableError(reason);
+      }
+    };
+  return {
+    production: guard((ownerId) => inner.production(ownerId)),
+    staging: guard((ownerId) => inner.staging(ownerId)),
+    unavailableReason: () => reason,
+  };
+}
+
 export function createRuntimeBlobStores(open: OpenBlobStoreLike): EvidenceBlobStores {
   const cache = new Map<string, Promise<EvidenceBlobStore>>();
   const adapt = (

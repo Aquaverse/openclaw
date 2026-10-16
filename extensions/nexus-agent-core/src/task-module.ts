@@ -9,7 +9,7 @@ import { createDecisionRpcHandlers } from "./decision-rpc.js";
 import { createDecisionRuntime, DEFAULT_APPROVAL_TIMEOUT_MS } from "./decision-runtime.js";
 import { createEventBridge } from "./events.js";
 import { createEvidenceRpcHandlers } from "./evidence-rpc.js";
-import { createRuntimeBlobStores } from "./evidence/blob-store.js";
+import { createRuntimeBlobStores, guardBlobStores } from "./evidence/blob-store.js";
 import {
   createEvidenceService,
   DEFAULT_EVIDENCE_CONFIG,
@@ -195,6 +195,10 @@ export function registerTaskModule(
   }
   let evidence: EvidenceService | undefined;
   let purge: PurgeService | undefined;
+  // Set once the host refuses the blob store (a non-bundled, non-official install). Evidence bytes are then off for
+  // the rest of the process; every other Nexus feature is unaffected.
+  let evidenceBytesUnavailable: string | undefined;
+  let evidenceBlobs: ReturnType<typeof guardBlobStores> | undefined;
   const runtime = provider
     ? createDecisionRuntime({
         getStore,
@@ -230,11 +234,22 @@ export function registerTaskModule(
     if (claimsEnabled) {
       if (evidenceEnabled) {
         const defaults = DEFAULT_EVIDENCE_CONFIG;
-        evidence = createEvidenceService({
-          getStore,
-          blobs: createRuntimeBlobStores((options) =>
+        evidenceBlobs = guardBlobStores(
+          createRuntimeBlobStores((options) =>
             api.runtime.state.openBlobStore<{ owner: string }>(options),
           ),
+          {
+            onUnavailable: (reason) => {
+              evidenceBytesUnavailable = reason;
+              api.logger.warn(
+                `nexus-agent-core: evidence bytes are off for this install (${reason}). The host gives the blob store only to bundled or officially listed plugins, and this plugin was installed from another source. Uploading, reading and attaching evidence files is unavailable; tasks, claims, decisions, preferences, watchers and metadata-only evidence keep working. Set evidenceBlobsEnabled=false to silence this message.`,
+              );
+            },
+          },
+        );
+        evidence = createEvidenceService({
+          getStore,
+          blobs: evidenceBlobs,
           incarnationId,
           ...(seams.evidenceAfterA2 ? { afterA2: seams.evidenceAfterA2 } : {}),
           config: {
@@ -498,7 +513,7 @@ export function registerTaskModule(
   let resuming = false;
   const resumePurges = async () => {
     const principal = principalFor();
-    if (!purge || !principal || resuming) {
+    if (!purge || !principal || resuming || evidenceBytesUnavailable !== undefined) {
       return;
     }
     resuming = true;
@@ -517,7 +532,7 @@ export function registerTaskModule(
   };
   const maintainEvidence = async () => {
     const principal = principalFor();
-    if (!evidence || !principal || maintaining) {
+    if (!evidence || !principal || maintaining || evidenceBytesUnavailable !== undefined) {
       return;
     }
     maintaining = true;
@@ -600,7 +615,18 @@ export function registerTaskModule(
             }
           }, TICK_MS);
           timer.unref?.();
-          if (evidence && incarnationRegistered) {
+          if (evidence && evidenceBlobs) {
+            // Open the store once now: a host refusal is then logged at startup, once, and skips the passes below.
+            const probePrincipal = principalFor();
+            if (probePrincipal) {
+              try {
+                await evidenceBlobs.production(probePrincipal.ownerId);
+              } catch {
+                // The guard already logged a refusal; any other failure is reported by the reconcile pass.
+              }
+            }
+          }
+          if (evidence && incarnationRegistered && evidenceBytesUnavailable === undefined) {
             // gateway_start (DESIGN 9.4): look for orphans in both directions, then run one reclaim pass.
             try {
               const principal = principalFor();

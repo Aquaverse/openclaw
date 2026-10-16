@@ -66,6 +66,8 @@ export function world(
     /** Stage 3 slice 2: evidence bytes (fake byte store, evidence service, `nexus.evidence.*` RPC, blob refs on the tool). */
     evidence?: boolean;
     evidenceConfig?: EvidenceServiceDeps["config"];
+    /** Wrap the fake byte store, e.g. to model a host that refuses `openBlobStore`. */
+    wrapBlobs?: (inner: EvidenceServiceDeps["blobs"]) => EvidenceServiceDeps["blobs"];
     /** Stage 3 slice 3: purge service + `nexus.task.purge*` / `nexus.evidence.delete` RPC (needs `evidence`). */
     purge?: boolean;
     purgeWorkerLeaseMs?: number;
@@ -132,7 +134,7 @@ export function world(
   const evidence = options.evidence
     ? createEvidenceService({
         getStore: async () => store,
-        blobs,
+        blobs: options.wrapBlobs ? options.wrapBlobs(blobs) : blobs,
         incarnationId: INCARNATION,
         ...(options.evidenceConfig ? { config: options.evidenceConfig } : {}),
         now: () => clock,

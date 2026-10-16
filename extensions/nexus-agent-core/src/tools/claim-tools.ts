@@ -3,6 +3,7 @@
 // from the evidence it can check itself; nothing here accepts a state the model could use to promote its own claim.
 import { Type } from "typebox";
 import type { AnyAgentTool } from "../../api.js";
+import { EvidenceBytesUnavailableError } from "../evidence/blob-store.js";
 import type { EvidenceOutcome, EvidenceService } from "../evidence/evidence-service.js";
 import type { ClaimDetail, ClaimPolicy, ClaimRecord } from "../store/claim-types.js";
 import { AGENT_CLAIM_STATES, COMPLETION_STATES, EVIDENCE_REF_KINDS } from "../store/claim-types.js";
@@ -414,18 +415,29 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
             return fail("invalid_expected_head", "expectedHeadEventId 为字符串。");
           }
           if (ref.kind === "blob" && deps.evidence) {
-            const result = await deps.evidence.attachBlob({
-              principal,
-              taskId,
-              claimId: params.claimId,
-              blobKey: ref.id,
-              ...(typeof params.expectedHeadEventId === "string"
-                ? { expectedHeadEventId: params.expectedHeadEventId }
-                : {}),
-              actor,
-              eventSource: "store",
-            });
-            return blobEvidenceResult(result);
+            try {
+              const result = await deps.evidence.attachBlob({
+                principal,
+                taskId,
+                claimId: params.claimId,
+                blobKey: ref.id,
+                ...(typeof params.expectedHeadEventId === "string"
+                  ? { expectedHeadEventId: params.expectedHeadEventId }
+                  : {}),
+                actor,
+                eventSource: "store",
+              });
+              return blobEvidenceResult(result);
+            } catch (error) {
+              if (error instanceof EvidenceBytesUnavailableError) {
+                return fail(
+                  "evidence_bytes_unavailable",
+                  "这个安装方式不提供证据原文存储，没有挂上证据；不要把相关结论说成已证实。可以改用 execution 证据，或让用户把结论记成未证实。",
+                  { reason: error.reason },
+                );
+              }
+              throw error;
+            }
           }
           const result = await store.addEvidence({
             principal,

@@ -2,6 +2,7 @@
 // the one call here that needs `operator.admin` and an explicit confirmation of the Task id. Reads need operator.read.
 import type { GatewayRequestHandlerOptions } from "openclaw/plugin-sdk/gateway-runtime";
 import type { EventBridge } from "./events.js";
+import { EvidenceBytesUnavailableError } from "./evidence/blob-store.js";
 import type { PurgeOutcome, PurgeService } from "./purge/purge-service.js";
 import type { TaskStore } from "./store/host.js";
 import type { Principal } from "./store/types.js";
@@ -91,6 +92,10 @@ export function createPurgeRpcHandlers(deps: PurgeRpcDeps) {
       try {
         await run({ principal, params: params ?? {}, respond });
       } catch (error) {
+        if (error instanceof EvidenceBytesUnavailableError) {
+          reject(respond, "nexus_evidence_unavailable", error.message, { reason: error.reason });
+          return;
+        }
         reject(
           respond,
           "nexus_store_error",

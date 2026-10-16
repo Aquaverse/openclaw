@@ -4,6 +4,10 @@
   "private": true,
   "description": "Nexus Agent Core plugin (Stage 1 Task module; Stage 0 runtime spikes)",
   "type": "module",
+  "files": [
+    "dist/**",
+    "openclaw.plugin.json"
+  ],
   "dependencies": {
     "typebox": "1.3.30"
   },
@@ -24,6 +28,9 @@
     "extensions": [
       "./index.ts"
     ],
+    "runtimeExtensions": [
+      "./dist/index.js"
+    ],
     "build": {
       "workerEntries": [
         "./src/store/sqlite-store.worker.ts",
@@ -38,5 +45,8 @@
         "openclaw.plugin.json"
       ]
     }
+  },
+  "scripts": {
+    "build:dist": "node scripts/build-dist.mjs"
   }
 }

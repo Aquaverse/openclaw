@@ -3997,6 +3997,10 @@ preference store（§11）、subagent handoff。
 - `evidenceDebugDelayAfterA2Ms` 不再是插件配置：manifest 里已删除；证据服务只 `await` 一个注入的 `afterA2` 钩子，生产注册不传它。只有 `spikesEnabled=true` 时，`index.ts` 才用 `src/spikes/crash-window.ts` 根据环境变量 `NEXUS_EVIDENCE_DEBUG_DELAY_AFTER_A2_MS`（上限 120000 ms）构造这个钩子。真实影响：在开了 `spikesEnabled` 的实例上，带上该环境变量会让每次证据写入在字节落盘后、最终入账前暂停，可能跨过 writer / reservation 租期；所以它只能用于 dev 崩溃探针。仍是一个测试缝隙，但已经不在正常生产路径上。dev 配置里若还留着旧键 `evidenceDebugDelayAfterA2Ms`，需先清掉，否则配置校验会拒绝。
 - `recorder.test.ts` 的临时目录改用 `useAutoCleanupTempDirTracker`。
 
+### 第三方安装下的证据字节（2026-10-16）
+
+宿主只把 `openBlobStore` 给内置插件和官方外部插件目录里的插件（`plugin-trust.ts`、`registry-runtime.ts`）。`npm-pack:`、第三方 `npm:`、ClawHub 安装会在打开存储时被拒。插件把这个拒绝当成环境事实而不是故障：`guardBlobStores` 把拒绝变成一个带粘性的 `EvidenceBytesUnavailableError`，只在第一次打一条 warn；启动时的探测打开一次存储，拒绝后跳过对账、回收和清除续跑；证据字节相关 RPC 返回 `nexus_evidence_unavailable`，`nexus_evidence_add` 的 `blob` 引用返回 `evidence_bytes_unavailable`。其余功能（任务、声明、execution 证据、决策、偏好、回检）不受影响。要不要改成不依赖宿主存储，取决于分发方式（内置 / 官方目录 / 第三方），尚未决定。
+
 ### 控制台改动（2026-10-16）
 
 - **筛选在详情返回后保留**：模块记住最后一次列表筛选（含页码），从任务详情点「← 事项」或顶部「事项」标签回到列表时带回；在列表页里再点标签仍是"重来"（清空）。记忆只在模块存活期间有效（刷新应用即清空）。

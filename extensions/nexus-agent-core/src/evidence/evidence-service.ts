@@ -26,7 +26,7 @@ import type {
 import { USER_UPLOAD_GROUP } from "../store/blob-types.js";
 import type { TaskStore } from "../store/host.js";
 import type { Principal } from "../store/types.js";
-import type { EvidenceBlobStores } from "./blob-store.js";
+import { EvidenceBytesUnavailableError, type EvidenceBlobStores } from "./blob-store.js";
 
 const MB = 1024 * 1024;
 
@@ -589,6 +589,9 @@ export function createEvidenceService(deps: EvidenceServiceDeps) {
       try {
         bytes = await (await deps.blobs.production(principal.ownerId)).get(ref.blobKey);
       } catch (error) {
+        if (error instanceof EvidenceBytesUnavailableError) {
+          throw error;
+        }
         return {
           outcome: "storage_error",
           message: error instanceof Error ? error.message : String(error),
@@ -710,6 +713,9 @@ export function createEvidenceService(deps: EvidenceServiceDeps) {
       try {
         bytes = await (await deps.blobs.production(input.principal.ownerId)).get(ref.blobKey);
       } catch (error) {
+        if (error instanceof EvidenceBytesUnavailableError) {
+          throw error;
+        }
         return {
           outcome: "storage_error",
           stage: "read",

@@ -8,7 +8,13 @@ import { createHash } from "node:crypto";
 import { describe, it } from "vitest";
 import { canonicalJson, sha256Hex } from "./canonical.js";
 import { decodeBase64 } from "./evidence-rpc.js";
-import { namespaceFor } from "./evidence/blob-store.js";
+import {
+  EvidenceBytesUnavailableError,
+  blobStoreTrustRefusal,
+  guardBlobStores,
+  namespaceFor,
+  type EvidenceBlobStores,
+} from "./evidence/blob-store.js";
 import { normalizeUploadName, type EvidenceServiceDeps } from "./evidence/evidence-service.js";
 import { P, world, type Details } from "./test-support/decision-world.js";
 
@@ -1038,5 +1044,126 @@ describe("read handles (nexus.evidence.handle / nexus.evidence.read)", () => {
     );
     w.advance(61_000);
     assert.equal((await w.rpc("nexus.evidence.read", { handleId })).error?.code, "nexus_not_found");
+  });
+});
+
+describe("a host that refuses the blob store (non-bundled install) turns evidence bytes off, nothing else", () => {
+  const REFUSAL =
+    'openBlobStore is only available for trusted plugins in this release. Plugin "nexus-agent-core" loaded from "/x" with origin "global"; reason=origin-path. Reinstall from the official npm package.';
+
+  it("recognises the host's refusal and nothing else", () => {
+    assert.equal(
+      blobStoreTrustRefusal(new Error(REFUSAL)),
+      "openBlobStore is only available for trusted plugins in this release",
+    );
+    assert.equal(blobStoreTrustRefusal(new Error("disk full")), undefined);
+    assert.equal(blobStoreTrustRefusal("nope"), undefined);
+  });
+
+  it("the guard reports once, stays unavailable, and lets other errors through untouched", async () => {
+    const reasons: string[] = [];
+    const refusing: EvidenceBlobStores = {
+      production: async () => {
+        throw new Error(REFUSAL);
+      },
+      staging: async () => {
+        throw new Error(REFUSAL);
+      },
+    };
+    const guarded = guardBlobStores(refusing, { onUnavailable: (reason) => reasons.push(reason) });
+    assert.equal(guarded.unavailableReason(), undefined);
+    await assert.rejects(guarded.production("local"), EvidenceBytesUnavailableError);
+    await assert.rejects(guarded.staging("local"), EvidenceBytesUnavailableError);
+    await assert.rejects(guarded.production("local"), EvidenceBytesUnavailableError);
+    assert.equal(reasons.length, 1);
+    assert.match(reasons[0] ?? "", /only available for trusted plugins/u);
+    assert.equal(guarded.unavailableReason(), reasons[0]);
+
+    const broken = guardBlobStores(
+      {
+        production: async () => {
+          throw new Error("disk full");
+        },
+        staging: async () => {
+          throw new Error("disk full");
+        },
+      },
+      { onUnavailable: (reason) => reasons.push(reason) },
+    );
+    await assert.rejects(broken.production("local"), /disk full/u);
+    assert.equal(broken.unavailableReason(), undefined);
+    assert.equal(reasons.length, 1);
+  });
+
+  it("RPC and tool report evidence_bytes_unavailable; claims, execution evidence and task RPC keep working", async () => {
+    const reasons: string[] = [];
+    let refuse = false;
+    // a world whose byte store the host starts refusing after one successful upload
+    const gated = world({
+      claims: true,
+      evidence: true,
+      wrapBlobs: (inner) =>
+        guardBlobStores(
+          {
+            production: async (owner) => {
+              if (refuse) {
+                throw new Error(REFUSAL);
+              }
+              return inner.production(owner);
+            },
+            staging: async (owner) => {
+              if (refuse) {
+                throw new Error(REFUSAL);
+              }
+              return inner.staging(owner);
+            },
+          },
+          { onUnavailable: (reason) => reasons.push(reason) },
+        ),
+    });
+    const t = gated.newTask();
+    const claim = await claimCall(gated, "nexus_claim_add", {
+      taskId: t,
+      subject: "doc",
+      predicate: "uploaded",
+    });
+    assert.equal(claim.ok, true, JSON.stringify(claim));
+    const stored = await up(gated, t, "bytes that were stored while the host still allowed it");
+    assert.ok(stored.outcome === "registered", JSON.stringify(stored));
+
+    refuse = true;
+    const upload = await gated.rpc("nexus.evidence.upload", {
+      taskId: t,
+      name: "late.txt",
+      classification: "personal",
+      dataBase64: b64("more"),
+    });
+    assert.equal(upload.error?.code, "nexus_evidence_unavailable", JSON.stringify(upload));
+    const opened = await gated.rpc("nexus.evidence.handle", {
+      taskId: t,
+      evidenceId: stored.evidenceId,
+    });
+    const handleId = opened.payload?.handleId as string;
+    assert.ok(handleId, JSON.stringify(opened));
+    const chunk = await gated.rpc("nexus.evidence.read", { handleId, offset: 0, length: 10 });
+    assert.equal(chunk.error?.code, "nexus_evidence_unavailable", JSON.stringify(chunk));
+    const attached = await claimCall(gated, "nexus_evidence_add", {
+      taskId: t,
+      claimId: claim.claimId,
+      ref: { kind: "blob", id: stored.blobKey },
+    });
+    assert.equal(attached.ok, false);
+    assert.equal(attached.code, "evidence_bytes_unavailable", JSON.stringify(attached));
+    assert.equal(reasons.length, 1, "the refusal is reported once, not per call");
+
+    const list = await gated.rpc("nexus.evidence.list", { taskId: t });
+    assert.equal(list.ok, true, JSON.stringify(list));
+    assert.equal((await gated.rpc("nexus.claim.list", { taskId: t })).error, undefined);
+    const another = await claimCall(gated, "nexus_claim_add", {
+      taskId: t,
+      subject: "still works",
+      predicate: "p",
+    });
+    assert.equal(another.ok, true, JSON.stringify(another));
   });
 });

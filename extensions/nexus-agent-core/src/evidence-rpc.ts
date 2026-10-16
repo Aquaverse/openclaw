@@ -2,6 +2,7 @@
 // call, never through a model tool parameter. Reads need operator.read; upload / link / maintain are operator.write.
 import type { GatewayRequestHandlerOptions } from "openclaw/plugin-sdk/gateway-runtime";
 import type { EventBridge } from "./events.js";
+import { EvidenceBytesUnavailableError } from "./evidence/blob-store.js";
 import type { EvidenceOutcome, EvidenceService } from "./evidence/evidence-service.js";
 import { normalizeUploadName, READ_CHUNK_BYTES } from "./evidence/evidence-service.js";
 import { CONTENT_CLASSIFICATIONS, type ContentClassification } from "./store/blob-types.js";
@@ -135,6 +136,10 @@ export function createEvidenceRpcHandlers(deps: EvidenceRpcDeps) {
       try {
         await run({ principal, store: await deps.getStore(), params: params ?? {}, respond });
       } catch (error) {
+        if (error instanceof EvidenceBytesUnavailableError) {
+          reject(respond, "nexus_evidence_unavailable", error.message, { reason: error.reason });
+          return;
+        }
         reject(
           respond,
           "nexus_store_error",
