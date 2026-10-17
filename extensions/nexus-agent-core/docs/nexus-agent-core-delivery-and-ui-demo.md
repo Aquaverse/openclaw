@@ -30,23 +30,65 @@ tar -tzf /tmp/nexus-pack/*.tgz | head -40
 
 交付前逐项确认：
 
-| 项   | 要求                                                                                                                                                                                  |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 文件 | `openclaw-nexus-agent-core-2026.9.4.tgz`（以 `npm pack` 的输出为准）                                                                                                                  |
-| 内容 | 有 `package.json`、`openclaw.plugin.json`、`dist/index.js`、`dist/src/store/sqlite-store.worker.js`、`dist/control-ui/<一个哈希目录>/`；**没有** `.ts` 源码、`spikes/`、`docs/`、测试 |
-| 校验 | 把 `shasum -a 256` 的结果随压缩包一起给对方                                                                                                                                           |
-| 版本 | 记下 `package.json` 的 version 和 `controlUi` 哈希，以及打包时的 `git rev-parse --short HEAD`                                                                                         |
-| 要求 | OpenClaw >= 2026.9.4（`peerDependencies`）；本机 Node 能联网装 `typebox` 依赖                                                                                                         |
-| 安装 | `openclaw plugins install npm-pack:<绝对路径>.tgz --accept-capabilities`                                                                                                              |
-| 配置 | 见 §3 的“配置脚本”；安装本身**不会**打开任何功能（默认全关）                                                                                                                          |
-| 限制 | 无证据原文存储；需要 `allowConversationAccess`；需要 `customPlugins` 才能在左侧看到 Nexus 页面                                                                                        |
-| 卸载 | `openclaw plugins uninstall nexus-agent-core`，再重启网关；数据在状态目录 `plugins/nexus-agent-core/nexus.sqlite`，不会随卸载删除                                                     |
+| 项   | 要求                                                                                                                                                                                                                                                                                                                                                |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 文件 | `openclaw-nexus-agent-core-2026.9.4.tgz`（以 `npm pack` 的输出为准）                                                                                                                                                                                                                                                                                |
+| 内容 | 有 `package.json`、`openclaw.plugin.json`、`dist/index.js`、`dist/src/store/sqlite-store.worker.js`、`dist/control-ui/<一个哈希目录>/`；**没有** `.ts` 源码、`spikes/`、`docs/`、测试                                                                                                                                                               |
+| 校验 | 把 `shasum -a 256` 的结果随压缩包一起给对方                                                                                                                                                                                                                                                                                                         |
+| 版本 | 记下 `package.json` 的 version 和 `controlUi` 哈希，以及打包时的 `git rev-parse --short HEAD`                                                                                                                                                                                                                                                       |
+| 要求 | OpenClaw >= 2026.9.4（`peerDependencies`）；本机 Node 能联网装 `typebox` 依赖                                                                                                                                                                                                                                                                       |
+| 安装 | `openclaw plugins install npm-pack:<绝对路径>.tgz --accept-capabilities`                                                                                                                                                                                                                                                                            |
+| 配置 | 见 §3.2；安装本身**不会**打开任何功能（默认全关）                                                                                                                                                                                                                                                                                                   |
+| 限制 | 无证据原文存储；需要 `allowConversationAccess`；需要 `customPlugins` 才能在左侧看到 Nexus 页面                                                                                                                                                                                                                                                      |
+| 卸载 | `openclaw plugins uninstall nexus-agent-core`，再重启网关；数据在状态目录 `plugins/nexus-agent-core/nexus.sqlite`，不会随卸载删除。**卸载 / 重装会把插件自己的配置重置**（功能开关全回到 `false`、`hooks` 授权丢失，`openclaw plugins enable` 也不会恢复），重装后必须重做 §3.2 再重启网关；`customPlugins` 和 `tools.alsoAllow` 是全局配置，会保留 |
 
-## 3. 环境 A：官方 OpenClaw + 隔离目录（推荐用于演示）
+## 3. 公共步骤：安装与配置（环境 A、B 都用）
 
-不碰你正式的 `~/.openclaw`，随时可以丢弃。
+下面所有命令里的 `openclaw` 指“要演示的那个 OpenClaw”：环境 B 是 App 自带的命令行；环境 A 是隔离安装的 `$OC`（见 §4，把 `openclaw` 换成 `$OC`）。
 
-**3.1 安装（一次）**
+**3.1 安装压缩包**（只做一次；卸载后重装也要再做 3.2：卸载会重置插件自己的配置，日志里会看到 `mode=full ... tasksEnabled=false`，插件在但什么都没挂上）
+
+```bash
+openclaw plugins install npm-pack:/tmp/nexus-pack/openclaw-nexus-agent-core-2026.9.4.tgz --accept-capabilities
+openclaw plugins list | grep -i nexus        # 来源是安装包路径，不是 stock:
+```
+
+安装不会打开任何功能，也不会让左侧出现 Nexus 页面；**必须再做 3.2 并重启网关**。
+
+**3.2 配置**（先按平时的方式配好模型；API key 不要贴到聊天或文档里）
+
+```bash
+# 让左侧出现 Nexus 页面（第三方插件的控制台页面默认关闭）
+openclaw config set gateway.controlUi.experimental.customPlugins true
+
+P=plugins.entries.nexus-agent-core
+# 允许 Nexus 通过 before_prompt_build 把协议说明和进行中的事项注入 agent（不开则 agent 不会用 Nexus）
+openclaw config set $P.hooks.allowConversationAccess true
+for k in tasksEnabled decisionsEnabled claimsEnabled preferencesEnabled watchersEnabled fakeProviderIdempotent; do
+  openclaw config set $P.config.$k true
+done
+# 演示用假供应商：不会产生任何外部效果
+openclaw config set $P.config.fakeProviderMode '"ok"' --strict-json
+
+# 放行 Nexus 的 19 个工具。tools.alsoAllow 是整体替换：先 `openclaw config get tools.alsoAllow`，有原有项就一并写进来
+openclaw config set tools.alsoAllow '["nexus_task_reserve","nexus_task_create","nexus_task_get","nexus_task_update","nexus_task_note","nexus_task_search","nexus_action_prepare","nexus_action_authorize","nexus_decision_request","nexus_action_commit","nexus_claim_add","nexus_evidence_add","nexus_claim_verify","nexus_preference_get","nexus_preference_set","nexus_preference_confirm","nexus_watch_create","nexus_watch_cancel","nexus_watch_report"]' --strict-json
+```
+
+**3.3 重启网关并自检**
+
+环境 B：`openclaw gateway restart`，然后完全退出并重新打开 App（或刷新控制台）。环境 A：见 §4。
+
+自检（网关日志里）：有 `nexus-agent-core register: mode=full ... tasksEnabled=true decisionsEnabled=true claimsEnabled=true`、`watcher hooks registered`，**没有** `before_prompt_build blocked`，没有 `evidence reconcile failed`；左侧能看到 Nexus。看不到时依次查：
+
+```bash
+openclaw plugins list | grep -i nexus
+openclaw config get gateway.controlUi.experimental.customPlugins     # 应为 true
+openclaw logs 2>&1 | grep -i -E "nexus|blocked|duplicate|error" | tail -n 40
+```
+
+## 4. 环境 A（可选）：官方 OpenClaw + 隔离目录
+
+不碰正式的 `~/.openclaw`，随时丢弃。不想碰 App 时才用；只演示 App 可跳过。
 
 ```bash
 mkdir -p /tmp/oc-official && cd /tmp/oc-official
@@ -56,41 +98,23 @@ $OC --version                                         # >= 2026.9.4
 
 export OPENCLAW_STATE_DIR=$(mktemp -d)                # 只在这里执行一次，记下输出
 echo "$OPENCLAW_STATE_DIR"
-$OC plugins install npm-pack:/tmp/nexus-pack/openclaw-nexus-agent-core-2026.9.4.tgz --accept-capabilities
-$OC plugins list | grep -i nexus                      # 来源是安装包路径，不是 stock:
 ```
 
-**3.2 配置（一次）** 先按你平时的方式配好模型，再执行：
+然后做 §3.1、§3.2（`openclaw` 换成 `$OC`），再加上隔离环境专用的端口和 token：
 
 ```bash
 TOKEN=$(openssl rand -hex 16)                          # 测试 token，不要贴到聊天里
 $OC config set gateway.port 19777
 $OC config set gateway.auth.mode token
 $OC config set gateway.auth.token "$TOKEN"
-$OC config set gateway.controlUi.experimental.customPlugins true
-
-P=plugins.entries.nexus-agent-core
-$OC config set $P.hooks.allowConversationAccess true
-for k in tasksEnabled decisionsEnabled claimsEnabled preferencesEnabled watchersEnabled fakeProviderIdempotent; do
-  $OC config set $P.config.$k true
-done
-$OC config set $P.config.fakeProviderMode '"ok"' --strict-json     # 演示用假供应商：不会产生任何外部效果
-$OC config set tools.alsoAllow '["nexus_task_reserve","nexus_task_create","nexus_task_get","nexus_task_update","nexus_task_note","nexus_task_search","nexus_action_prepare","nexus_action_authorize","nexus_decision_request","nexus_action_commit","nexus_claim_add","nexus_evidence_add","nexus_claim_verify","nexus_preference_get","nexus_preference_set","nexus_preference_confirm","nexus_watch_create","nexus_watch_cancel","nexus_watch_report"]' --strict-json
-```
-
-**3.3 启动并打开界面**
-
-```bash
 $OC gateway run --allow-unconfigured                   # 终端 A，保持运行
 ```
 
-终端 B 里：`export OPENCLAW_STATE_DIR=<上面记下的目录>`，`$OC dashboard`（会带 token 打开浏览器）。
+终端 B：`export OPENCLAW_STATE_DIR=<上面记下的目录>`，`$OC dashboard`（会带 token 打开浏览器）。
 
-启动日志自检：有 `nexus-agent-core register: mode=full ... tasksEnabled=true decisionsEnabled=true claimsEnabled=true`，有 `watcher hooks registered`，**没有** `before_prompt_build blocked`，末行 `ready`。
+## 5. 环境 B：Mac 上的 OpenClaw.app（当前主线）
 
-## 4. 环境 B：Mac 上的 OpenClaw.app
-
-App 的网关是 launchd 服务，状态目录是正式的 `~/.openclaw`（端口 18789）。**先备份，且终端里先 `unset OPENCLAW_STATE_DIR`，否则命令可能连到别的环境。**
+App 的网关是 launchd 服务，状态目录是正式的 `~/.openclaw`（端口 18789），**不用临时目录**，沿用 App 自己的端口和 token。**先备份，且终端里先 `unset` 这几个变量，否则命令可能连到别的环境。**
 
 ```bash
 unset OPENCLAW_STATE_DIR OPENCLAW_GATEWAY_URL OPENCLAW_GATEWAY_TOKEN
@@ -98,19 +122,11 @@ openclaw --version
 openclaw backup create                                  # 先备份
 ```
 
-**B-1：官方发行版 App（不含 Nexus）+ 压缩包** —— 最接近“用户拿到压缩包”的真实场景。
+**B-1：官方发行版 App（不含 Nexus）+ 压缩包** —— 最接近“用户拿到压缩包”的真实场景。依次做 §3.1、§3.2、§3.3。
 
-```bash
-openclaw plugins install npm-pack:/tmp/nexus-pack/openclaw-nexus-agent-core-2026.9.4.tgz --accept-capabilities
-# 然后执行 §3.2 的配置命令，但去掉 gateway.port / gateway.auth.* 两组（沿用 App 自己的端口和 token），OC 换成 openclaw
-openclaw gateway restart
-```
+**B-2：你 fork 打的 App（Nexus 是内置的）** —— 这个 App 里装压缩包会被内置版覆盖（日志 `duplicate plugin id ... bundled plugin`），所以跳过 §3.1，只做 §3.2 的开关（`hooks.allowConversationAccess` 那条可省，内置插件不需要）和 §3.3。这条路径是“内置分发”的演示，证据原文存储可用，可以额外演“查看原文”（需要先用探针脚本或 RPC 上传一份证据，页面本身没有上传按钮）。
 
-打开 App，左侧出现 Nexus 页面（需要 `customPlugins` 已打开，必要时在 App 设置的实验功能里开）。
-
-**B-2：你 fork 打的 App（Nexus 是内置的）** —— 这个 App 里装压缩包会被内置版覆盖（日志 `duplicate plugin id ... bundled plugin`），所以不做“安装”这一步，只做 §3.2 里 `config set` 的开关（hooks 那条可省，内置插件不需要）。这条路径是“内置分发”的演示，证据原文存储可用，可以额外演“查看原文”（需要先用探针脚本或 RPC 上传一份证据，页面本身没有上传按钮）。
-
-## 5. 演示脚本（全程在界面里）
+## 6. 演示脚本（全程在界面里）
 
 **布置**：浏览器开两个标签，一个是 OpenClaw 聊天，一个是 Nexus 页面（左侧 Nexus）。Nexus 页面开始是空的。事项列表按“最近更新在前”排序，发生变化的事项会跳到最前，属于正常。
 
@@ -139,7 +155,9 @@ openclaw gateway restart
 - **看到（聊天）**：agent 登记动作后先停下，告诉你需要你同意。聊天里可能弹出审批卡片（以实际界面为准）。
 - **看到（Nexus）**：事项出现“1 待决策”；打开决策，看到“是否允许持续为联系供应商自动签发执行凭证”，选项批准 / 拒绝。
 - **做**：点“批准”。
-- **看到**：决策变成已处理；回聊天说“我批准了，继续”，agent 完成并回复一条假供应商的确认号（`FAKE-xxxx`）。详情页的执行记录多了一行成功。
+- **看到**：决策变成已处理。点批准后 agent 通常在同一轮里接着办（聊天卡片是同步批准的），回复假供应商的确认号（`FAKE-xxxx`），详情页执行记录多一行成功。只有 agent 停下来等你时才回一句“已批准，请继续刚才那个动作（先 authorize 取 executionId 再 commit）”——**不要只说“我批准了，继续”**，太含糊，agent 可能重新建事项。
+- **注意**：这一幕只发**一次**。批准的是“持续授权”（该事项里对 Hotelier 的联系供应商动作），之后再发同一类消息**不会再弹决策**，直接成功，这是预期。要再演一次弹卡片，换一个供应商名字或新建事项。
+- **兜底**：agent 报 `execution_not_found` 时（它把 actionId 当成了 executionId；2026-10-17 之后的版本会在错误里直接提示先 authorize），对它说“对这个动作调用 nexus_action_authorize 取得 executionId，再 commit”。
 - **讲**：“这是演示用的假供应商，什么真实的事都没发生。agent 自己批不了，也绕不过去。”
 
 ### 第 5 幕：预订需要二次确认（R2），拒绝是终局
@@ -175,29 +193,30 @@ openclaw gateway restart
 
 - **做**：在事项列表设置状态、关键字、创建时间筛选 → 点进一个事项 → 返回。右上切换英文再切回。
 - **看到**：返回后筛选保留；列表分页正常；详情页的声明、证据、步骤、决策、执行都带时间；英文界面文案正常。
+- **清除回执标签**：第三方安装（没有证据原文存储）下只会是空列表——清除功能本身不可用，这是预期；它不应报错。（2026-10-17 前的打包版本在这里会报 `unknown method: nexus.task.purgeReceipts`，已修复，需重新 `build:dist` + `npm pack` 后重装。）
 
 ### 第 10 幕（只在 B-2）：证据原文
 
 - 第三方安装下**跳过**。内置路径下，证据表“原文”列有“查看原文”按钮，点开是只读的文本预览（二进制显示“内容不是文本”）。
 
-## 6. 收尾
+## 7. 收尾
 
 ```bash
-# 环境 A
+# 环境 A（用过才需要）
 # 终端 A：Ctrl+C 停网关
 echo "$OPENCLAW_STATE_DIR"                              # 确认是临时目录，不是 ~/.openclaw
 rm -rf "$OPENCLAW_STATE_DIR"                            # 可选
 unset OPENCLAW_STATE_DIR TOKEN                          # 每个用过的终端都要执行
 
-# 环境 B（装了压缩包的 App）
+# 环境 B（装了压缩包的 App；数据在 ~/.openclaw，不会随卸载删除）
 openclaw plugins uninstall nexus-agent-core && openclaw gateway restart   # 想还原时
-# 或用 §4 的备份恢复
+# 或用 §5 开头做的备份恢复
 ```
 
-## 7. 彩排清单
+## 8. 彩排清单
 
 - [ ] 模型能正常对话（先随便问一句）。
-- [ ] 启动日志没有 `before_prompt_build blocked`、没有 `evidence reconcile failed`。
+- [ ] 左侧能看到 Nexus；启动日志没有 `before_prompt_build blocked`、没有 `evidence reconcile failed`。
 - [ ] 第 2–8 幕各完整走一遍，记下 agent 的真实回复，必要时改兜底话术。
-- [ ] 清空演示数据再正式演：换一个新的临时状态目录重装配置，比逐条清除快。
+- [ ] 想从干净状态正式演：环境 A 换一个新的临时状态目录重装配置；App 路径没有临时目录，先停网关，把 `~/.openclaw/plugins/nexus-agent-core/` 下的 `nexus.sqlite*` 用 `mv` 挪走（不要 `rm`，以便回退），再启动网关。
 - [ ] 窗口布局：聊天和 Nexus 页面并排，字号调大。

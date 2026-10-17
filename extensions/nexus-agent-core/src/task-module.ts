@@ -33,7 +33,7 @@ import {
   type FakeProvider,
   type ProviderMode,
 } from "./provider/fake-provider.js";
-import { createPurgeRpcHandlers } from "./purge-rpc.js";
+import { createPurgeReceiptsRpcHandlers, createPurgeRpcHandlers } from "./purge-rpc.js";
 import { createPurgeService, type PurgeService } from "./purge/purge-service.js";
 import { createTaskRpcHandlers } from "./rpc.js";
 import {
@@ -307,6 +307,14 @@ export function registerTaskModule(
           getStore,
           purge,
           events,
+          resolvePrincipal: () => principalFor(),
+        })) {
+          api.registerGatewayMethod(method, handler, { scope });
+        }
+      } else {
+        // No purge service (evidence bytes off), but the console's receipts tab still lists receipts: read-only.
+        for (const [method, handler, scope] of createPurgeReceiptsRpcHandlers({
+          getStore,
           resolvePrincipal: () => principalFor(),
         })) {
           api.registerGatewayMethod(method, handler, { scope });

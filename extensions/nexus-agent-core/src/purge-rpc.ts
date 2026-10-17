@@ -73,18 +73,16 @@ function respondPurge(respond: Respond, ownerId: string, result: PurgeOutcome): 
   }
 }
 
-/** Returns [method, handler, scope] triples; the caller registers them. */
-export function createPurgeRpcHandlers(deps: PurgeRpcDeps) {
-  const guarded =
-    (
-      run: (args: {
-        principal: Principal;
-        params: Record<string, unknown>;
-        respond: Respond;
-      }) => Promise<void>,
-    ): GatewayRequestHandler =>
+type GuardedRun = (args: {
+  principal: Principal;
+  params: Record<string, unknown>;
+  respond: Respond;
+}) => Promise<void>;
+
+function guardedWith(resolvePrincipal: () => Principal | undefined) {
+  return (run: GuardedRun): GatewayRequestHandler =>
     async ({ params, respond }) => {
-      const principal = deps.resolvePrincipal();
+      const principal = resolvePrincipal();
       if (!principal) {
         reject(respond, "nexus_no_principal", "cannot resolve the owner");
         return;
@@ -103,6 +101,39 @@ export function createPurgeRpcHandlers(deps: PurgeRpcDeps) {
         );
       }
     };
+}
+
+function purgeReceiptsHandler(
+  guarded: ReturnType<typeof guardedWith>,
+  getStore: () => Promise<TaskStore>,
+) {
+  return guarded(async ({ principal, params, respond }) => {
+    const limit = Math.min(Math.max(Number(params.limit ?? 50) || 50, 1), 200);
+    const receipts = await (await getStore()).listPurgeReceipts({ principal, limit });
+    respond(true, { ownerId: principal.ownerId, receipts });
+  });
+}
+
+/**
+ * The receipts list only reads the store, so it is registered even when the purge service is absent (installs without
+ * evidence bytes). Without it the console's receipts tab would fail with "unknown method" on those installs.
+ */
+export function createPurgeReceiptsRpcHandlers(deps: {
+  getStore: () => Promise<TaskStore>;
+  resolvePrincipal: () => Principal | undefined;
+}) {
+  return [
+    [
+      "nexus.task.purgeReceipts",
+      purgeReceiptsHandler(guardedWith(deps.resolvePrincipal), deps.getStore),
+      "operator.read",
+    ],
+  ] as const;
+}
+
+/** Returns [method, handler, scope] triples; the caller registers them. */
+export function createPurgeRpcHandlers(deps: PurgeRpcDeps) {
+  const guarded = guardedWith(deps.resolvePrincipal);
 
   return [
     [
@@ -147,15 +178,7 @@ export function createPurgeRpcHandlers(deps: PurgeRpcDeps) {
       }),
       "operator.read",
     ],
-    [
-      "nexus.task.purgeReceipts",
-      guarded(async ({ principal, params, respond }) => {
-        const limit = Math.min(Math.max(Number(params.limit ?? 50) || 50, 1), 200);
-        const receipts = await (await deps.getStore()).listPurgeReceipts({ principal, limit });
-        respond(true, { ownerId: principal.ownerId, receipts });
-      }),
-      "operator.read",
-    ],
+    ["nexus.task.purgeReceipts", purgeReceiptsHandler(guarded, deps.getStore), "operator.read"],
     [
       "nexus.evidence.delete",
       guarded(async ({ principal, params, respond }) => {

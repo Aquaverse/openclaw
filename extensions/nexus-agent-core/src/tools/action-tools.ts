@@ -122,7 +122,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
       return {
         ...base,
         message:
-          "用户已批准持续授权。现在对每个具体动作调用 nexus_action_authorize 取得 executionId。",
+          "用户已批准持续授权。现在对每个具体动作调用 nexus_action_authorize(actionId) 取得 executionId，再用 executionId 调 nexus_action_commit；不要把 actionId 当 executionId。",
       };
     }
     if (decision.status === "decided") {
@@ -431,8 +431,20 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
             now: now(),
           });
           switch (verdict.kind) {
-            case "rejected":
+            case "rejected": {
+              if (verdict.reason === "execution_not_found") {
+                // A model sometimes passes the actionId here. Say so, so it fixes the call instead of improvising.
+                const asAction = await store.getAction({ principal, actionId: executionId });
+                if (asAction) {
+                  return fail(
+                    "execution_not_found",
+                    "这是 actionId，不是 executionId。先调用 nexus_action_authorize(actionId) 取得 executionId（用户已批准持续授权时会直接返回），再用它调用 nexus_action_commit。",
+                    { hint: "use_authorize_first" },
+                  );
+                }
+              }
               return fail(verdict.reason, verdict.message);
+            }
             case "replay_succeeded":
               return {
                 ok: true,

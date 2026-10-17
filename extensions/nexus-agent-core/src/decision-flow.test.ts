@@ -81,6 +81,18 @@ describe("R2 through the core card", () => {
     assert.equal(w.count("SELECT COUNT(*) AS c FROM action_grants"), 0);
   });
 
+  it("passing an actionId to commit is refused with a hint to authorize first, and nothing runs", async () => {
+    const w = world();
+    const t = w.newTask();
+    const a = await w.booking(t);
+    const out = await w.run("nexus_action_commit", { executionId: a });
+    assert.equal(out.ok, false);
+    assert.equal(out.code, "execution_not_found");
+    assert.match(String(out.message), /actionId/u);
+    assert.match(String(out.message), /nexus_action_authorize/u);
+    assert.equal(w.provider.stats().writeCalls, 0);
+  });
+
   it("deny is final, cancelled and timeout leave the decision pending and completable from the page", async () => {
     const w = world();
     const t = w.newTask();

@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { describe, it } from "vitest";
 import { sha256Hex } from "./canonical.js";
 import type { EvidenceServiceDeps } from "./evidence/evidence-service.js";
+import { createPurgeReceiptsRpcHandlers } from "./purge-rpc.js";
 import { P, world, type Details } from "./test-support/decision-world.js";
 
 type World = ReturnType<typeof world>;
@@ -597,5 +598,29 @@ describe("incarnation_gone", () => {
     const out = await purgeOf(w).purge(P, t, "operator:test", { budgetMs: 1000 });
     assert.equal(out.outcome, "cleanup_pending", JSON.stringify(out));
     assert.equal(objectRow(w, `${h}.1`).writer_settled_reason, null);
+  });
+});
+
+describe("an install without evidence bytes (no purge service) still lists purge receipts", () => {
+  it("registers the read-only receipts method, which answers with an empty list instead of 'unknown method'", async () => {
+    const w = world({ claims: true });
+    assert.equal(w.purge, undefined);
+    const handlers = createPurgeReceiptsRpcHandlers({
+      getStore: async () => w.store,
+      resolvePrincipal: () => P,
+    });
+    assert.deepEqual(
+      handlers.map(([method, , scope]) => [method, scope]),
+      [["nexus.task.purgeReceipts", "operator.read"]],
+    );
+    let reply: { ok: boolean; payload?: unknown } | undefined;
+    await handlers[0][1]({
+      params: { limit: 100 },
+      respond: (ok: boolean, payload?: unknown) => {
+        reply = { ok, payload };
+      },
+    } as never);
+    assert.equal(reply?.ok, true);
+    assert.deepEqual((reply?.payload as { receipts: unknown[] }).receipts, []);
   });
 });
