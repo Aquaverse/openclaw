@@ -223,6 +223,15 @@ else
   exit 0
 fi
 
+# Nexus preset (best-effort, no-op unless this build baked nexus-preset.env): enable the bundled Nexus plugin so
+# the first launch already has it. The app runs the same script on every launch (once per preset version).
+NEXUS_PRESET_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-preset.sh"
+if [[ -f "$NEXUS_PRESET_SCRIPT" ]]; then
+  run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+      /bin/bash "$NEXUS_PRESET_SCRIPT" --app-path "$APP_PATH" --prefix "$PREFIX" >>"$LOG_FILE" 2>&1 \
+    || log "WARN: Nexus preset script failed (non-fatal)"
+fi
+
 # ---------------------------------------------------------------------
 # Prime the app's own saved state so it skips straight to chat on first
 # launch instead of showing its onboarding windows again. The connection

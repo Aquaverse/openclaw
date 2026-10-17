@@ -90,6 +90,14 @@ fail_soft() {
 [[ -n "$APP_PATH" && -d "$APP_PATH" ]] || fail_soft "no valid --app-path given ($APP_PATH)"
 [[ -n "$PREFIX" ]] || fail_soft "no --prefix given"
 
+# Nexus preset (scripts/mac-nexus-preset.sh): this script is the one entry point the app runs on every launch,
+# for dmg and pkg installs alike, so the once-per-version Nexus preset rides along. A no-op unless the build baked
+# nexus-preset.env; best-effort; never blocks the model setup below.
+NEXUS_PRESET_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-preset.sh"
+if [[ -f "$NEXUS_PRESET_SCRIPT" ]]; then
+  /bin/bash "$NEXUS_PRESET_SCRIPT" --app-path "$APP_PATH" --prefix "$PREFIX" || true
+fi
+
 # The app (and pkg) launch this script on every app start. When the bundle
 # also carries the local-AI orchestrator (LiteLLM hybrid mode), hand off to
 # it; it calls back into this script, with OPENCLAW_LOCAL_AI_ORCHESTRATED=1,

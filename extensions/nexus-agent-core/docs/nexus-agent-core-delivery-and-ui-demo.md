@@ -15,23 +15,56 @@
 
 普通用户不应该逐项理解 `tasksEnabled`、`tools.alsoAllow` 或 `customPlugins`。这些是宿主信任和开发验收开关，不是产品使用步骤。按下面的分发方式选择路径：
 
-| 分发模式                      | 用户要做什么（目标） | 今天是否成立                                   | 本手册入口       |
-| ----------------------------- | -------------------- | ---------------------------------------------- | ---------------- |
-| **OpenClaw.app 内置版**       | 打开 App 就能用      | **还差三步**（见 2.1）；今天的做法是 §5 的 B-2 | §2.1、§5 B-2     |
-| **官方目录 / 受信插件安装版** | 安装 + 一次信任确认  | **不成立**：Nexus 还没进官方目录，这条要等上架 | §2.2             |
-| **本地 `npm-pack:` 压缩包**   | 开发者按步骤配置     | 成立，已在官方 OpenClaw 和 Mac App 上验证      | §2.3、§3、§5 B-1 |
+| 分发模式                      | 用户要做什么（目标） | 今天是否成立                                                                              | 本手册入口       |
+| ----------------------------- | -------------------- | ----------------------------------------------------------------------------------------- | ---------------- |
+| **OpenClaw.app 内置版**       | 打开 App 就能用      | **构建时加 `OPENCLAW_INSTALLER_NEXUS_PRESET=1` 即成立**（见 2.1）；不加则和以前一样默认关 | §2.1、§5 B-2     |
+| **官方目录 / 受信插件安装版** | 安装 + 一次信任确认  | **不成立**：Nexus 还没进官方目录，这条要等上架                                            | §2.2             |
+| **本地 `npm-pack:` 压缩包**   | 开发者按步骤配置     | 成立，已在官方 OpenClaw 和 Mac App 上验证                                                 | §2.3、§3、§5 B-1 |
 
 ### 2.1 普通用户：OpenClaw.app 内置版
 
-这是“安装后启动即可用”的目标路径，也是唯一**可能**做到零配置的一条：内置插件不受第三方的限制，不需要 `hooks.allowConversationAccess`，不需要 `customPlugins` 就能在左侧看到 Nexus，证据原文存储也可用。
+这是“安装后启动即可用”的路径，也是唯一能做到零配置的一条：内置插件不受第三方的限制，不需要 `hooks.allowConversationAccess`，不需要 `customPlugins` 就能在左侧看到 Nexus，证据原文存储也可用。
 
-但**今天还不是零配置**，因为插件自己的默认值不是“开”：
+插件自己的默认值是“关”（所有功能开关 `false`，19 个工具是 optional、要列进 `tools.alsoAllow`），所以由**打包时的开关**在安装后替用户做一次：
 
-1. 所有功能开关默认 `false`（`tasksEnabled` 等），不开就只是“发现模式”注册，什么都没挂上。
-2. Nexus 的 19 个工具是 optional 的，必须列进 `tools.alsoAllow`，否则 agent 看不到它们。
-3. 没有“启用 Nexus”按钮：App 界面里没有一键写入这些配置的入口（插件也不能直接改宿主配置，这一点需要先确认再设计）。
+```bash
+OPENCLAW_INSTALLER_NEXUS_PRESET=1 ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer
+```
 
-所以“用户什么都不用做”要靠产品决定，不是靠改文档：**默认开哪些开关、工具是否默认放行、要不要一个启用入口**，这三项定了才能把本节的“目标”变成“今天成立”。定之前，内置版的演示走 §5 的 B-2（只做 §3.2 里的开关和 `alsoAllow`，再重启）。
+也可以在仓库根的 `installer.env` 里写 `OPENCLAW_INSTALLER_NEXUS_PRESET=1`（环境变量优先）。不设这一项，打出来的 App 和以前一样，Nexus 保持关闭。
+
+打开后，安装后的 App 会（`scripts/mac-nexus-preset.sh`，pkg 安装时先跑一次，之后每次启动 App 检查一次）：
+
+1. 启用 Nexus 插件；
+2. 打开功能开关：`tasksEnabled`、`decisionsEnabled`、`claimsEnabled`、`preferencesEnabled`、`watchersEnabled`（想改用 `OPENCLAW_INSTALLER_NEXUS_SWITCHES=a,b,c`；要演“查看原文”再加 `evidenceBlobsEnabled`）；
+3. 确保供应商是假的（`fakeProviderMode` = `"ok"`，不会产生任何外部效果）；
+4. 把 Nexus 的 19 个工具**追加**到 `tools.alsoAllow`：原来列表里的项全部保留，已有的不重复添加；原列表不是“纯字符串数组”（读不出来、或含非字符串项）时一律不改它，只记日志，并且不写完成标记，下次启动再试；
+5. 每一项都先读当前值，已经是目标值就不写；**真的写了配置才重启一次网关**，什么都没改就不重启（所以重复执行、或机器上已手工配好，都不会打断网关）。
+
+之后用户直接打开 App：左侧有 Nexus，聊天里 agent 能用 Nexus 的工具。
+
+**同一条命令里的另外三个一键功能开关**（默认模型、llama 本地后备、LiteLLM 路由），取值 `0` / `1` / 不设，环境变量优先于 `installer.env`。**“不设”不等于“启用”**：它沿用旧的、由配置决定的行为（对应的 `installer.env` 项填了才会开，没填就是关）；只有 `1` 才表示“必须开”，缺配置会让构建失败，只有 `0` 才表示强制关。要“默认就开”，必须在 `installer.env` 里把对应配置填全，或显式传 `1`：
+
+```bash
+OPENCLAW_INSTALLER_NEXUS_PRESET=1 \
+OPENCLAW_INSTALLER_DEFAULT_MODEL=0 OPENCLAW_INSTALLER_LLAMA=0 OPENCLAW_INSTALLER_LITELLM=0 \
+ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer
+```
+
+| 变量                               | `0`                                                    | `1`                                                                            | 不设                                                        |
+| ---------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `OPENCLAW_INSTALLER_DEFAULT_MODEL` | 不写默认在线模型；App 首次启动由自己的模型选择界面询问 | 必须有 `installer.env` 里的 `DEFAULT_AI_BASE_URL` / `_MODEL`，没有就让构建失败 | 有就写，没有就不写（和以前一样）                            |
+| `OPENCLAW_INSTALLER_LLAMA`         | 不打包 llama-server，没有本地后备模型                  | 必须有 `DEFAULT_LLAMA_MODEL`（和 `SKIP_LLAMA_BUNDLE=1` 冲突，会报错）          | 配了模型就打包（和以前一样）                                |
+| `OPENCLAW_INSTALLER_LITELLM`       | 不打包 LiteLLM                                         | 打包（需要 `OPENCLAW_LITELLM_VERSION`、`OPENCLAW_UV_VERSION`）                 | 沿用 `installer.env` 的 `OPENCLAW_INSTALLER_ENABLE_LITELLM` |
+
+这三个开关**不影响**网关和安装流程：pkg 的 postinstall 照常静默装好网关的 LaunchAgent 并跳过交互式 onboarding，只是不再带模型相关的配置。LiteLLM 的混合路由要“llama 后备 + 在线默认模型”都在才会生效，只开 LiteLLM 而关了其中一个，构建时会给出警告。
+
+几点说明：
+
+- **每个预设版本只执行一次。** 脚本在 `~/.openclaw/.nexus-preset-applied` 记下版本；用户之后自己关掉某个开关、从允许列表里去掉某个工具，不会在下次启动时被改回。想让已装机器重新应用，要升 `scripts/build-mac-installer.sh` 里的 `NEXUS_PRESET_VERSION`。本机重测时删掉这个标记文件再启动 App 即可（删文件由你自己执行）。
+- **日志**：`~/Library/Logs/OpenClaw/nexus-preset.log`，每一步和是否改了 `alsoAllow` 都有记录。
+- **只对内置了 Nexus 的 App 有效。** 没有内置 Nexus 的 App（官方发行版）上 `plugins enable` 会失败，脚本记一条警告就退出，不影响别的。压缩包安装走 §2.3，不受这个开关影响。
+- **假供应商仍是唯一的供应商。** 这个预设不改变“演示 / 开发版”的性质；接入真实供应商前不要把它当正式版默认值。
 
 ### 2.2 官方目录 / 受信插件安装版
 
@@ -156,7 +189,7 @@ openclaw backup create                                  # 先备份
 
 **B-1：官方发行版 App（不含 Nexus）+ 压缩包** —— 最接近“用户拿到压缩包”的真实场景。依次做 §3.1、§3.2、§3.3。
 
-**B-2：你 fork 打的 App（Nexus 是内置的）** —— 这个 App 里装压缩包会被内置版覆盖（日志 `duplicate plugin id ... bundled plugin`），所以跳过 §3.1，只做 §3.2 里的功能开关、`fakeProviderMode` 和 `tools.alsoAllow`（`customPlugins` 和 `hooks.allowConversationAccess` 可省，内置插件不需要），再做 §3.3。这条路径是“内置分发”的演示，证据原文存储可用，可以额外演“查看原文”（需要先用探针脚本或 RPC 上传一份证据，页面本身没有上传按钮）。
+**B-2：你 fork 打的 App（Nexus 是内置的）** —— 这个 App 里装压缩包会被内置版覆盖（日志 `duplicate plugin id ... bundled plugin`），所以跳过 §3.1，只做 §3.2 里的功能开关、`fakeProviderMode` 和 `tools.alsoAllow`（`customPlugins` 和 `hooks.allowConversationAccess` 可省，内置插件不需要），再做 §3.3。**如果这个 App 是用 `OPENCLAW_INSTALLER_NEXUS_PRESET=1` 打的（§2.1），§3.2 也不用做**，直接看 `~/Library/Logs/OpenClaw/nexus-preset.log` 确认预设已应用，再做 §3.3 的自检。这条路径是“内置分发”的演示，证据原文存储可用，可以额外演“查看原文”（需要先用探针脚本或 RPC 上传一份证据，页面本身没有上传按钮）。
 
 ## 6. 演示脚本（全程在界面里）
 

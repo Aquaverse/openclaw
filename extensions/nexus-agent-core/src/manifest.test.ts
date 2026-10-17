@@ -50,6 +50,24 @@ describe("openclaw.plugin.json", () => {
     }
   });
 
+  it("is the tool list the macOS installer's Nexus preset appends to tools.alsoAllow", () => {
+    // scripts/mac-nexus-preset.sh (repo root) hardcodes the names; this keeps it in step with the plugin.
+    const script = path.resolve(
+      import.meta.dirname,
+      "..",
+      "..",
+      "..",
+      "scripts",
+      "mac-nexus-preset.sh",
+    );
+    if (!fs.existsSync(script)) {
+      return; // this extension checked out on its own: nothing to compare against
+    }
+    const line = /^NEXUS_TOOLS="([^"]+)"/mu.exec(fs.readFileSync(script, "utf8"));
+    assert.ok(line, "NEXUS_TOOLS=... not found in scripts/mac-nexus-preset.sh");
+    assert.deepEqual([...(line[1] ?? "").split(" ")].toSorted(), [...registered].toSorted());
+  });
+
   it("declares the feature switches", () => {
     for (const key of [
       "tasksEnabled",

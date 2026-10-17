@@ -99,6 +99,13 @@ set -euo pipefail
 #                          "latest" (default) to resolve the newest GitHub
 #                          release at build time. Pin an exact tag for
 #                          reproducible builds.
+#   OPENCLAW_INSTALLER_DEFAULT_MODEL=0|1   Bake (1, required) or skip (0) the default online model.
+#   OPENCLAW_INSTALLER_LLAMA=0|1           Bundle (1, required) or skip (0) the llama.cpp local fallback.
+#   OPENCLAW_INSTALLER_LITELLM=0|1         Bundle (1) or skip (0) the LiteLLM smart router.
+#                          All three: also readable from installer.env (environment wins); unset keeps the
+#                          previous behaviour. Details in the "Build switches" block below. The Gateway
+#                          LaunchAgent and the non-interactive onboarding are not affected by any of them.
+#   OPENCLAW_INSTALLER_NEXUS_PRESET=1  Ship the bundled Nexus Agent Core plugin switched on (see installer.env.example).
 #   BUILD_ZIP=1            Also produce a .zip (known to occasionally trip
 #                          Gatekeeper's "damaged" check after transfer on
 #                          some Macs -- prefer the dmg; see the note below).
@@ -288,6 +295,9 @@ chmod 0644 "$APP/Contents/Resources/install-cli.sh"
 # whatever copy the last full build left in the bundle.
 cp "$ROOT_DIR/scripts/mac-llama-fallback-setup.sh" "$APP/Contents/Resources/mac-llama-fallback-setup.sh"
 chmod 0644 "$APP/Contents/Resources/mac-llama-fallback-setup.sh"
+# Nexus Agent Core preset (enables the bundled Nexus plugin; a no-op unless step 4 below bakes nexus-preset.env).
+cp "$ROOT_DIR/scripts/mac-nexus-preset.sh" "$APP/Contents/Resources/mac-nexus-preset.sh"
+chmod 0644 "$APP/Contents/Resources/mac-nexus-preset.sh"
 # Hardware-tiered local AI orchestrator and the LiteLLM router setup it
 # drives (mac-llama-fallback-setup.sh hands off to the orchestrator when it
 # is present, so the app/pkg entry points stay unchanged).
@@ -415,6 +425,51 @@ read_env_var() {
 }
 
 # ---------------------------------------------------------------------
+# Build switches for the three one-click features: the default (online) model, the llama.cpp local fallback and the
+# LiteLLM smart router. Each is 0, 1 or unset, taken from the build environment or installer.env (environment wins):
+#   OPENCLAW_INSTALLER_DEFAULT_MODEL  0: bake no default model (the gateway/daemon is still set up; the app's model
+#                                       picker asks on first launch). 1: require the OPENCLAW_INSTALLER_DEFAULT_AI_*
+#                                       values and fail the build without them. Unset: use them when present.
+#   OPENCLAW_INSTALLER_LLAMA          0: no llama-server, no fallback model. 1: require
+#                                       OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL (and not SKIP_LLAMA_BUNDLE=1). Unset:
+#                                       bundle it when that model is configured.
+#   OPENCLAW_INSTALLER_LITELLM        0: no LiteLLM router. 1: bundle it (needs the pinned OPENCLAW_LITELLM_VERSION /
+#                                       OPENCLAW_UV_VERSION). Unset: legacy OPENCLAW_INSTALLER_ENABLE_LITELLM from
+#                                       installer.env.
+# Unset is NOT "on": it keeps the previous, configuration-driven behaviour (a feature is only on when its installer.env
+# keys are filled in). Only 1 insists on a feature (the build fails if its keys are missing); only 0 forces it off.
+# Unset everywhere = exactly the previous behaviour. None of them touches the Gateway LaunchAgent or the
+# non-interactive onboarding in the pkg postinstall: those always run.
+# ---------------------------------------------------------------------
+installer_switch() {
+  local value="${!1:-}"
+  [[ -n "$value" ]] || value="$(read_env_var "$1")"
+  case "$value" in
+    0 | 1 | "") printf '%s' "$value" ;;
+    *)
+      echo "ERROR: $1 must be 0 or 1, got '$value'" >&2
+      return 1
+      ;;
+  esac
+}
+DEFAULT_MODEL_SWITCH="$(installer_switch OPENCLAW_INSTALLER_DEFAULT_MODEL)" || exit 1
+LLAMA_SWITCH="$(installer_switch OPENCLAW_INSTALLER_LLAMA)" || exit 1
+LITELLM_SWITCH="$(installer_switch OPENCLAW_INSTALLER_LITELLM)" || exit 1
+echo "==> One-click features: default model=${DEFAULT_MODEL_SWITCH:-auto} llama=${LLAMA_SWITCH:-auto} litellm=${LITELLM_SWITCH:-auto}"
+if [[ "$DEFAULT_MODEL_SWITCH" == "1" ]] \
+  && [[ -z "$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL)" || -z "$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_MODEL)" ]]; then
+  echo "ERROR: OPENCLAW_INSTALLER_DEFAULT_MODEL=1 needs OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL and OPENCLAW_INSTALLER_DEFAULT_AI_MODEL in $ENV_FILE" >&2
+  exit 1
+fi
+if [[ "$LLAMA_SWITCH" == "1" && "${SKIP_LLAMA_BUNDLE:-0}" == "1" ]]; then
+  echo "ERROR: OPENCLAW_INSTALLER_LLAMA=1 conflicts with SKIP_LLAMA_BUNDLE=1" >&2
+  exit 1
+fi
+if [[ "$LITELLM_SWITCH" == "1" && ( "$LLAMA_SWITCH" == "0" || "$DEFAULT_MODEL_SWITCH" == "0" ) ]]; then
+  echo "WARN: LiteLLM hybrid routing needs both the llama.cpp fallback and an online default model; with one of them switched off it will not activate." >&2
+fi
+
+# ---------------------------------------------------------------------
 # 3. llama.cpp local-model fallback (optional): bundles the prebuilt
 # `llama-server` release archive (the binary plus its dylibs) into
 # the app per architecture, the same offline-friendly way step 2 bundles
@@ -435,7 +490,14 @@ read_env_var() {
 # ---------------------------------------------------------------------
 rm -rf "$APP/Contents/Resources/llama-runtime"
 LLAMA_MODEL_FOR_BUNDLE="$(read_env_var OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL)"
-if [[ "${SKIP_LLAMA_BUNDLE:-0}" == "1" ]]; then
+if [[ "$LLAMA_SWITCH" == "1" && -z "$LLAMA_MODEL_FOR_BUNDLE" ]]; then
+  echo "ERROR: OPENCLAW_INSTALLER_LLAMA=1 needs OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL in $ENV_FILE" >&2
+  exit 1
+fi
+if [[ "$LLAMA_SWITCH" == "0" ]]; then
+  LLAMA_MODEL_FOR_BUNDLE=""
+  echo "==> OPENCLAW_INSTALLER_LLAMA=0 -- not bundling llama-server; no local-model fallback in this build"
+elif [[ "${SKIP_LLAMA_BUNDLE:-0}" == "1" ]]; then
   echo "==> SKIP_LLAMA_BUNDLE=1 -- not bundling llama-server; the local-model fallback is disabled for this build"
 elif [[ -z "$LLAMA_MODEL_FOR_BUNDLE" ]]; then
   echo "==> No OPENCLAW_INSTALLER_DEFAULT_LLAMA_MODEL in $ENV_FILE -- skipping llama-server bundling (no fallback model configured)"
@@ -586,9 +648,9 @@ fi
 # resolve "latest" or install unhashed packages here.
 # ---------------------------------------------------------------------
 rm -rf "$APP/Contents/Resources/litellm-runtime"
-LITELLM_ENABLED_FOR_BUNDLE="$(read_env_var OPENCLAW_INSTALLER_ENABLE_LITELLM)"
+LITELLM_ENABLED_FOR_BUNDLE="${LITELLM_SWITCH:-$(read_env_var OPENCLAW_INSTALLER_ENABLE_LITELLM)}"
 if [[ "$LITELLM_ENABLED_FOR_BUNDLE" != "1" ]]; then
-  echo "==> LiteLLM smart router not enabled (OPENCLAW_INSTALLER_ENABLE_LITELLM!=1) -- skipping"
+  echo "==> LiteLLM smart router not enabled (OPENCLAW_INSTALLER_LITELLM / OPENCLAW_INSTALLER_ENABLE_LITELLM != 1) -- skipping"
   LITELLM_ENABLED_FOR_BUNDLE=""
 else
   LITELLM_VERSION_FOR_BUNDLE="${OPENCLAW_LITELLM_VERSION:-$(read_env_var OPENCLAW_LITELLM_VERSION)}"
@@ -701,58 +763,104 @@ fi
 # model picker. AutoOnboardBootstrap.swift reads the same file for the dmg's
 # own silent first-launch provisioning, including DEFAULT_LLAMA_MODEL below.
 # ---------------------------------------------------------------------
-if [[ -f "$ENV_FILE" ]]; then
-  echo "==> Baking default AI provider config from $ENV_FILE into the app (consumed by the pkg installer's postinstall script)"
-  {
+# Writes the KEY=value lines of default-ai-provider.env to stdout, and NOTHING else: the file is `source`d by
+# scripts/mac-pkg-postinstall.sh (no `set -e`) and parsed by AutoOnboardBootstrap.swift, so a log line in it would be
+# executed as a command. Progress messages belong to the caller, outside the redirection; errors go to stderr.
+# Uses DEFAULT_MODEL_SWITCH, LLAMA_MODEL_FOR_BUNDLE, LITELLM_ENABLED_FOR_BUNDLE and read_env_var.
+emit_default_ai_provider_env() {
+  if [[ "$DEFAULT_MODEL_SWITCH" == "0" ]]; then
+    # Empty values: the pkg postinstall then runs onboarding without a provider and the app's AutoOnboardBootstrap
+    # skips default-model configuration; the gateway/daemon setup is unchanged.
+    echo "DEFAULT_AI_PROVIDER="
+    echo "DEFAULT_AI_BASE_URL="
+    echo "DEFAULT_AI_MODEL="
+    echo "DEFAULT_AI_API_KEY="
+  else
     echo "DEFAULT_AI_PROVIDER=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_PROVIDER)"
     echo "DEFAULT_AI_BASE_URL=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL)"
     echo "DEFAULT_AI_MODEL=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_MODEL)"
     echo "DEFAULT_AI_API_KEY=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_API_KEY)"
-    echo "DEFAULT_LLAMA_MODEL=$LLAMA_MODEL_FOR_BUNDLE"
-    # llama-server context size (tokens) for the local model; see
-    # scripts/mac-llama-fallback-setup.sh. Empty -> model-native context.
-    LLAMA_CTX_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_CTX)"
-    if [[ -n "$LLAMA_CTX_FOR_BUNDLE" && ! "$LLAMA_CTX_FOR_BUNDLE" =~ ^[0-9]+$ ]]; then
-      echo "ERROR: OPENCLAW_LLAMA_FALLBACK_CTX must be a whole number of tokens, got '${LLAMA_CTX_FOR_BUNDLE}'" >&2
-      exit 1
-    fi
-    echo "DEFAULT_LLAMA_CTX=$LLAMA_CTX_FOR_BUNDLE"
-    # llama-server memory shaping for the local model; see
-    # scripts/mac-llama-fallback-setup.sh. Empty -> that script's own defaults.
-    # Validated here rather than at launch time so a typo fails the build
-    # instead of silently dropping the flag on every user's machine.
-    LLAMA_CACHE_RAM_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_CACHE_RAM)"
-    if [[ -n "$LLAMA_CACHE_RAM_FOR_BUNDLE" \
-      && "$LLAMA_CACHE_RAM_FOR_BUNDLE" != "off" \
-      && ! "$LLAMA_CACHE_RAM_FOR_BUNDLE" =~ ^[0-9]+$ ]]; then
-      echo "ERROR: OPENCLAW_LLAMA_FALLBACK_CACHE_RAM must be MiB or 'off', got '${LLAMA_CACHE_RAM_FOR_BUNDLE}'" >&2
-      exit 1
-    fi
-    echo "DEFAULT_LLAMA_CACHE_RAM=$LLAMA_CACHE_RAM_FOR_BUNDLE"
-    LLAMA_KV_TYPE_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_KV_TYPE)"
-    if [[ -n "$LLAMA_KV_TYPE_FOR_BUNDLE" && ! "$LLAMA_KV_TYPE_FOR_BUNDLE" =~ ^[a-z0-9_]+$ ]]; then
-      echo "ERROR: OPENCLAW_LLAMA_FALLBACK_KV_TYPE must be a cache type or 'off', got '${LLAMA_KV_TYPE_FOR_BUNDLE}'" >&2
-      exit 1
-    fi
-    echo "DEFAULT_LLAMA_KV_TYPE=$LLAMA_KV_TYPE_FOR_BUNDLE"
-    LLAMA_SLOTS_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_SLOTS)"
-    if [[ -n "$LLAMA_SLOTS_FOR_BUNDLE" \
-      && "$LLAMA_SLOTS_FOR_BUNDLE" != "off" \
-      && ! "$LLAMA_SLOTS_FOR_BUNDLE" =~ ^[0-9]+$ ]]; then
-      echo "ERROR: OPENCLAW_LLAMA_FALLBACK_SLOTS must be a slot count or 'off', got '${LLAMA_SLOTS_FOR_BUNDLE}'" >&2
-      exit 1
-    fi
-    echo "DEFAULT_LLAMA_SLOTS=$LLAMA_SLOTS_FOR_BUNDLE"
-    # LiteLLM hybrid router (scripts/mac-local-ai-setup.sh,
-    # scripts/mac-litellm-router-setup.sh): the switch, and optional per-tier
-    # model pins (OpenClaw refs; unset tiers are chosen automatically).
-    echo "DEFAULT_LITELLM_ENABLED=${LITELLM_ENABLED_FOR_BUNDLE:+1}"
-    echo "DEFAULT_ROUTER_TIER_MEDIUM=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_MEDIUM)"
-    echo "DEFAULT_ROUTER_TIER_COMPLEX=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_COMPLEX)"
-    echo "DEFAULT_ROUTER_TIER_REASONING=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_REASONING)"
-  } > "$APP/Contents/Resources/default-ai-provider.env"
+  fi
+  echo "DEFAULT_LLAMA_MODEL=$LLAMA_MODEL_FOR_BUNDLE"
+  # llama-server context size (tokens) for the local model; see
+  # scripts/mac-llama-fallback-setup.sh. Empty -> model-native context.
+  LLAMA_CTX_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_CTX)"
+  if [[ -n "$LLAMA_CTX_FOR_BUNDLE" && ! "$LLAMA_CTX_FOR_BUNDLE" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: OPENCLAW_LLAMA_FALLBACK_CTX must be a whole number of tokens, got '${LLAMA_CTX_FOR_BUNDLE}'" >&2
+    exit 1
+  fi
+  echo "DEFAULT_LLAMA_CTX=$LLAMA_CTX_FOR_BUNDLE"
+  # llama-server memory shaping for the local model; see
+  # scripts/mac-llama-fallback-setup.sh. Empty -> that script's own defaults.
+  # Validated here rather than at launch time so a typo fails the build
+  # instead of silently dropping the flag on every user's machine.
+  LLAMA_CACHE_RAM_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_CACHE_RAM)"
+  if [[ -n "$LLAMA_CACHE_RAM_FOR_BUNDLE" \
+    && "$LLAMA_CACHE_RAM_FOR_BUNDLE" != "off" \
+    && ! "$LLAMA_CACHE_RAM_FOR_BUNDLE" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: OPENCLAW_LLAMA_FALLBACK_CACHE_RAM must be MiB or 'off', got '${LLAMA_CACHE_RAM_FOR_BUNDLE}'" >&2
+    exit 1
+  fi
+  echo "DEFAULT_LLAMA_CACHE_RAM=$LLAMA_CACHE_RAM_FOR_BUNDLE"
+  LLAMA_KV_TYPE_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_KV_TYPE)"
+  if [[ -n "$LLAMA_KV_TYPE_FOR_BUNDLE" && ! "$LLAMA_KV_TYPE_FOR_BUNDLE" =~ ^[a-z0-9_]+$ ]]; then
+    echo "ERROR: OPENCLAW_LLAMA_FALLBACK_KV_TYPE must be a cache type or 'off', got '${LLAMA_KV_TYPE_FOR_BUNDLE}'" >&2
+    exit 1
+  fi
+  echo "DEFAULT_LLAMA_KV_TYPE=$LLAMA_KV_TYPE_FOR_BUNDLE"
+  LLAMA_SLOTS_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_SLOTS)"
+  if [[ -n "$LLAMA_SLOTS_FOR_BUNDLE" \
+    && "$LLAMA_SLOTS_FOR_BUNDLE" != "off" \
+    && ! "$LLAMA_SLOTS_FOR_BUNDLE" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: OPENCLAW_LLAMA_FALLBACK_SLOTS must be a slot count or 'off', got '${LLAMA_SLOTS_FOR_BUNDLE}'" >&2
+    exit 1
+  fi
+  echo "DEFAULT_LLAMA_SLOTS=$LLAMA_SLOTS_FOR_BUNDLE"
+  # LiteLLM hybrid router (scripts/mac-local-ai-setup.sh,
+  # scripts/mac-litellm-router-setup.sh): the switch, and optional per-tier
+  # model pins (OpenClaw refs; unset tiers are chosen automatically).
+  echo "DEFAULT_LITELLM_ENABLED=${LITELLM_ENABLED_FOR_BUNDLE:+1}"
+  echo "DEFAULT_ROUTER_TIER_MEDIUM=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_MEDIUM)"
+  echo "DEFAULT_ROUTER_TIER_COMPLEX=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_COMPLEX)"
+  echo "DEFAULT_ROUTER_TIER_REASONING=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_REASONING)"
+}
+
+if [[ -f "$ENV_FILE" ]]; then
+  echo "==> Baking default AI provider config from $ENV_FILE into the app (consumed by the pkg installer's postinstall script)"
+  if [[ "$DEFAULT_MODEL_SWITCH" == "0" ]]; then
+    echo "==> OPENCLAW_INSTALLER_DEFAULT_MODEL=0 -- no default model baked"
+  fi
+  emit_default_ai_provider_env > "$APP/Contents/Resources/default-ai-provider.env" || exit 1
 else
   echo "==> No $ENV_FILE -- skipping default AI provider config"
+fi
+
+# ---------------------------------------------------------------------
+# 4b. Nexus Agent Core preset (optional): OPENCLAW_INSTALLER_NEXUS_PRESET=1, from installer.env or the build
+# environment (the environment wins), bakes Contents/Resources/nexus-preset.env. scripts/mac-nexus-preset.sh
+# (run by the pkg postinstall and by the app on launch) then enables the bundled Nexus plugin, turns on the
+# feature switches, pins the fake provider and appends Nexus' tools to tools.alsoAllow, once per preset version.
+# Without the flag nothing is baked and the plugin stays as shipped: off. Unlike the file above this carries no
+# secrets. NEXUS_PRESET_VERSION: bump to make already-installed machines apply the preset again.
+# OPENCLAW_INSTALLER_NEXUS_SWITCHES overrides the switch list (comma separated, letters only).
+# ---------------------------------------------------------------------
+NEXUS_PRESET_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_PRESET:-$(read_env_var OPENCLAW_INSTALLER_NEXUS_PRESET)}"
+rm -f "$APP/Contents/Resources/nexus-preset.env"
+if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]; then
+  NEXUS_SWITCHES_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_SWITCHES:-$(read_env_var OPENCLAW_INSTALLER_NEXUS_SWITCHES)}"
+  NEXUS_SWITCHES_FOR_BUNDLE="${NEXUS_SWITCHES_FOR_BUNDLE:-tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled}"
+  if [[ ! "$NEXUS_SWITCHES_FOR_BUNDLE" =~ ^[A-Za-z]+(,[A-Za-z]+)*$ ]]; then
+    echo "ERROR: OPENCLAW_INSTALLER_NEXUS_SWITCHES must be comma-separated switch names (letters only), got '${NEXUS_SWITCHES_FOR_BUNDLE}'" >&2
+    exit 1
+  fi
+  echo "==> Baking the Nexus preset (switches: $NEXUS_SWITCHES_FOR_BUNDLE)"
+  {
+    echo "NEXUS_PRESET=1"
+    echo "NEXUS_PRESET_VERSION=1"
+    echo "NEXUS_PRESET_SWITCHES=$NEXUS_SWITCHES_FOR_BUNDLE"
+  } > "$APP/Contents/Resources/nexus-preset.env"
+else
+  echo "==> OPENCLAW_INSTALLER_NEXUS_PRESET is not 1 -- Nexus stays off in this build"
 fi
 
 # ---------------------------------------------------------------------
