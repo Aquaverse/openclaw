@@ -51,6 +51,8 @@ describe("prompt rendering", () => {
     assert.ok(NEXUS_TASK_PROTOCOL.includes("不要猜"));
     assert.ok(NEXUS_TASK_PROTOCOL.includes("不要因此启动子代理"));
     assert.ok(NEXUS_TASK_PROTOCOL.includes("ok:false"));
+    assert.ok(NEXUS_TASK_PROTOCOL.includes("不要在同一轮里自己替用户确认"));
+    assert.ok(NEXUS_TASK_PROTOCOL.includes("再登记一个一模一样的"));
   });
 });
 

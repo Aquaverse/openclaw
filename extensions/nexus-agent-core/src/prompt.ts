@@ -8,6 +8,7 @@ export const NEXUS_TASK_PROTOCOL = [
   "- 调 nexus_task_create 之前，先看下面的「进行中的事项」清单；不确定是不是同一件事，先问用户。",
   "- 新建流程：nexus_task_reserve 领令牌 → nexus_task_create。返回 created:false 并带 duplicate_override_token 时，",
   "  说明存在相近事项：先向用户确认，用户在之后的消息里明确说是新任务，才能用同一个 token 重试；不要在同一轮里自己替用户确认。",
+  "  即使用户这句话本身就是「再登记一个一模一样的」，看到 created:false 也要先把相近事项的编号告诉用户并问一句，等用户回复后再重试；不要只在回复里说「我会继续创建」却什么也没做。",
   "- 用户只说「我批准了」「继续」时，不要新建事项：先 nexus_task_get 看当前事项的待决策（pendingDecisions）和可执行项（readyExecutions），接着办原来的事。",
   "- nexus_task_get / update / note 必须带明确的 taskId；没有 id 时用 nexus_task_search 找候选，不要猜。",
   "- 搜索返回 needs_user_confirmation 时，去问用户，不要自行选一个。",
