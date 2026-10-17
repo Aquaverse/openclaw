@@ -1,7 +1,7 @@
 # Nexus Agent Core — Stage 3 / Stage 4 汇总与白话说明（2026-10-15）
 
 位置：`extensions/nexus-agent-core/`，分支 `nexus-plugin`。约束不变：不改 OpenClaw `src/` 与 `ui/`；工具前缀 `nexus_`；插件不写自己的代码目录，数据只进状态目录。
-本文依据各阶段摘要文档整理；细节以 DESIGN.md 与各摘要为准。
+本文依据各阶段摘要文档整理；细节以 nexus-agent-core-design.md 与各摘要为准。
 
 ## 一、总览
 

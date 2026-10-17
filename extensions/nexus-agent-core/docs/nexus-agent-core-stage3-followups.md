@@ -1,6 +1,6 @@
 # Nexus Agent Core Plugin: 切片③之后的小缺口收尾（2026-10-14）
 
-位置：`extensions/nexus-agent-core/`，DESIGN.md「切片③之后的小缺口收尾」有逐项说明。无新开关，`src/` 零改动。状态：**VM、Mac 静态检查、dev 网关验收通过，已 commit；pkg 安装版 9b0ac3f 回归通过（2026-10-14）**。
+位置：`extensions/nexus-agent-core/`，nexus-agent-core-design.md「切片③之后的小缺口收尾」有逐项说明。无新开关，`src/` 零改动。状态：**VM、Mac 静态检查、dev 网关验收通过，已 commit；pkg 安装版 9b0ac3f 回归通过（2026-10-14）**。
 
 ## 三件事
 

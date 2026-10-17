@@ -1,6 +1,6 @@
 # Nexus Agent Core Plugin: Stage 0 / Stage 1 阶段性总结（2026-10-10）
 
-位置：OpenClaw fork `extensions/nexus-agent-core/`（DESIGN.md、ARCHITECTURE.md、spikes/、src/）。约束：不改 OpenClaw `src/`；工具前缀 `nexus_`；插件不写自己的代码目录，数据只进状态目录。
+位置：OpenClaw fork `extensions/nexus-agent-core/`（nexus-agent-core-design.md、nexus-agent-core-architecture.md、spikes/、src/）。约束：不改 OpenClaw `src/`；工具前缀 `nexus_`；插件不写自己的代码目录，数据只进状态目录。
 
 ## 一、Stage 1 完成项
 
@@ -22,7 +22,7 @@
 1. 模型相关局限（提示词管不住）：模型会凭空补出发地（香港、新加坡轮流出现）、`kind` 自由命名漂移（flight_booking / flight_search）、有时不写 entities、失败后仍可能谎报成功、编造内容留在 goal 里没人纠正。处理方向：Stage 2 的确认页在授权前展示并确认 entities / 关键字段。
 2. 未在真实网关观察到：真实去重往返（`created:false` + override token）、`task_closed` 经工具调用被拒、带任务重启网关后的数据完整性、`updated` 事件单独观察。
 3. 本机需重跑一次 tsgo + vitest（A/B/C 之后）。
-4. 文档：DESIGN 版本号与变更日志未升；`ARCHITECTURE.md` 随 Stage 2 一并核对。
+4. 文档：DESIGN 版本号与变更日志未升；`nexus-agent-core-architecture.md` 随 Stage 2 一并核对。
 5. Stage 0 残余：disabled/unsupported 审批源、三个未验证的 approval 参数、`agent exec` 成因、spike 4 触发与 `deleteAfterRun`、dmg 拖拽安装路径；D 方案的首次读取开销、pid 复用、非 darwin 平台、时钟调整。
 
 ## 三、五个子任务完成情况

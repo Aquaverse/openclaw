@@ -1,8 +1,8 @@
 # Nexus Agent Core — 组件架构
 
-> 配套文档：[`DESIGN.md`](./DESIGN.md) 讲**为什么这么设计**（含被实测推翻的假设与威胁模型）。
+> 配套文档：[`nexus-agent-core-design.md`](./nexus-agent-core-design.md) 讲**为什么这么设计**（含被实测推翻的假设与威胁模型）。
 > 本文讲**有哪些组件、各自挂在 OpenClaw 的哪个扩展点、什么时候被触发、读写哪些表**。
-> 先读本文建立地图，需要判断某个设计取舍时再回 DESIGN.md 查对应小节。
+> 先读本文建立地图，需要判断某个设计取舍时再回 nexus-agent-core-design.md 查对应小节。
 
 ---
 
@@ -87,7 +87,7 @@ OpenClaw 侧的真实顺序（已在仓库核对）：运行时准备 → 提示
 ```
 
 **为什么授权不在 `before_tool_call`**：那一层的结果会被后续插件合并、覆盖、拦截，
-详见 DESIGN.md §8.1–§8.2。这是整个架构里最容易踩错的一处。
+详见 nexus-agent-core-design.md §8.1–§8.2。这是整个架构里最容易踩错的一处。
 
 ---
 
@@ -105,7 +105,7 @@ OpenClaw 侧的真实顺序（已在仓库核对）：运行时准备 → 提示
 - **数据**：只读 `nexus_tasks`、`nexus_task_sessions`；不写。
 - **失败处理**：解析不出 principal 就**不注入**，不能退化成全量查询。
 - **工作表**：Task / Workflow Manager（M1）。
-- **DESIGN.md**：§7.1。
+- **nexus-agent-core-design.md**：§7.1。
 
 ### 4.2 Watcher 认证器（Authenticate-and-Claim）
 
@@ -119,7 +119,7 @@ OpenClaw 侧的真实顺序（已在仓库核对）：运行时准备 → 提示
 - **失败处理**：三态——不是 Nexus 的 job（不干预）、是且认领成功（注入只读面）、
   是但状态失效（`toolsAllow: []` + no-op 指令，**不能**当普通 cron 放行）。
 - **工作表**：Watcher / Long-running Task Manager（M2）。
-- **DESIGN.md**：§10.2。
+- **nexus-agent-core-design.md**：§10.2。
 
 ### 4.3 工具面（模型的唯一入口）
 
@@ -144,7 +144,7 @@ OpenClaw 侧的真实顺序（已在仓库核对）：运行时准备 → 提示
   因为 hook 返回的 `params` 在 core 那边是**浅合并**，删不掉字段
   （`agent-tools.before-tool-call.approval.ts:74-85`）。
 - **工作表**：Task / Workflow Manager、Permission Engine、Evidence Ledger、
-  Personal Context / Preference Store。逐行映射见 DESIGN.md §12，
+  Personal Context / Preference Store。逐行映射见 nexus-agent-core-design.md §12，
   **那张表是工具名的唯一真相**；本表只说风险与副作用。
 
 ### 4.4 决策管理器（Human Decision Manager）
@@ -156,7 +156,7 @@ OpenClaw 侧的真实顺序（已在仓库核对）：运行时准备 → 提示
   不与任何执行路径共用）。
 - **拿不到 trigger**：`PluginHookToolContext` 没有 `trigger`/`jobId`（`hook-types.ts:707`），
   所以"是不是 user turn"要靠 `ctx.runId` 回查 `run_triggers`（提示阶段记的账），
-  查不到一律 fail closed 当作非 user turn。见 DESIGN.md §8.8.1。
+  查不到一律 fail closed 当作非 user turn。见 nexus-agent-core-design.md §8.8.1。
 - **时机**：模型调用 `nexus_decision_request` 时。
 - **顺序很重要**：**先落盘 → 先推事件 → 再尝试 core 卡片**。
   因为 core 判定审批面不可用时会**直接 block 工具**并只回调一个无区分度的
@@ -175,7 +175,7 @@ OpenClaw 侧的真实顺序（已在仓库核对）：运行时准备 → 提示
 status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 `decided`、
   结果 `approved`、绑的正是用户选中那个 action；`decisions.chosen_action_id` 再复合
   引用 `decision_actions`，保证所选项是候选项。CHECK 只管得住 decision 自己那一行。
-  见 DESIGN.md §8.12。
+  见 nexus-agent-core-design.md §8.12。
 - **状态机**：等人决定时 decision **恒为 `pending`**，生命周期只受它自己的 `deadline_at`
   控制；core 的不可用 / `cancelled` / timeout **只更新 `core_approval_state`**，不动主状态。
   （一个可选的卡片不该给主决策套上超时——这是 v0.5 踩过的坑。）
@@ -197,7 +197,7 @@ status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 
   才写 best-effort 的 `effect_apply_failed`；抛在事务之前/之中与回调丢失不可区分，
   一律保持 `pending`（DESIGN §8.9）。
 - **工作表**：Human Decision / Approval Manager（M1）。
-- **DESIGN.md**：§8.6、§8.7、§8.8。
+- **nexus-agent-core-design.md**：§8.6、§8.7、§8.8。
 
 ### 4.5 授权引擎（Grant Engine）
 
@@ -212,14 +212,14 @@ status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 
 - **轮换**：签发新 grant 的事务顺序是有坑的——先插新行撞部分唯一索引，
   先标旧行撞 self-FK 立即检查，而且**已过期但没退休的 grant 仍占着 live 槽位**
   （部分索引的谓词引用不了"当前时间"）。三点都在 SQLite 3.45.1 上实测过，
-  权威顺序见 DESIGN.md §8.5。
+  权威顺序见 nexus-agent-core-design.md §8.5。
 - **R1 与 R2/R3 的 execution 来源不同**：R2/R3 在批准时与 grant 同事务预创建；
   R1 是可复用政策，批准时未来的动作还不存在，所以由 `nexus_action_authorize`
   在每次具体动作上重新校验政策后现场签发。`grant_uses` 在 **admission CAS** 时才写，
-  不在 authorize 时写——否则反复 authorize 会把频率额度刷光。见 DESIGN.md §8.6。
+  不在 authorize 时写——否则反复 authorize 会把频率额度刷光。见 nexus-agent-core-design.md §8.6。
 - **失败处理**：授权缺失/过期/撤销/revision 变更 → `rejected`，工具返回原因，不碰供应商。
 - **工作表**：Permission / Authorization Engine（M1）。
-- **DESIGN.md**：§8.2–§8.4。
+- **nexus-agent-core-design.md**：§8.2–§8.4。
 
 ### 4.6 执行 Admission（Execution State Machine）
 
@@ -238,7 +238,7 @@ status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 
   结果不确定进入对账"——供应商不支持幂等时，重复下单只能靠对账收敛。
 - **约束**：写事务必须同步（`AGENTS.md:58`：No Promise or `await` in a transaction callback），
   所以是"同步事务 → 外部 I/O → 同步事务"，不是一个大事务包住网络调用。
-- **DESIGN.md**：§8.2–§8.4。
+- **nexus-agent-core-design.md**：§8.2–§8.4。
 
 ### 4.7 事实账本（Claim / Evidence Ledger）
 
@@ -249,7 +249,7 @@ status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 
   - `nexus.claim.unlinkEvidence`（`detach` 的唯一来源）两个 RPC。
     入参契约、**A0 初检 / A1 暂存 / A2 promote / B 最终 admission** 四个阶段
     （A0 在读字节之前就拒掉跨 owner 的引用）、以及"等级由服务端判定、
-    证据只按引用登记"见 DESIGN.md §9.5.1。
+    证据只按引用登记"见 nexus-agent-core-design.md §9.5.1。
 - **relation 由服务端 verifier 判定**，不是工具入参；判不出来写 `unclassified`，
   不进投影、不计入任何一侧（DESIGN §9.5.5）。
 - **独立来源**：`VERIFIED` 按 `evidence.source_group` **去重计数**，且只统计
@@ -271,14 +271,14 @@ status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 
   反复让 B 失败只能打满自己的软限，打不到插件的 512 MB 硬限。blob store 的 `register`/`lookup` 返回 `Promise`
   （`plugin-blob-store.types.ts:14`）而写事务必须同步（`AGENTS.md:58`），所以 promote
   不可能在事务内。容量受 SDK 的 512 MB 插件总量硬限，owner/Task 配额由我们自己算。
-  见 DESIGN.md §9.5.1 与 §9.4。
+  见 nexus-agent-core-design.md §9.5.1 与 §9.4。
 - **数据**：`claim_events`（append-only、按 task 分链、hash chain）是唯一真相，
   `claims` 是当前投影；`claim_event_evidence` 关系表带 owner/task 复合外键；
   证据字节进 `openBlobStore`。
 - **完成判定**：`nexus_task_completion_claims` 全部达标才允许 `succeeded`，
   **在 store 层校验**，`nexus_task_update(status:"succeeded")` 直接拒。
 - **工作表**：Evidence / Claim Ledger（M2，但决策要引用 claim，建议与 M1 同期）。
-- **DESIGN.md**：§9。
+- **nexus-agent-core-design.md**：§9。
 
 ### 4.8 Watcher（Long-running Task Manager）
 
@@ -292,7 +292,7 @@ status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 
 - **恢复**：`ensureScheduled(watchId, revision)` 幂等重建；
   `gateway_start` 兜底重试 `pending_schedule`。
 - **风险**：`scheduleSessionTurn` 在整个 `extensions/` 里**没有生产先例** → Stage 0 spike 4。
-- **DESIGN.md**：§10。
+- **nexus-agent-core-design.md**：§10。
 
 ### 4.9 Gateway 接口层
 
@@ -341,11 +341,11 @@ status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 
   CHECK（DESIGN §11.6），防一次实现错误把 Task 例外静默写成 owner 级长期偏好。
 - **失败处理**：读不到就当没有偏好，走原本的默认值；绝不因为"偏好缺失"而降级授权检查。
 - **工作表**：Personal Context / Preference Store（M2）。
-- **DESIGN.md**：§11。
+- **nexus-agent-core-design.md**：§11。
 
 ### 4.13 Purge Coordinator 与 Blob 回收器
 
-DESIGN.md §9.4 的 purge 现在是 P1–P5 的多阶段协议、§9.5.1 的回收是两层状态机，
+nexus-agent-core-design.md §9.4 的 purge 现在是 P1–P5 的多阶段协议、§9.5.1 的回收是两层状态机，
 这两件事都有"谁推进、重启后怎么接上"的问题，所以单独记一个组件。
 
 - **职责**：推进 `nexus.task.purge` 的 P1–P5；回收**重算后引用数确为 0** 的物理对象
@@ -392,11 +392,11 @@ DESIGN.md §9.4 的 purge 现在是 P1–P5 的多阶段协议、§9.5.1 的回�
   （`incarnation_gone`，依赖 `gateway.state.lock` 单进程排他等五条未验证契约（含同进程 service reload 与 boot id 来源），默认关闭）；复查发现字节回来时只作废 `absence_verified_*`（`settled_writer_*` 保留）、再删再重签。
   这个判断在 P5 自己的同步事务里重读一次,不信任 P4 的返回值;条件不满足时
   `nexus.task.purge` 返回 `cleanup_pending`，**不写成功回执**。
-  见 DESIGN.md §9.4 / §9.5.1。
+  见 nexus-agent-core-design.md §9.4 / §9.5.1。
 - **失败处理**：任何阶段失败都停在 `purging`，不写回执、不宣称完成，下一轮重试。
   回执的语义是"引用已摘除、降到 0 的对象已删"，不是"所有相关字节都不存在"。
 - **工作表**：无直接对应行；是 Evidence / Claim Ledger 与 Task Manager 的运行期支撑。
-- **DESIGN.md**：§9.4、§9.5.1。
+- **nexus-agent-core-design.md**：§9.4、§9.5.1。
 
 ---
 
@@ -521,7 +521,7 @@ OpenClaw 升级后应逐条回归——尤其标 ⚠ 的几条，它们是被实
 
 **T6（工具旁路）不在这张表里**，因为它不是耦合面而是承重假设：
 Agent 手里的 `browser` / `exec` / 渠道发送可以绕开 `nexus_action_commit`，
-我们只有 `toolsAllow` 收窄 + 启发式拦截这两层缓解。见 DESIGN.md §14。
+我们只有 `toolsAllow` 收窄 + 启发式拦截这两层缓解。见 nexus-agent-core-design.md §14。
 
 ---
 
@@ -531,8 +531,8 @@ Agent 手里的 `browser` / `exec` / 渠道发送可以绕开 `nexus_action_comm
 extensions/nexus-agent-core/
 ├── openclaw.plugin.json      # contracts.tools / activation.onStartup / configSchema / controlUi
 ├── index.ts                  # definePluginEntry：装配下列模块
-├── DESIGN.md                 # 为什么这么设计（含威胁模型、被推翻的假设）
-├── ARCHITECTURE.md           # 本文：组件、挂载点、时机
+├── nexus-agent-core-design.md                 # 为什么这么设计（含威胁模型、被推翻的假设）
+├── nexus-agent-core-architecture.md           # 本文：组件、挂载点、时机
 ├── src/
 │   ├── prompt/               # 4.1 注入器 + 4.2 watcher 认证（同一个 hook handler）
 │   ├── task/              # 4.3 Task 工具与状态机
@@ -550,7 +550,7 @@ extensions/nexus-agent-core/
 │   └── grant-rotation-sqlite.mjs   # 222 项 SQLite 约束回归：grant 轮换、复合外键、
 │                                    # 唯一索引 NULL、run_triggers owner 隔离、
 │                                    # outbox CAS、core approval 租约；第 11 组直接
-│                                    # 执行 DESIGN.md §6.3 的 SQL，验建表可行、
+│                                    # 执行 nexus-agent-core-design.md §6.3 的 SQL，验建表可行、
 │                                    # 父表/父键合法、命名契约（表+列+索引无 journey）；
 │                                    # 第 12 组验偏好表的 origin 不变量（含负例），
 │                                    # 第 13 组验 decision effect_kind 与证据来源去重
@@ -570,4 +570,4 @@ extensions/nexus-agent-core/
 | Stage 3          | 4.7 + 4.13（purge coordinator 与回收器，与账本同期落地）                                                                                                                             |
 | Stage 4          | 4.2 + 4.8 + 4.10 + 4.11 + 4.12 + Control UI                                                                                                                                          |
 
-详见 DESIGN.md §13。
+详见 nexus-agent-core-design.md §13。

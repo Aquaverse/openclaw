@@ -1,7 +1,7 @@
 {
   "id": "nexus-agent-core",
   "name": "Nexus Agent Core",
-  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). Stage 4: a Preference Store (tools nexus_preference_*, RPC nexus.preference.*), a read-only Control UI tab, and a Watcher for scheduled re-checks (tools nexus_watch_*, RPC nexus.watch.*). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see DESIGN.md section 13).",
+  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). Stage 4: a Preference Store (tools nexus_preference_*, RPC nexus.preference.*), a read-only Control UI tab, and a Watcher for scheduled re-checks (tools nexus_watch_*, RPC nexus.watch.*). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see nexus-agent-core-design.md section 13).",
   "categories": [
     "agent-orchestration"
   ],

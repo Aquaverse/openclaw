@@ -1,4 +1,4 @@
-// Spike recorder appends structured observations that get written back into DESIGN.md section 13.
+// Spike recorder appends structured observations that get written back into nexus-agent-core-design.md section 13.
 import fs from "node:fs";
 import path from "node:path";
 

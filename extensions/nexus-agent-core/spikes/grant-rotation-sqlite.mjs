@@ -6,7 +6,7 @@ import path from "node:path";
 /**
  * Nexus Agent Core — SQLite 约束回归（Stage 0 spike 1 的一部分）
  *
- * 验证 DESIGN.md §8.5 / §8.6 / §6.3 依赖的四条 SQLite 行为。这些结论直接决定
+ * 验证 nexus-agent-core-design.md §8.5 / §8.6 / §6.3 依赖的四条 SQLite 行为。这些结论直接决定
  * grant 轮换事务的写法，踩错会在运行期变成"授权 A、执行 B"或"新授权签不出来"。
  *
  *   1. 非 deferred self-FK 时，grant 轮换的两种自然顺序都失败；
@@ -20,7 +20,7 @@ import path from "node:path";
  *   8. outbox 认领 CAS 与 action_executions_prepared 部分唯一索引；
  *   9. run_triggers 用 (owner_id, run_id) 复合主键后，不同 owner 的同名 run 互不遮挡；
  *  10. core approval 的 attempted 租约必须盖住审批超时，终态不可再 claim；
- *  11. DESIGN.md §6.3 的 schema 能真正建库，且符合 §4.1 的命名契约；
+ *  11. nexus-agent-core-design.md §6.3 的 schema 能真正建库，且符合 §4.1 的命名契约；
  *  12. 偏好表（§11）的承诺由 schema 兜住：投影与 append-only 历史同事务写、
  *      同 (scope,key) 三种 origin 并存但同 origin 只能有一条活行，以及四条 origin
  *      不变量 CHECK 的负例（stated 带 task_id、exception 缺 task_id、observed 缺
@@ -68,13 +68,13 @@ import path from "node:path";
  * "GC 与阶段 B 并发谁赢"、"purge 返回成功时字节真的没了"必须由 Stage 3 的
  * 真实 blob store + 真实 store 入口测试覆盖（§13 Stage 3 已列出七条交错）。
  *
- * 第 11 组与前十组不同：它**不自己手写 schema**，而是从 DESIGN.md 里抽出
+ * 第 11 组与前十组不同：它**不自己手写 schema**，而是从 nexus-agent-core-design.md 里抽出
  * §6.3 那个 ```sql 块原样执行。所以文档里的 schema 一旦写错（语法、STRICT 类型、
  * 悬空外键、表名退回 journey*），这一组会直接红。Stage 1 建表之后，把
  * SCHEMA_SOURCE 从"文档块"换成生产 migration 即可，断言不用动。
  *
  * 用法：node extensions/nexus-agent-core/spikes/grant-rotation-sqlite.mjs
- * 退出码非 0 表示有结论发生了变化（SQLite 升级或 schema 改动），需要回头核对 DESIGN.md。
+ * 退出码非 0 表示有结论发生了变化（SQLite 升级或 schema 改动），需要回头核对 nexus-agent-core-design.md。
  *
  * Stage 1 建表之后，这个文件应该被改写成插件包内的 vitest contract test；
  * 现在插件包还不存在，先以独立脚本形式保留，避免被 extensions 的 vitest 收集。
@@ -316,7 +316,7 @@ console.log("\n[6] 唯一索引里的 NULL（decision 幂等键）");
 console.log("\n[7] run_triggers 不可变与新鲜度");
 {
   const db = new DatabaseSync(":memory:");
-  // DESIGN.md §6.3 的正式定义：复合主键。单列主键的负例在第 9 组。
+  // nexus-agent-core-design.md §6.3 的正式定义：复合主键。单列主键的负例在第 9 组。
   db.exec(`
     CREATE TABLE run_triggers (
       run_id TEXT NOT NULL, owner_id TEXT NOT NULL,
@@ -562,8 +562,8 @@ console.log("\n[10] core approval 租约与审批超时");
   db.close();
 }
 
-// ---- 11. DESIGN.md 的 schema 能建库，且符合命名契约 ----
-// 前十组用的是裁剪过的最小表，只能验证约束语义。这一组把 DESIGN.md §6.3 的
+// ---- 11. nexus-agent-core-design.md 的 schema 能建库，且符合命名契约 ----
+// 前十组用的是裁剪过的最小表，只能验证约束语义。这一组把 nexus-agent-core-design.md §6.3 的
 // SQL 原样跑一遍——它是现阶段 schema 的唯一真相，所以这组是真正的漂移闸门，
 // 而不是自己写 fixture 再检查自己。
 //
@@ -571,14 +571,14 @@ console.log("\n[10] core approval 租约与审批超时");
 // （src/store/schema.ts）已落地：开头四条检查证它与文档逐字一致、单独建库干净、
 // 后续阶段只靠追加表就能叠上去；Stage 2 迁移（决策/授权/执行/outbox/run_triggers）与 Stage 3 第一批迁移（账本/证据/完成条件）同样逐字比对并叠加。
 // 其余断言还没有换成执行生产迁移。
-console.log("\n[11] DESIGN.md 的 schema 与命名契约");
+console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
 {
-  const designPath = new URL("../DESIGN.md", import.meta.url);
+  const designPath = new URL("../nexus-agent-core-design.md", import.meta.url);
   const readSchemaSource = () => {
     const md = fs.readFileSync(designPath, "utf8");
     const blocks = [...md.matchAll(/```sql\n([\s\S]*?)```/g)].map((m) => m[1]);
     const schema = blocks.filter((b) => b.includes("CREATE TABLE nexus_tasks"));
-    assert.equal(schema.length, 1, "DESIGN.md 里应恰好有一个建表 SQL 块");
+    assert.equal(schema.length, 1, "nexus-agent-core-design.md 里应恰好有一个建表 SQL 块");
     return schema[0];
   };
 
@@ -591,7 +591,11 @@ console.log("\n[11] DESIGN.md 的 schema 与命名契约");
   } catch (error) {
     openError = String(error?.message ?? error);
   }
-  check("DESIGN.md §6.3 的 schema 可以原样建库", openError ?? "ok", (x) => x === "ok");
+  check(
+    "nexus-agent-core-design.md §6.3 的 schema 可以原样建库",
+    openError ?? "ok",
+    (x) => x === "ok",
+  );
 
   // ---- Stage 1 分批建表（DESIGN §13 Stage 1「首发表范围」，2026-10-10）：生产迁移 src/store/schema.ts 是
   // 第一个"落地的 schema"。这里证三件事：① 它与 DESIGN §6.3 的三张 Task 表逐字一致；② 单独建库干净
@@ -2770,7 +2774,7 @@ console.log("\n[11] DESIGN.md 的 schema 与命名契约");
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} 通过`);
 if (failed.length > 0) {
-  console.error("\n结论发生变化，请回头核对 DESIGN.md §8.5 / §6.3：");
+  console.error("\n结论发生变化，请回头核对 nexus-agent-core-design.md §8.5 / §6.3：");
   for (const f of failed) console.error(`  - ${f.name}`);
   process.exit(1);
 }

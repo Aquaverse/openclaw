@@ -1,6 +1,6 @@
 # Nexus Agent Core Plugin: Stage 3 切片①（Claim / Evidence 账本 + boot id）阶段性总结（2026-10-13）
 
-位置：OpenClaw fork `extensions/nexus-agent-core/`，分支 `nexus-plugin`（DESIGN.md Stage 3 一节「切片①落地记录」与 §14「切片①留下的缺口」有逐项说明）。约束不变：不改 OpenClaw `src/`；工具前缀 `nexus_`；插件不写自己的代码目录。
+位置：OpenClaw fork `extensions/nexus-agent-core/`，分支 `nexus-plugin`（nexus-agent-core-design.md Stage 3 一节「切片①落地记录」与 §14「切片①留下的缺口」有逐项说明）。约束不变：不改 OpenClaw `src/`；工具前缀 `nexus_`；插件不写自己的代码目录。
 
 ## 范围（用户 10-13 选定：只做①）
 

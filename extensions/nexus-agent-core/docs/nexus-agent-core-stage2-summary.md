@@ -1,6 +1,6 @@
 # Nexus Agent Core Plugin: Stage 2 阶段性总结（2026-10-12，10-13 / 10-14 更新）
 
-位置：OpenClaw fork `extensions/nexus-agent-core/`（DESIGN.md §8.7 与 §13 有逐项观察记录）。约束不变：不改 OpenClaw `src/`；工具前缀 `nexus_`；插件不写自己的代码目录，数据只进状态目录。Stage 2 = Decision + Grant + Execution，验收在 **dev 网关**完成；**10-14 起 pkg 安装产物也已回归通过**（见 `nexus-agent-core-pkg-regression.md`）。
+位置：OpenClaw fork `extensions/nexus-agent-core/`（nexus-agent-core-design.md §8.7 与 §13 有逐项观察记录）。约束不变：不改 OpenClaw `src/`；工具前缀 `nexus_`；插件不写自己的代码目录，数据只进状态目录。Stage 2 = Decision + Grant + Execution，验收在 **dev 网关**完成；**10-14 起 pkg 安装产物也已回归通过**（见 `nexus-agent-core-pkg-regression.md`）。
 
 ## 一、Stage 2 完成项
 
@@ -113,4 +113,4 @@
 5. 多步 Workflow 编排。
    （注：Stage 4 的 Watcher、UI、Preference 已完成，见 stage4-summary；Handoff 与 Workflow 仍未设计。）
 
-**并行尾巴**：Stage 1 遗留的真实去重往返、`task_closed` 被拒、`updated` 事件单独观察；DESIGN 版本号与变更日志升级；`ARCHITECTURE.md` 核对；真实 provider 接入方案（幂等键、对账接口、风险分级目录）单独立项。
+**并行尾巴**：Stage 1 遗留的真实去重往返、`task_closed` 被拒、`updated` 事件单独观察；DESIGN 版本号与变更日志升级；`nexus-agent-core-architecture.md` 核对；真实 provider 接入方案（幂等键、对账接口、风险分级目录）单独立项。

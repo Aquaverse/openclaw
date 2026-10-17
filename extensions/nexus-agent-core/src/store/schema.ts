@@ -1,7 +1,7 @@
-// Stage 1 migration SQL. The DDL below is the DESIGN.md section 6.3 text for the three Stage 1 tables,
+// Stage 1 migration SQL. The DDL below is the nexus-agent-core-design.md section 6.3 text for the three Stage 1 tables,
 // copied verbatim (comments included). Tables are STRICT; none of them may be altered after release
 // (DESIGN section 13, Stage 1 "first-release table scope"): later stages only add tables.
-// Regression group 11 in spikes/grant-rotation-sqlite.mjs checks this file against DESIGN.md.
+// Regression group 11 in spikes/grant-rotation-sqlite.mjs checks this file against nexus-agent-core-design.md.
 
 export type Migration = { readonly id: string; readonly sql: string };
 
@@ -47,7 +47,7 @@ CREATE TABLE nexus_task_sessions (
 // Stage 2 migration SQL: actions, decisions, decision_actions, action_grants, standing_grants, action_executions,
 // grant_uses (DESIGN section 6.3, from "候选动作" up to "事实") followed by outbox and run_triggers (the two
 // later blocks). Copied verbatim, comments included. It only ADDS tables: nothing from Stage 1 is altered.
-// Regression group 11 checks this text against DESIGN.md and stacks it on the Stage 1 migration.
+// Regression group 11 checks this text against nexus-agent-core-design.md and stacks it on the Stage 1 migration.
 export const STAGE2_DECISION_SQL = `
 ---------- 候选动作：参数的唯一真相 ----------
 CREATE TABLE actions (
@@ -311,7 +311,7 @@ CREATE INDEX run_triggers_gc ON run_triggers(expires_at);
 // shape (evidence.blob_key -> blob_objects, blob_objects -> process_incarnations). DESIGN section 6.3, two segments copied
 // verbatim: "事实：投影 + 追加事件" up to (not including) blob_reservations, and "完成条件". It only ADDS tables.
 // Blob reservations, purge runs / work items, watches, preferences and purge_receipts arrive with later migrations.
-// Regression group 11 checks this text against DESIGN.md and stacks it on the Stage 1 + Stage 2 migrations.
+// Regression group 11 checks this text against nexus-agent-core-design.md and stacks it on the Stage 1 + Stage 2 migrations.
 export const STAGE3_LEDGER_SQL = `
 ---------- 事实：投影 + 追加事件 ----------
 CREATE TABLE claims (
@@ -720,7 +720,7 @@ CREATE TABLE purge_receipts (
 // Stage 4 (preferences) migration SQL: preferences + preference_revisions, DESIGN section 6.3 copied verbatim (from the
 // "偏好与个人上下文" banner up to, not including, the "回检" banner). It references nexus_tasks only (task_exception rows cascade
 // with the Task, section 11.5); purge_receipts already carries the preference shape from stage3-0003. The watches table
-// arrives with its own migration. Regression group 11 checks this text against DESIGN.md.
+// arrives with its own migration. Regression group 11 checks this text against nexus-agent-core-design.md.
 export const STAGE4_PREFERENCE_SQL = `
 ---------- 偏好与个人上下文（§11）----------
 CREATE TABLE preferences (

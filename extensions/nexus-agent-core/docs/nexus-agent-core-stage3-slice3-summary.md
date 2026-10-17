@@ -1,6 +1,6 @@
 # Nexus Agent Core Plugin: Stage 3 切片③（Purge + 单条证据删除 + incarnation_gone 开关）阶段性总结（2026-10-14）
 
-位置：OpenClaw fork `extensions/nexus-agent-core/`，分支 `nexus-plugin`（DESIGN.md Stage 3 一节「切片③落地记录」与 §14「切片③留下的缺口」有逐项说明）。约束不变：不改 OpenClaw `src/`；工具前缀 `nexus_`；插件不写自己的代码目录。
+位置：OpenClaw fork `extensions/nexus-agent-core/`，分支 `nexus-plugin`（nexus-agent-core-design.md Stage 3 一节「切片③落地记录」与 §14「切片③留下的缺口」有逐项说明）。约束不变：不改 OpenClaw `src/`；工具前缀 `nexus_`；插件不写自己的代码目录。
 
 ## 范围（用户选定）
 

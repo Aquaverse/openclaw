@@ -1,5 +1,5 @@
 // Spike 3 items 1-3: observe the real openBlobStore runtime contract (DESIGN section 13, Stage 0).
-// Everything here only OBSERVES; results land in the recorder and are copied into DESIGN.md by a human.
+// Everything here only OBSERVES; results land in the recorder and are copied into nexus-agent-core-design.md by a human.
 import { randomBytes } from "node:crypto";
 import type { OpenClawPluginApi } from "../../api.js";
 import {
