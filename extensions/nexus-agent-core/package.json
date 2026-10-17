@@ -28,9 +28,6 @@
     "extensions": [
       "./index.ts"
     ],
-    "runtimeExtensions": [
-      "./dist/index.js"
-    ],
     "build": {
       "workerEntries": [
         "./src/store/sqlite-store.worker.ts",

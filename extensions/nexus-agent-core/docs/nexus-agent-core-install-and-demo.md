@@ -30,7 +30,7 @@ npm pack --pack-destination /tmp/nexus-pack
 tar -tzf /tmp/nexus-pack/*.tgz | head -40   # 应有 dist/index.js、dist/src/store/sqlite-store.worker.js、dist/control-ui/<hash>/，不应有 .ts 源码
 ```
 
-`build-dist.mjs` 复用仓库的 `scripts/lib/plugin-npm-runtime-build.mjs`（tsdown；`openclaw` 与 `openclaw/*` 外置，`typebox` 来自 `dependencies`），并在末尾检查入口、worker、唯一的 control-ui 哈希目录。`package.json` 用 `openclaw.runtimeExtensions: ["./dist/index.js"]` 指向编译产物，`openclaw.extensions` 仍是 `./index.ts`，所以源码开发模式不变。
+`build-dist.mjs` 复用仓库的 `scripts/lib/plugin-npm-runtime-build.mjs`（tsdown；`openclaw` 与 `openclaw/*` 外置，`typebox` 来自 `dependencies`），并在末尾检查入口、worker、唯一的 control-ui 哈希目录。`package.json` 里只有 `openclaw.extensions: ["./index.ts"]`，**不写** `openclaw.runtimeExtensions`：打 npm 包时由仓库脚本按 `extensions` 自动生成 `./dist/index.js`；内置进 OpenClaw.app 时入口在插件根目录的 `index.js`，手写的 `./dist/index.js` 会让宿主报 `runtime extension entry not found`，`plugins enable` 因而失败。
 
 ## 4. 安装（干净环境）
 

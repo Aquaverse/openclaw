@@ -88,6 +88,8 @@ describe("Control UI browser module", () => {
   const root = path.resolve(import.meta.dirname, "..");
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")) as {
     openclaw: {
+      extensions?: string[];
+      runtimeExtensions?: string[];
       controlUi?: string;
       assetScripts?: { build?: string; copy?: string; buildOutputs?: string[] };
     };
@@ -102,6 +104,13 @@ describe("Control UI browser module", () => {
       /build-plugin-control-ui\.mts --copy$/,
     );
     assert.deepEqual(packageJson.openclaw.assetScripts?.buildOutputs, ["openclaw.plugin.json"]);
+  });
+
+  it("leaves runtimeExtensions to the pack step so the bundled App can load the plugin", () => {
+    // A hand-written ./dist/index.js is right only for the npm tarball; in OpenClaw.app the built entry is index.js at the
+    // plugin root, so the host rejected the plugin ("runtime extension entry not found") and `plugins enable` failed.
+    assert.equal(packageJson.openclaw.runtimeExtensions, undefined);
+    assert.deepEqual(packageJson.openclaw.extensions, ["./index.ts"]);
   });
 
   it("registers a page with the same id as the descriptor tab", () => {

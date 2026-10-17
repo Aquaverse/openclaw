@@ -26,11 +26,10 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
 
-const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, "package.json"), "utf8"));
-const required = [
-  ...(manifest.openclaw?.runtimeExtensions ?? []),
-  "./dist/src/store/sqlite-store.worker.js",
-];
+// package.json deliberately has no openclaw.runtimeExtensions: the npm pack step derives it from
+// openclaw.extensions (./index.ts -> ./dist/index.js), and a hand-written ./dist/index.js would point at the wrong
+// file inside the bundled App, where the built entry sits at the plugin root (index.js). See manifest.test.ts.
+const required = ["./dist/index.js", "./dist/src/store/sqlite-store.worker.js"];
 const missing = required.filter((file) => !fs.existsSync(path.join(packageDir, file)));
 const controlUiRoot = path.join(packageDir, "dist", "control-ui");
 const controlUiHashes = fs.existsSync(controlUiRoot) ? fs.readdirSync(controlUiRoot) : [];
