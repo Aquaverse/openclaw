@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import { createEventBridge, TASK_CHANGED_EVENT, type TaskChangedPayload } from "./events.js";
 import { DEFAULT_OWNER_ID, resolvePrincipal } from "./principal.js";
-import { NEXUS_TASK_PROTOCOL, renderOpenTasks } from "./prompt.js";
+import { NEXUS_CLAIM_PROTOCOL, NEXUS_TASK_PROTOCOL, renderOpenTasks } from "./prompt.js";
 import type { TaskRecord } from "./store/types.js";
 
 const task = (over: Partial<TaskRecord>): TaskRecord => ({
@@ -53,6 +53,8 @@ describe("prompt rendering", () => {
     assert.ok(NEXUS_TASK_PROTOCOL.includes("ok:false"));
     assert.ok(NEXUS_TASK_PROTOCOL.includes("不要在同一轮里自己替用户确认"));
     assert.ok(NEXUS_TASK_PROTOCOL.includes("再登记一个一模一样的"));
+    // One claim per fact, same subject: a second claim for the same booking stayed ASSERTED and blocked completion.
+    assert.ok(NEXUS_CLAIM_PROTOCOL.includes("同一件事只登记一条 claim"));
   });
 });
 

@@ -34,6 +34,9 @@ describe("R2 through the core card", () => {
       "the card shows the Task's entities for the human to check",
     );
     assert.ok(card.description.includes("nexus_action_commit"));
+    // A booking is R2: the card must not look like a routine approval, and must say where the second confirmation is.
+    assert.ok(card.title.startsWith("【R2】"), card.title);
+    assert.ok(card.description.includes("二次确认"), card.description);
     const result = out.result;
     assert.equal(result.status, "decided");
     assert.equal(result.resolution, "approved");

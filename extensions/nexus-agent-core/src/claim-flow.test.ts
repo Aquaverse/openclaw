@@ -2,6 +2,7 @@
 // the claim RPC handlers and the outbox, on the real kernel (in-memory SQLite) with the fake provider.
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
+import { createEvidenceListRpcHandlers } from "./evidence-rpc.js";
 import type { ProviderMode } from "./provider/fake-provider.js";
 import { P, world, type Details } from "./test-support/decision-world.js";
 
@@ -620,5 +621,51 @@ describe("boot id and orphan attempts (section 9.5.1)", () => {
       null,
       "closed rows are only ever written by their own incarnation",
     );
+  });
+});
+
+describe("an install without evidence bytes still lists a Task's evidence rows", () => {
+  it("answers nexus.evidence.list from the store alone, so the Task page keeps its evidence section", async () => {
+    const w = world({ claims: true });
+    assert.equal(w.evidence, undefined);
+    const t = w.newTask();
+    const claim = await claimCall(w, "nexus_claim_add", {
+      taskId: t,
+      subject: "booking",
+      predicate: "executed",
+      completion: "SUPPORTED",
+    });
+    const { executionId } = await bookAndCommit(w, t);
+    const linked = await claimCall(w, "nexus_evidence_add", {
+      taskId: t,
+      claimId: claim.claimId,
+      ref: { kind: "execution", id: executionId },
+    });
+    assert.equal(linked.ok, true, JSON.stringify(linked));
+
+    const handlers = createEvidenceListRpcHandlers({
+      getStore: async () => w.store,
+      resolvePrincipal: () => P,
+    });
+    assert.deepEqual(
+      handlers.map(([method, , scope]) => [method, scope]),
+      [["nexus.evidence.list", "operator.read"]],
+    );
+    let reply: { ok: boolean; payload?: unknown } | undefined;
+    await handlers[0][1]({
+      params: { taskId: t, limit: 100 },
+      respond: (ok: boolean, payload?: unknown) => {
+        reply = { ok, payload };
+      },
+    } as never);
+    assert.equal(reply?.ok, true);
+    const rows = (
+      reply?.payload as { evidence: { kind: string; blobKey: unknown; linkedClaimIds: string[] }[] }
+    ).evidence;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.kind, "execution_receipt");
+    assert.equal(rows[0]?.blobKey, null);
+    // The settle hook also records its own execution-result claim on the same receipt, so there may be two.
+    assert.ok(rows[0]?.linkedClaimIds.includes(claim.claimId as string));
   });
 });

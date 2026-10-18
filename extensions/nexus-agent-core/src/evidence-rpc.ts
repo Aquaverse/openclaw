@@ -115,6 +115,46 @@ function respondOutcome(respond: Respond, ownerId: string, result: EvidenceOutco
   }
 }
 
+/**
+ * Read-only listing of a Task's evidence rows. It needs only the store, so it is also registered on installs without
+ * evidence bytes (no blob store: third-party installs, or evidenceBlobsEnabled off): the Task page then still shows
+ * what was attached (receipt rows, no "view original"), instead of an evidence section that silently disappears.
+ */
+export function createEvidenceListRpcHandlers(
+  deps: Pick<EvidenceRpcDeps, "getStore" | "resolvePrincipal">,
+) {
+  const handler: GatewayRequestHandler = async ({ params, respond }) => {
+    const principal = deps.resolvePrincipal();
+    if (!principal) {
+      reject(respond, "nexus_no_principal", "cannot resolve the owner");
+      return;
+    }
+    try {
+      const taskId = normalizeTaskId(params?.taskId);
+      if (!taskId) {
+        reject(respond, "nexus_invalid_params", "taskId is required");
+        return;
+      }
+      const limit =
+        typeof params?.limit === "number" && params.limit >= 1
+          ? Math.min(Math.floor(params.limit), 200)
+          : 50;
+      const evidence = await (
+        await deps.getStore()
+      ).listEvidence({
+        principal,
+        taskId,
+        ...(params?.onlyUnlinked === true ? { onlyUnlinked: true } : {}),
+        limit,
+      });
+      respond(true, { ownerId: principal.ownerId, taskId, evidence });
+    } catch (error) {
+      reject(respond, "nexus_store_error", error instanceof Error ? error.message : String(error));
+    }
+  };
+  return [["nexus.evidence.list", handler, "operator.read"]] as const;
+}
+
 /** Returns [method, handler, scope] triples; the caller registers them. */
 export function createEvidenceRpcHandlers(deps: EvidenceRpcDeps) {
   const now = deps.now ?? Date.now;
@@ -271,28 +311,7 @@ export function createEvidenceRpcHandlers(deps: EvidenceRpcDeps) {
       }),
       "operator.write",
     ],
-    [
-      "nexus.evidence.list",
-      guarded(async ({ principal, store, params, respond }) => {
-        const taskId = normalizeTaskId(params.taskId);
-        if (!taskId) {
-          reject(respond, "nexus_invalid_params", "taskId is required");
-          return;
-        }
-        const limit =
-          typeof params.limit === "number" && params.limit >= 1
-            ? Math.min(Math.floor(params.limit), 200)
-            : 50;
-        const evidence = await store.listEvidence({
-          principal,
-          taskId,
-          ...(params.onlyUnlinked === true ? { onlyUnlinked: true } : {}),
-          limit,
-        });
-        respond(true, { ownerId: principal.ownerId, taskId, evidence });
-      }),
-      "operator.read",
-    ],
+    ...createEvidenceListRpcHandlers(deps),
     [
       "nexus.evidence.handle",
       guarded(async ({ principal, params, respond }) => {

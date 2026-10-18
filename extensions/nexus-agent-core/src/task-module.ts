@@ -8,7 +8,7 @@ import { createClaimRpcHandlers } from "./claim-rpc.js";
 import { createDecisionRpcHandlers } from "./decision-rpc.js";
 import { createDecisionRuntime, DEFAULT_APPROVAL_TIMEOUT_MS } from "./decision-runtime.js";
 import { createEventBridge } from "./events.js";
-import { createEvidenceRpcHandlers } from "./evidence-rpc.js";
+import { createEvidenceListRpcHandlers, createEvidenceRpcHandlers } from "./evidence-rpc.js";
 import { createRuntimeBlobStores, guardBlobStores } from "./evidence/blob-store.js";
 import {
   createEvidenceService,
@@ -298,6 +298,14 @@ export function registerTaskModule(
           events,
           resolvePrincipal: () => principalFor(),
           kickOutbox: () => runtime.kickOutbox(),
+        })) {
+          api.registerGatewayMethod(method, handler, { scope });
+        }
+      } else {
+        // No evidence service (bytes off), but the Task page still lists the evidence rows: read-only.
+        for (const [method, handler, scope] of createEvidenceListRpcHandlers({
+          getStore,
+          resolvePrincipal: () => principalFor(),
         })) {
           api.registerGatewayMethod(method, handler, { scope });
         }
