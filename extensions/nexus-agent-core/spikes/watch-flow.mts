@@ -1,11 +1,11 @@
-// Stage 4 验收：Watcher（DESIGN §10）端到端。会触发一次真实的模型回合（约 1–3 分钟），其余全部经 tools.invoke / RPC / SQL。
-// 用法：node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/watch-flow.mts [--url ws://127.0.0.1:19001] [--token <token>]
-//   token 也可放 OPENCLAW_GATEWAY_TOKEN；状态目录用 OPENCLAW_STATE_DIR（默认 ~/.openclaw-dev）。
-// 前提：dev 网关已启动，claimsEnabled=true，decisionsEnabled=true，watchersEnabled=true，fakeProviderMode=ok，
-//   tools.alsoAllow 含 nexus_claim_add / nexus_watch_create / nexus_watch_cancel / nexus_watch_report，本机装有 sqlite3，
-//   并且 dev 网关配置了可用的模型（回检回合要真的跑一次）。
-// 流程：A 条 watch（maxAttempts=1，1 分钟后检查）→ 等回检回合 → 无论模型汇报 not_yet / blocked 还是没汇报，都应「耗尽 → 一张 acknowledge 决策」；
-//   B 条 watch（60 分钟后）→ 取消，cron 任务应被移除，不会触发。结束时取消探针 Task。
+// Stage 4 acceptance: Watcher (DESIGN §10) end to end. Triggers one real model turn (about 1–3 minutes); everything else goes via tools.invoke / RPC / SQL.
+// Usage: node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/watch-flow.mts [--url ws://127.0.0.1:19001] [--token <token>]
+//   The token can also be set via OPENCLAW_GATEWAY_TOKEN; the state directory uses OPENCLAW_STATE_DIR (default ~/.openclaw-dev).
+// Prerequisites: dev gateway started, claimsEnabled=true, decisionsEnabled=true, watchersEnabled=true, fakeProviderMode=ok,
+//   tools.alsoAllow includes nexus_claim_add / nexus_watch_create / nexus_watch_cancel / nexus_watch_report, sqlite3 installed locally,
+//   and the dev gateway is configured with a usable model (the watch turn really runs once).
+// Flow: watch A (maxAttempts=1, checks after 1 minute) → wait for the watch turn → whether the model reports not_yet / blocked or reports nothing, it should end in "exhausted → one acknowledge decision";
+//   watch B (after 60 minutes) → cancel it, the cron job should be removed and never fire. At the end the probe Task is cancelled.
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -70,7 +70,7 @@ async function waitFor(what: string, done: () => boolean, timeoutMs: number): Pr
     if (done()) return true;
     await sleep(2_000);
   }
-  note(`等待超时：${what}`);
+  note(`wait timed out: ${what}`);
   return false;
 }
 
@@ -79,12 +79,12 @@ async function run() {
   const reserve = await tool("nexus_task_reserve", { kind: "watch_probe" });
   const created = await tool("nexus_task_create", {
     kind: "watch_probe",
-    title: `回检探针 ${stamp}`,
-    goal: { want: "Stage 4 Watcher 验收" },
+    title: `watch probe ${stamp}`,
+    goal: { want: "Stage 4 Watcher acceptance" },
     operationToken: String(reserve.operationToken),
   });
   const taskId = String(created.taskId ?? "");
-  check("新建探针 Task", created.ok === true && taskId !== "", created);
+  check("create probe Task", created.ok === true && taskId !== "", created);
   if (!taskId) return;
   const claim = await tool("nexus_claim_add", {
     taskId,
@@ -92,142 +92,154 @@ async function run() {
     predicate: "executed",
   });
   const claimId = String(claim.claimId ?? "");
-  check("登记一条尚无证据的 claim", claim.ok === true && claimId !== "", claim);
+  check("register a claim that has no evidence yet", claim.ok === true && claimId !== "", claim);
   if (!claimId) return;
 
-  // 1 创建校验与幂等
+  // 1 Creation validation and idempotency
   const bad = await tool("nexus_watch_create", { taskId, claimId, expect: "   " });
-  check("空 expect 被拒", bad.ok === false && bad.code === "invalid_bad_expect", bad);
+  check("empty expect rejected", bad.ok === false && bad.code === "invalid_bad_expect", bad);
   const noClaim = await tool("nexus_watch_create", { taskId, claimId: "CNOSUCH", expect: "x" });
-  check("不存在的 claim 被拒", noClaim.ok === false && noClaim.code === "claim_not_found", noClaim);
   check(
-    "被拒的创建没有留下 watch",
+    "nonexistent claim rejected",
+    noClaim.ok === false && noClaim.code === "claim_not_found",
+    noClaim,
+  );
+  check(
+    "the rejected creation left no watch",
     sql(`select count(*) from watches where task_id='${taskId}'`) === "0",
   );
   const premature = await tool("nexus_watch_report", {
     watchId: "WNOSUCH0001",
     outcome: "satisfied",
   });
-  check("在回检回合之外汇报被拒（门或账本）", premature.ok !== true, premature);
+  check(
+    "reporting outside a watch turn is rejected (by the gate or the ledger)",
+    premature.ok !== true,
+    premature,
+  );
 
   const a = await tool("nexus_watch_create", {
     taskId,
     claimId,
-    expect: `探针：确认 ${stamp} 的预订邮件已到`,
+    expect: `probe: confirm that the booking email for ${stamp} has arrived`,
     firstCheckInMinutes: 1,
     maxAttempts: 1,
   });
   const idA = String(a.watchId ?? "");
-  check("创建 watch A（1 分钟后检查，最多 1 次）", a.ok === true && idA !== "", a);
+  check(
+    "create watch A (checks after 1 minute, at most 1 attempt)",
+    a.ok === true && idA !== "",
+    a,
+  );
   if (!idA) return;
   const again = await tool("nexus_watch_create", {
     taskId,
     claimId,
-    expect: `探针：确认 ${stamp} 的预订邮件已到`,
+    expect: `probe: confirm that the booking email for ${stamp} has arrived`,
     firstCheckInMinutes: 1,
     maxAttempts: 1,
   });
   check(
-    "相同参数复用同一条 watch",
+    "same parameters reuse the same watch",
     again.ok === true && again.watchId === idA && again.reused === true,
     again,
   );
   check(
-    "Task 状态是 watching",
+    "Task status is watching",
     sql(`select status from nexus_tasks where id='${taskId}'`) === "watching",
   );
 
-  // 2 调度：意图先写库，runtime 随后建出一个 cron 任务
+  // 2 Scheduling: intent is written to the database first, then the runtime builds a cron job
   const scheduled = await waitFor(
-    "watch A 变为 scheduled",
+    "watch A becomes scheduled",
     () => watchRow(idA)[0] === "scheduled",
     30_000,
   );
   const rowA = watchRow(idA);
-  check(
-    "watch A 已有 cron 任务（scheduled + scheduler_job_id）",
-    scheduled && rowA[2] !== "",
-    rowA,
-  );
+  check("watch A has a cron job (scheduled + scheduler_job_id)", scheduled && rowA[2] !== "", rowA);
   note(
-    `watch A 的会话：${rowA[3]}，cron job：${rowA[2]}（可用 openclaw --dev cron list --all 对照）`,
+    `watch A session: ${rowA[3]}, cron job: ${rowA[2]} (compare with openclaw --dev cron list --all)`,
   );
 
-  // 3 另一条 watch B：创建后马上取消，cron 任务要被移除
+  // 3 A second watch B: cancel it right after creation, the cron job must be removed
   const b = await tool("nexus_watch_create", {
     taskId,
     claimId,
-    expect: `探针：B 条 ${stamp}`,
+    expect: `probe: watch B ${stamp}`,
     firstCheckInMinutes: 60,
   });
   const idB = String(b.watchId ?? "");
-  check("创建 watch B（60 分钟后）", b.ok === true && idB !== "", b);
-  await waitFor("watch B 变为 scheduled", () => watchRow(idB)[0] === "scheduled", 30_000);
+  check("create watch B (after 60 minutes)", b.ok === true && idB !== "", b);
+  await waitFor("watch B becomes scheduled", () => watchRow(idB)[0] === "scheduled", 30_000);
   const cancelled = await rpc("nexus.watch.cancel", { watchId: idB });
-  check("操作员取消 watch B", cancelled.outcome === "cancelled", cancelled.outcome);
-  check("取消后 watch B 状态 cancelled", watchRow(idB)[0] === "cancelled");
+  check("operator cancels watch B", cancelled.outcome === "cancelled", cancelled.outcome);
+  check("watch B status is cancelled after cancelling", watchRow(idB)[0] === "cancelled");
   const cancelAgain = await rpc("nexus.watch.cancel", { watchId: idB }).then(
     () => "no-error",
     (error: Error) => error.message,
   );
-  check("再次取消被拒", cancelAgain !== "no-error", cancelAgain);
+  check("cancelling again is rejected", cancelAgain !== "no-error", cancelAgain);
   check(
-    "Task 仍是 watching（watch A 还在）",
+    "Task is still watching (watch A is still there)",
     sql(`select status from nexus_tasks where id='${taskId}'`) === "watching",
   );
 
-  // 4 回检回合：等 A 触发（约 1 分钟 + 模型回合时间）
-  note("等待 watch A 的回检回合（约 1–3 分钟，会真的跑一次模型）…");
+  // 4 Watch turn: wait for A to fire (about 1 minute + model turn time)
+  note("waiting for watch A's watch turn (about 1–3 minutes, really runs the model once) ...");
   const fired = await waitFor(
-    "watch A 离开 scheduled",
+    "watch A leaves scheduled",
     () => watchRow(idA)[0] !== "scheduled",
     240_000,
   );
-  check("watch A 到点触发", fired, watchRow(idA));
+  check("watch A fires on time", fired, watchRow(idA));
   if (!fired) {
-    note("诊断（把下面几行和网关日志里含 nexus: watch 的行一起贴给我）：");
+    note(
+      "diagnostics (paste the lines below together with the gateway-log lines containing nexus: watch):",
+    );
     note(
       `watches: ${sql(`select id,status,attempts,scheduler_job_id,scheduled_for,next_check_at from watches where id='${idA}'`)}`,
     );
     note(
-      `run_triggers(最近 5 行): ${sql("select run_id||'|'||trigger||'|'||ifnull(job_id,'')||'|'||ifnull(watch_id,'') from run_triggers order by recorded_at desc limit 5").replaceAll("\n", " ; ")}`,
+      `run_triggers (last 5 rows): ${sql("select run_id||'|'||trigger||'|'||ifnull(job_id,'')||'|'||ifnull(watch_id,'') from run_triggers order by recorded_at desc limit 5").replaceAll("\n", " ; ")}`,
     );
-    note(`当前时间(ms)：${Date.now()}`);
+    note(`current time (ms): ${Date.now()}`);
   }
   const triggerRow = sql(
     `select trigger||'|'||ifnull(job_id,'')||'|'||ifnull(watch_id,'') from run_triggers where watch_id='${idA}'`,
   );
   check(
-    "run_triggers 里有认证通过的一行：trigger=cron，job_id=调度时的 job，watch_id=A",
+    "run_triggers has an authenticated row: trigger=cron, job_id=the job from scheduling, watch_id=A",
     triggerRow.startsWith("cron|") &&
       triggerRow.endsWith(`|${idA}`) &&
       triggerRow.split("|")[1] === rowA[2],
     triggerRow,
   );
-  const done = await waitFor("watch A 离开 firing", () => watchRow(idA)[0] !== "firing", 240_000);
+  const done = await waitFor("watch A leaves firing", () => watchRow(idA)[0] !== "firing", 240_000);
   const finalA = watchRow(idA);
   check(
-    "回检回合结束，watch A 终态为 exhausted（maxAttempts=1，不论模型汇报 not_yet / blocked / 没汇报）",
+    "watch turn ends, watch A final state is exhausted (maxAttempts=1, whether the model reports not_yet / blocked / nothing)",
     done && finalA[0] === "exhausted" && finalA[1] === "1",
     finalA,
   );
   const notes = sql(
-    `select count(*) from nexus_task_steps where task_id='${taskId}' and title like '%[回检 ${idA}]%'`,
+    `select count(*) from nexus_task_steps where task_id='${taskId}' and title like '%[watch ${idA}]%'`,
   );
-  note(`模型留下的回检备注数：${notes}（0 表示模型没有给 finding，也算正常）`);
+  note(
+    `watch notes left by the model: ${notes} (0 means the model gave no finding, which is also normal)`,
+  );
 
-  // 5 耗尽 → 一张 acknowledge 决策
+  // 5 Exhausted → one acknowledge decision
   const decisionCount = await waitFor(
-    "acknowledge 决策出现",
+    "acknowledge decision appears",
     () =>
       sql(
         `select count(*) from decisions where task_id='${taskId}' and effect_kind='acknowledge'`,
       ) === "1",
     30_000,
   );
-  check("耗尽后恰好有一张 acknowledge 决策", decisionCount);
+  check("exactly one acknowledge decision after exhaustion", decisionCount);
   check(
-    "该决策不带任何授权/执行",
+    "the decision carries no grant/execution",
     sql(
       `select (select count(*) from action_grants where task_id='${taskId}')||','||(select count(*) from action_executions where task_id='${taskId}')`,
     ) === "0,0",
@@ -235,32 +247,36 @@ async function run() {
   const decisionId = sql(
     `select id from decisions where task_id='${taskId}' and effect_kind='acknowledge'`,
   );
-  check("找到 acknowledge 决策的 id", decisionId !== "", decisionId);
+  check("found the id of the acknowledge decision", decisionId !== "", decisionId);
   if (!decisionId) {
     return;
   }
   const resolved = await rpc("nexus.decision.resolve", { decisionId, resolution: "approved" });
-  check("用户确认后决策解决", resolved.ok !== false, resolved.status ?? resolved.ok);
   check(
-    "确认后 Task 回到 planning（没有活跃 watch 了）",
+    "decision resolved after user confirmation",
+    resolved.ok !== false,
+    resolved.status ?? resolved.ok,
+  );
+  check(
+    "after confirmation the Task returns to planning (no active watch left)",
     sql(`select status from nexus_tasks where id='${taskId}'`) === "planning",
     sql(`select status from nexus_tasks where id='${taskId}'`),
   );
 
-  // 6 事件
+  // 6 Events
   await sleep(500);
   const seenA = changes.filter((c) => c.watchId === idA).map((c) => c.change);
   check(
-    "watch_changed 事件按序出现：created → scheduled → firing → exhausted",
+    "watch_changed events appear in order: created → scheduled → firing → exhausted",
     ["created", "scheduled", "firing", "exhausted"].every((c) => seenA.includes(c)),
     seenA,
   );
 
-  // 7 清理
+  // 7 Cleanup
   const aborted = await rpc("nexus.task.abort", { taskId });
-  check("取消探针 Task", aborted.ok !== false, aborted.status ?? aborted.ok);
+  check("cancel probe Task", aborted.ok !== false, aborted.status ?? aborted.ok);
   note(
-    `完成后请核对：openclaw --dev cron list --all 里不应留有 nexus-watch-${idA} / nexus-watch-${idB}`,
+    `after finishing, check: openclaw --dev cron list --all should not still contain nexus-watch-${idA} / nexus-watch-${idB}`,
   );
 }
 
@@ -297,6 +313,6 @@ client = new GatewayClient({
 });
 client.start();
 setTimeout(() => {
-  console.error("[timeout] 12 分钟内没有完成");
+  console.error("[timeout] not finished within 12 minutes");
   process.exit(3);
 }, 12 * 60_000);

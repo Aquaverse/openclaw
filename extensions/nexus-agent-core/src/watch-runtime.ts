@@ -56,7 +56,7 @@ export function resolveWatcherExtraTools(configured: readonly string[] | undefin
 }
 
 export function buildWatchMessage(watch: Pick<WatchRecord, "id" | "taskId">): string {
-  return `${WATCH_MARKER_PREFIX}${watch.id}] Nexus 回检：事项 ${watch.taskId}。按「Nexus 回检回合」协议执行，最后调用一次 nexus_watch_report。`;
+  return `${WATCH_MARKER_PREFIX}${watch.id}] Nexus re-check: Task ${watch.taskId}. Follow the [Nexus re-check turn] protocol and finish with exactly one call to nexus_watch_report.`;
 }
 
 export function readWatchMarker(prompt: unknown): string | undefined {
@@ -193,7 +193,8 @@ export function createWatchRuntime(deps: WatchRuntimeDeps) {
     deps.logger.warn(`nexus: watcher turn rejected (${why}); no tools offered`);
     return {
       toolsAllow: [] as string[],
-      prependContext: "[Nexus] 这次回检无法确认来源，已被拒绝。不要做任何事，只回复“OK”。",
+      prependContext:
+        "[Nexus] This re-check could not be authenticated and was rejected. Do nothing and reply only with OK.",
     };
   };
 

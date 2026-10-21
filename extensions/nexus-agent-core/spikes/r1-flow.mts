@@ -1,8 +1,8 @@
-// Stage 2 验收：R1（standing grant）端到端，全程经 tools.invoke / RPC，不依赖模型。
-// 用法：node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/r1-flow.mts --task <taskId> --token <token>
-// 前提：dev 网关已启动，decisionsEnabled=true，fakeProviderMode=ok，本机装有 sqlite3。
-// 结尾会撤销本次签发的 standing grant，所以同一个 Task 可以重复运行。
-// vendor 每次运行都不同，所以事项上已有的 standing grant（包括在页面里批准过的 D-R1）不会影响结果。
+// Stage 2 acceptance: R1 (standing grant) end to end, entirely via tools.invoke / RPC, without depending on the model.
+// Usage: node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/r1-flow.mts --task <taskId> --token <token>
+// Prerequisites: dev gateway started, decisionsEnabled=true, fakeProviderMode=ok, sqlite3 installed locally.
+// At the end it revokes the standing grant issued in this run, so the same Task can be run repeatedly.
+// The vendor differs on every run, so existing standing grants on the Task (including a D-R1 approved in the UI) do not affect the result.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -22,7 +22,7 @@ const dir = join(stateDir, "plugins", "nexus-agent-core");
 const dbPath = join(dir, "nexus.sqlite");
 const ledgerPath = join(dir, "fake-provider.jsonl");
 if (!taskId) {
-  console.error("缺少 --task <taskId>（一个仍然打开的事项，例如 TSB92Q0XT）");
+  console.error("missing --task <taskId> (a Task that is still open, e.g. TSB92Q0XT)");
   process.exit(2);
 }
 
@@ -61,27 +61,27 @@ async function run() {
     const out = await tool("nexus_action_prepare", {
       taskId,
       toolName: "fake_vendor_message",
-      // 每次运行用不同的 vendor：同一事项上已有的（含 UI 里批准过的）standing grant 不会让本次的“无 policy”判断误报。
-      params: { vendor: `Acme Rooms ${stamp}`, message: `R1 探针 ${stamp} #${n}` },
+      // Use a different vendor on every run: existing standing grants on the same Task (including ones approved in the UI) must not make this run's "no policy" check a false alarm.
+      params: { vendor: `Acme Rooms ${stamp}`, message: `R1 probe ${stamp} #${n}` },
     });
     return out;
   };
 
   const L0 = ledgerLines();
   const U0 = uses();
-  console.log(`基线：账本 ${L0} 行，grant_uses ${U0} 行`);
+  console.log(`baseline: ledger ${L0} lines, grant_uses ${U0} rows`);
 
-  // 1-2 登记 A1：R1；没有 policy 时 authorize 返回 no_policy
+  // 1-2 register A1: R1; with no policy, authorize returns no_policy
   const a1 = await prepare(1);
-  check("A1 登记为 R1", a1.ok === true && a1.riskTier === "R1", a1);
+  check("A1 registered as R1", a1.ok === true && a1.riskTier === "R1", a1);
   const a1id = String(a1.actionId);
   const none = await tool("nexus_action_authorize", { actionId: a1id });
-  check("无 policy → authorize 返回 no_policy", none.code === "no_policy", none);
+  check("no policy → authorize returns no_policy", none.code === "no_policy", none);
 
-  // 3-4 请求 standing policy，并在决策页批准
+  // 3-4 request a standing policy and approve it on the decision page
   const dec = await tool("nexus_decision_request", { taskId, effect: { actionIds: [a1id] } });
   check(
-    "决策类型为 standing grant",
+    "decision type is standing grant",
     dec.effectKind === "issue_standing_grant" && dec.ok !== false,
     dec,
   );
@@ -93,64 +93,86 @@ async function run() {
   });
   const standingGrantId = String(res.standingGrantId ?? "");
   check(
-    "批准后签发 standing grant，且不预先签发 execution",
+    "approval issues a standing grant and does not pre-issue an execution",
     res.outcome === "approved" && standingGrantId !== "" && !res.executionId,
     res,
   );
 
-  // 5 authorize 两次：同一个 executionId，且不写 grant_uses
+  // 5 authorize twice: same executionId, and no grant_uses written
   const au1 = await tool("nexus_action_authorize", { actionId: a1id });
   const au2 = await tool("nexus_action_authorize", { actionId: a1id });
-  check("authorize 返回 executionId", au1.ok === true && typeof au1.executionId === "string", au1);
   check(
-    "再次 authorize 返回同一个 executionId（reentry）",
+    "authorize returns executionId",
+    au1.ok === true && typeof au1.executionId === "string",
+    au1,
+  );
+  check(
+    "second authorize returns the same executionId (reentry)",
     au2.executionId === au1.executionId && au2.reentry === true,
     au2,
   );
-  check("authorize 两次后 grant_uses 没有增加", uses() === U0, { uses: uses(), expected: U0 });
-  check("authorize 不调用供应商", ledgerLines() === L0);
+  check("grant_uses did not increase after two authorizes", uses() === U0, {
+    uses: uses(),
+    expected: U0,
+  });
+  check("authorize does not call the vendor", ledgerLines() === L0);
 
-  // 6 commit：恰好一次写入，grant_uses +1
+  // 6 commit: exactly one write, grant_uses +1
   const c1 = await tool("nexus_action_commit", { executionId: String(au1.executionId) });
-  check("commit 成功", c1.ok === true && c1.status === "succeeded" && c1.replayed !== true, c1);
-  check("账本 +1，grant_uses +1", ledgerLines() === L0 + 1 && uses() === U0 + 1, {
+  check(
+    "commit succeeded",
+    c1.ok === true && c1.status === "succeeded" && c1.replayed !== true,
+    c1,
+  );
+  check("ledger +1, grant_uses +1", ledgerLines() === L0 + 1 && uses() === U0 + 1, {
     ledger: ledgerLines(),
     uses: uses(),
   });
   const again = await tool("nexus_action_authorize", { actionId: a1id });
-  check("已执行的动作再 authorize → already_done", again.code === "already_done", again);
+  check(
+    "authorize on an already-executed action → already_done",
+    again.code === "already_done",
+    again,
+  );
 
-  // 7-8 同一 policy 覆盖后续动作：不需要新决策
+  // 7-8 the same policy covers later actions: no new decision needed
   for (const n of [2, 3]) {
     const a = await prepare(n);
     const au = await tool("nexus_action_authorize", { actionId: String(a.actionId) });
     check(
-      `A${n} 被同一 standing policy 覆盖（无需新决策）`,
+      `A${n} covered by the same standing policy (no new decision needed)`,
       au.ok === true && typeof au.executionId === "string",
       au,
     );
     const c = await tool("nexus_action_commit", { executionId: String(au.executionId) });
-    check(`A${n} commit 成功`, c.ok === true && c.status === "succeeded", c);
+    check(`A${n} commit succeeded`, c.ok === true && c.status === "succeeded", c);
   }
-  check("三次使用后 grant_uses = +3，账本 = +3", uses() === U0 + 3 && ledgerLines() === L0 + 3, {
-    uses: uses(),
-    ledger: ledgerLines(),
-  });
+  check(
+    "after three uses grant_uses = +3, ledger = +3",
+    uses() === U0 + 3 && ledgerLines() === L0 + 3,
+    {
+      uses: uses(),
+      ledger: ledgerLines(),
+    },
+  );
 
-  // 9 额度用尽
+  // 9 quota exhausted
   const a4 = await prepare(4);
   const au4 = await tool("nexus_action_authorize", { actionId: String(a4.actionId) });
-  check("第 4 次使用被拒（policy_not_applicable）", au4.code === "policy_not_applicable", au4);
-  check("被拒后 grant_uses 与账本不变", uses() === U0 + 3 && ledgerLines() === L0 + 3);
+  check("4th use rejected (policy_not_applicable)", au4.code === "policy_not_applicable", au4);
+  check(
+    "grant_uses and ledger unchanged after rejection",
+    uses() === U0 + 3 && ledgerLines() === L0 + 3,
+  );
 
-  // 10 撤销
+  // 10 revoke
   const rev = await rpc("nexus.grant.revoke", { grantId: standingGrantId });
-  console.log(`撤销 standing grant ${standingGrantId}：${JSON.stringify(rev)}`);
+  console.log(`revoked standing grant ${standingGrantId}: ${JSON.stringify(rev)}`);
   const a5 = await prepare(5);
   const au5 = await tool("nexus_action_authorize", { actionId: String(a5.actionId) });
-  check("撤销后 authorize 不再签发", au5.ok !== true, au5);
+  check("authorize no longer issues after revocation", au5.ok !== true, au5);
 
-  console.log(failures === 0 ? "\n全部通过" : `\n${failures} 项失败`);
+  console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`);
 }
 
 client = new GatewayClient({
@@ -175,6 +197,6 @@ client = new GatewayClient({
 });
 client.start();
 setTimeout(() => {
-  console.error("[timeout] 90s 内没有完成");
+  console.error("[timeout] not finished within 90s");
   process.exit(3);
 }, 90_000);

@@ -92,25 +92,35 @@ export function detailView(detail: ClaimDetail) {
 function blobEvidenceResult(result: EvidenceOutcome): Record<string, unknown> {
   switch (result.outcome) {
     case "not_found":
-      return fail("not_found", "找不到这个事项。");
+      return fail("not_found", "Task not found.");
     case "claim_not_found":
-      return fail("claim_not_found", "找不到这个 claim。");
+      return fail("claim_not_found", "Claim not found.");
     case "task_closed":
-      return fail("task_closed", `事项已结束（${result.status}），不能再挂证据。`);
+      return fail(
+        "task_closed",
+        `The Task has ended (${result.status}); evidence can no longer be attached.`,
+      );
     case "stale_head":
-      return fail("stale_head", "这个 claim 已被修改；请先 nexus_claim_verify 读取最新状态。", {
-        headEventId: result.headEventId,
-      });
+      return fail(
+        "stale_head",
+        "This claim was modified; call nexus_claim_verify to read the latest state first.",
+        {
+          headEventId: result.headEventId,
+        },
+      );
     case "ref_not_found":
-      return fail("ref_not_found", "找不到这份证据材料（blobKey 不存在，或不属于当前账户）。");
+      return fail(
+        "ref_not_found",
+        "Evidence material not found (the blobKey does not exist, or does not belong to this account).",
+      );
     case "ref_not_ready":
-      return fail("ref_not_ready", `这份材料现在不可用（${result.state}）。`);
+      return fail("ref_not_ready", `This material is not available right now (${result.state}).`);
     case "quota_exceeded":
       return fail(
         "quota_exceeded",
         result.scope === "entry"
-          ? "这份材料超过单条证据的大小上限，没有保存。"
-          : "证据空间已满，这份证据没有保存；已经通知用户。不要把相关结论说成已证实。",
+          ? "This material exceeds the size limit for a single piece of evidence and was not saved."
+          : "The evidence space is full and this evidence was not saved; the user has been notified. Do not present the related conclusion as proven.",
         {
           scope: result.scope,
           ...("noticeDecisionId" in result && result.noticeDecisionId
@@ -119,28 +129,42 @@ function blobEvidenceResult(result: EvidenceOutcome): Record<string, unknown> {
         },
       );
     case "busy":
-      return fail("busy", "同一份材料正在写入或回收，稍后再试。", {
+      return fail("busy", "The same material is being written or reclaimed; try again shortly.", {
         retryAfterMs: result.retryAfterMs,
       });
     case "storage_error":
-      return fail("storage_error", `证据存储失败（${result.stage}），没有挂上证据。`);
+      return fail(
+        "storage_error",
+        `Evidence storage failed (${result.stage}); no evidence was attached.`,
+      );
     case "blob_corrupt":
-      return fail("blob_corrupt", `证据对象与记录不符（${result.reason}），没有挂上证据。`, {
-        blobKey: result.blobKey,
-      });
+      return fail(
+        "blob_corrupt",
+        `The evidence object does not match its record (${result.reason}); no evidence was attached.`,
+        {
+          blobKey: result.blobKey,
+        },
+      );
     case "reservation_lost":
     case "object_not_live":
-      return fail("conflict", "写入期间这份材料被回收或改变，没有挂上证据；请重试。");
+      return fail(
+        "conflict",
+        "The material was reclaimed or changed during the write; no evidence was attached; retry.",
+      );
     case "evidence_purged":
       return fail(
         "evidence_purged",
-        "这份证据已按用户要求删除，不能静默恢复；需要用户重新提供材料。",
+        "This evidence was deleted at the user's request and cannot be silently restored; the user must provide the material again.",
         { evidenceId: result.evidenceId },
       );
     case "detached_by_operator":
-      return fail("detached_by_operator", "这条证据已被操作员撤下，不能再挂回去。", {
-        evidenceId: result.evidenceId,
-      });
+      return fail(
+        "detached_by_operator",
+        "An operator withdrew this evidence; it cannot be attached again.",
+        {
+          evidenceId: result.evidenceId,
+        },
+      );
     case "already_linked":
       return {
         ok: true,
@@ -205,7 +229,12 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
   ) => {
     const principal = deps.resolvePrincipal(ctx);
     if (!principal) {
-      return jsonResult(fail("no_principal", "无法确定当前主体，Nexus 不提供服务。"));
+      return jsonResult(
+        fail(
+          "no_principal",
+          "Cannot determine the current principal; Nexus is not serving this request.",
+        ),
+      );
     }
     try {
       return jsonResult(await run(principal, await deps.getStore()));
@@ -271,34 +300,37 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
         return withPrincipal(async (principal, store) => {
           const taskId = normalizeTaskId(params.taskId);
           if (!taskId) {
-            return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+            return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           const subject = typeof params.subject === "string" ? params.subject.trim() : "";
           if (!subject || [...subject].length > CLAIM_LIMITS.subject) {
-            return fail("invalid_subject", "subject 不能为空，最长 200 个字符。");
+            return fail("invalid_subject", "subject must not be empty, at most 200 characters.");
           }
           const predicate = typeof params.predicate === "string" ? params.predicate.trim() : "";
           if (!/^[a-z][a-z0-9_]{0,79}$/.test(predicate)) {
-            return fail("invalid_predicate", "predicate 需为 lower_snake_case，最长 80 个字符。");
+            return fail(
+              "invalid_predicate",
+              "predicate must be lower_snake_case, at most 80 characters.",
+            );
           }
           if (
             params.value !== undefined &&
             JSON.stringify(params.value).length > CLAIM_LIMITS.json
           ) {
-            return fail("invalid_value", "value 不能超过 4 KB。");
+            return fail("invalid_value", "value must not exceed 4 KB.");
           }
           const state = params.state ?? "ASSERTED";
           if (!(AGENT_CLAIM_STATES as readonly unknown[]).includes(state)) {
             return fail(
               "state_not_allowed",
-              "模型只能写 ASSERTED 或 UNKNOWN；SUPPORTED / VERIFIED / REFUTED 由证据推导，不能直接设置。",
+              "The model can only write ASSERTED or UNKNOWN; SUPPORTED / VERIFIED / REFUTED are derived from evidence and cannot be set directly.",
               { allowed: [...AGENT_CLAIM_STATES] },
             );
           }
           let completion: "SUPPORTED" | "VERIFIED" | undefined;
           if (params.completion !== undefined) {
             if (!(COMPLETION_STATES as readonly unknown[]).includes(params.completion)) {
-              return fail("invalid_completion", "completion 只能是 SUPPORTED 或 VERIFIED。");
+              return fail("invalid_completion", "completion can only be SUPPORTED or VERIFIED.");
             }
             completion = params.completion as "SUPPORTED" | "VERIFIED";
           }
@@ -306,13 +338,13 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
           if (policy === "invalid") {
             return fail(
               "invalid_policy",
-              "policy 只接受 allowedGroups（字符串数组）和 minGroupsForVerified（整数）。",
+              "policy only accepts allowedGroups (an array of strings) and minGroupsForVerified (an integer).",
             );
           }
           let claimId: string | undefined;
           if (params.claimId !== undefined) {
             if (typeof params.claimId !== "string" || !ID.test(params.claimId)) {
-              return fail("invalid_claim_id", "claimId 格式不正确。");
+              return fail("invalid_claim_id", "claimId is malformed.");
             }
             claimId = params.claimId;
           }
@@ -331,27 +363,34 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
           });
           switch (result.outcome) {
             case "not_found":
-              return fail("not_found", "找不到这个事项。");
+              return fail("not_found", "Task not found.");
             case "claim_not_found":
-              return fail("claim_not_found", "找不到这个 claim。");
+              return fail("claim_not_found", "Claim not found.");
             case "task_closed":
-              return fail("task_closed", `事项已结束（${result.status}），不能再登记 claim。`);
+              return fail(
+                "task_closed",
+                `The Task has ended (${result.status}); claims can no longer be registered.`,
+              );
             case "value_conflict":
               return fail(
                 "value_conflict",
-                "同一个 subject+predicate 已登记了不同的 value；不能覆盖。",
+                "The same subject+predicate was already registered with a different value; it cannot be overwritten.",
                 {
                   claim: claimView(result.claim),
                 },
               );
             case "policy_conflict":
-              return fail("policy_conflict", "这个 claim 已有不同的 policy；不能覆盖。", {
-                claim: claimView(result.claim),
-              });
+              return fail(
+                "policy_conflict",
+                "This claim already has a different policy; it cannot be overwritten.",
+                {
+                  claim: claimView(result.claim),
+                },
+              );
             case "completion_weakening_refused":
               return fail(
                 "completion_weakening_refused",
-                "不能把已要求 VERIFIED 的完成条件降为 SUPPORTED。",
+                "A completion condition that requires VERIFIED cannot be lowered to SUPPORTED.",
                 {
                   claim: claimView(result.claim),
                 },
@@ -390,10 +429,10 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
         return withPrincipal(async (principal, store) => {
           const taskId = normalizeTaskId(params.taskId);
           if (!taskId) {
-            return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+            return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           if (typeof params.claimId !== "string" || !ID.test(params.claimId)) {
-            return fail("invalid_claim_id", "claimId 格式不正确。");
+            return fail("invalid_claim_id", "claimId is malformed.");
           }
           const ref = params.ref;
           if (
@@ -405,14 +444,14 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
           ) {
             return fail(
               "invalid_ref",
-              "ref 需为 {kind: execution|tool_output|blob, id}；blob 的 id 是形如 <64位hex>.<数字> 的 blobKey。",
+              "ref must be {kind: execution|tool_output|blob, id}; a blob id is a blobKey like <64-hex>.<number>.",
             );
           }
           if (
             params.expectedHeadEventId !== undefined &&
             typeof params.expectedHeadEventId !== "string"
           ) {
-            return fail("invalid_expected_head", "expectedHeadEventId 为字符串。");
+            return fail("invalid_expected_head", "expectedHeadEventId must be a string.");
           }
           if (ref.kind === "blob" && deps.evidence) {
             try {
@@ -432,7 +471,7 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
               if (error instanceof EvidenceBytesUnavailableError) {
                 return fail(
                   "evidence_bytes_unavailable",
-                  "这个安装方式不提供证据原文存储，没有挂上证据；不要把相关结论说成已证实。可以改用 execution 证据，或让用户把结论记成未证实。",
+                  "This install does not provide evidence byte storage, so no evidence was attached; do not present the related conclusion as proven. Use execution evidence instead, or let the user record the conclusion as unproven.",
                   { reason: error.reason },
                 );
               }
@@ -452,15 +491,18 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
           });
           switch (result.outcome) {
             case "not_found":
-              return fail("not_found", "找不到这个事项。");
+              return fail("not_found", "Task not found.");
             case "claim_not_found":
-              return fail("claim_not_found", "找不到这个 claim。");
+              return fail("claim_not_found", "Claim not found.");
             case "task_closed":
-              return fail("task_closed", `事项已结束（${result.status}），不能再挂证据。`);
+              return fail(
+                "task_closed",
+                `The Task has ended (${result.status}); evidence can no longer be attached.`,
+              );
             case "stale_head":
               return fail(
                 "stale_head",
-                "这个 claim 已被修改；请先 nexus_claim_verify 读取最新状态。",
+                "This claim was modified; call nexus_claim_verify to read the latest state first.",
                 {
                   headEventId: result.headEventId,
                 },
@@ -468,19 +510,26 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
             case "ref_kind_not_supported":
               return fail(
                 "ref_kind_not_supported",
-                `当前版本不支持 ${result.kind} 这种证据引用（支持 execution；blob 需要开启 evidenceBlobsEnabled）。`,
+                `This version does not support ${result.kind} evidence references (execution is supported; blob needs evidenceBlobsEnabled).`,
               );
             case "ref_not_found":
-              return fail("ref_not_found", "找不到这个 execution（或它不属于这个事项）。");
+              return fail(
+                "ref_not_found",
+                "Execution not found (or it does not belong to this Task).",
+              );
             case "ref_not_ready":
               return fail(
                 "ref_not_ready",
-                `这个 execution 还没有定论（${result.state}）；等它 succeeded / failed 后再挂证据。`,
+                `This execution has no final outcome yet (${result.state}); attach evidence after it is succeeded / failed.`,
               );
             case "detached_by_operator":
-              return fail("detached_by_operator", "这条证据已被操作员撤下，不能再挂回去。", {
-                evidenceId: result.evidenceId,
-              });
+              return fail(
+                "detached_by_operator",
+                "An operator withdrew this evidence; it cannot be attached again.",
+                {
+                  evidenceId: result.evidenceId,
+                },
+              );
             case "already_linked":
               return {
                 ok: true,
@@ -521,15 +570,15 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
         return withPrincipal(async (principal, store) => {
           const taskId = normalizeTaskId(params.taskId);
           if (!taskId) {
-            return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+            return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           if (params.claimId !== undefined) {
             if (typeof params.claimId !== "string" || !ID.test(params.claimId)) {
-              return fail("invalid_claim_id", "claimId 格式不正确。");
+              return fail("invalid_claim_id", "claimId is malformed.");
             }
             const detail = await store.getClaim({ principal, taskId, claimId: params.claimId });
             if (!detail) {
-              return fail("claim_not_found", "找不到这个 claim。");
+              return fail("claim_not_found", "Claim not found.");
             }
             return { ok: true, ...detailView(detail) };
           }

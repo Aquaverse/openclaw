@@ -1,9 +1,9 @@
-// Stage 4 前置：spike 4 触发后行为观测（DESIGN §10）。会让网关调度两个真实的定时 turn（各调用一次模型）。
-// 用法（在仓库根目录）：
+// Stage 4 prerequisite: spike 4 post-trigger behavior observation (DESIGN §10). Makes the gateway schedule two real timed turns (each calls the model once).
+// Usage (from the repo root):
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/watch-trigger.mts --token "$TOKEN"
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/watch-trigger.mts --token "$TOKEN" --delay-ms 60000
-// 前提：dev 网关已启动，spikesEnabled=true，plugins.entries.nexus-agent-core.hooks.allowConversationAccess=true，
-//   模型可用（定时 turn 会真的调用一次模型）。脚本会等触发（默认 90 秒 + 缓冲），最多约 4 分钟。
+// Prerequisites: dev gateway started, spikesEnabled=true, plugins.entries.nexus-agent-core.hooks.allowConversationAccess=true,
+//   model available (the timed turns really call the model once). The script waits for the trigger (default 90 seconds + buffer), about 4 minutes at most.
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
 
@@ -28,7 +28,7 @@ const note = (text: string) => console.log(`NOTE  ${text}`);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 let client: GatewayClient;
-// --dump：不触发新的 turn，只把已记录的 trigger.* 观测按顺序打印出来（相对第一条的毫秒数）。
+// --dump: do not trigger new turns, just print the already recorded trigger.* observations in order (milliseconds relative to the first).
 async function dump() {
   const report = await client.request<{ observations: Obs[] }>("nexus.spike.report", {
     spike: 4,
@@ -69,20 +69,22 @@ async function main() {
   const firstSeq = Math.min(...armRows.map((row) => row.seq));
   const armedRows = armRows.filter((row) => row.item === "trigger.armed");
   check(
-    "两个定时 turn 都调度成功（plain、empty）",
+    "both timed turns scheduled successfully (plain, empty)",
     armedRows.length === 2 && armedRows.every((r) => r.outcome === "ok"),
     armedRows.map((r) => r.data?.handle),
   );
   const control = armRows.find((row) => row.item === "trigger.control-cancelled");
   check(
-    "对照组（调度后立即按 tag 取消）取消成功",
+    "control group (cancelled by tag right after scheduling) cancelled successfully",
     control?.data?.removed?.removed >= 1,
     control?.data,
   );
   const handles = new Map<string, string>(
     armedRows.map((row) => [String(row.data?.variant), String(row.data?.handle?.id)]),
   );
-  note(`等待触发：约 ${Math.round(delayMs / 1000)} 秒后，最长再等 150 秒……`);
+  note(
+    `waiting for trigger: about ${Math.round(delayMs / 1000)} seconds, then up to another 150 seconds ...`,
+  );
 
   const deadline = Date.now() + delayMs + 150_000;
   let rows: Obs[] = [];
@@ -106,21 +108,23 @@ async function main() {
     rows.filter((row) => row.item === item && row.data?.variant === variant);
   for (const variant of ["plain", "empty"]) {
     const prompts = byVariant("trigger.before_prompt_build", variant);
-    check(`${variant}：触发了且只触发一次`, prompts.length === 1, { count: prompts.length });
+    check(`${variant}: fired exactly once`, prompts.length === 1, { count: prompts.length });
     const p = prompts[0]?.data;
     if (p) {
       note(
-        `${variant} 的 ctx：trigger=${p.trigger} jobId=${p.jobId} sessionKey=${p.sessionKey} agentId=${p.agentId} inputProvenance=${JSON.stringify(p.inputProvenance)}`,
+        `${variant} ctx: trigger=${p.trigger} jobId=${p.jobId} sessionKey=${p.sessionKey} agentId=${p.agentId} inputProvenance=${JSON.stringify(p.inputProvenance)}`,
       );
-      // 已确认（2026-10-14）：before_prompt_build 的 ctx 不带 jobId。这里只留记录，不再当作失败项。
-      note(`${variant}：ctx.jobId=${p.jobId === undefined ? "（缺失，已知上游缺口）" : p.jobId}`);
+      // Confirmed (2026-10-14): the before_prompt_build ctx carries no jobId. Only recorded here, no longer treated as a failure.
+      note(
+        `${variant}: ctx.jobId=${p.jobId === undefined ? "(missing, known upstream gap)" : p.jobId}`,
+      );
       check(
-        `${variant}：ctx.sessionKey === 调度时的 sessionKey`,
+        `${variant}: ctx.sessionKey === the sessionKey at scheduling time`,
         p.sessionKey === sessionKey,
         p.sessionKey,
       );
       check(
-        `${variant}：ctx.trigger 不是 "user"（§7.1 用它区分 watcher 回合）`,
+        `${variant}: ctx.trigger is not "user" (§7.1 uses it to tell watcher turns apart)`,
         p.trigger !== "user",
         p.trigger,
       );
@@ -128,41 +132,41 @@ async function main() {
     const inputs = byVariant("trigger.llm_input", variant);
     const tools = inputs[0]?.data;
     note(
-      `${variant} 提交给模型的工具：${tools ? `${tools.toolCount} 个 ${JSON.stringify(tools.tools)}` : "（未观察到 llm_input，检查 allowConversationAccess）"}`,
+      `${variant} tools submitted to the model: ${tools ? `${tools.toolCount} ${JSON.stringify(tools.tools)}` : "(no llm_input observed, check allowConversationAccess)"}`,
     );
-    // 替代信号：cron_changed 钩子（插件可见 jobId）。要求 started 事件的 jobId 等于 handle.id，且在 before_prompt_build 之前到达。
+    // Alternative signal: the cron_changed hook (the plugin sees jobId). Requires the started event's jobId to equal handle.id and to arrive before before_prompt_build.
     const cronRows = rows.filter(
       (row) => row.item === "trigger.cron_changed" && row.data?.jobId === handles.get(variant),
     );
     const started = cronRows.find((row) => row.data?.action === "started");
     check(
-      `${variant}：cron_changed 收到 started，jobId === handle.id`,
+      `${variant}: cron_changed received started, jobId === handle.id`,
       Boolean(started),
       cronRows.map((r) => r.data?.action),
     );
     if (started && p) {
       note(
-        `${variant} 的 cron_changed.started：sessionTarget=${started.data?.sessionTarget} sessionKey=${started.data?.sessionKey} runId=${started.data?.runId} name=${started.data?.name}`,
+        `${variant} cron_changed.started: sessionTarget=${started.data?.sessionTarget} sessionKey=${started.data?.sessionKey} runId=${started.data?.runId} name=${started.data?.name}`,
       );
       const lead = Number(p.nowMs) - Number(started.data?.nowMs);
       check(
-        `${variant}：started 先于 before_prompt_build（领先 ${lead}ms）`,
+        `${variant}: started precedes before_prompt_build (leads by ${lead}ms)`,
         Number.isFinite(lead) && lead >= 0,
         { startedAt: started.data?.nowMs, promptAt: p.nowMs },
       );
       check(
-        `${variant}：started.runId 与 turn 的 runId 一致（有则精确关联，无则只能靠 sessionKey+时间窗）`,
+        `${variant}: started.runId matches the turn's runId (if present, exact correlation; otherwise only sessionKey + time window)`,
         started.data?.runId !== undefined ? started.data.runId === p.runId : true,
         { startedRunId: started.data?.runId ?? null, runId: p.runId },
       );
     }
     const finished = cronRows.find((row) => row.data?.action === "finished");
     note(
-      `${variant} 的 cron_changed.finished：${finished ? JSON.stringify({ status: finished.data?.status, runId: finished.data?.runId }) : "（未收到）"}`,
+      `${variant} cron_changed.finished: ${finished ? JSON.stringify({ status: finished.data?.status, runId: finished.data?.runId }) : "(not received)"}`,
     );
     const ends = byVariant("trigger.agent_end", variant);
     check(
-      `${variant}：turn 正常结束（agent_end success）`,
+      `${variant}: turn ended normally (agent_end success)`,
       ends.length === 1 && ends[0]?.outcome === "ok",
       ends[0]?.data,
     );
@@ -170,7 +174,7 @@ async function main() {
   const plainTools = byVariant("trigger.llm_input", "plain")[0]?.data?.toolCount;
   const emptyTools = byVariant("trigger.llm_input", "empty")[0]?.data?.toolCount;
   check(
-    "toolsAllow:[] 生效：empty 的工具数为 0，而 plain 大于 0",
+    "toolsAllow:[] takes effect: empty has 0 tools, while plain has more than 0",
     emptyTools === 0 && typeof plainTools === "number" && plainTools > 0,
     { plainTools, emptyTools },
   );
@@ -178,7 +182,7 @@ async function main() {
     (row) => row.item === "trigger.before_prompt_build" && row.data?.variant === undefined,
   );
   note(
-    `没有标记的非 user 触发（别人的 cron / heartbeat）：${unexpected.length} 个${unexpected.length ? " " + JSON.stringify(unexpected.map((r) => ({ trigger: r.data?.trigger, jobId: r.data?.jobId }))) : ""}`,
+    `unmarked non-user triggers (someone else's cron / heartbeat): ${unexpected.length}${unexpected.length ? " " + JSON.stringify(unexpected.map((r) => ({ trigger: r.data?.trigger, jobId: r.data?.jobId }))) : ""}`,
   );
   const foreignStarted = rows.filter(
     (row) =>
@@ -187,12 +191,12 @@ async function main() {
       ![...handles.values()].includes(String(row.data?.jobId)),
   );
   note(
-    `cron_changed 里非本探针的 started：${foreignStarted.length} 个${foreignStarted.length ? " " + JSON.stringify(foreignStarted.map((r) => r.data?.name)) : ""}`,
+    `started in cron_changed not from this probe: ${foreignStarted.length}${foreignStarted.length ? " " + JSON.stringify(foreignStarted.map((r) => r.data?.name)) : ""}`,
   );
   const fireAt = rows.find((row) => row.item === "trigger.before_prompt_build")?.at;
-  note(`首个 turn 触发时间 ${fireAt ?? "-"}（预计 ${armedRows[0]?.data?.expectedFireAt}）`);
+  note(`first turn fire time ${fireAt ?? "-"} (expected ${armedRows[0]?.data?.expectedFireAt})`);
   note(
-    "下一步（人工）：node openclaw.mjs --dev cron list --all --json，找 name 含 nexus-spike4 的 job，记录 deleteAfterRun 后它是否还在、enabled、state。",
+    "Next step (manual): node openclaw.mjs --dev cron list --all --json, find the job whose name contains nexus-spike4, and record whether it is still there, enabled, and its state after deleteAfterRun.",
   );
 }
 
@@ -206,7 +210,7 @@ client = new GatewayClient({
   onConnectError: (err) => console.error(`[connect-error] ${err.message}`),
   onHelloOk: () => {
     main()
-      .then(() => console.log(failures === 0 ? "\n全部通过" : `\n${failures} 项失败`))
+      .then(() => console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`))
       .catch((error) => {
         failures += 1;
         console.error("[error]", error);
@@ -219,6 +223,6 @@ client = new GatewayClient({
 });
 client.start();
 setTimeout(() => {
-  console.error("[timeout] 探针超时");
+  console.error("[timeout] probe timed out");
   process.exit(3);
 }, delayMs + 240_000);

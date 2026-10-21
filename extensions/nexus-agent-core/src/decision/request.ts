@@ -19,17 +19,17 @@ const KINDS = new Set<string>([
 
 export function parseDecisionRequest(raw: unknown): DecisionRequestParams | string {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
-    return "参数需为对象：{ taskId, effect: { actionIds: [...] } }";
+    return "params must be an object: { taskId, effect: { actionIds: [...] } }";
   }
   const params = raw as Record<string, unknown>;
   const taskId =
     typeof params.taskId === "string" ? TASK_ID.exec(params.taskId.trim())?.[1] : undefined;
   if (!taskId) {
-    return "taskId 形如 T0ABC123（可带 #）。";
+    return "taskId looks like T0ABC123 (a leading # is allowed).";
   }
   const effect = params.effect;
   if (typeof effect !== "object" || effect === null || Array.isArray(effect)) {
-    return "effect 需为对象：{ actionIds: [...] }（kind 可省略，服务端按风险档推导）。";
+    return "effect must be an object: { actionIds: [...] } (kind may be omitted; the server derives it from the risk tier).";
   }
   const { kind, actionIds } = effect as Record<string, unknown>;
   // `kind` is optional and the server derives it from the risk tier. Models fill it with free text ("booking"),
@@ -38,7 +38,7 @@ export function parseDecisionRequest(raw: unknown): DecisionRequestParams | stri
   const knownKind = typeof kind === "string" && KINDS.has(kind) ? kind : undefined;
   const ids = actionIds === undefined ? [] : actionIds;
   if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string" || !ACTION_ID.test(id))) {
-    return "effect.actionIds 需为 actionId 字符串数组。";
+    return "effect.actionIds must be an array of actionId strings.";
   }
   return {
     taskId,

@@ -1,8 +1,8 @@
-// Stage 1/2/3 验收：订阅 plugin.nexus-agent-core.{task_changed,decision_changed,execution_changed,claim_changed,claim_verified,preference_changed,watch_changed} 并打印。
-// 可用 --event <name> 只看一种（可重复）。
-// 运行（必须经仓库的 tsx 加载器，裸 node --experimental-strip-types 解析不了 .js→.ts）：
+// Stage 1/2/3 acceptance: subscribe to plugin.nexus-agent-core.{task_changed,decision_changed,execution_changed,claim_changed,claim_verified,preference_changed,watch_changed} and print them.
+// Use --event <name> to watch only one kind (repeatable).
+// Run (must go through the repo's tsx loader; bare node --experimental-strip-types cannot resolve .js→.ts):
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/listen-task-events.mts --seconds 600
-// 只读监听，不写任何数据。用法见 DESIGN §13 Stage 1 验收清单步骤 10。
+// Read-only listener, writes no data. Usage: see DESIGN §13 Stage 1 acceptance checklist, step 10.
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -39,7 +39,7 @@ function readConfigToken(): string | undefined {
     const t = cfg.gateway?.auth?.token;
     return typeof t === "string" ? t : undefined;
   } catch {
-    return undefined; // JSON5 或没有 token：请用 --token / OPENCLAW_GATEWAY_TOKEN
+    return undefined; // JSON5 or no token: pass --token / OPENCLAW_GATEWAY_TOKEN
   }
 }
 
@@ -48,7 +48,9 @@ const token = arg("--token") ?? process.env.OPENCLAW_GATEWAY_TOKEN ?? readConfig
 const timeoutSec = Number(arg("--seconds") ?? "300");
 
 if (!token) {
-  console.log("[warn] 没找到 token，按无鉴权（loopback/auth none）尝试连接；若被拒绝再传 --token");
+  console.log(
+    "[warn] no token found, trying to connect without auth (loopback/auth none); pass --token if rejected",
+  );
 }
 
 let received = 0;
@@ -61,7 +63,7 @@ const client = new GatewayClient({
   scopes: ["operator.read"],
   onHelloOk: () => {
     console.log(
-      `[connected] ${url}，等待 ${EVENT} ……（${timeoutSec}s 后自动退出，Ctrl+C 可提前结束）`,
+      `[connected] ${url}, waiting for ${EVENT} ... (auto-exit after ${timeoutSec}s, Ctrl+C to stop early)`,
     );
   },
   onConnectError: (err) => {
@@ -84,7 +86,7 @@ const client = new GatewayClient({
 client.start();
 
 const finish = () => {
-  console.log(`[done] 共收到 ${received} 个 ${EVENT}`);
+  console.log(`[done] received ${received} ${EVENT}`);
   client.stop();
   process.exit(received > 0 ? 0 : 1);
 };

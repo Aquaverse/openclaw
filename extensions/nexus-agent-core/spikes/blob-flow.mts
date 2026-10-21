@@ -1,12 +1,12 @@
-// Stage 3 切片② 验收：证据字节（blob 引用 + 操作员上传 RPC），全程经 tools.invoke / RPC，不依赖模型。
-// 用法（在仓库根目录）：
+// Stage 3 slice 2 acceptance: evidence bytes (blob references + operator upload RPC), entirely via tools.invoke / RPC, without depending on the model.
+// Usage (from the repo root):
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/blob-flow.mts --token "$TOKEN"
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/blob-flow.mts --token "$TOKEN" --phase crash-a
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/blob-flow.mts --token "$TOKEN" --phase crash-b --task <taskId>
-// 前提：dev 网关已启动，decisionsEnabled / claimsEnabled / evidenceBlobsEnabled = true，fakeProviderMode=ok，
-//   tools.alsoAllow 含 nexus_claim_add / nexus_evidence_add / nexus_claim_verify，本机装有 sqlite3。
-//   默认阶段可重复运行；配额检查要把 evidenceTaskQuotaBytes 设成 1048576（否则打印 SKIP）；
-//   crash-a / crash-b 要打开 spikesEnabled=true，并用环境变量 NEXUS_EVIDENCE_DEBUG_DELAY_AFTER_A2_MS=20000 启动网关（不是插件配置项，上限 120000，只有 spikesEnabled 时才生效），并把 evidenceWriterLeaseMs=5000、evidenceReservationTtlMs=6000。
+// Prerequisites: dev gateway started, decisionsEnabled / claimsEnabled / evidenceBlobsEnabled = true, fakeProviderMode=ok,
+//   tools.alsoAllow includes nexus_claim_add / nexus_evidence_add / nexus_claim_verify, sqlite3 installed locally.
+//   The default phase can be run repeatedly; the quota check requires evidenceTaskQuotaBytes set to 1048576 (otherwise SKIP is printed);
+//   crash-a / crash-b require spikesEnabled=true, and the gateway started with the environment variable NEXUS_EVIDENCE_DEBUG_DELAY_AFTER_A2_MS=20000 (not a plugin config option, capped at 120000, effective only when spikesEnabled), plus evidenceWriterLeaseMs=5000 and evidenceReservationTtlMs=6000.
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
@@ -33,7 +33,7 @@ const check = (name: string, ok: boolean, detail?: unknown) => {
   );
 };
 const note = (text: string) => console.log(`NOTE  ${text}`);
-// 网关的 SQLite worker 随时可能在写：给 CLI 5 秒 busy timeout，仍失败再重试几次。
+// The gateway's SQLite worker may be writing at any time: give the CLI a 5-second busy timeout, and retry a few times if it still fails.
 const sql = (query: string) => {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -76,8 +76,8 @@ async function newTask(label: string): Promise<string> {
   const reserve = await tool("nexus_task_reserve", { kind: "blob_probe" });
   const created = await tool("nexus_task_create", {
     kind: "blob_probe",
-    title: `blob 探针 ${label}`,
-    goal: { want: "Stage 3 切片② 验收" },
+    title: `blob probe ${label}`,
+    goal: { want: "Stage 3 slice 2 acceptance" },
     operationToken: String(reserve.operationToken),
   });
   return String(created.taskId ?? "");
@@ -91,12 +91,12 @@ async function main() {
     ownerQuotaBytes: number;
     maxEntryBytes: number;
   };
-  check("evidence 已开启（nexus.evidence.stats 可调用）", !!limits, stats0);
+  check("evidence is enabled (nexus.evidence.stats is callable)", !!limits, stats0);
   const taskId = await newTask(stamp);
-  check("新建探针 Task", taskId !== "");
+  check("create probe Task", taskId !== "");
 
-  // 1 上传（不挂 claim）：A0 → A1(new_object) → A2 → B
-  const text = `receipt ${stamp} 回执正文`;
+  // 1 Upload (no claim attached): A0 → A1(new_object) → A2 → B
+  const text = `receipt ${stamp} receipt body`;
   const hash = sha(text);
   const up1 = await rpc("nexus.evidence.upload", {
     taskId,
@@ -105,7 +105,7 @@ async function main() {
     dataBase64: b64(text),
   });
   check(
-    "上传：registered / new_object，blobKey = <hash>.<generation>",
+    "upload: registered / new_object, blobKey = <hash>.<generation>",
     up1.outcome === "registered" &&
       up1.branch === "new_object" &&
       String(up1.blobKey).startsWith(`${hash}.`),
@@ -116,26 +116,26 @@ async function main() {
     `select state||'|'||ref_count||'|'||ifnull(writer_attempt_id,'-')||'|'||ifnull(writer_settled_reason,'-') from blob_objects where blob_key='${blobKey}'`,
   );
   check(
-    "blob_objects：live，ref_count=1，writer 列已清空，settled_reason=committed",
+    "blob_objects: live, ref_count=1, writer column cleared, settled_reason=committed",
     objectRow === "live|1|-|committed",
     { objectRow },
   );
   check(
-    "blob_reservations：consumed",
+    "blob_reservations: consumed",
     sql(
       `select state from blob_reservations where content_hash='${hash}' order by created_at desc limit 1`,
     ) === "consumed",
   );
   check(
-    "evidence：user_upload / uploaded_file / source_ref_kind=blob / 版本是 content:<hash>",
+    "evidence: user_upload / uploaded_file / source_ref_kind=blob / version is content:<hash>",
     sql(
       `select source_group||'|'||kind||'|'||source_ref_kind||'|'||source_version from evidence where blob_key='${blobKey}' and task_id='${taskId}'`,
     ) === `user_upload|uploaded_file|blob|content:${hash}`,
   );
-  // 读句柄：不带字节，60 秒有效，分块读取，每次读都重验 hash
+  // Read handle: no bytes, valid for 60 seconds, chunked reads, hash re-verified on every read
   const handle = await rpc("nexus.evidence.handle", { taskId, evidenceId: String(up1.evidenceId) });
   check(
-    "evidence.handle：返回句柄、大小与 hash，不含字节",
+    "evidence.handle: returns handle, size and hash, no bytes",
     typeof handle.handleId === "string" &&
       handle.byteSize === Buffer.byteLength(text) &&
       handle.contentHash === hash &&
@@ -144,36 +144,36 @@ async function main() {
   );
   const chunk = await rpc("nexus.evidence.read", { handleId: String(handle.handleId) });
   check(
-    "evidence.read：取回的字节与上传的一致，eof=true，hash 对得上",
+    "evidence.read: the bytes retrieved match the upload, eof=true, hash matches",
     Buffer.from(String(chunk.dataBase64), "base64").toString() === text &&
       chunk.eof === true &&
       chunk.contentHash === hash,
     { length: chunk.length, eof: chunk.eof },
   );
   check(
-    "evidence.read：offset 越界被拒",
+    "evidence.read: out-of-range offset rejected",
     (
       await rpcError("nexus.evidence.read", { handleId: String(handle.handleId), offset: 100000 })
     ).includes("beyond"),
   );
   check(
-    "evidence.read：未知句柄被拒",
+    "evidence.read: unknown handle rejected",
     (await rpcError("nexus.evidence.read", { handleId: "EHNOSUCH" })).includes("expired"),
   );
   const taskView = await rpc("nexus.task.get", { taskId });
   check(
-    "nexus.task.get（RPC）带 pendingDecisions / readyExecutions 两个数组",
+    "nexus.task.get (RPC) carries the pendingDecisions / readyExecutions arrays",
     Array.isArray(taskView.pendingDecisions) && Array.isArray(taskView.readyExecutions),
     Object.keys(taskView),
   );
   const recon1 = await rpc("nexus.evidence.reconcile");
   check(
-    "reconcile：字节存储与对象表一致（无 missing / sizeMismatch）",
+    "reconcile: byte store consistent with the object table (no missing / sizeMismatch)",
     (recon1.missing as unknown[]).length === 0 && (recon1.sizeMismatch as unknown[]).length === 0,
     recon1,
   );
 
-  // 2 同一份再传 → reuse_evidence；换个名字 → attach_live_object，同一个物理对象
+  // 2 Upload the same material again → reuse_evidence; under a different name → attach_live_object, same physical object
   const bytesBefore = ((await rpc("nexus.evidence.stats")).stats as Json).ownerBytes;
   const up2 = await rpc("nexus.evidence.upload", {
     taskId,
@@ -181,7 +181,7 @@ async function main() {
     dataBase64: b64(text),
   });
   check(
-    "同一份材料再传 → reuse_evidence（不写字节）",
+    "uploading the same material again → reuse_evidence (no bytes written)",
     up2.branch === "reuse_evidence" && up2.reusedEvidence === true,
     up2,
   );
@@ -191,30 +191,30 @@ async function main() {
     dataBase64: b64(text),
   });
   check(
-    "同字节换名字 → attach_live_object（新 evidence 行，同一物理对象）",
+    "same bytes under a different name → attach_live_object (new evidence row, same physical object)",
     up3.branch === "attach_live_object",
     up3,
   );
   check(
-    "ref_count=2，物理对象仍是 1 个，owner 字节数不变",
+    "ref_count=2, still 1 physical object, owner byte count unchanged",
     sql(`select ref_count from blob_objects where blob_key='${blobKey}'`) === "2" &&
       sql(`select count(*) from blob_objects where content_hash='${hash}'`) === "1" &&
       ((await rpc("nexus.evidence.stats")).stats as Json).ownerBytes === bytesBefore,
   );
 
-  // 3 参数校验：全部在读任何字节之前被拒
+  // 3 Parameter validation: everything is rejected before any bytes are read
   check(
-    "缺 name → nexus_invalid_params",
+    "missing name → nexus_invalid_params",
     (await rpcError("nexus.evidence.upload", { taskId, dataBase64: b64("x") })).includes("name"),
   );
   check(
-    "非法 base64 被拒",
+    "invalid base64 rejected",
     (await rpcError("nexus.evidence.upload", { taskId, name: "a", dataBase64: "ab!d" })).includes(
       "base64",
     ),
   );
   check(
-    "非法 classification 被拒",
+    "invalid classification rejected",
     (
       await rpcError("nexus.evidence.upload", {
         taskId,
@@ -230,9 +230,13 @@ async function main() {
     name: "a",
     dataBase64: b64("x"),
   });
-  check("挂 claim 必须由操作员声明 relation 和理由", noRelation.includes("relation"), noRelation);
+  check(
+    "attaching to a claim requires the operator to declare relation and reason",
+    noRelation.includes("relation"),
+    noRelation,
+  );
 
-  // 4 真实订房 + 执行回执（agent_call:fake）+ 操作员上传银行流水（user_upload）= 两个独立来源 → VERIFIED
+  // 4 Real room booking + execution receipt (agent_call:fake) + operator-uploaded bank statement (user_upload) = two independent sources → VERIFIED
   const act = await tool("nexus_action_prepare", {
     taskId,
     toolName: "fake_booking",
@@ -247,7 +251,7 @@ async function main() {
     completion: "VERIFIED",
   });
   check(
-    "登记完成条件 claim（要求 VERIFIED）",
+    "register completion-condition claim (requires VERIFIED)",
     bound.ok === true && bound.requiredForCompletion === "VERIFIED",
     bound,
   );
@@ -259,15 +263,23 @@ async function main() {
   });
   const executionId = String(resolved.executionId ?? "");
   const commit = await tool("nexus_action_commit", { executionId });
-  check("订房 commit 成功", commit.ok === true && commit.status === "succeeded", commit);
+  check("booking commit succeeded", commit.ok === true && commit.status === "succeeded", commit);
   const exec = await tool("nexus_evidence_add", {
     taskId,
     claimId: boundId,
     ref: { kind: "execution", id: executionId },
   });
-  check("执行回执 → SUPPORTED（1 个来源：agent_call:fake）", exec.stateAfter === "SUPPORTED", exec);
+  check(
+    "execution receipt → SUPPORTED (1 source: agent_call:fake)",
+    exec.stateAfter === "SUPPORTED",
+    exec,
+  );
   const notYet = await tool("nexus_task_update", { taskId, status: "succeeded" });
-  check("只有一个来源时不能完成（completion_unmet）", notYet.code === "completion_unmet", notYet);
+  check(
+    "cannot complete with only one source (completion_unmet)",
+    notYet.code === "completion_unmet",
+    notYet,
+  );
   const statementText = `bank statement ${stamp}: -100.00 Acme Hotel`;
   const verified = await rpc("nexus.evidence.upload", {
     taskId,
@@ -275,28 +287,28 @@ async function main() {
     name: "statement.txt",
     classification: "financial",
     relation: "supports",
-    relationReason: "探针：流水里有这笔扣款",
+    relationReason: "probe: this charge appears in the statement",
     dataBase64: b64(statementText),
   });
   check(
-    "操作员上传流水并声明 supports → linked，SUPPORTED → VERIFIED（agent_call + user_upload 两个独立来源）",
+    "operator uploads statement and declares supports → linked, SUPPORTED → VERIFIED (agent_call + user_upload, two independent sources)",
     verified.outcome === "linked" && verified.stateAfter === "VERIFIED",
     verified,
   );
   const detail = await tool("nexus_claim_verify", { taskId, claimId: boundId });
   check(
-    "nexus_claim_verify：supportGroups=2",
+    "nexus_claim_verify: supportGroups=2",
     detail.state === "VERIFIED" && detail.supportGroups === 2,
     detail,
   );
   check(
-    "relation 的依据是操作员声明（规则版本 2），不是模型",
+    "the basis of the relation is the operator's declaration (rule version 2), not the model",
     sql(
       `select relation||'|'||relation_rule_version||'|'||substr(relation_reason,1,17) from claim_event_evidence where evidence_id='${String(verified.evidenceId)}'`,
     ) === "supports|2|operator declared",
   );
 
-  // 5 Agent 用 blob 引用挂材料：没有被判定前不算数；financial 材料不向模型露出文件名
+  // 5 The Agent attaches material via blob reference: it does not count until judged; financial material does not expose file names to the model
   const claim2 = await tool("nexus_claim_add", {
     taskId,
     subject: "refund",
@@ -306,7 +318,7 @@ async function main() {
   const listed = await tool("nexus_claim_verify", { taskId });
   const unlinked = (listed.unlinkedEvidence as Json[] | undefined) ?? [];
   check(
-    "nexus_claim_verify 列出未挂接材料：personal 带文件名，financial 不带",
+    "nexus_claim_verify lists unattached material: personal has file names, financial does not",
     unlinked.some((row) => row.blobKey === blobKey && row.name === "receipt.txt") &&
       unlinked.every((row) => row.classification !== "financial" || row.name === undefined),
     unlinked,
@@ -317,7 +329,7 @@ async function main() {
     ref: { kind: "blob", id: blobKey },
   });
   check(
-    "Agent 挂 blob：relation=unclassified，状态仍是 ASSERTED",
+    "Agent attaches blob: relation=unclassified, state still ASSERTED",
     attached.ok === true &&
       attached.relation === "unclassified" &&
       attached.stateAfter === "ASSERTED",
@@ -328,10 +340,10 @@ async function main() {
     claimId: claim2Id,
     blobKey,
     relation: "supports",
-    relationReason: "探针：回执证明已退款",
+    relationReason: "probe: the receipt proves the refund",
   });
   check(
-    "操作员声明 supports → SUPPORTED（升级 unclassified 链接）",
+    "operator declares supports → SUPPORTED (upgrades the unclassified link)",
     declared.outcome === "linked" && declared.stateAfter === "SUPPORTED",
     declared,
   );
@@ -340,12 +352,12 @@ async function main() {
     claimId: claim2Id,
     ref: { kind: "blob", id: `${"0".repeat(64)}.1` },
   });
-  check("不存在的 blobKey → ref_not_found", bogus.code === "ref_not_found", bogus);
+  check("nonexistent blobKey → ref_not_found", bogus.code === "ref_not_found", bogus);
 
-  // 6 完成
+  // 6 Completion
   const done = await tool("nexus_task_update", { taskId, status: "succeeded" });
   check(
-    "两个独立来源的 VERIFIED 达成后 succeeded 被接受",
+    "succeeded accepted once VERIFIED from two independent sources is reached",
     done.ok === true && done.status === "succeeded",
     done,
   );
@@ -354,11 +366,15 @@ async function main() {
     name: "late.txt",
     dataBase64: b64("late"),
   });
-  check("Task 结束后不再接受上传（task_closed）", closed.includes("closed"), closed);
+  check(
+    "uploads no longer accepted after the Task is closed (task_closed)",
+    closed.includes("closed"),
+    closed,
+  );
   const chain = await rpc("nexus.claim.verifyChain", { taskId });
-  check("digest 链校验通过", chain.ok === true, chain);
+  check("digest chain verification passed", chain.ok === true, chain);
 
-  // 7 配额：失败即关闭，并生成一条 R0 通知决策
+  // 7 Quota: fail closed, and generate an R0 notification decision
   if (limits.taskQuotaBytes <= 4 * 1024 * 1024) {
     const quotaTask = await newTask(`${stamp}-quota`);
     const chunk = Math.floor(limits.taskQuotaBytes * 0.6);
@@ -367,20 +383,20 @@ async function main() {
       name: "a.bin",
       dataBase64: b64(randomBytes(chunk)),
     });
-    check("配额内的第一份成功", first.outcome === "registered", first);
+    check("first upload within quota succeeded", first.outcome === "registered", first);
     const objectsBefore = sql("select count(*) from blob_objects");
     const refused = await rpcError("nexus.evidence.upload", {
       taskId: quotaTask,
       name: "b.bin",
       dataBase64: b64(randomBytes(chunk)),
     });
-    check("第二份超过 Task 配额 → 拒绝", refused.includes("quota"), refused);
+    check("second upload exceeds the Task quota → refused", refused.includes("quota"), refused);
     check(
-      "拒绝时没有新对象、没有新 reservation",
+      "no new object and no new reservation on refusal",
       sql("select count(*) from blob_objects") === objectsBefore,
     );
     check(
-      "生成一条 R0 通知决策（evidence_quota / acknowledge / pending）",
+      "generates an R0 notification decision (evidence_quota / acknowledge / pending)",
       sql(
         `select count(*) from decisions where task_id='${quotaTask}' and decision_type='evidence_quota' and risk_tier='R0' and effect_kind='acknowledge' and status='pending'`,
       ) === "1",
@@ -391,31 +407,31 @@ async function main() {
       dataBase64: b64(randomBytes(chunk)),
     });
     check(
-      "再次超限不叠卡片（仍只有 1 条）",
+      "exceeding the limit again does not stack cards (still only 1)",
       sql(
         `select count(*) from decisions where task_id='${quotaTask}' and decision_type='evidence_quota'`,
       ) === "1",
     );
   } else {
     note(
-      `SKIP 配额检查：当前 Task 配额 ${limits.taskQuotaBytes} 字节；把 evidenceTaskQuotaBytes 设成 1048576 后重跑`,
+      `SKIP quota check: current Task quota is ${limits.taskQuotaBytes} bytes; set evidenceTaskQuotaBytes to 1048576 and rerun`,
     );
   }
 
-  // 8 维护与对账
+  // 8 Maintenance and reconciliation
   const maintain = await rpc("nexus.evidence.maintain");
   check(
-    "maintain 可调用且不动在世对象",
+    "maintain is callable and leaves live objects alone",
     maintain !== undefined && Number(maintain.deleted ?? 0) === 0,
     maintain,
   );
   check(
-    "在世对象仍在（maintain 之后字节未被误删）",
+    "live objects still present (bytes not deleted by mistake after maintain)",
     sql(`select state from blob_objects where blob_key='${blobKey}'`) === "live",
   );
   const recon2 = await rpc("nexus.evidence.reconcile");
   check(
-    "reconcile：无 missing / sizeMismatch",
+    "reconcile: no missing / sizeMismatch",
     (recon2.missing as unknown[]).length === 0 && (recon2.sizeMismatch as unknown[]).length === 0,
     recon2,
   );
@@ -424,40 +440,48 @@ async function main() {
     claimId: "NOPE",
     ref: { kind: "blob", id: blobKey },
   });
-  check("别的 Task 里不存在的 claim → 被拒，不留痕", verifyAgent.ok === false, verifyAgent);
+  check(
+    "a claim that does not exist in another Task → rejected, no trace left",
+    verifyAgent.ok === false,
+    verifyAgent,
+  );
 
   await sleep(3_000);
   const changed = events.filter((name) => name.endsWith("claim_changed")).length;
   const evidenceChanged = events.filter((name) => name.endsWith("evidence_changed")).length;
   check(
-    "收到 claim_changed（≥ 5）与 evidence_changed（≥ 1）事件",
+    "received claim_changed (>= 5) and evidence_changed (>= 1) events",
     changed >= 5 && evidenceChanged >= 1,
     { changed, evidenceChanged },
   );
-  console.log(`\n探针 Task：${taskId}`);
+  console.log(`\nprobe Task: ${taskId}`);
 }
 
-// crash-a：在 A2 之后、B 之前的窗口里等你 kill -9 网关（网关需 spikesEnabled=true 并带环境变量 NEXUS_EVIDENCE_DEBUG_DELAY_AFTER_A2_MS=20000）
+// crash-a: wait in the window after A2 and before B for you to kill -9 the gateway (the gateway needs spikesEnabled=true and the environment variable NEXUS_EVIDENCE_DEBUG_DELAY_AFTER_A2_MS=20000)
 async function crashA() {
   const stamp = Date.now().toString(36);
   const taskId = await newTask(`crash-${stamp}`);
   const text = `crash window ${stamp}`;
   console.log(`CRASH-A taskId=${taskId} hash=${sha(text)}`);
-  console.log(">>> 上传已发出，网关会在写完字节后暂停 20 秒。现在立刻对网关进程 kill -9 <<<");
+  console.log(
+    ">>> Upload sent; the gateway pauses for 20 seconds after writing the bytes. Run kill -9 on the gateway process right now <<<",
+  );
   try {
     const out = await rpc("nexus.evidence.upload", {
       taskId,
       name: "crash.txt",
       dataBase64: b64(text),
     });
-    note(`上传居然完成了（kill 太晚）：${JSON.stringify(out)}`);
+    note(`the upload actually completed (kill was too late): ${JSON.stringify(out)}`);
   } catch (error) {
-    note(`上传请求中断（符合预期）：${error instanceof Error ? error.message : String(error)}`);
+    note(
+      `upload request interrupted (as expected): ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-  console.log(`\n重启网关后运行：--phase crash-b --task ${taskId}`);
+  console.log(`\nafter restarting the gateway, run: --phase crash-b --task ${taskId}`);
 }
 
-// crash-b：重启后检查崩溃遗留，并驱动回收
+// crash-b: after restart, check what the crash left behind and drive reclamation
 async function crashB() {
   const taskId = arg("--task");
   if (!taskId) throw new Error("--task <taskId> is required");
@@ -465,42 +489,44 @@ async function crashB() {
     `select content_hash from blob_reservations where task_id='${taskId}' order by created_at desc limit 1`,
   );
   if (!hash) {
-    note("该 Task 没有 reservation：kill 发生在 A1 之前，没有任何东西需要回收");
+    note("this Task has no reservation: the kill happened before A1, so nothing needs reclaiming");
     return;
   }
   const obj = sql(
     `select state from blob_objects where content_hash='${hash}' order by generation desc limit 1`,
   );
   note(
-    `重启后：object=${obj} reservation=${sql(`select state from blob_reservations where task_id='${taskId}' order by created_at desc limit 1`)}`,
+    `after restart: object=${obj} reservation=${sql(`select state from blob_reservations where task_id='${taskId}' order by created_at desc limit 1`)}`,
   );
   if (obj === "live") {
-    note("kill 发生在 B 之后：证据已经落库，没有遗留");
+    note("the kill happened after B: the evidence is already in the database, nothing left behind");
     return;
   }
   check(
-    "崩溃遗留：没有 evidence 行指向这份字节",
+    "crash leftover: no evidence row points to these bytes",
     sql(`select count(*) from evidence where task_id='${taskId}'`) === "0",
   );
-  // 重启花的时间可能已超过租期：网关启动时的 maintain 会先把它回收掉，两种起点都合法。
+  // The restart may have taken longer than the lease: the maintain at gateway startup reclaims it first; both starting points are valid.
   const reclaimedAtStart = obj === "deleted";
   check(
-    "崩溃遗留：对象仍是 writing（占着配额），或已被启动时的 maintain 回收成 deleted",
+    "crash leftover: the object is still writing (holding quota), or was reclaimed to deleted by the maintain at startup",
     obj === "writing" || reclaimedAtStart,
     { obj },
   );
   if (reclaimedAtStart)
-    note("重启耗时超过租期，启动时的 maintain 已经回收；下面改验配额与存储一致");
+    note(
+      "the restart took longer than the lease and the startup maintain already reclaimed it; now verifying quota and storage consistency instead",
+    );
   const stats = (await rpc("nexus.evidence.stats")).stats as Json;
   note(`stats: ${JSON.stringify(stats)}`);
   const recon = await rpc("nexus.evidence.reconcile");
   check(
-    "reconcile：字节在存储里且被对象表认领（untracked 为空）",
+    "reconcile: bytes are in storage and claimed by the object table (untracked is empty)",
     (recon.untracked as unknown[]).length === 0,
     recon,
   );
   note(
-    "等待 reservation 与 writer 租期过期（默认 60 秒；按你设的 evidenceReservationTtlMs 为准），周期性 maintain 并轮询…",
+    "waiting for the reservation and writer lease to expire (default 60 seconds; follows your evidenceReservationTtlMs), running maintain periodically and polling ...",
   );
   const deadline = Date.now() + 150_000;
   let finalState = obj;
@@ -512,9 +538,13 @@ async function crashB() {
     if (finalState === "deleted") break;
     await sleep(5_000);
   }
-  check("租期过后 maintain 把对象回收到 deleted（墓碑）", finalState === "deleted", { finalState });
   check(
-    "reservation 已 abandoned",
+    "after the lease expires maintain reclaims the object to deleted (tombstone)",
+    finalState === "deleted",
+    { finalState },
+  );
+  check(
+    "reservation is abandoned",
     sql(
       `select state from blob_reservations where task_id='${taskId}' order by created_at desc limit 1`,
     ) === "abandoned",
@@ -526,14 +556,14 @@ async function crashB() {
     ),
   );
   check(
-    "占用的配额已释放（ownerBytes 只统计未删除的物理对象，不含这份）",
+    "occupied quota released (ownerBytes counts only undeleted physical objects, not this one)",
     Number(after.ownerBytes) === physical &&
       (reclaimedAtStart || Number(after.ownerBytes) < Number(stats.ownerBytes)),
     { before: stats.ownerBytes, after: after.ownerBytes, physical },
   );
   const recon2 = await rpc("nexus.evidence.reconcile");
   check(
-    "reconcile：存储里没有遗留字节（untracked / missing 都为空）",
+    "reconcile: no leftover bytes in storage (untracked / missing both empty)",
     (recon2.untracked as unknown[]).length === 0 && (recon2.missing as unknown[]).length === 0,
     recon2,
   );
@@ -541,10 +571,10 @@ async function crashB() {
     `select ifnull(writer_settled_reason,'-')||'|'||(absence_verified_at is not null) from blob_objects where content_hash='${hash}' order by generation desc limit 1`,
   );
   note(
-    `墓碑的缺失证明：${proof}（旧进程的 writer 无法确认静默，incarnation_gone 关闭 → 预期是 -|0，即停在 cleanup_pending，等 Purge 切片处理）`,
+    `tombstone absence proof: ${proof} (the old process's writer cannot be confirmed silent, incarnation_gone off → expected -|0, i.e. stays at cleanup_pending, to be handled by the Purge slice)`,
   );
   check(
-    "没有 evidence 行、没有悬空引用",
+    "no evidence row, no dangling reference",
     sql(`select count(*) from evidence where task_id='${taskId}'`) === "0",
   );
 }
@@ -564,7 +594,7 @@ client = new GatewayClient({
   },
   onHelloOk: () => {
     (phase === "crash-a" ? crashA() : phase === "crash-b" ? crashB() : main())
-      .then(() => console.log(failures === 0 ? "\n全部通过" : `\n${failures} 项失败`))
+      .then(() => console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`))
       .catch((error) => {
         failures += 1;
         console.error("[error]", error);
@@ -578,7 +608,7 @@ client = new GatewayClient({
 client.start();
 setTimeout(
   () => {
-    console.error("[timeout] 探针超时");
+    console.error("[timeout] probe timed out");
     process.exit(3);
   },
   phase === "crash-b" ? 220_000 : 120_000,

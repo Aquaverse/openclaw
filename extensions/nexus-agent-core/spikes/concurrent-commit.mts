@@ -1,10 +1,10 @@
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
-// Stage 2 验收：对同一个 executionId 同时发 N 个 nexus_action_commit（经 tools.invoke，绕过模型）。
-// 期望：供应商账本只增加 1 行；恰好 1 个调用是首次执行，其余是重放或被拒（见输出）。
-// 用法：node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/concurrent-commit.mts \
-//        (--execution-id <id> | --task <仍打开的 taskId>) [--n 6] --token <gateway.auth.token>
-//   给 --task 时脚本自己登记一个动作、请求决策、批准，得到一个 prepared 的 executionId 再并发 commit
-//   （假供应商需处于 ok 模式）。
+// Stage 2 acceptance: fire N nexus_action_commit calls at the same executionId concurrently (via tools.invoke, bypassing the model).
+// Expected: the vendor ledger grows by exactly 1 row; exactly 1 call is the first execution, the rest are replays or rejected (see output).
+// Usage: node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/concurrent-commit.mts \
+//        (--execution-id <id> | --task <still-open taskId>) [--n 6] --token <gateway.auth.token>
+//   With --task the script registers an action, requests a decision and approves it itself to get a prepared executionId, then commits concurrently
+//   (the fake vendor must be in ok mode).
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
 
 function arg(flag: string): string | undefined {
@@ -19,7 +19,9 @@ const taskId = arg("--task");
 const n = Math.max(2, Number(arg("--n") ?? "6"));
 
 if (!executionId && !taskId) {
-  console.error("缺少 --execution-id（或给 --task 让脚本自己准备一个 prepared 的执行）");
+  console.error(
+    "missing --execution-id (or pass --task to let the script prepare a prepared execution itself)",
+  );
   process.exit(2);
 }
 
@@ -41,7 +43,7 @@ async function prepareExecution(client: GatewayClient): Promise<string> {
     toolName: "fake_booking",
     params: {
       vendor: "Acme Rooms",
-      item: `并发 commit ${Date.now().toString(36)}`,
+      item: `concurrent commit ${Date.now().toString(36)}`,
       date: "2026-10-27",
     },
   });
@@ -91,20 +93,20 @@ const client = new GatewayClient({
       executionId = await prepareExecution(client);
       if (!executionId) {
         console.error(
-          "没能准备出 prepared 的 executionId（Task 是否仍打开？假供应商是 ok 模式？）",
+          "could not prepare a prepared executionId (is the Task still open? is the fake vendor in ok mode?)",
         );
         process.exit(2);
       }
     }
-    console.log(`[connected] 同时发出 ${n} 个 commit，executionId=${executionId}`);
+    console.log(`[connected] fired ${n} commits concurrently, executionId=${executionId}`);
     const results = await Promise.all(Array.from({ length: n }, (_, i) => fire(client, i + 1)));
     for (const r of results) {
       const p = r.parsed;
       const kind =
         p.replayed === true
-          ? "replayed（没有调用供应商）"
+          ? "replayed (vendor not called)"
           : p.status === "pending_confirmation"
-            ? `pending_confirmation（没有调用供应商，reason=${String(p.reason ?? "")}）`
+            ? `pending_confirmation (vendor not called, reason=${String(p.reason ?? "")})`
             : p.ok === true
               ? `executed(${String(p.status)})`
               : `rejected(${String(p.code ?? p.error)})`;
@@ -116,13 +118,15 @@ const client = new GatewayClient({
         r.parsed.replayed !== true &&
         r.parsed.status !== "pending_confirmation",
     ).length;
-    console.log(`[summary] 首次执行 ${first} 个（期望恰好 1 个）；请再检查账本行数只 +1。`);
+    console.log(
+      `[summary] ${first} first execution(s) (expected exactly 1); also check the ledger row count is only +1.`,
+    );
     client.stop();
     process.exit(first === 1 ? 0 : 1);
   },
 });
 client.start();
 setTimeout(() => {
-  console.error("[timeout] 30s 内没有完成");
+  console.error("[timeout] not finished within 30s");
   process.exit(3);
 }, 30_000);

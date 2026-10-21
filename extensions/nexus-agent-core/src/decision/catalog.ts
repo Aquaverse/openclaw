@@ -53,12 +53,12 @@ export const ACTION_CATALOG: Record<string, ActionSpec> = {
     reversible: false,
     parse(raw) {
       if (!isPlainObject(raw)) {
-        return "params 需为对象：{ vendor, message }";
+        return "params must be an object: { vendor, message }";
       }
       const vendor = text(raw.vendor, TEXT_MAX);
       const message = text(raw.message, BODY_MAX);
       if (!vendor || !message) {
-        return "fake_vendor_message 需要 vendor（<=200 字）与 message（<=2000 字）";
+        return "fake_vendor_message needs vendor (<=200 characters) and message (<=2000 characters)";
       }
       return { params: { vendor, message }, amount: null, currency: null, merchant: vendor };
     },
@@ -71,18 +71,18 @@ export const ACTION_CATALOG: Record<string, ActionSpec> = {
     reversible: true,
     parse(raw) {
       if (!isPlainObject(raw)) {
-        return "params 需为对象：{ vendor, item, date? }";
+        return "params must be an object: { vendor, item, date? }";
       }
       const vendor = text(raw.vendor, TEXT_MAX);
       const item = text(raw.item, TEXT_MAX);
       if (!vendor || !item) {
-        return "fake_booking 需要 vendor 与 item（各 <=200 字）";
+        return "fake_booking needs vendor and item (each <=200 characters)";
       }
       const params: Record<string, unknown> = { vendor, item };
       if (raw.date !== undefined) {
         const date = text(raw.date, 40);
         if (!date || !ISO_DATE.test(date)) {
-          return "date 需为 ISO 日期，如 2026-10-20";
+          return "date must be an ISO date, e.g. 2026-10-20";
         }
         params.date = date;
       }
@@ -100,13 +100,13 @@ export const ACTION_CATALOG: Record<string, ActionSpec> = {
     reversible: false,
     parse(raw) {
       if (!isPlainObject(raw)) {
-        return "params 需为对象：{ merchant, amount, currency }";
+        return "params must be an object: { merchant, amount, currency }";
       }
       const merchant = text(raw.merchant, TEXT_MAX);
       const amount = typeof raw.amount === "number" ? String(raw.amount) : text(raw.amount, 20);
       const currency = text(raw.currency, 3)?.toUpperCase();
       if (!merchant || !amount || !AMOUNT.test(amount) || !currency || !CURRENCY.test(currency)) {
-        return 'fake_payment 需要 merchant、amount（十进制字符串，如 "128.50"）与 currency（三位字母）';
+        return 'fake_payment needs merchant, amount (a decimal string such as "128.50") and currency (three letters)';
       }
       return { params: { merchant, amount, currency }, amount, currency, merchant };
     },

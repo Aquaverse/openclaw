@@ -1,15 +1,15 @@
-// 界面验收夹具：造一个事项，里面放好几种「待决策」和一条回检，用来在 Nexus 页面上手动点按钮。不依赖模型。
-// 用法：node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/ui-fixture.mts [--url ws://127.0.0.1:19001] [--token <token>]
-//   token 也可放 OPENCLAW_GATEWAY_TOKEN。
-// 前提：网关已启动，decisionsEnabled=true、claimsEnabled=true、watchersEnabled=true，fakeProviderMode=ok，
-//   tools.alsoAllow 含 nexus_task_* / nexus_action_* / nexus_decision_request / nexus_claim_add / nexus_watch_create。
-// 造出来的东西（都只是假动作，不会对外产生任何效果）：
-//   D-R1   R1 风险：给供应商发消息（standing grant）            → 点一次确认即可批准
-//   D-R2   R2 风险：预订                                         → 批准前必须勾选二次确认
-//   D-R3   R3 风险：付款 CNY 100                                  → 同上
-//   D-多   R2 风险，两个候选预订                                  → 必须先选一个动作才能批准
-//   一条 60 分钟后检查的回检                                      → 可点「取消」
-// 处理完以后，用页面把这些决策逐个批准/拒绝，再取消回检；剩下的事项用 nexus.task.abort 结束即可。
+// UI acceptance fixture: create a Task holding several kinds of "pending decisions" and one watch, for clicking buttons manually on the Nexus page. Does not depend on the model.
+// Usage: node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/ui-fixture.mts [--url ws://127.0.0.1:19001] [--token <token>]
+//   The token can also be set via OPENCLAW_GATEWAY_TOKEN.
+// Prerequisites: gateway started, decisionsEnabled=true, claimsEnabled=true, watchersEnabled=true, fakeProviderMode=ok,
+//   tools.alsoAllow includes nexus_task_* / nexus_action_* / nexus_decision_request / nexus_claim_add / nexus_watch_create.
+// What it creates (all fake actions, with no external effect):
+//   D-R1   R1 risk: send a message to the vendor (standing grant)            → one click to confirm approves it
+//   D-R2   R2 risk: booking                                                  → the second confirmation must be ticked before approving
+//   D-R3   R3 risk: payment CNY 100                                          → same as above
+//   D-multi   R2 risk, two candidate bookings                                → one action must be picked before approving
+//   One watch that checks after 60 minutes                                   → can be cancelled with the "Cancel" button
+// Afterwards, approve/reject these decisions one by one on the page, then cancel the watch; end the remaining Task with nexus.task.abort.
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
 
@@ -41,7 +41,7 @@ async function tool(name: string, args: Json): Promise<Json> {
 async function must(label: string, out: Json, field: string): Promise<string> {
   const value = String(out[field] ?? "");
   if (out.ok === false || !value) {
-    throw new Error(`${label} 失败：${JSON.stringify(out)}`);
+    throw new Error(`${label} failed: ${JSON.stringify(out)}`);
   }
   return value;
 }
@@ -51,35 +51,35 @@ async function run() {
   const reserve = await tool("nexus_task_reserve", { kind: "ui_fixture" });
   const created = await tool("nexus_task_create", {
     kind: "ui_fixture",
-    title: `界面验收 ${stamp}`,
-    goal: { want: "在 Nexus 页面上手动验证批准 / 拒绝 / 取消回检" },
+    title: `UI acceptance ${stamp}`,
+    goal: { want: "Manually verify approve / reject / cancel watch on the Nexus page" },
     operationToken: String(reserve.operationToken),
   });
-  const taskId = await must("新建事项", created, "taskId");
+  const taskId = await must("create Task", created, "taskId");
 
   const ask = async (label: string, calls: Array<[string, Json]>) => {
     const ids: string[] = [];
     for (const [toolName, params] of calls) {
       const prepared = await tool("nexus_action_prepare", { taskId, toolName, params });
-      ids.push(await must(`${label}：登记动作`, prepared, "actionId"));
+      ids.push(await must(`${label}: register action`, prepared, "actionId"));
     }
     const decision = await tool("nexus_decision_request", { taskId, effect: { actionIds: ids } });
-    const decisionId = await must(`${label}：请求决策`, decision, "decisionId");
+    const decisionId = await must(`${label}: request decision`, decision, "decisionId");
     console.log(
-      `${label.padEnd(5)} 决策 ${decisionId}  风险 ${String(decision.riskTier ?? "?")}  动作 ${ids.join(", ")}`,
+      `${label.padEnd(5)} decision ${decisionId}  risk ${String(decision.riskTier ?? "?")}  actions ${ids.join(", ")}`,
     );
   };
 
   await ask("D-R1", [
-    ["fake_vendor_message", { vendor: "Acme Rooms", message: `界面验收 ${stamp}` }],
+    ["fake_vendor_message", { vendor: "Acme Rooms", message: `UI acceptance ${stamp}` }],
   ]);
   await ask("D-R2", [
-    ["fake_booking", { vendor: "Acme Rooms", item: `标准间 ${stamp}`, date: "2026-10-20" }],
+    ["fake_booking", { vendor: "Acme Rooms", item: `Standard room ${stamp}`, date: "2026-10-20" }],
   ]);
   await ask("D-R3", [["fake_payment", { merchant: "Acme Rooms", amount: "100", currency: "CNY" }]]);
-  await ask("D-多", [
-    ["fake_booking", { vendor: "Acme Rooms", item: `大床房 ${stamp}`, date: "2026-10-21" }],
-    ["fake_booking", { vendor: "Beta Hotel", item: `双床房 ${stamp}`, date: "2026-10-21" }],
+  await ask("D-multi", [
+    ["fake_booking", { vendor: "Acme Rooms", item: `King room ${stamp}`, date: "2026-10-21" }],
+    ["fake_booking", { vendor: "Beta Hotel", item: `Twin room ${stamp}`, date: "2026-10-21" }],
   ]);
 
   const claim = await tool("nexus_claim_add", {
@@ -87,17 +87,17 @@ async function run() {
     subject: "booking",
     predicate: "executed",
   });
-  const claimId = await must("登记 claim", claim, "claimId");
+  const claimId = await must("register claim", claim, "claimId");
   const watch = await tool("nexus_watch_create", {
     taskId,
     claimId,
-    expect: `界面验收：确认 ${stamp} 的预订邮件已到`,
+    expect: `UI acceptance: confirm that the booking email for ${stamp} has arrived`,
     firstCheckInMinutes: 60,
     maxAttempts: 2,
   });
-  const watchId = await must("创建回检", watch, "watchId");
-  console.log(`回检   ${watchId}（60 分钟后检查，可在页面上取消）`);
-  console.log(`\n事项 ${taskId}：${url.replace(/^ws/, "http")}/nexus?p.view=task&p.task=${taskId}`);
+  const watchId = await must("create watch", watch, "watchId");
+  console.log(`watch   ${watchId} (checks after 60 minutes, can be cancelled on the page)`);
+  console.log(`\nTask ${taskId}: ${url.replace(/^ws/, "http")}/nexus?p.view=task&p.task=${taskId}`);
 }
 
 client = new GatewayClient({
@@ -122,6 +122,6 @@ client = new GatewayClient({
 });
 client.start();
 setTimeout(() => {
-  console.error("[timeout] 60 秒内没有完成");
+  console.error("[timeout] not finished within 60 seconds");
   process.exit(3);
 }, 60_000);

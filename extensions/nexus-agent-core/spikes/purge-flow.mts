@@ -1,11 +1,11 @@
-// Stage 3 切片③ 验收：Task 硬清除（purge）、单条证据删除、incarnation_gone 清单观测。全程经 tools.invoke / RPC。
-// 用法（在仓库根目录）：
+// Stage 3 slice 3 acceptance: hard purge of a Task, single-evidence deletion, incarnation_gone checklist observation. Entirely via tools.invoke / RPC.
+// Usage (from the repo root):
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/purge-flow.mts --token "$TOKEN"
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/purge-flow.mts --token "$TOKEN" --phase incarnation
-// 前提：dev 网关已启动，decisionsEnabled / claimsEnabled / evidenceBlobsEnabled = true，fakeProviderMode=ok，
-//   tools.alsoAllow 含 nexus_claim_add / nexus_evidence_add / nexus_claim_verify，本机装有 sqlite3。
-//   默认阶段可重复运行（每次新建自己的 Task，用完即清除）。
-//   incarnation 阶段只读：在 evidenceIncarnationGoneEnabled=true 且“kill -9 网关后重启”之后运行，核对清单第 1、3、5 项。
+// Prerequisites: dev gateway started, decisionsEnabled / claimsEnabled / evidenceBlobsEnabled = true, fakeProviderMode=ok,
+//   tools.alsoAllow includes nexus_claim_add / nexus_evidence_add / nexus_claim_verify, sqlite3 installed locally.
+//   The default phase can be run repeatedly (each run creates its own Tasks and purges them when done).
+//   The incarnation phase is read-only: run it with evidenceIncarnationGoneEnabled=true and after "kill -9 the gateway and restart", to check checklist items 1, 3 and 5.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
@@ -74,8 +74,8 @@ async function newTask(label: string): Promise<string> {
   const reserve = await tool("nexus_task_reserve", { kind: "purge_probe" });
   const created = await tool("nexus_task_create", {
     kind: "purge_probe",
-    title: `purge 探针 ${label}`,
-    goal: { want: "Stage 3 切片③ 验收" },
+    title: `purge probe ${label}`,
+    goal: { want: "Stage 3 slice 3 acceptance" },
     operationToken: String(reserve.operationToken),
   });
   return String(created.taskId ?? "");
@@ -110,20 +110,20 @@ const taskRows = (taskId: string) =>
 async function main() {
   const stamp = Date.now().toString(36);
   const stats0 = await rpc("nexus.evidence.stats");
-  check("evidence 已开启（nexus.evidence.stats 可调用）", !!stats0.limits, stats0);
+  check("evidence is enabled (nexus.evidence.stats is callable)", !!stats0.limits, stats0);
   const purgeProbe = await rpcError("nexus.task.purge", { taskId: "T0000" });
   check(
-    "purge RPC 已注册（缺确认时被拒，而不是 unknown method）",
+    "purge RPC is registered (rejected for missing confirmation, rather than unknown method)",
     !purgeProbe.toLowerCase().includes("unknown method"),
     purgeProbe,
   );
 
-  // ---- 准备三个 Task
-  // A：完整账本（订房执行 + 决策 + claim + 两类证据）+ 与 B 共享的一份字节
+  // ---- Prepare three Tasks
+  // A: full ledger (booking execution + decision + claim + two kinds of evidence) + one blob of bytes shared with B
   const a = await newTask(`A ${stamp}`);
   const b = await newTask(`B ${stamp}`);
   const c = await newTask(`C ${stamp}`);
-  check("新建 A / B / C", !!a && !!b && !!c, { a, b, c });
+  check("create A / B / C", !!a && !!b && !!c, { a, b, c });
   const act = await tool("nexus_action_prepare", {
     taskId: a,
     toolName: "fake_booking",
@@ -148,7 +148,7 @@ async function main() {
   });
   const executionId = String(resolved.executionId ?? "");
   const commit = await tool("nexus_action_commit", { executionId });
-  check("A：订房 commit 成功", commit.ok === true && commit.status === "succeeded", commit);
+  check("A: booking commit succeeded", commit.ok === true && commit.status === "succeeded", commit);
   await tool("nexus_evidence_add", {
     taskId: a,
     claimId,
@@ -159,53 +159,68 @@ async function main() {
     claimId,
     classification: "financial",
     relation: "supports",
-    relationReason: "探针：流水里有这笔扣款",
+    relationReason: "probe: this charge appears in the statement",
   });
-  check("A：流水上传并挂到 claim → VERIFIED", stmt.stateAfter === "VERIFIED", stmt);
+  check(
+    "A: statement uploaded and attached to claim → VERIFIED",
+    stmt.stateAfter === "VERIFIED",
+    stmt,
+  );
   const sharedText = `shared bytes ${stamp}`;
   const sharedA = await upload(a, "shared-a.txt", sharedText);
   const sharedB = await upload(b, "shared-b.txt", sharedText);
   check(
-    "A / B 上传同一份字节：一个物理对象，两个 evidence 行",
+    "A / B upload the same bytes: one physical object, two evidence rows",
     sharedA.blobKey === sharedB.blobKey && sharedB.branch === "attach_live_object",
     { sharedA, sharedB },
   );
   const sharedKey = String(sharedA.blobKey);
-  check("共享对象 ref_count=2", objectOf(sharedKey).startsWith("live|2|"), objectOf(sharedKey));
+  check(
+    "shared object ref_count=2",
+    objectOf(sharedKey).startsWith("live|2|"),
+    objectOf(sharedKey),
+  );
   const stmtKey = String(stmt.blobKey);
 
-  // C：两份各自的字节，其中一份做单条证据删除
+  // C: two separate blobs of bytes, one of which gets single-evidence deletion
   const keepText = `c keep ${stamp}`;
   const dropText = `c drop ${stamp}`;
   const keep = await upload(c, "keep.txt", keepText);
   const drop = await upload(c, "drop.txt", dropText);
   const dropKey = String(drop.blobKey);
-  check("C：两份上传 registered", keep.outcome === "registered" && drop.outcome === "registered");
+  check(
+    "C: both uploads registered",
+    keep.outcome === "registered" && drop.outcome === "registered",
+  );
 
-  // ---- 单条证据删除
+  // ---- Single-evidence deletion
   const noConfirm = await rpcError("nexus.evidence.delete", {
     taskId: c,
     evidenceId: String(drop.evidenceId),
   });
-  check("单条删除缺确认被拒", noConfirm.includes("confirmEvidenceId"), noConfirm);
+  check(
+    "single deletion rejected for missing confirmation",
+    noConfirm.includes("confirmEvidenceId"),
+    noConfirm,
+  );
   const del = await rpc("nexus.evidence.delete", {
     taskId: c,
     evidenceId: String(drop.evidenceId),
     confirmEvidenceId: String(drop.evidenceId),
   });
   check(
-    "单条删除：deleted 且对象已无引用",
+    "single deletion: deleted and the object has no references left",
     del.outcome === "deleted" && del.orphaned === true,
     del,
   );
   check(
-    "evidence 行保留 hash，字节引用清空，redaction_state=purged",
+    "evidence row keeps the hash, byte reference cleared, redaction_state=purged",
     sql(
       `select ifnull(blob_key,'-')||'|'||redaction_state||'|'||content_hash from evidence where id='${String(drop.evidenceId)}'`,
     ) === `-|purged|${sha(dropText)}`,
   );
   check(
-    "对象 ref_count 降到 0（等零引用清扫回收）",
+    "object ref_count drops to 0 (awaiting the zero-reference sweep to reclaim it)",
     objectOf(dropKey).startsWith("live|0|"),
     objectOf(dropKey),
   );
@@ -214,20 +229,24 @@ async function main() {
     evidenceId: String(drop.evidenceId),
     confirmEvidenceId: String(drop.evidenceId),
   });
-  check("重复删除被拒（nexus_conflict）", again.includes("already_deleted"), again);
-  // 被拒是 RPC 错误（code nexus_conflict，message evidence_purged），不是普通返回值
+  check("repeated deletion rejected (nexus_conflict)", again.includes("already_deleted"), again);
+  // The rejection is an RPC error (code nexus_conflict, message evidence_purged), not a normal return value
   const reup = await rpcError("nexus.evidence.upload", {
     taskId: c,
     name: "drop.txt",
     mediaType: "text/plain",
     dataBase64: b64(dropText),
   });
-  check("同名同字节重传不会静默复活（evidence_purged）", reup.includes("evidence_purged"), reup);
+  check(
+    "re-uploading the same name and bytes does not silently resurrect it (evidence_purged)",
+    reup.includes("evidence_purged"),
+    reup,
+  );
 
-  // ---- purge 的保护
+  // ---- purge protections
   const wrong = await rpcError("nexus.task.purge", { taskId: a, confirmTaskId: "T-WRONG" });
   check(
-    "purge 缺/错确认被拒，且什么都没动",
+    "purge with missing/wrong confirmation rejected, and nothing was touched",
     wrong.includes("confirmTaskId") && taskRows(a) > 0,
     wrong,
   );
@@ -235,9 +254,9 @@ async function main() {
     taskId: "TNOSUCH01",
     confirmTaskId: "TNOSUCH01",
   });
-  check("purge 不存在的 Task → not_found", missing.includes("not found"), missing);
+  check("purge of a nonexistent Task → not_found", missing.includes("not found"), missing);
 
-  // ---- 清除 A（完整账本 + 与 B 共享的对象）
+  // ---- Purge A (full ledger + object shared with B)
   const titleA = sql(`select title from nexus_tasks where id='${a}'`);
   const headA = sql(
     `select digest from claim_events where task_id='${a}' order by seq desc limit 1`,
@@ -245,123 +264,123 @@ async function main() {
   const eventsA = Number(sql(`select count(*) from claim_events where task_id='${a}'`));
   const pa = await rpc("nexus.task.purge", { taskId: a, confirmTaskId: a });
   check(
-    "purge A → purged，回执带声明",
+    "purge A → purged, the receipt carries a declaration",
     pa.outcome === "purged" && /destroyed/.test(String(pa.notice)),
     pa,
   );
   const receiptA = (pa.receipt ?? {}) as Json;
   check(
-    "回执：链尾 digest、事件数、证据数（执行回执 + 流水 + 共享，至少 2）",
+    "receipt: chain-tail digest, event count, evidence count (execution receipt + statement + shared, at least 2)",
     receiptA.ledgerHeadDigest === headA &&
       receiptA.claimEventCount === eventsA &&
       Number(receiptA.evidenceCount) >= 2,
     receiptA,
   );
   check(
-    "A 的所有行都没了（task / evidence / claims / events / reservations / purge_*）",
+    "all of A's rows are gone (task / evidence / claims / events / reservations / purge_*)",
     taskRows(a) === 0,
     taskRows(a),
   );
   check(
-    "流水对象（只有 A 引用）：deleted 且有缺席证明",
+    "statement object (referenced only by A): deleted with an absence proof",
     objectOf(stmtKey) === "deleted|0|1",
     objectOf(stmtKey),
   );
   check(
-    "共享对象（B 还引用）：保留，live，ref_count=1",
+    "shared object (still referenced by B): kept, live, ref_count=1",
     objectOf(sharedKey).startsWith("live|1|"),
     objectOf(sharedKey),
   );
   check(
-    "B 的证据完好",
+    "B's evidence is intact",
     sql(`select ifnull(blob_key,'-') from evidence where task_id='${b}'`) === sharedKey,
   );
   check(
-    "回执只有 hash 和计数，没有标题",
+    "receipt has only hashes and counts, no title",
     sql(`select task_title_hash from purge_receipts where id='${String(receiptA.id)}'`) ===
       sha(titleA) &&
       !sql(`select * from purge_receipts where id='${String(receiptA.id)}'`).includes(titleA),
   );
   const recon = await rpc("nexus.evidence.reconcile");
   check(
-    "reconcile：字节存储与对象表一致（无 missing / sizeMismatch / untracked）",
+    "reconcile: byte store consistent with the object table (no missing / sizeMismatch / untracked)",
     (recon.missing as unknown[]).length === 0 &&
       (recon.sizeMismatch as unknown[]).length === 0 &&
       (recon.untracked as unknown[]).length === 0,
     recon,
   );
   const statusGone = await rpcError("nexus.task.purgeStatus", { taskId: a });
-  check("purgeStatus：已清除的 Task 没有 run", statusGone.includes("no purge run"), statusGone);
+  check("purgeStatus: a purged Task has no run", statusGone.includes("no purge run"), statusGone);
 
-  // ---- 清除 B：共享对象的最后一个引用 → 回收字节
+  // ---- Purge B: last reference to the shared object → reclaim the bytes
   const pb = await rpc("nexus.task.purge", { taskId: b, confirmTaskId: b });
   check("purge B → purged", pb.outcome === "purged", pb);
   check(
-    "共享对象：现在 deleted 且有缺席证明",
+    "shared object: now deleted with an absence proof",
     objectOf(sharedKey) === "deleted|0|1",
     objectOf(sharedKey),
   );
 
-  // ---- 清除 C：含已被单条删除、零引用的对象
+  // ---- Purge C: includes an object that was single-deleted and has zero references
   const pc = await rpc("nexus.task.purge", { taskId: c, confirmTaskId: c });
   check("purge C → purged", pc.outcome === "purged", pc);
   check(
-    "C 的两个对象都 deleted 且有缺席证明（含单条删除后零引用的那个）",
+    "both of C's objects are deleted with absence proofs (including the one with zero references after single deletion)",
     objectOf(String(keep.blobKey)) === "deleted|0|1" && objectOf(dropKey) === "deleted|0|1",
     { keep: objectOf(String(keep.blobKey)), drop: objectOf(dropKey) },
   );
 
-  // ---- 收尾核对
+  // ---- Final checks
   const receipts = await rpc("nexus.task.purgeReceipts", { limit: 50 });
   const list = (receipts.receipts as Json[]) ?? [];
   check(
-    "purgeReceipts 列出三份回执，且字段里没有 title",
+    "purgeReceipts lists three receipts, and no field is title",
     [a, b, c].every((id) => list.some((row) => row.taskId === id)) &&
       list.every((row) => !("title" in row)),
     list.length,
   );
-  check("PRAGMA foreign_key_check 无违规", sql("pragma foreign_key_check") === "");
+  check("PRAGMA foreign_key_check has no violations", sql("pragma foreign_key_check") === "");
   check("PRAGMA integrity_check = ok", sql("pragma integrity_check") === "ok");
   check(
-    "没有孤儿行（claim_events / evidence / blob_reservations 都指向存在的 Task）",
+    "no orphan rows (claim_events / evidence / blob_reservations all point to an existing Task)",
     sql(
       "select (select count(*) from claim_events where task_id not in (select id from nexus_tasks))+(select count(*) from evidence where task_id not in (select id from nexus_tasks))+(select count(*) from blob_reservations where task_id not in (select id from nexus_tasks))",
     ) === "0",
   );
   await sleep(500);
   check(
-    "收到 task_purged 事件（三次，只带 id 和时间）",
+    "received task_purged events (three, carrying only id and time)",
     events.filter((e) => e.endsWith(".task_purged")).length >= 3,
     events.slice(-6),
   );
   check(
-    "收到 evidence_changed（change=deleted 由 console 重读）",
+    "received evidence_changed (change=deleted, re-read by the console)",
     events.some((e) => e.endsWith(".evidence_changed")),
   );
   const maint = await rpc("nexus.evidence.maintain");
-  note(`maintain：${JSON.stringify(maint)}`);
+  note(`maintain: ${JSON.stringify(maint)}`);
 }
 
-/** 清单第 1、3、5 项的只读观测：开关打开并经历一次 kill -9 重启后运行。 */
+/** Read-only observation of checklist items 1, 3 and 5: run after the switch is on and a kill -9 restart has occurred. */
 async function incarnation() {
   const rows = sql(
     "select incarnation_id||'|'||process_boot_id||'|'||ifnull(gone_at,'-')||'|'||ifnull(gone_basis,'-') from process_incarnations order by started_at",
   )
     .split("\n")
     .filter(Boolean);
-  note(`process_incarnations（${rows.length} 行）：\n${rows.map((r) => `  ${r}`).join("\n")}`);
+  note(`process_incarnations (${rows.length} rows):\n${rows.map((r) => `  ${r}`).join("\n")}`);
   const open = sql(
     "select process_boot_id from process_incarnations where gone_at is null order by started_at desc",
   )
     .split("\n")
     .filter(Boolean);
   check(
-    "① 当前进程的 boot id 可读（不是 unavailable）",
+    "① boot id of the current process is readable (not unavailable)",
     open.length >= 1 && open[0] !== "unavailable",
     open,
   );
   check(
-    "没有两个未终止的 incarnation（开关打开后，旧的要么 clean_shutdown 要么被 superseded）",
+    "no two unterminated incarnations (after the switch is on, the old one is either clean_shutdown or superseded)",
     open.length === 1,
     open,
   );
@@ -371,19 +390,19 @@ async function incarnation() {
     ),
   );
   check(
-    "⑤ 真实 crash-restart：旧进程的行被标为 superseded_under_gateway_lock",
+    "⑤ real crash-restart: the old process's row is marked superseded_under_gateway_lock",
     superseded >= 1,
     superseded,
   );
   check(
-    "③ 没有误标：被 superseded 的行 boot id 全都不同于当前进程的 boot id",
+    "③ no mislabeling: the boot id of every superseded row differs from the current process's boot id",
     open.length >= 1 &&
       sql(
         `select count(*) from process_incarnations where gone_basis='superseded_under_gateway_lock' and process_boot_id='${open[0]}'`,
       ) === "0",
   );
   note(
-    "② 一个 state 目录只允许一个网关：这一条由你确认（不要在同一 OPENCLAW_STATE_DIR 上同时起第二个网关）。",
+    "② only one gateway per state directory: this one is for you to confirm (do not start a second gateway on the same OPENCLAW_STATE_DIR).",
   );
 }
 
@@ -402,7 +421,7 @@ client = new GatewayClient({
   },
   onHelloOk: () => {
     (phase === "incarnation" ? incarnation() : main())
-      .then(() => console.log(failures === 0 ? "\n全部通过" : `\n${failures} 项失败`))
+      .then(() => console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`))
       .catch((error) => {
         failures += 1;
         console.error("[error]", error);
@@ -415,6 +434,6 @@ client = new GatewayClient({
 });
 client.start();
 setTimeout(() => {
-  console.error("[timeout] 探针超时");
+  console.error("[timeout] probe timed out");
   process.exit(3);
 }, 120_000);

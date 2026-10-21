@@ -79,7 +79,12 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
   ) => {
     const principal = deps.resolvePrincipal(ctx);
     if (!principal) {
-      return jsonResult(fail("no_principal", "无法确定当前主体，Nexus 不提供服务。"));
+      return jsonResult(
+        fail(
+          "no_principal",
+          "Cannot determine the current principal; Nexus is not serving this request.",
+        ),
+      );
     }
     try {
       return jsonResult(await run(principal, await deps.getStore()));
@@ -101,8 +106,8 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
       return {
         ...base,
         message:
-          "已把这条待决策交给用户（Nexus 决策页，必要时还有审批卡片）。用户批准之前什么都不会发生，也没有任何授权。" +
-          "请告诉用户去确认；确认后再继续。如果用户说刚刚已经批准，结果可能还在记录中：稍后用 nexus_task_get 查看 readyExecutions，不要自己假设已批准。",
+          "This decision has been handed to the user (the Nexus decision page, and an approval card where available). Nothing happens and nothing is authorized until the user approves. " +
+          "Tell the user to confirm, then continue. If the user says they just approved, the result may still be recording: check readyExecutions with nexus_task_get a moment later; do not assume it was approved.",
       };
     }
     if (decision.status === "decided" && decision.resolution === "approved") {
@@ -115,28 +120,31 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
           executionId: execution?.id ?? null,
           executionState: execution?.state ?? null,
           message: execution
-            ? "用户已批准。现在可以调用 nexus_action_commit，参数只有 executionId。"
-            : "用户已批准，但没有找到可提交的执行凭证；请用 nexus_task_get 查看 readyExecutions。",
+            ? "The user approved. You can now call nexus_action_commit; its only parameter is executionId."
+            : "The user approved, but no committable execution was found; check readyExecutions with nexus_task_get.",
         };
       }
       return {
         ...base,
         message:
-          "用户已批准持续授权。现在对每个具体动作调用 nexus_action_authorize(actionId) 取得 executionId，再用 executionId 调 nexus_action_commit；不要把 actionId 当 executionId。",
+          "The user approved a standing grant. For each specific action, call nexus_action_authorize(actionId) to get an executionId, then call nexus_action_commit with that executionId; do not use an actionId as an executionId.",
       };
     }
     if (decision.status === "decided") {
       return {
         ...base,
-        message: "用户已拒绝，这是终局。不要换一种办法重试同一件事；问用户想怎么办。",
+        message:
+          "The user refused; this is final. Do not retry the same thing another way; ask the user what they want to do.",
       };
     }
     const reasons: Record<string, string> = {
-      expired: "这条决策已超时失效，需要重新发起。",
-      superseded: "事项内容在提问之后发生了变化，这条决策作废；需要用新内容重新发起。",
-      effect_apply_failed: "用户的批准没能保存成功，没有授权。请让用户重新确认。",
+      expired: "This decision timed out and is no longer valid; it must be requested again.",
+      superseded:
+        "The Task changed after the question was asked, so this decision is void; request it again with the new content.",
+      effect_apply_failed:
+        "The user's approval could not be saved, so nothing is authorized. Ask the user to confirm again.",
     };
-    return { ...base, message: reasons[decision.status] ?? "这条决策已结束。" };
+    return { ...base, message: reasons[decision.status] ?? "This decision has ended." };
   };
 
   const tools = [
@@ -168,7 +176,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
         return withPrincipal(async (principal, store) => {
           const taskId = normalizeTaskId(params.taskId);
           if (!taskId) {
-            return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+            return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           const toolName = typeof params.toolName === "string" ? params.toolName : "";
           const occurrence =
@@ -184,13 +192,18 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
           });
           switch (out.outcome) {
             case "unknown_tool":
-              return fail("unknown_tool", "toolName 不在可登记的动作里。", { known: out.known });
+              return fail("unknown_tool", "toolName is not one of the registrable actions.", {
+                known: out.known,
+              });
             case "invalid_params":
               return fail("invalid_params", out.reason);
             case "not_found":
-              return fail("not_found", "找不到这个事项。");
+              return fail("not_found", "Task not found.");
             case "task_closed":
-              return fail("task_closed", `事项已结束（${out.task.status}），不能再登记动作。`);
+              return fail(
+                "task_closed",
+                `The Task has ended (${out.task.status}); actions can no longer be registered.`,
+              );
             case "created":
             case "existing": {
               const tier = out.action.riskTier;
@@ -206,12 +219,12 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
                 latestExecution: done ? { executionId: done.id, state: done.state } : null,
                 next:
                   tier === "R1"
-                    ? "调用 nexus_action_authorize(actionId)；返回 no_policy 时先 nexus_decision_request 取得用户同意，再 authorize。"
-                    : `调用 nexus_decision_request，参数 {"taskId":"${out.action.taskId}","effect":{"actionIds":["${out.action.id}"]}}（不要写 kind）；用户批准后才会得到 executionId。`,
+                    ? "Call nexus_action_authorize(actionId); if it returns no_policy, first get the user's consent with nexus_decision_request, then authorize."
+                    : `Call nexus_decision_request with {"taskId":"${out.action.taskId}","effect":{"actionIds":["${out.action.id}"]}} (do not set kind); you only get an executionId after the user approves.`,
                 ...(done && (done.state === "succeeded" || done.state === "failed")
                   ? {
                       warning:
-                        "这个动作已经执行过了（状态见 latestExecution）。如果用户确实要再做一次相同的事，用 occurrence: 2 登记成新动作。",
+                        "This action was already executed (see latestExecution for its state). If the user really wants the same thing done again, register it as a new action with occurrence: 2.",
                     }
                   : {}),
               };
@@ -231,7 +244,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
           const actionId =
             typeof params.actionId === "string" && ID.test(params.actionId) ? params.actionId : "";
           if (!actionId) {
-            return fail("invalid_action_id", "actionId 无效。");
+            return fail("invalid_action_id", "Invalid actionId.");
           }
           const out = await store.authorizeAction({
             principal,
@@ -247,33 +260,33 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
                 executionId: out.executionId,
                 reentry: out.reentry,
                 message:
-                  "已授权。用 nexus_action_commit(executionId) 执行；不要重复调用 authorize。",
+                  "Authorized. Execute with nexus_action_commit(executionId); do not call authorize again.",
               };
             case "not_found":
-              return fail("not_found", "找不到这个动作。");
+              return fail("not_found", "Action not found.");
             case "task_closed":
-              return fail("task_closed", "事项已结束。");
+              return fail("task_closed", "The Task has ended.");
             case "not_r1":
               return fail(
                 "not_r1",
-                `这个动作是 ${out.tier}，不能走 authorize；用 nexus_decision_request 征得用户批准。`,
+                `This action is ${out.tier} and cannot use authorize; get the user's approval with nexus_decision_request.`,
               );
             case "no_policy":
               return {
                 ok: false,
                 code: "no_policy",
                 message:
-                  "用户还没有批准覆盖这个动作的持续授权。用 nexus_decision_request（effect.actionIds 填这个 actionId）去征得同意。",
+                  "The user has not approved a standing grant covering this action. Get consent with nexus_decision_request (put this actionId in effect.actionIds).",
               };
             case "policy_not_applicable":
               return fail(
                 "policy_not_applicable",
-                `持续授权现在不适用（${out.reason}）。需要用户重新批准或稍后再试。`,
+                `The standing grant does not apply right now (${out.reason}). The user needs to approve again, or try later.`,
               );
             case "in_progress":
               return fail(
                 "in_progress",
-                `这个动作已有执行在进行或结果待确认（${out.execution.state}），不会签发第二张凭证。`,
+                `This action already has an execution in progress or awaiting confirmation (${out.execution.state}); a second execution will not be issued.`,
                 {
                   executionId: out.execution.id,
                 },
@@ -281,7 +294,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
             case "already_done":
               return fail(
                 "already_done",
-                `这个动作已经有终态执行（${out.execution.state}）。如果用户确实要再做一次，用 nexus_action_prepare 的 occurrence 登记成新动作。`,
+                `This action already has a final execution (${out.execution.state}). If the user really wants it done again, register a new action with the occurrence parameter of nexus_action_prepare.`,
                 {
                   executionId: out.execution.id,
                 },
@@ -330,7 +343,10 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
               JSON.stringify([...hooked.actionIds].toSorted()) ===
                 JSON.stringify([...parsed.actionIds].toSorted());
             if (!sameSet) {
-              return fail("params_changed", "请求参数在审批之后被改动，拒绝处理。");
+              return fail(
+                "params_changed",
+                "The request parameters changed after approval; refusing.",
+              );
             }
             const read = async () =>
               (await store.getDecision({ principal, decisionId: hooked.id }))?.decision;
@@ -365,29 +381,30 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
           });
           switch (created.outcome) {
             case "not_found":
-              return fail("not_found", "找不到这个事项。");
+              return fail("not_found", "Task not found.");
             case "task_closed":
-              return fail("task_closed", `事项已结束（${created.task.status}）。`);
+              return fail("task_closed", `The Task has ended (${created.task.status}).`);
             case "invalid_effect": {
               const invalid = created.invalid;
               const hints: Record<string, string> = {
-                no_actions: "effect.actionIds 不能为空：先用 nexus_action_prepare 登记动作。",
-                too_many_actions: "候选动作最多 5 个。",
-                action_not_found: "有 actionId 不属于这个事项。",
-                mixed_tier: "同一条决策里的动作必须是同一风险档。",
-                wrong_kind: "effect.kind 与动作的风险档不符；省略 kind 即可。",
-                unsupported_effect: "这种决策暂不支持。",
+                no_actions:
+                  "effect.actionIds must not be empty: register actions with nexus_action_prepare first.",
+                too_many_actions: "At most 5 candidate actions.",
+                action_not_found: "Some actionId does not belong to this Task.",
+                mixed_tier: "Actions in one decision must share the same risk tier.",
+                wrong_kind: "effect.kind does not match the action's risk tier; omit kind.",
+                unsupported_effect: "This kind of decision is not supported yet.",
               };
               return fail(
                 `invalid_effect_${invalid.code}`,
-                hints[invalid.code] ?? "effect 不合法。",
+                hints[invalid.code] ?? "Invalid effect.",
                 {
                   detail: invalid,
                 },
               );
             }
             case "fingerprint_conflict":
-              return fail("fingerprint_conflict", "同一次工具调用对应了不同的请求。");
+              return fail("fingerprint_conflict", "The same tool call maps to different requests.");
             case "created":
               deps.events.taskChanged("updated", created.task);
               deps.onOutboxWritten?.();
@@ -421,7 +438,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
               ? params.executionId
               : "";
           if (!executionId) {
-            return fail("invalid_execution_id", "executionId 无效。");
+            return fail("invalid_execution_id", "Invalid executionId.");
           }
           // First synchronous transaction: ownership, grant consumption, state -> executing.
           const verdict = await store.admitExecution({
@@ -438,7 +455,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
                 if (asAction) {
                   return fail(
                     "execution_not_found",
-                    "这是 actionId，不是 executionId。先调用 nexus_action_authorize(actionId) 取得 executionId（用户已批准持续授权时会直接返回），再用它调用 nexus_action_commit。",
+                    "This is an actionId, not an executionId. First call nexus_action_authorize(actionId) to get an executionId (it returns one directly when the user has approved a standing grant), then use it to call nexus_action_commit.",
                     { hint: "use_authorize_first" },
                   );
                 }
@@ -452,12 +469,13 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
                 replayed: true,
                 executionId,
                 result: verdict.execution.result,
-                message: "这次执行早已成功，这里返回的是上次的结果；没有再次调用供应商。",
+                message:
+                  "This execution already succeeded; this is the earlier result and the vendor was not called again.",
               };
             case "replay_failed":
               return fail(
                 "execution_failed",
-                "这次执行已经失败，没有再次调用供应商。需要用户重新批准才能再试。",
+                "This execution already failed and the vendor was not called again. The user must approve again before a retry.",
                 {
                   executionId,
                   error: verdict.execution.error,
@@ -471,7 +489,8 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
                 reason: verdict.reason,
                 notice:
                   "The outcome is NOT confirmed. Do not retry and do not tell the user it succeeded or failed; say it is awaiting confirmation.",
-                message: "这次执行的结果还没有确认，Nexus 会对账。不要重试，也不要对用户说成功。",
+                message:
+                  "The outcome of this execution is not confirmed yet; Nexus will reconcile it. Do not retry, and do not tell the user it succeeded.",
               };
             case "execute_new":
             case "retry_provider_idempotently":
@@ -520,10 +539,14 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
             return { ok: true, status: "succeeded", executionId, result: outcome.result };
           }
           if (outcome.kind === "failed") {
-            return fail("execution_failed", "供应商明确拒绝了这次执行，没有产生效果。", {
-              executionId,
-              error: outcome.error,
-            });
+            return fail(
+              "execution_failed",
+              "The vendor explicitly rejected this execution; it had no effect.",
+              {
+                executionId,
+                error: outcome.error,
+              },
+            );
           }
           return {
             ok: true,
@@ -531,7 +554,8 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
             executionId,
             notice:
               "The outcome is UNCERTAIN (the connection failed). Do not retry, do not tell the user it succeeded or failed; say the result is awaiting confirmation.",
-            message: "结果不确定（连接中断）。Nexus 会向供应商对账；不要重试，也不要说成功。",
+            message:
+              "The outcome is uncertain (connection interrupted). Nexus will reconcile with the vendor; do not retry, and do not say it succeeded.",
           };
         });
       },

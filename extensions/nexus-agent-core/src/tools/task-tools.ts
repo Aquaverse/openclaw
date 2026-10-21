@@ -142,7 +142,12 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
   ) => {
     const principal = deps.resolvePrincipal(ctx);
     if (!principal) {
-      return jsonResult(fail("no_principal", "无法确定当前主体，Nexus 不提供服务。"));
+      return jsonResult(
+        fail(
+          "no_principal",
+          "Cannot determine the current principal; Nexus is not serving this request.",
+        ),
+      );
     }
     try {
       return jsonResult(await run(principal, await deps.getStore()));
@@ -171,11 +176,11 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
         return withPrincipal(async (principal) => {
           const kind = typeof params.kind === "string" ? params.kind : "";
           if (!KIND.test(kind)) {
-            return fail("invalid_kind", "kind 需为 lower_snake_case，最长 40 个字符。");
+            return fail("invalid_kind", "kind must be lower_snake_case, at most 40 characters.");
           }
           const entities = params.entities ?? null;
           if (entities !== null && (!isPlainObject(entities) || tooBig(entities, LIMITS.json))) {
-            return fail("invalid_entities", "entities 需为对象且不超过 8 KB。");
+            return fail("invalid_entities", "entities must be an object of at most 8 KB.");
           }
           const issued = deps.ledger.issueOperation(principal, { kind });
           return { ok: true, operationToken: issued.token, expiresAt: issued.expiresAt };
@@ -212,16 +217,16 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
           const goal = params.goal;
           const entities = params.entities ?? null;
           if (!KIND.test(kind)) {
-            return fail("invalid_kind", "kind 需为 lower_snake_case，最长 40 个字符。");
+            return fail("invalid_kind", "kind must be lower_snake_case, at most 40 characters.");
           }
           if (!title || [...title].length > LIMITS.title) {
-            return fail("invalid_title", "title 不能为空，最长 200 个字符。");
+            return fail("invalid_title", "title must not be empty, at most 200 characters.");
           }
           if (!isPlainObject(goal) || tooBig(goal, LIMITS.json)) {
-            return fail("invalid_goal", "goal 需为对象且不超过 8 KB。");
+            return fail("invalid_goal", "goal must be an object of at most 8 KB.");
           }
           if (entities !== null && (!isPlainObject(entities) || tooBig(entities, LIMITS.json))) {
-            return fail("invalid_entities", "entities 需为对象且不超过 8 KB。");
+            return fail("invalid_entities", "entities must be an object of at most 8 KB.");
           }
           const fingerprint = requestFingerprint({ kind, entities, goal });
           const operationToken =
@@ -240,15 +245,15 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
             }
             return fail(
               "fingerprint_conflict",
-              "这个 operationToken 已用于另一件不同的事项；请重新 nexus_task_reserve 再创建。",
+              "This operationToken was already used for a different Task; call nexus_task_reserve again before creating.",
               { existing: { taskId: existing.task.id, title: existing.task.title } },
             );
           }
           if (operationToken) {
             const check = deps.ledger.checkOperation(principal, operationToken, { kind });
             if (check !== "ok") {
-              return fail("operation_token_invalid", `operationToken 不可用（${check}）。`, {
-                hint: "重新调用 nexus_task_reserve 取新令牌；令牌只对 reserve 时的 kind 有效。",
+              return fail("operation_token_invalid", `operationToken is not usable (${check}).`, {
+                hint: "Call nexus_task_reserve again for a new token; a token is only valid for the kind it was reserved with.",
               });
             }
           }
@@ -288,7 +293,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
                 duplicate_override_token: issued.token,
                 expiresAt: issued.expiresAt,
                 ...(verdict ? { previousTokenRejected: verdict } : {}),
-                hint: "存在相近事项。先向用户确认；确认是新任务后，用同一个 token 重试。",
+                hint: "A similar Task exists. Confirm with the user first; once they confirm it is a new task, retry with the same token.",
               };
             }
           }
@@ -306,7 +311,10 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
             now: now(),
           });
           if (created.outcome === "fingerprint_conflict") {
-            return fail("fingerprint_conflict", "幂等键与另一件事项冲突，请重新 reserve。");
+            return fail(
+              "fingerprint_conflict",
+              "The idempotency key conflicts with another Task; reserve again.",
+            );
           }
           if (created.outcome === "created") {
             deps.events.taskChanged("created", created.task);
@@ -334,7 +342,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
         return withPrincipal(async (principal, store) => {
           const taskId = normalizeTaskId(params.taskId);
           if (!taskId) {
-            return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+            return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           const detail = await store.get({
             principal,
@@ -344,7 +352,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
             stepLimit: LIMITS.stepsReturned,
           });
           if (!detail) {
-            return fail("not_found", "找不到这个事项。");
+            return fail("not_found", "Task not found.");
           }
           const pending = await store.listDecisions({
             principal,
@@ -395,7 +403,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
         return withPrincipal(async (principal, store) => {
           const taskId = normalizeTaskId(params.taskId);
           if (!taskId) {
-            return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+            return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           const patch: Parameters<TaskStore["update"]>[0]["patch"] = {};
           if (params.title !== undefined) {
@@ -404,7 +412,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
               !params.title.trim() ||
               [...params.title].length > LIMITS.title
             ) {
-              return fail("invalid_title", "title 不能为空，最长 200 个字符。");
+              return fail("invalid_title", "title must not be empty, at most 200 characters.");
             }
             patch.title = params.title.trim();
           }
@@ -414,19 +422,22 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
               continue;
             }
             if (!isPlainObject(value) || tooBig(value, LIMITS.json)) {
-              return fail(`invalid_${key}`, `${key} 需为对象且不超过 8 KB。`);
+              return fail(`invalid_${key}`, `${key} must be an object of at most 8 KB.`);
             }
             patch[key] = value;
           }
           if (params.summary !== undefined) {
             if (typeof params.summary !== "string" || [...params.summary].length > LIMITS.summary) {
-              return fail("invalid_summary", "summary 为字符串，最长 2000 个字符。");
+              return fail(
+                "invalid_summary",
+                "summary must be a string of at most 2000 characters.",
+              );
             }
             patch.summary = params.summary;
           }
           if (params.status !== undefined) {
             if (typeof params.status !== "string") {
-              return fail("invalid_status", "status 为字符串。");
+              return fail("invalid_status", "status must be a string.");
             }
             patch.status = params.status as NonNullable<typeof patch.status>;
           }
@@ -443,25 +454,32 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
           });
           switch (result.outcome) {
             case "not_found":
-              return fail("not_found", "找不到这个事项。");
+              return fail("not_found", "Task not found.");
             case "task_closed":
-              return fail("task_closed", `事项已结束（${result.task.status}），不能再修改。`);
+              return fail(
+                "task_closed",
+                `The Task has ended (${result.task.status}); it can no longer be changed.`,
+              );
             case "completion_unmet":
               return fail(
                 "completion_unmet",
                 result.check.reason === "no_completion_claims"
-                  ? "这个事项还没有登记完成条件：先用 nexus_claim_add（completion 填 SUPPORTED 或 VERIFIED）登记要证明什么，再用 nexus_evidence_add 挂上证据。"
-                  : "完成条件还没有全部达到要求的状态。事项没有被标记完成；不要告诉用户已经完成。",
+                  ? "This Task has no completion condition yet: first register what must be proven with nexus_claim_add (completion SUPPORTED or VERIFIED), then attach evidence with nexus_evidence_add."
+                  : "Not every completion condition has reached its required state. The Task was not marked complete; do not tell the user it is complete.",
                 { items: result.check.items },
               );
             case "status_not_allowed":
-              return fail("status_not_allowed", "这个状态不能由模型设置。", {
+              return fail("status_not_allowed", "The model cannot set this status.", {
                 allowed: result.allowed,
               });
             case "revision_conflict":
-              return fail("revision_conflict", "事项已被修改；请先 nexus_task_get 读取最新版本。", {
-                currentRevision: result.task.revision,
-              });
+              return fail(
+                "revision_conflict",
+                "The Task was modified; call nexus_task_get to read the latest version first.",
+                {
+                  currentRevision: result.task.revision,
+                },
+              );
             case "updated":
               deps.events.taskChanged("updated", result.task);
               return {
@@ -489,11 +507,11 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
         return withPrincipal(async (principal, store) => {
           const taskId = normalizeTaskId(params.taskId);
           if (!taskId) {
-            return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+            return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           const text = typeof params.text === "string" ? params.text.trim() : "";
           if (!text || [...text].length > LIMITS.note) {
-            return fail("invalid_text", "text 不能为空，最长 4000 个字符。");
+            return fail("invalid_text", "text must not be empty, at most 4000 characters.");
           }
           const result = await store.note({
             principal,
@@ -505,9 +523,12 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
           });
           switch (result.outcome) {
             case "not_found":
-              return fail("not_found", "找不到这个事项。");
+              return fail("not_found", "Task not found.");
             case "task_closed":
-              return fail("task_closed", `事项已结束（${result.task.status}），不能再追加备注。`);
+              return fail(
+                "task_closed",
+                `The Task has ended (${result.task.status}); notes can no longer be added.`,
+              );
             case "added":
               deps.events.taskChanged("note", result.task);
               return { ok: true, added: true, seq: result.step.seq, ...taskView(result.task) };
@@ -521,14 +542,14 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
       description:
         "Find candidate Tasks by free text when the list was truncated or you have no id. Returns candidates with a confidence; it never binds anything. If needs_user_confirmation is true, ask the user which one.",
       parameters: Type.Object({
-        query: Type.String({ description: "What the user referred to, e.g. 东京机票." }),
+        query: Type.String({ description: "What the user referred to, e.g. Tokyo flights." }),
         limit: Type.Optional(Type.Integer({ minimum: 1, maximum: LIMITS.searchLimit })),
       }),
       async execute(_id: string, params: Record<string, unknown>) {
         return withPrincipal(async (principal, store) => {
           const query = typeof params.query === "string" ? params.query.trim() : "";
           if (!query || [...query].length > LIMITS.query) {
-            return fail("invalid_query", "query 不能为空，最长 200 个字符。");
+            return fail("invalid_query", "query must not be empty, at most 200 characters.");
           }
           const limit =
             typeof params.limit === "number" && params.limit >= 1

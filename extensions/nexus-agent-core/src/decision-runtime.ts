@@ -325,7 +325,7 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
         }
         const injected = await deps.enqueueInjection({
           sessionKey,
-          text: `[Nexus] 用户已在决策页批准事项 #${record.taskId} 的动作。现在可以调用 nexus_action_commit，executionId=${executionId}。`,
+          text: `[Nexus] The user approved an action of Task #${record.taskId} on the decision page. You can now call nexus_action_commit with executionId=${executionId}.`,
           idempotencyKey: record.eventKey,
           ttlMs: INJECTION_TTL_MS,
         });
@@ -475,7 +475,7 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
         return {
           outcome: "provider_has_record" as const,
           execution,
-          hint: "provider 已有记录；请改用 nexus.execution.reconcile",
+          hint: "The provider already has a record; use nexus.execution.reconcile instead",
         };
       }
     }

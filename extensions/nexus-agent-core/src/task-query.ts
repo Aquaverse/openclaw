@@ -276,7 +276,7 @@ export const FILTER_FIELDS: readonly FilterField[] = [
     maxLength: MAX_TEXT,
   },
   { key: "status", label: "f.status", kind: "select" },
-  // Plain text, not a native date control: those follow the browser's own language (Chinese 年月日, AM/PM…), while this
+  // Plain text, not a native date control: those follow the browser's own language (Chinese year-month-day wording, AM/PM…), while this
   // page, its list and its URLs all use one ISO-style format.
   { key: "from", label: "f.from", kind: "text", placeholder: "f.date.ph", maxLength: 16 },
   { key: "to", label: "f.to", kind: "text", placeholder: "f.date.ph", maxLength: 16 },

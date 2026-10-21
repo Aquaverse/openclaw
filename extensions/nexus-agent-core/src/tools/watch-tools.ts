@@ -59,13 +59,14 @@ function fail(code: string, message: string, extra: Record<string, unknown> = {}
 }
 
 const INVALID_HINTS: Record<WatchInvalidCode, string> = {
-  bad_expect: `expect 不能为空，最长 ${MAX_WATCH_EXPECT_CHARS} 个字符：一句话写清怎么算办成。`,
-  bad_delay: `firstCheckInMinutes 需为 ${MIN_FIRST_CHECK_MS / 60_000} 到 ${MAX_FIRST_CHECK_MS / 60_000} 之间的整数。`,
-  bad_attempts: `maxAttempts 需为 1 到 ${MAX_ATTEMPTS_LIMIT} 之间的整数。`,
-  bad_session: "当前对话没有会话标识，不能安排回检。",
-  bad_claim: "claimId 不合法：先用 nexus_claim_add 登记要确认的 claim。",
-  claim_already_met: "这条 claim 已经被证据支持，不需要回检。",
-  claim_refuted: "这条 claim 已被证据反驳，回检没有意义；告诉用户并问下一步。",
+  bad_expect: `expect must not be empty, at most ${MAX_WATCH_EXPECT_CHARS} characters: state in one sentence what counts as done.`,
+  bad_delay: `firstCheckInMinutes must be an integer between ${MIN_FIRST_CHECK_MS / 60_000} and ${MAX_FIRST_CHECK_MS / 60_000}.`,
+  bad_attempts: `maxAttempts must be an integer between 1 and ${MAX_ATTEMPTS_LIMIT}.`,
+  bad_session: "This conversation has no session identifier, so a re-check cannot be scheduled.",
+  bad_claim: "claimId is not valid: first register the claim to confirm with nexus_claim_add.",
+  claim_already_met: "This claim is already supported by evidence; no re-check is needed.",
+  claim_refuted:
+    "This claim was refuted by evidence, so a re-check is pointless; tell the user and ask what next.",
 };
 
 function view(watch: WatchRecord) {
@@ -90,7 +91,12 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
   ) => {
     const principal = deps.resolvePrincipal(ctx);
     if (!principal) {
-      return jsonResult(fail("no_principal", "无法确定当前主体，Nexus 不提供服务。"));
+      return jsonResult(
+        fail(
+          "no_principal",
+          "Cannot determine the current principal; Nexus is not serving this request.",
+        ),
+      );
     }
     try {
       return jsonResult(await run(principal, await deps.getStore()));
@@ -139,7 +145,7 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
           }
           const taskId = normalizeTaskId(params.taskId);
           if (!taskId) {
-            return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+            return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           const minutes = params.firstCheckInMinutes;
           const out = await store.watchCreate({
@@ -158,24 +164,31 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
             case "invalid":
               return fail(`invalid_${out.code}`, INVALID_HINTS[out.code]);
             case "task_not_found":
-              return fail("not_found", "找不到这个事项。");
+              return fail("not_found", "Task not found.");
             case "task_closed":
-              return fail("task_closed", `事项已结束（${out.status}），不能再建回检。`);
+              return fail(
+                "task_closed",
+                `The Task has ended (${out.status}); re-checks can no longer be created.`,
+              );
             case "claim_not_found":
-              return fail("claim_not_found", "找不到这条 claim：先用 nexus_claim_add 登记。");
+              return fail(
+                "claim_not_found",
+                "Claim not found: register it with nexus_claim_add first.",
+              );
             case "limit_reached":
               return fail(
                 "limit_reached",
                 out.scope === "task"
-                  ? `这个事项的回检已达上限（${out.max}）；先取消不需要的，或告诉用户。`
-                  : `回检总数已达上限（${out.max}）。`,
+                  ? `This Task has reached its re-check limit (${out.max}); cancel ones you do not need, or tell the user.`
+                  : `The total number of re-checks has reached the limit (${out.max}).`,
               );
             case "existing":
               return {
                 ok: true,
                 reused: true,
                 ...view(out.watch),
-                message: "同一 claim 已有一条相同的回检在排队，不需要再建。",
+                message:
+                  "The same claim already has an identical re-check queued; no need to create another.",
               };
             case "created":
               deps.events.taskChanged("updated", out.task);
@@ -192,7 +205,7 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
                 reused: false,
                 ...view(out.watch),
                 message:
-                  "已登记回检，到时 Nexus 会自动检查一次。回检只能读和挂证据；现在不要承诺任何结果，把「会在大约什么时候再查」告诉用户。",
+                  "The re-check is registered; Nexus will check once automatically at that time. A re-check can only read and attach evidence; do not promise any outcome now, and tell the user roughly when it will be checked.",
               };
           }
         });
@@ -207,14 +220,14 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
         return withPrincipal(async (principal, store) => {
           const watchId = typeof params.watchId === "string" ? params.watchId.trim() : "";
           if (!ID.test(watchId)) {
-            return fail("invalid_watch_id", "watchId 不合法。");
+            return fail("invalid_watch_id", "watchId is not valid.");
           }
           const out = await store.watchCancel({ principal, watchId, now: now() });
           if (out.outcome === "not_found") {
-            return fail("not_found", "找不到这条回检。");
+            return fail("not_found", "Re-check not found.");
           }
           if (out.outcome === "already_closed") {
-            return fail("already_closed", `这条回检已经结束（${out.status}）。`);
+            return fail("already_closed", `This re-check has ended (${out.status}).`);
           }
           if (out.task) {
             deps.events.taskChanged("updated", out.task);
@@ -227,7 +240,7 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
             change: "cancelled",
           });
           await after(principal, { kind: "cancelled", watch: out.watch });
-          return { ok: true, ...view(out.watch), message: "已取消。" };
+          return { ok: true, ...view(out.watch), message: "Cancelled." };
         });
       },
     },
@@ -254,10 +267,10 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
           const watchId = typeof params.watchId === "string" ? params.watchId.trim() : "";
           const outcome = params.outcome;
           if (!ID.test(watchId)) {
-            return fail("invalid_watch_id", "watchId 不合法。");
+            return fail("invalid_watch_id", "watchId is not valid.");
           }
           if (outcome !== "satisfied" && outcome !== "not_yet" && outcome !== "blocked") {
-            return fail("invalid_outcome", "outcome 只能是 satisfied、not_yet 或 blocked。");
+            return fail("invalid_outcome", "outcome can only be satisfied, not_yet or blocked.");
           }
           const finding =
             typeof params.finding === "string"
@@ -271,16 +284,16 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
           });
           switch (out.outcome) {
             case "not_found":
-              return fail("not_found", "找不到这条回检。");
+              return fail("not_found", "Re-check not found.");
             case "not_firing":
               return fail(
                 "not_firing",
-                `这条回检现在不是「检查中」（${out.status}）；不要重复汇报。`,
+                `This re-check is not in the checking state right now (${out.status}); do not report again.`,
               );
             case "claim_not_met":
               return fail(
                 "claim_not_met",
-                `claim 还没有被证据支持（当前 ${out.state ?? "无"}）。先用 nexus_evidence_add 挂证据；挂不上就汇报 not_yet 或 blocked，不要说满足了。`,
+                `The claim is not supported by evidence yet (currently ${out.state ?? "none"}). Attach evidence with nexus_evidence_add; if that is not possible, report not_yet or blocked and do not say it is met.`,
                 { state: out.state },
               );
             default: {
@@ -288,7 +301,7 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
                 const noted = await store.note({
                   principal,
                   taskId: out.watch.taskId,
-                  text: `[回检 ${out.watch.id}] ${finding}`,
+                  text: `[Re-check ${out.watch.id}] ${finding}`,
                   stepId: `S${randomBytes(8).toString("hex")}`,
                   sessionKey,
                   now: now(),
@@ -312,10 +325,10 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
                 ...view(out.watch),
                 message:
                   out.outcome === "satisfied"
-                    ? "已记录：回检满足。"
+                    ? "Recorded: the re-check is satisfied."
                     : out.outcome === "rescheduled"
-                      ? "已记录：还没有结果，Nexus 会稍后再查。"
-                      : "已记录：这条回检已转交给用户处理。",
+                      ? "Recorded: no result yet; Nexus will check again later."
+                      : "Recorded: this re-check was handed to the user.",
               };
             }
           }

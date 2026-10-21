@@ -51,19 +51,21 @@ function fail(code: string, message: string, extra: Record<string, unknown> = {}
 
 const INVALID_HINTS: Record<PreferenceInvalidCode, string> = {
   bad_scope:
-    "scope 只能是 global 或 domain:<名字>（小写字母、数字、下划线、点、连字符，最长 40）。",
-  bad_key: "key 用小写字母、数字、下划线、点、连字符，最长 64，以字母或数字开头。",
-  bad_value: "value 必须是可序列化的 JSON 值。",
-  value_too_large: "value 太大了；偏好应是一个简短的值（序列化后不超过 4096 字节）。",
+    "scope can only be global or domain:<name> (lowercase letters, digits, underscore, dot, hyphen; at most 40).",
+  bad_key:
+    "key uses lowercase letters, digits, underscore, dot and hyphen, at most 64, and starts with a letter or digit.",
+  bad_value: "value must be a serializable JSON value.",
+  value_too_large:
+    "value is too large; a preference should be a short value (at most 4096 bytes serialized).",
   origin_not_allowed:
-    "你只能写 observed 或 task_exception。要把一个值确认为用户明说的偏好，请用 nexus_preference_confirm 让用户确认。",
-  task_required: "task_exception 必须带 taskId。",
-  task_forbidden: "observed 不能带 taskId（它不属于某一个事项）。",
+    "You can only write observed or task_exception. To confirm a value as a user-stated preference, use nexus_preference_confirm so the user confirms it.",
+  task_required: "task_exception requires a taskId.",
+  task_forbidden: "observed must not carry a taskId (it does not belong to a single Task).",
   bad_confidence:
-    "observed 需要 0 到 1 之间的 confidence（不含 0）；task_exception 不能带 confidence。",
+    "observed needs a confidence between 0 and 1 (excluding 0); task_exception must not carry a confidence.",
   source_note_required:
-    "observed 必须在 sourceNote 里写明依据（是从哪几个事项里归纳出来的）；没有依据的归纳和臆测无法区分。",
-  source_note_too_long: "sourceNote 最长 500 个字符。",
+    "observed must state its basis in sourceNote (which Tasks it was inferred from); an inference with no basis cannot be told apart from a guess.",
+  source_note_too_long: "sourceNote is at most 500 characters.",
 };
 
 function view(preference: PreferenceRecord) {
@@ -91,7 +93,12 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
   ) => {
     const principal = deps.resolvePrincipal(ctx);
     if (!principal) {
-      return jsonResult(fail("no_principal", "无法确定当前主体，Nexus 不提供服务。"));
+      return jsonResult(
+        fail(
+          "no_principal",
+          "Cannot determine the current principal; Nexus is not serving this request.",
+        ),
+      );
     }
     try {
       return jsonResult(await run(principal, await deps.getStore()));
@@ -134,7 +141,10 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
           if (params.taskId !== undefined) {
             taskId = normalizeTaskId(params.taskId);
             if (!taskId) {
-              return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+              return fail(
+                "invalid_task_id",
+                "taskId looks like T0ABC123 (a leading # is allowed).",
+              );
             }
           }
           const out = await store.preferenceGet({
@@ -149,7 +159,8 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
               found: false,
               scope: parsed.scope,
               key: parsed.key,
-              message: "没有记录这条偏好。不要凭空假设用户的偏好；需要的话直接问用户。",
+              message:
+                "No such preference is recorded. Do not assume the user's preference; ask the user if you need it.",
             };
           }
           const found = out.resolution;
@@ -171,8 +182,8 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
               : {}),
             message:
               found.origin === "observed"
-                ? "这是根据历史归纳出来的（observed），不是用户明说的；只能当作候选项，使用前先向用户确认。"
-                : "这是当前生效的值。",
+                ? "This was inferred from history (observed), not stated by the user; treat it only as a candidate and confirm with the user before using it."
+                : "This is the value currently in effect.",
             notice: NOT_AUTHORITY,
           };
         });
@@ -208,7 +219,10 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
           if (params.taskId !== undefined) {
             taskId = normalizeTaskId(params.taskId);
             if (!taskId) {
-              return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+              return fail(
+                "invalid_task_id",
+                "taskId looks like T0ABC123 (a leading # is allowed).",
+              );
             }
           }
           const out = await store.preferenceAgentSet({
@@ -226,11 +240,17 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
             case "invalid":
               return fail(`invalid_${out.code}`, INVALID_HINTS[out.code]);
             case "task_not_found":
-              return fail("not_found", "找不到这个事项。");
+              return fail("not_found", "Task not found.");
             case "task_closed":
-              return fail("task_closed", `事项已结束（${out.status}），不能再记录例外。`);
+              return fail(
+                "task_closed",
+                `The Task has ended (${out.status}); exceptions can no longer be recorded.`,
+              );
             case "limit_reached":
-              return fail("limit_reached", `偏好数量已达上限（${out.max}）。`);
+              return fail(
+                "limit_reached",
+                `The number of preferences has reached the limit (${out.max}).`,
+              );
             case "unchanged":
             case "created":
             case "updated":
@@ -250,8 +270,8 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
                 ...view(out.preference),
                 message:
                   out.preference.origin === "observed"
-                    ? "已记录为观察到的偏好（候选项，不是用户明说的，也不参与任何自动路径）。"
-                    : "已记录为这个事项的一次性例外，事项结束后失效。",
+                    ? "Recorded as an observed preference (a candidate, not user-stated, and it takes part in no automatic path)."
+                    : "Recorded as a one-off exception for this Task; it lapses when the Task ends.",
                 notice: NOT_AUTHORITY,
               };
           }
@@ -272,7 +292,10 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
       async execute(_id: string, params: Record<string, unknown>) {
         return withPrincipal(async (principal, store) => {
           if (deps.decisionsEnabled !== true) {
-            return fail("unavailable", "偏好确认需要启用决策模块（decisionsEnabled）。");
+            return fail(
+              "unavailable",
+              "Preference confirmation needs the decision module (decisionsEnabled).",
+            );
           }
           const parsed = readScopeKey(params);
           if ("ok" in parsed) {
@@ -280,7 +303,7 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
           }
           const taskId = normalizeTaskId(params.taskId);
           if (!taskId) {
-            return fail("invalid_task_id", "taskId 形如 T0ABC123（可带 #）。");
+            return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           // Already the stated value: nothing to ask. Compared on canonical JSON, so key order does not matter.
           const current = await store.preferenceGet({
@@ -297,7 +320,7 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
               ok: true,
               alreadyStated: true,
               ...{ scope: parsed.scope, key: parsed.key },
-              message: "用户已经确认过这个值，不需要再问。",
+              message: "The user already confirmed this value; no need to ask again.",
             };
           }
           const created = await store.createDecision({
@@ -313,21 +336,27 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
           });
           switch (created.outcome) {
             case "not_found":
-              return fail("not_found", "找不到这个事项。");
+              return fail("not_found", "Task not found.");
             case "task_closed":
-              return fail("task_closed", `事项已结束（${created.task.status}）。`);
+              return fail("task_closed", `The Task has ended (${created.task.status}).`);
             case "invalid_effect": {
               const invalid = created.invalid;
               if (invalid.code === "bad_preference") {
                 const hint = INVALID_HINTS[invalid.reason as PreferenceInvalidCode];
-                return fail(`invalid_${invalid.reason}`, hint ?? "偏好不合法。");
+                return fail(`invalid_${invalid.reason}`, hint ?? "Invalid preference.");
               }
-              return fail(`invalid_effect_${invalid.code}`, "这种决策暂不支持。");
+              return fail(
+                `invalid_effect_${invalid.code}`,
+                "This kind of decision is not supported yet.",
+              );
             }
             case "fingerprint_conflict":
-              return fail("fingerprint_conflict", "同一次调用对应了不同的请求。");
+              return fail("fingerprint_conflict", "The same call maps to different requests.");
             case "already_approved":
-              return fail("unexpected", "偏好确认不应返回已批准的授权。");
+              return fail(
+                "unexpected",
+                "Preference confirmation should not return an approved grant.",
+              );
             case "created":
               deps.events.taskChanged("updated", created.task);
               deps.onOutboxWritten?.();
@@ -344,7 +373,7 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
                 deadlineAt: decision.deadlineAt,
                 reused: created.outcome !== "created",
                 message:
-                  "已把这条偏好交给用户确认（Nexus 决策页）。用户确认之前这条偏好没有被保存，也不要当作已设置；请告诉用户去确认。",
+                  "This preference was handed to the user for confirmation (the Nexus decision page). Until the user confirms, it is not saved and must not be treated as set; tell the user to confirm it.",
                 notice: NOT_AUTHORITY,
               };
             }

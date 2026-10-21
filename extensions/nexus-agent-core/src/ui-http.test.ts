@@ -163,13 +163,13 @@ describe("Nexus Control UI pages", () => {
       const two = (n: number) => String(n).padStart(2, "0");
       return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
     };
-    // 45 Tasks, one per day starting at T0: "任务 01".."任务 45", with 退票 as the 7th.
+    // 45 Tasks, one per day starting at T0: "Task 01".."Task 45", with "Refund" as the 7th.
     function many() {
       const { w, handler } = setup();
       const created = w.now();
       const ids: string[] = [];
       for (let i = 1; i <= 45; i += 1) {
-        ids.push(w.newTask(i === 7 ? "退票" : `任务 ${String(i).padStart(2, "0")}`));
+        ids.push(w.newTask(i === 7 ? "Refund" : `Task ${String(i).padStart(2, "0")}`));
         w.advance(DAY);
       }
       return { w, handler, ids, created };
@@ -192,11 +192,8 @@ describe("Nexus Control UI pages", () => {
       const sized = await list(handler, "?size=50");
       assert.equal(rows(sized.body), 45);
       assert.ok(sized.body.includes("第 1 / 1 页"));
-      const filtered = await list(handler, "?qkw=%E4%BB%BB%E5%8A%A1&size=20");
-      assert.ok(
-        filtered.body.includes("qkw=%E4%BB%BB%E5%8A%A1&amp;page=2"),
-        "page links keep the filter",
-      );
+      const filtered = await list(handler, "?qkw=Task&size=20");
+      assert.ok(filtered.body.includes("qkw=Task&amp;page=2"), "page links keep the filter");
     });
 
     it("clamps a page number past the end instead of showing an empty list", async () => {
@@ -210,11 +207,11 @@ describe("Nexus Control UI pages", () => {
       const { handler, ids } = many();
       const byId = await list(handler, `?qid=${ids[6]}`);
       assert.equal(rows(byId.body), 1);
-      assert.ok(byId.body.includes("退票"));
-      assert.equal(rows((await list(handler, "?qtitle=%E9%80%80%E7%A5%A8")).body), 1);
-      assert.equal(rows((await list(handler, "?qtitle=%E4%BB%BB%E5%8A%A1")).body), 20);
+      assert.ok(byId.body.includes("Refund"));
+      assert.equal(rows((await list(handler, "?qtitle=Refund")).body), 1);
+      assert.equal(rows((await list(handler, "?qtitle=Task")).body), 20);
       // Keyword also reads the goal (the world writes the title into goal.want).
-      assert.equal(rows((await list(handler, "?qkw=%E9%80%80%E7%A5%A8")).body), 1);
+      assert.equal(rows((await list(handler, "?qkw=Refund")).body), 1);
       assert.equal(rows((await list(handler, "?qkw=tokyo")).body), 20);
     });
 

@@ -203,7 +203,7 @@ describe("R2 through the core card", () => {
         w.db.prepare("SELECT title FROM nexus_task_steps WHERE task_id = ?").all(t) as Array<{
           title: string;
         }>
-      ).some((r) => r.title.includes("迟到的卡片拒绝")),
+      ).some((r) => r.title.includes("Late card rejection")),
     );
     const commit = await w.run("nexus_action_commit", { executionId });
     assert.equal(commit.code, "execution_failed");
@@ -269,7 +269,7 @@ describe("R2 through the core card", () => {
     assert.ok(!out2.blocked);
     assert.equal(inside.row("SELECT status FROM decisions").status, "effect_apply_failed");
     assert.equal(out2.result.status, "effect_apply_failed");
-    assert.ok(String(out2.result.message).includes("没能保存"));
+    assert.ok(String(out2.result.message).includes("could not be saved"));
     assert.equal(inside.count("SELECT COUNT(*) AS c FROM action_executions"), 0);
   });
 });
@@ -595,10 +595,10 @@ describe("commit: admission, concurrency, unknown outcomes", () => {
     );
     // the step log says WHO closed it by hand and WHY (not only "execution failed")
     const step = w.row(
-      "SELECT title, detail_json FROM nexus_task_steps WHERE task_id = ? AND title LIKE '人工终结%' ORDER BY seq DESC LIMIT 1",
+      "SELECT title, detail_json FROM nexus_task_steps WHERE task_id = ? AND title LIKE 'Operator resolved%' ORDER BY seq DESC LIMIT 1",
       t,
     );
-    assert.match(String(step.title), /^人工终结为失败/);
+    assert.match(String(step.title), /^Operator resolved as failed/);
     const detail = JSON.parse(String(step.detail_json)) as Record<string, unknown>;
     assert.equal(detail.resolvedBy, "operator:nexus-console");
     assert.equal(detail.note, "供应商后台查无此单");

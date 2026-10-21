@@ -1107,7 +1107,7 @@ describe("core approval attempt (section 8.8.3 / 8.9)", () => {
     );
     assert.ok(
       stepTitles(f, t).some(
-        (title) => title.includes("迟到的卡片拒绝") && title.includes("已撤销"),
+        (title) => title.includes("Late card rejection") && title.includes("revoked"),
       ),
     );
     assert.equal(
@@ -1142,7 +1142,7 @@ describe("core approval attempt (section 8.8.3 / 8.9)", () => {
         .revoked_at,
       null,
     );
-    assert.ok(stepTitles(f, t).some((title) => title.includes("仅记录")));
+    assert.ok(stepTitles(f, t).some((title) => title.includes("recorded only")));
   });
 
   it("late Allow after the page denied: nothing is created, the click is only recorded", () => {
@@ -1155,7 +1155,7 @@ describe("core approval attempt (section 8.8.3 / 8.9)", () => {
     assert.deepEqual({ ...state() }, { status: "decided", resolution: "denied", card: "resolved" });
     assert.equal(f.count("SELECT COUNT(*) AS c FROM action_grants"), 0);
     assert.equal(f.count("SELECT COUNT(*) AS c FROM action_executions"), 0);
-    assert.ok(stepTitles(f, t).some((title) => title.includes("已忽略")));
+    assert.ok(stepTitles(f, t).some((title) => title.includes("ignored")));
   });
 
   it("late Allow after the page approved is only recorded and does not touch the execution", () => {

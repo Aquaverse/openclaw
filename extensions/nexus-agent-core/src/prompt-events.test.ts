@@ -33,7 +33,7 @@ describe("prompt rendering", () => {
     ]);
     assert.equal(
       text,
-      "[Nexus 进行中的事项]\n#T00000001 订东京机票  planning — 已比价 3 个方案\n#T00000002 手机账单争议  watching",
+      "[Nexus open tasks]\n#T00000001 订东京机票  planning — 已比价 3 个方案\n#T00000002 手机账单争议  watching",
     );
     assert.equal(renderOpenTasks([task({})]), renderOpenTasks([task({})]));
   });
@@ -48,13 +48,13 @@ describe("prompt rendering", () => {
     assert.ok(!/T[0-9A-Z]{8}/u.test(NEXUS_TASK_PROTOCOL));
   });
   it("tells the model not to invent facts and not to start work on registration", () => {
-    assert.ok(NEXUS_TASK_PROTOCOL.includes("不要猜"));
-    assert.ok(NEXUS_TASK_PROTOCOL.includes("不要因此启动子代理"));
+    assert.ok(NEXUS_TASK_PROTOCOL.includes("do not guess"));
+    assert.ok(NEXUS_TASK_PROTOCOL.includes("do not start a subagent"));
     assert.ok(NEXUS_TASK_PROTOCOL.includes("ok:false"));
-    assert.ok(NEXUS_TASK_PROTOCOL.includes("不要在同一轮里自己替用户确认"));
-    assert.ok(NEXUS_TASK_PROTOCOL.includes("再登记一个一模一样的"));
+    assert.ok(NEXUS_TASK_PROTOCOL.includes("Never confirm on the user's behalf in the same turn"));
+    assert.ok(NEXUS_TASK_PROTOCOL.includes("register another identical one"));
     // One claim per fact, same subject: a second claim for the same booking stayed ASSERTED and blocked completion.
-    assert.ok(NEXUS_CLAIM_PROTOCOL.includes("同一件事只登记一条 claim"));
+    assert.ok(NEXUS_CLAIM_PROTOCOL.includes("Register one claim per fact"));
   });
 });
 

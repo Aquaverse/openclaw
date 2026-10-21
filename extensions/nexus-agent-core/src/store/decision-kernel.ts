@@ -1301,7 +1301,7 @@ export function createDecisionKernel(
       taskId,
       "decision",
       "done",
-      `决策${input.resolution === "approved" ? "已批准" : "已拒绝"}：${final.question}`,
+      `Decision ${input.resolution === "approved" ? "approved" : "rejected"}: ${final.question}`,
       { decisionId: final.id, resolution: input.resolution, source: input.source, executionId },
       input.now,
     );
@@ -1522,10 +1522,10 @@ export function createDecisionKernel(
     const resolution = decision.resolution ?? decision.status;
     const title =
       revokedExecutionIds.length > 0
-        ? `迟到的卡片拒绝：决策此前已批准，已撤销尚未执行的凭证（${revokedExecutionIds.join("、")}）`
+        ? `Late card rejection: already approved; revoked unused credentials (${revokedExecutionIds.join(", ")})`
         : withdrawable
-          ? "迟到的卡片拒绝：决策此前已批准，但执行已开始或凭证已使用，仅记录"
-          : `迟到的卡片点击（${value}）已忽略：决策已是 ${resolution}`;
+          ? "Late card rejection: already approved, execution started; recorded only"
+          : `Late card click (${value}) ignored: decision is already ${resolution}`;
     addStep(
       owner,
       decision.taskId,
@@ -1966,7 +1966,7 @@ export function createDecisionKernel(
         return {
           kind: "rejected",
           reason: "execution_not_found",
-          message: "找不到这个 executionId。",
+          message: "executionId not found.",
           execution: null,
         };
       }
@@ -2051,11 +2051,19 @@ export function createDecisionKernel(
       const arow = actionRow(owner, execution.actionId);
       const task = liveTask(owner, execution.taskId);
       if (!arow || !task || isClosed(task.status)) {
-        return reject("task_closed", "事项已结束或不存在，不能执行。", true);
+        return reject(
+          "task_closed",
+          "The Task has ended or does not exist; it cannot be executed.",
+          true,
+        );
       }
       const action = toAction(arow);
       if (canonicalJson(JSON.parse(action.paramsCanonical)) !== action.paramsCanonical) {
-        return reject("action_tampered", "动作参数与登记时不一致，拒绝执行。", true);
+        return reject(
+          "action_tampered",
+          "The action parameters differ from what was registered; refusing to execute.",
+          true,
+        );
       }
 
       if (execution.actionGrantId) {
@@ -2065,17 +2073,25 @@ export function createDecisionKernel(
           execution.actionGrantId,
         );
         if (!grant) {
-          return reject("grant_missing", "找不到这次执行对应的授权。", true);
+          return reject(
+            "grant_missing",
+            "The authorization for this execution was not found.",
+            true,
+          );
         }
         if (
           grant.max_amount !== null &&
           action.amount !== null &&
           cents(action.amount) > cents(String(grant.max_amount))
         ) {
-          return reject("amount_exceeds_grant", "金额超过授权上限。", true);
+          return reject("amount_exceeds_grant", "The amount exceeds the authorized limit.", true);
         }
         if (grant.currency !== null && grant.currency !== action.currency) {
-          return reject("currency_mismatch", "币种与授权不一致。", true);
+          return reject(
+            "currency_mismatch",
+            "The currency does not match the authorization.",
+            true,
+          );
         }
         const changes = run(
           "UPDATE action_grants SET consumed_at = ?, consumed_by_execution = ? WHERE id = (" +
@@ -2106,7 +2122,11 @@ export function createDecisionKernel(
                       : grant.action_hash !== action.actionHash
                         ? "action_changed"
                         : "grant_invalid";
-          return reject(why, `授权不可用（${why}），需要重新征得批准。`, true);
+          return reject(
+            why,
+            `The authorization is not usable (${why}); approval must be obtained again.`,
+            true,
+          );
         }
       } else if (execution.standingGrantId) {
         const grant = one(
@@ -2115,13 +2135,17 @@ export function createDecisionKernel(
           execution.standingGrantId,
         );
         if (!grant) {
-          return reject("grant_missing", "找不到这次执行对应的授权政策。", true);
+          return reject(
+            "grant_missing",
+            "The authorization policy for this execution was not found.",
+            true,
+          );
         }
         const reason = standingReason(owner, grant, action, input.now, task.revision);
         if (reason) {
           return reject(
             reason,
-            `授权政策不允许这次执行（${reason}）。`,
+            `The authorization policy does not allow this execution (${reason}).`,
             reason !== "daily_limit_reached",
           );
         }
@@ -2135,7 +2159,7 @@ export function createDecisionKernel(
           input.now,
         );
       } else {
-        return reject("grant_missing", "这次执行没有绑定授权。", true);
+        return reject("grant_missing", "This execution is not bound to an authorization.", true);
       }
       const moved = run(
         "UPDATE action_executions SET state = 'executing', started_at = ?, attempts = attempts + 1 WHERE owner_id = ? AND id = ? AND state = 'prepared'",
@@ -2211,8 +2235,8 @@ export function createDecisionKernel(
         "execution",
         state === "succeeded" ? "done" : state === "failed" ? "failed" : "unknown",
         input.operatorResolution
-          ? `人工终结为${state === "succeeded" ? "成功" : "失败"}（${execution.id}）`
-          : `执行${state === "succeeded" ? "成功" : state === "failed" ? "失败" : "结果待确认"}（${execution.id}）`,
+          ? `Operator resolved as ${state === "succeeded" ? "succeeded" : "failed"} (${execution.id})`
+          : `Execution ${state === "succeeded" ? "succeeded" : state === "failed" ? "failed" : "outcome unconfirmed"} (${execution.id})`,
         {
           executionId: execution.id,
           actionId: execution.actionId,
@@ -2244,7 +2268,7 @@ export function createDecisionKernel(
             execution.taskId,
             "execution",
             "failed",
-            `执行结果未能写入事实账本（${execution.id}）`,
+            `Execution result could not be written to the fact ledger (${execution.id})`,
             { executionId: execution.id, error: recorded.error.slice(0, 300) },
             input.now,
           );

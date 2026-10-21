@@ -1,9 +1,9 @@
-// Stage 2 验收：供应商故障模式（reject / drop_before_send / drop_after_success），全程经 tools.invoke / RPC，不经模型。
+// Stage 2 acceptance: vendor fault modes (reject / drop_before_send / drop_after_success), entirely via tools.invoke / RPC, not through the model.
 //
-// 先把假供应商调到要测的模式并重启网关，再运行（网关不会告诉脚本它处于哪种模式，所以请保证两者一致）：
+// First set the fake vendor to the mode under test and restart the gateway, then run (the gateway does not tell the script which mode it is in, so make sure the two match):
 //   node openclaw.mjs --dev config set plugins.entries.nexus-agent-core.config.fakeProviderMode '"reject"' --strict-json
 //   node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/fault-modes.mts --mode reject --task <taskId> --token <token>
-// --mode 取值：reject | drop_before_send | drop_after_success。--wait <秒> 控制 drop_* 模式下等待后台对账的时间（默认 50）。
+// --mode values: reject | drop_before_send | drop_after_success. --wait <seconds> sets how long to wait for background reconciliation in drop_* modes (default 50).
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -19,14 +19,14 @@ const token = arg("--token") ?? process.env.OPENCLAW_GATEWAY_TOKEN;
 const taskId = arg("--task");
 const mode = arg("--mode");
 const waitSec = Number(arg("--wait") ?? "50");
-// --stop-after-commit：只做到 commit 返回 unknown 并校验，然后立刻退出（留给 kill -9 恢复测试用，不重试、不对账）。
+// --stop-after-commit: only go as far as commit returning unknown and verify it, then exit immediately (for the kill -9 recovery test; no retry, no reconcile).
 const stopAfterCommit = process.argv.includes("--stop-after-commit");
 const stateDir = process.env.OPENCLAW_STATE_DIR ?? join(homedir(), ".openclaw-dev");
 const ledgerPath = join(stateDir, "plugins", "nexus-agent-core", "fake-provider.jsonl");
 
 if (!taskId || !mode || !["reject", "drop_before_send", "drop_after_success"].includes(mode)) {
   console.error(
-    "用法：--mode reject|drop_before_send|drop_after_success --task <taskId> --token <token>",
+    "usage: --mode reject|drop_before_send|drop_after_success --task <taskId> --token <token>",
   );
   process.exit(2);
 }
@@ -72,7 +72,7 @@ async function approvedBooking(stamp: string) {
   const prepared = await tool("nexus_action_prepare", {
     taskId,
     toolName: "fake_booking",
-    params: { vendor: "Acme Rooms", item: `故障探针 ${mode} ${stamp}`, date: "2026-10-26" },
+    params: { vendor: "Acme Rooms", item: `fault probe ${mode} ${stamp}`, date: "2026-10-26" },
   });
   const actionId = String(prepared.actionId);
   const dec = await tool("nexus_decision_request", { taskId, effect: { actionIds: [actionId] } });
@@ -83,7 +83,7 @@ async function approvedBooking(stamp: string) {
   });
   const executionId = String(res.executionId ?? "");
   check(
-    "登记、请求、批准后得到 prepared 的 executionId",
+    "register, request, approve yields a prepared executionId",
     prepared.ok === true && res.outcome === "approved" && executionId !== "",
     {
       prepared: prepared.ok,
@@ -97,108 +97,121 @@ async function approvedBooking(stamp: string) {
 async function runReject(executionId: string, actionId: string, L0: number) {
   const first = await tool("nexus_action_commit", { executionId });
   check(
-    "供应商拒绝 → execution_failed（明确失败，不是 unknown）",
+    "vendor rejects → execution_failed (an explicit failure, not unknown)",
     first.ok === false && first.code === "execution_failed",
     first,
   );
-  check("拒绝没有产生效果：账本不变", ledgerLines() === L0, {
+  check("rejection had no effect: ledger unchanged", ledgerLines() === L0, {
     ledger: ledgerLines(),
     expected: L0,
   });
   const row = await execution(executionId);
-  check("execution 终态为 failed，attempts=1", row?.state === "failed" && row?.attempts === 1, row);
+  check(
+    "execution final state is failed, attempts=1",
+    row?.state === "failed" && row?.attempts === 1,
+    row,
+  );
   const grant = await grantOf(executionId);
   check(
-    "一次性 grant 已被消费（失败后授权也用掉了）",
+    "one-time grant consumed (the grant is used up even after failure)",
     typeof grant?.consumedAt === "number",
     grant,
   );
   const again = await tool("nexus_action_commit", { executionId });
   check(
-    "再 commit 同一个 execution → 仍是 execution_failed，不再调用供应商",
+    "commit the same execution again → still execution_failed, vendor not called again",
     again.ok === false && again.code === "execution_failed",
     again,
   );
-  check("重放失败后账本仍不变", ledgerLines() === L0);
-  // 探索：失败之后能否经用户重新批准再试（工具文案是这么说的）。只记录，不判定。
+  check("ledger still unchanged after replaying the failure", ledgerLines() === L0);
+  // Exploration: after a failure, can the user approve again and retry (as the tool text says)? Only record, no verdict.
   const redo = await tool("nexus_decision_request", { taskId, effect: { actionIds: [actionId] } });
-  info("失败后对同一动作再请求决策（探索，不判定）", redo);
+  info(
+    "request a decision again for the same action after failure (exploration, no verdict)",
+    redo,
+  );
 }
 
 async function runDrop(executionId: string, L0: number, afterSuccess: boolean) {
   const first = await tool("nexus_action_commit", { executionId });
   check(
-    "连接中断 → status=unknown（不判成功也不判失败）",
+    "connection dropped → status=unknown (judged neither success nor failure)",
     first.ok === true && first.status === "unknown",
     first,
   );
   const expected = afterSuccess ? L0 + 1 : L0;
   check(
-    `账本 ${afterSuccess ? "+1（供应商已处理）" : "不变（请求没发出）"}`,
+    `ledger ${afterSuccess ? "+1 (vendor processed it)" : "unchanged (request was not sent)"}`,
     ledgerLines() === expected,
     { ledger: ledgerLines(), expected },
   );
   const row = await execution(executionId);
   check(
-    "execution 状态为 unknown，attempts=1，已排对账时间",
+    "execution state is unknown, attempts=1, reconcile time scheduled",
     row?.state === "unknown" && row?.attempts === 1 && typeof row?.nextReconcileAt === "number",
     row,
   );
   if (stopAfterCommit) {
-    info("已停在 unknown（--stop-after-commit）：现在可以 kill -9 网关，然后重启观察恢复", {
-      executionId,
-      ledger: ledgerLines(),
-      nextReconcileAt: row?.nextReconcileAt,
-    });
+    info(
+      "stopped at unknown (--stop-after-commit): you can now kill -9 the gateway, then restart and observe recovery",
+      {
+        executionId,
+        ledger: ledgerLines(),
+        nextReconcileAt: row?.nextReconcileAt,
+      },
+    );
     return;
   }
   const retry = await tool("nexus_action_commit", { executionId });
   check(
-    "重试 commit → pending_confirmation，不调用供应商",
+    "retry commit → pending_confirmation, vendor not called",
     retry.ok === true && retry.status === "pending_confirmation",
     retry,
   );
-  check("重试后账本不变", ledgerLines() === expected);
+  check("ledger unchanged after retry", ledgerLines() === expected);
 
   const manual = await rpc("nexus.execution.reconcile", { executionId });
-  info("手动对账 nexus.execution.reconcile", manual);
+  info("manual reconcile nexus.execution.reconcile", manual);
   if (afterSuccess) {
     check(
-      "手动对账查到供应商效果 → 落定为 succeeded",
+      "manual reconcile found the vendor effect → settled as succeeded",
       manual.outcome === "reconciled_succeeded",
       manual,
     );
     const final = await execution(executionId);
     check(
-      "最终 succeeded，账本仍只 +1（没有重放）",
+      "finally succeeded, ledger still only +1 (no replay)",
       final?.state === "succeeded" && ledgerLines() === expected,
       { state: final?.state, ledger: ledgerLines() },
     );
   } else {
     check(
-      "供应商查无此键 → not_found_at_provider（只有查到才落定，查不到不判失败）",
+      "vendor has no such key → not_found_at_provider (settle only when found; not found is not judged a failure)",
       manual.outcome === "not_found_at_provider",
       manual,
     );
-    console.log(`等待 ${waitSec} 秒，让后台 tick 自己对账……`);
+    console.log(`waiting ${waitSec} seconds for the background tick to reconcile on its own ...`);
     await sleep(waitSec * 1000);
     const later = await execution(executionId);
     check(
-      "后台对账后仍是 unknown，账本不变（没有凭空失败，也没有重放）",
+      "still unknown after background reconcile, ledger unchanged (no spurious failure, no replay)",
       later?.state === "unknown" && ledgerLines() === expected,
       {
         state: later?.state,
         ledger: ledgerLines(),
       },
     );
-    info("最终 execution 行（unknown 可用 nexus.execution.resolve 人工终结（需 note））", later);
+    info(
+      "final execution row (unknown can be terminated manually with nexus.execution.resolve (note required))",
+      later,
+    );
   }
 }
 
 async function run() {
   const stamp = Date.now().toString(36);
   const L0 = ledgerLines();
-  console.log(`模式 ${mode}；基线账本 ${L0} 行`);
+  console.log(`mode ${mode}; baseline ledger ${L0} lines`);
   const { actionId, executionId } = await approvedBooking(stamp);
   if (mode === "reject") {
     await runReject(executionId, actionId, L0);
@@ -207,8 +220,8 @@ async function run() {
   }
   console.log(
     failures === 0
-      ? "\n全部通过"
-      : `\n${failures} 项失败（先确认网关的 fakeProviderMode 确实是 ${mode}，并且已重启）`,
+      ? "\nall passed"
+      : `\n${failures} failed (first confirm the gateway's fakeProviderMode really is ${mode} and that it has been restarted)`,
   );
 }
 
@@ -235,7 +248,7 @@ client = new GatewayClient({
 client.start();
 setTimeout(
   () => {
-    console.error("[timeout] 没有在时限内完成");
+    console.error("[timeout] not finished within the time limit");
     process.exit(3);
   },
   (waitSec + 60) * 1000,

@@ -1133,7 +1133,7 @@ Task 状态与 `nexus_task_sessions` 绑定后才生效；确认不了就不 loc
 清单每条一行：
 
 ```
-[Nexus 进行中的事项]
+[Nexus open tasks]
 #T7 订东京机票(3/12-3/16, 2人)  awaiting_decision — 等你在两个航班里选一个
 #T3 手机账单多扣费争议           watching — 等运营商回复(下次检查 10/02)
 ```

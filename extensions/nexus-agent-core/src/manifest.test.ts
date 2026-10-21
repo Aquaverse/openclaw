@@ -82,7 +82,7 @@ describe("openclaw.plugin.json", () => {
 });
 
 // The in-app Control UI page (WebView cannot keep the descriptor iframe's cookie) is a bundled browser module. Three links
-// must hold or the sidebar shows "插件面板不可用" again: the package declares the module and its build hooks, the module
+// must hold or the sidebar shows "plugin panel unavailable" again: the package declares the module and its build hooks, the module
 // registers a page whose id equals the descriptor tab id, and the manifest (once built) points at a hashed entry.
 describe("Control UI browser module", () => {
   const root = path.resolve(import.meta.dirname, "..");

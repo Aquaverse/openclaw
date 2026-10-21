@@ -575,7 +575,7 @@ describe("the watcher's report", () => {
       w.count(
         "SELECT COUNT(*) AS c FROM nexus_task_steps WHERE task_id = ? AND title LIKE ?",
         t,
-        "%[回检 " + id + "] 邮箱里还没有回复%",
+        "%[Re-check " + id + "] 邮箱里还没有回复%",
       ),
       1,
     );

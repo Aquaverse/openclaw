@@ -4,80 +4,80 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 /**
- * Nexus Agent Core — SQLite 约束回归（Stage 0 spike 1 的一部分）
+ * Nexus Agent Core — SQLite constraint regression (part of Stage 0 spike 1)
  *
- * 验证 nexus-agent-core-design.md §8.5 / §8.6 / §6.3 依赖的四条 SQLite 行为。这些结论直接决定
- * grant 轮换事务的写法，踩错会在运行期变成"授权 A、执行 B"或"新授权签不出来"。
+ * Verifies the four SQLite behaviors that nexus-agent-core-design.md §8.5 / §8.6 / §6.3 depend on. These conclusions directly decide
+ * how the grant rotation transaction is written; getting them wrong shows up at runtime as "authorize A, execute B" or "a new grant cannot be issued".
  *
- *   1. 非 deferred self-FK 时，grant 轮换的两种自然顺序都失败；
- *   2. self-FK 改 DEFERRABLE INITIALLY DEFERRED 后可行；
- *   3. 先 revoked_at 退休旧行同样可行（不依赖 deferred）；
- *   4. 已过期但未显式退休的 grant 仍占着部分唯一索引的槽位
- *      —— 部分索引谓词引用不了"当前时间"，所以签发事务必须先显式退休过期行；
- *   5. execution → action_grants 的四列复合外键能挡住"绑 action B、用 A 的 grant"；
- *   6. 唯一索引里的 NULL 互不相等——decision 幂等键若允许 session_key 为 NULL 会直接失效；
- *   7. run_triggers 的"首次写入不可变"（ON CONFLICT DO NOTHING）与新鲜度过滤；
- *   8. outbox 认领 CAS 与 action_executions_prepared 部分唯一索引；
- *   9. run_triggers 用 (owner_id, run_id) 复合主键后，不同 owner 的同名 run 互不遮挡；
- *  10. core approval 的 attempted 租约必须盖住审批超时，终态不可再 claim；
- *  11. nexus-agent-core-design.md §6.3 的 schema 能真正建库，且符合 §4.1 的命名契约；
- *  12. 偏好表（§11）的承诺由 schema 兜住：投影与 append-only 历史同事务写、
- *      同 (scope,key) 三种 origin 并存但同 origin 只能有一条活行，以及四条 origin
- *      不变量 CHECK 的负例（stated 带 task_id、exception 缺 task_id、observed 缺
- *      confidence / 缺 source_note、非 observed 带 confidence）；
- *  13. decisions.effect_kind 的行内 CHECK **以及跨表隔断**——授权两表用一条七列复合
- *      外键只能引用"effect 对得上、已 decided、approved、且绑的正是 chosen_action_id"
- *      的决策，chosen 自己又复合引用 decision_actions（§8.12）；evidence 的来源身份去重、tool_output 的 run/session 作用域、
- *      "只统计当前有效支撑、反证单独算"的计数（§9.5.3/§9.5.4）；
- *      purge 回执的互斥形状；偏好 actor 与 origin 的组合约束；两张授权表绑定的 action
- *      必须等于 decisions.chosen_action_id，而且那条决策必须 decided+approved
- *      （pending / denied / effect_apply_failed 三种状态都签不出 grant，两类 grant
- *      各跑一遍同一个矩阵）；证据投影的 head 事件不能跨 claim；blob_reservations 的回收状态机
- *      约束（reclaiming 必带认领者与租期、同 owner 同 content_hash 只能有一个在世
- *      持有者、GC 认领后阶段 B 的 CAS 改不到行）、不级联因而挡住 DELETE nexus_tasks、
- *      以及配额计数口径；
- *  14. blob_objects 的 generation 寻址、租期与引用所有权。**只证 schema 形状与
- *      同事务原子性**：同一 content_hash 同时只能有一个未删除的 generation（物理 key
- *      因此永不复用）、writing 必带 writer 租期且租期过期后能走
- *      writing→reclaiming→deleted→缺失证明、new_object 与 attach_live_object 两支的
- *      "状态转移 + evidence + ref_count"都在一个事务里完成且中途失败一起回滚、
- *      ref_count>0 进不了 reclaiming、带 claim 关联的 evidence 删不掉（所以 purge 的
- *      P3 只能摘 blob_key）、缺失证明只能出现在墓碑上、evidence 的 content_hash
- *      必须与物理对象一致；缺失证明必须带 settled writer（writing 须记 incarnation，
- *      writing→live/reclaiming 同事务抄入 settled_*）、证明可原子失效再重签；
- *      purge_work_items 的终态与 disposition 对应、P3 同事务；ref_count 漂移 schema 拦
- *      不住、但带重算的回收更新拒绝漂移对象；purge_runs（一个 Task 一个 run、封口三元组、
- *      P5 前置对空集合/数量不符不放行）、工作项四列外键、disposition 双向可改、
- *      作废缺失证明只清 absence_verified_*、process_incarnations 单一当前行；
- *      v0.12k：P5 前置带 proof token（终态工作项的证明被作废后不放行）、reservation 来源
- *      工作项与 item_count 口径、principal-first 的 P5 查询、同进程 reload 不被误标 gone；
- *      v0.12l：P4 终态条件更新与证明作废的两种交错（+无条件写的对照与兜底枚举）、P2 ① 按
- *      对象聚合的幂等重入、process_boot_id 来源（候选 D：pid + 启动时间）的组合规则（Node 级，不是 OpenClaw 行为）；
- *      v0.12n：没有'至多一个当前'唯一索引——真实 SIGKILL 崩溃后新 incarnation 照常登记、旧行被
- *      supersede；同 boot id 的同进程前任不被误标且不阻塞新登记。
- *      **不证**真实的异步时序（A2 迟到、GC 与阶段 B 抢同一条、purge 的 P1–P5 推进、
- *      缺失证明的实际成立）——那些归 Stage 3 的真实入口测试。
+ *   1. With a non-deferred self-FK, both natural orders of grant rotation fail;
+ *   2. Changing the self-FK to DEFERRABLE INITIALLY DEFERRED makes it work;
+ *   3. Retiring the old row first via revoked_at also works (does not depend on deferred);
+ *   4. An expired but not explicitly retired grant still occupies its slot in the partial unique index
+ *      -- a partial index predicate cannot reference "the current time", so the issuing transaction must explicitly retire expired rows first;
+ *   5. The four-column composite FK from execution → action_grants blocks "bound to action B but using A's grant";
+ *   6. NULLs in a unique index are never equal to each other -- if the decision idempotency key allows session_key to be NULL, it breaks outright;
+ *   7. run_triggers "immutable after first write" (ON CONFLICT DO NOTHING) and freshness filtering;
+ *   8. outbox claim CAS and the action_executions_prepared partial unique index;
+ *   9. With a composite primary key (owner_id, run_id) on run_triggers, same-named runs of different owners do not shadow each other;
+ *  10. The attempted lease of a core approval must cover the approval timeout, and a terminal state can no longer be claimed;
+ *  11. The schema in nexus-agent-core-design.md §6.3 can really build a database and satisfies the §4.1 naming contract;
+ *  12. The commitments of the preference table (§11) are backed by the schema: projection and append-only history are written in the same transaction,
+ *      the three origins coexist under the same (scope,key) but only one live row per origin is allowed, and the negative cases of the four origin
+ *      invariant CHECKs (stated with task_id, exception missing task_id, observed missing
+ *      confidence / missing source_note, non-observed with confidence);
+ *  13. The in-row CHECK on decisions.effect_kind **and the cross-table isolation** -- the two grant tables use one seven-column composite
+ *      FK that can only reference a decision whose effect matches, is already decided, approved, and bound to exactly chosen_action_id,
+ *      and chosen itself composite-references decision_actions (§8.12); source-identity dedup of evidence, run/session scope of tool_output,
+ *      counts that "only count currently effective support and count contradicting evidence separately" (§9.5.3/§9.5.4);
+ *      the mutually exclusive shapes of purge receipts; the actor-and-origin combination constraint for preferences; the action bound by the two grant tables
+ *      must equal decisions.chosen_action_id, and that decision must be decided+approved
+ *      (pending / denied / effect_apply_failed can none of them issue a grant; both kinds of grant
+ *      run the same matrix); the head event of an evidence projection cannot cross claims; the reclaim state machine constraints of blob_reservations
+ *      (reclaiming must carry a claimant and a lease, the same owner and content_hash can have only one live
+ *      holder, the CAS of phase B cannot change the row after GC claims it), not cascading and thus blocking DELETE nexus_tasks,
+ *      and the quota counting basis;
+ *  14. blob_objects generation addressing, leases and reference ownership. **Proves only the schema shape and
+ *      same-transaction atomicity**: the same content_hash can have only one undeleted generation at a time (the physical key
+ *      is therefore never reused), writing must carry a writer lease and once the lease expires it can go
+ *      writing→reclaiming→deleted→absence proof, the "state transition + evidence + ref_count" of both the new_object and attach_live_object branches
+ *      complete in one transaction and roll back together on a mid-way failure,
+ *      ref_count>0 cannot enter reclaiming, evidence with a claim link cannot be deleted (so P3 of purge
+ *      can only detach blob_key), the absence proof can appear only on a tombstone, the evidence content_hash
+ *      must match the physical object; the absence proof must carry a settled writer (writing must record the incarnation,
+ *      writing→live/reclaiming copies into settled_* in the same transaction), and the proof can be atomically invalidated and re-issued;
+ *      the terminal states of purge_work_items correspond to disposition, and P3 is in the same transaction; ref_count drift cannot be blocked by
+ *      the schema, but a reclaim update with recomputation refuses drifted objects; purge_runs (one run per Task, the seal triple,
+ *      the P5 precondition does not let an empty set or a count mismatch pass), the four-column FK of work items, disposition editable in both directions,
+ *      invalidating an absence proof clears only absence_verified_*, process_incarnations has a single current row;
+ *      v0.12k: the P5 precondition carries a proof token (an invalidated proof of a terminal work item does not pass), the reservation-source
+ *      work item and item_count basis, the principal-first P5 query, a same-process reload is not mislabeled gone;
+ *      v0.12l: the two interleavings of the P4 terminal conditional update and proof invalidation (+ an unconditional-write control and a fallback enumeration), P2 ① idempotent re-entry
+ *      aggregated per object, the combination rule of the process_boot_id source (candidate D: pid + start time) (Node level, not OpenClaw behavior);
+ *      v0.12n: there is no 'at most one current' unique index -- after a real SIGKILL crash the new incarnation registers as usual and the old row is
+ *      superseded; a same-process predecessor with the same boot id is not mislabeled and does not block the new registration.
+ *      **Does not prove** real asynchronous timing (a late A2, GC and phase B racing for the same row, P1–P5 progress of purge,
+ *      the actual establishment of the absence proof) -- those belong to the Stage 3 real-entry-point tests.
  *
- * 口径提醒（别把这个脚本当成协议证明）：第 13 组里凡是直接 UPDATE
- * claim_evidence_links 的几条，证明的只是"计数 SQL 会按 relation/effective 过滤行",
- * **不证明** detach / supersede 会正确追加链接事件、更新投影并重算 claim 状态
- * ——那是 §9.5.5 的写入协议，必须由 Stage 3 的真实入口测试覆盖。
- * 同理，blob store 的容量与 namespace 命名契约（§9.4）不属于 SQLite schema，
- * 由 Stage 0 的 blob runtime spike 调真实 openBlobStore 验证，别往这个脚本里塞。
- * 回收与 purge 也一样：这里证的是 CAS 与外键**形状**，
- * "GC 与阶段 B 并发谁赢"、"purge 返回成功时字节真的没了"必须由 Stage 3 的
- * 真实 blob store + 真实 store 入口测试覆盖（§13 Stage 3 已列出七条交错）。
+ * Scope reminder (do not treat this script as a protocol proof): the few places in group 13 that UPDATE claim_evidence_links directly
+ * only prove that "the counting SQL filters rows by relation/effective",
+ * and **do not prove** that detach / supersede correctly append link events, update the projection and recompute the claim state
+ * -- that is the write protocol of §9.5.5 and must be covered by the Stage 3 real-entry-point tests.
+ * Likewise, the capacity and namespace naming contract of the blob store (§9.4) is not part of the SQLite schema,
+ * and is verified by the Stage 0 blob runtime spike calling the real openBlobStore; do not stuff it into this script.
+ * The same goes for reclaim and purge: what is proven here is the **shape** of the CAS and the foreign keys;
+ * "who wins when GC and phase B are concurrent" and "when purge returns success the bytes are really gone" must be covered by the Stage 3
+ * real blob store + real store entry-point tests (§13 Stage 3 already lists the seven interleavings).
  *
- * 第 11 组与前十组不同：它**不自己手写 schema**，而是从 nexus-agent-core-design.md 里抽出
- * §6.3 那个 ```sql 块原样执行。所以文档里的 schema 一旦写错（语法、STRICT 类型、
- * 悬空外键、表名退回 journey*），这一组会直接红。Stage 1 建表之后，把
- * SCHEMA_SOURCE 从"文档块"换成生产 migration 即可，断言不用动。
+ * Group 11 differs from the first ten: it **does not hand-write a schema itself**, but extracts the ```sql block of
+ * §6.3 from nexus-agent-core-design.md and runs it verbatim. So once the schema in the document is wrong (syntax, STRICT types,
+ * dangling foreign keys, table names reverting to journey*), this group goes red immediately. After Stage 1 builds the tables, just swap
+ * SCHEMA_SOURCE from the "document block" to the production migration; the assertions need not change.
  *
- * 用法：node extensions/nexus-agent-core/spikes/grant-rotation-sqlite.mjs
- * 退出码非 0 表示有结论发生了变化（SQLite 升级或 schema 改动），需要回头核对 nexus-agent-core-design.md。
+ * Usage: node extensions/nexus-agent-core/spikes/grant-rotation-sqlite.mjs
+ * A non-zero exit code means a conclusion has changed (SQLite upgrade or schema change); go back and check nexus-agent-core-design.md.
  *
- * Stage 1 建表之后，这个文件应该被改写成插件包内的 vitest contract test；
- * 现在插件包还不存在，先以独立脚本形式保留，避免被 extensions 的 vitest 收集。
+ * After Stage 1 builds the tables, this file should be rewritten as a vitest contract test inside the plugin package;
+ * the plugin package does not exist yet, so keep it as a standalone script for now, to avoid being collected by the extensions vitest.
  */
 import { DatabaseSync } from "node:sqlite";
 
@@ -102,9 +102,9 @@ const results = [];
 function openDb(schema) {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON;");
-  // 回读断言：foreign_keys 是 per-connection 的，默认 OFF
+  // Read-back assertion: foreign_keys is per-connection, default OFF
   const [{ foreign_keys: fk }] = db.prepare("SELECT * FROM pragma_foreign_keys()").all();
-  assert.equal(fk, 1, "PRAGMA foreign_keys 没有生效");
+  assert.equal(fk, 1, "PRAGMA foreign_keys did not take effect");
   db.exec(schema);
   return db;
 }
@@ -116,7 +116,7 @@ function seedLiveGrant(db, { id = "G1", expiresAt = FAR_FUTURE } = {}) {
   );
 }
 
-/** 在一个事务里跑若干语句，返回 {ok} 或 {ok:false, error}。 */
+/** Run several statements in one transaction, returning {ok} or {ok:false, error}. */
 function inTransaction(db, statements) {
   try {
     db.exec("BEGIN IMMEDIATE");
@@ -127,7 +127,7 @@ function inTransaction(db, statements) {
     try {
       db.exec("ROLLBACK");
     } catch {
-      /* 事务可能已被自动回滚 */
+      /* the transaction may already have been rolled back automatically */
     }
     return { ok: false, error: String(error?.message ?? error) };
   }
@@ -137,13 +137,13 @@ function check(name, actual, expectation) {
   const pass = expectation(actual);
   results.push({ name, pass, actual });
   console.log(`${pass ? "  ok  " : "  FAIL"}  ${name}`);
-  if (!pass) console.log(`        实际: ${JSON.stringify(actual)}`);
+  if (!pass) console.log(`        actual: ${JSON.stringify(actual)}`);
 }
 
-console.log(`node:sqlite — 开始 Nexus grant 约束回归\n`);
+console.log(`node:sqlite — starting Nexus grant constraint regression\n`);
 
-// ---- 1. 非 deferred：两种顺序都失败 ----
-console.log("[1] 非 deferred self-FK 下的轮换顺序");
+// ---- 1. Non-deferred: both orders fail ----
+console.log("[1] Rotation orders under a non-deferred self-FK");
 {
   const db = openDb(ROTATION_SCHEMA(false));
   seedLiveGrant(db);
@@ -152,7 +152,7 @@ console.log("[1] 非 deferred self-FK 下的轮换顺序");
     "UPDATE action_grants SET superseded_by='G2' WHERE id='G1'",
   ]);
   check(
-    "先插新 grant → 撞 action_grants_live 部分唯一索引",
+    "insert the new grant first → collides with the action_grants_live partial unique index",
     r,
     (x) => !x.ok && /UNIQUE constraint failed/i.test(x.error),
   );
@@ -166,13 +166,13 @@ console.log("[1] 非 deferred self-FK 下的轮换顺序");
     "INSERT INTO action_grants VALUES ('G2','o1','T7','A1',9999999999,NULL,NULL,NULL)",
   ]);
   check(
-    "先标旧 grant → 撞 self-FK 立即检查",
+    "mark the old grant first → hits the self-FK immediate check",
     r,
     (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
   );
 }
 
-// ---- 2. deferred self-FK 可行 ----
+// ---- 2. Deferred self-FK works ----
 console.log("\n[2] deferred self-FK");
 {
   const db = openDb(ROTATION_SCHEMA(true));
@@ -181,12 +181,12 @@ console.log("\n[2] deferred self-FK");
     "UPDATE action_grants SET superseded_by='G2' WHERE id='G1'",
     "INSERT INTO action_grants VALUES ('G2','o1','T7','A1',9999999999,NULL,NULL,NULL)",
   ]);
-  check("先标旧行、再插新行、提交时统一检查 → 成功", r, (x) => x.ok);
+  check("mark old row, insert new row, check everything at commit → success", r, (x) => x.ok);
   db.close();
 }
 
-// ---- 3. 先 revoked_at 退休旧行（不依赖 deferred） ----
-console.log("\n[3] 先 revoked_at 退休旧行");
+// ---- 3. Retire the old row via revoked_at first (does not depend on deferred) ----
+console.log("\n[3] Retire the old row via revoked_at first");
 {
   const db = openDb(ROTATION_SCHEMA(false));
   seedLiveGrant(db);
@@ -195,20 +195,20 @@ console.log("\n[3] 先 revoked_at 退休旧行");
     "INSERT INTO action_grants VALUES ('G2','o1','T7','A1',9999999999,NULL,NULL,NULL)",
     "UPDATE action_grants SET superseded_by='G2' WHERE id='G1'",
   ]);
-  check("退休 → 插入 → 回填 → 成功", r, (x) => x.ok);
+  check("retire → insert → backfill → success", r, (x) => x.ok);
   db.close();
 }
 
-// ---- 4. 过期但未退休的 grant 仍占 live 槽位 ----
-console.log("\n[4] 过期 grant 的 live 槽位（部分索引看不见 now）");
+// ---- 4. An expired but unretired grant still occupies the live slot ----
+console.log("\n[4] Live slot of an expired grant (the partial index cannot see now)");
 {
   const db = openDb(ROTATION_SCHEMA(true));
-  seedLiveGrant(db, { expiresAt: 1 }); // 早已过期
+  seedLiveGrant(db, { expiresAt: 1 }); // long expired
   const blocked = inTransaction(db, [
     "INSERT INTO action_grants VALUES ('G2','o1','T7','A1',9999999999,NULL,NULL,NULL)",
   ]);
   check(
-    "已过期但未退休 → 仍然挡住新 grant",
+    "expired but not retired → still blocks the new grant",
     blocked,
     (x) => !x.ok && /UNIQUE constraint failed/i.test(x.error),
   );
@@ -217,12 +217,12 @@ console.log("\n[4] 过期 grant 的 live 槽位（部分索引看不见 now）")
     "UPDATE action_grants SET revoked_at=1 WHERE id='G1' AND expires_at <= 1000",
     "INSERT INTO action_grants VALUES ('G2','o1','T7','A1',9999999999,NULL,NULL,NULL)",
   ]);
-  check("显式退休过期行之后 → 可以签发", afterRetire, (x) => x.ok);
+  check("after explicitly retiring the expired row → can issue", afterRetire, (x) => x.ok);
   db.close();
 }
 
-// ---- 5. execution → grant 四列复合外键 ----
-console.log("\n[5] execution 与 grant 的 action 一致性");
+// ---- 5. execution → grant four-column composite FK ----
+console.log("\n[5] Action consistency between execution and grant");
 {
   const db = openDb(`
     ${ROTATION_SCHEMA(true)}
@@ -242,21 +242,21 @@ console.log("\n[5] execution 与 grant 的 action 一致性");
   const legit = inTransaction(db, [
     "INSERT INTO action_executions VALUES ('E1','o1','T7','A1','GA1')",
   ]);
-  check("execution.action = grant.action → 允许", legit, (x) => x.ok);
+  check("execution.action = grant.action → allowed", legit, (x) => x.ok);
 
   const crossed = inTransaction(db, [
     "INSERT INTO action_executions VALUES ('E2','o1','T7','A2','GA1')",
   ]);
   check(
-    "execution 绑 A2 却用 A1 的 grant → 被外键拒绝",
+    "execution bound to A2 but using A1's grant → rejected by the foreign key",
     crossed,
     (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
   );
   db.close();
 }
 
-// ---- 6. 唯一索引中的 NULL：decision 幂等键 ----
-console.log("\n[6] 唯一索引里的 NULL（decision 幂等键）");
+// ---- 6. NULL in a unique index: the decision idempotency key ----
+console.log("\n[6] NULL in a unique index (decision idempotency key)");
 {
   const db = new DatabaseSync(":memory:");
   db.exec(`
@@ -274,9 +274,13 @@ console.log("\n[6] 唯一索引里的 NULL（decision 幂等键）");
     ins.run("D2", "o1", null, "r1", "call_1");
     dupAllowed = true;
   } catch {
-    /* 被拒 */
+    /* rejected */
   }
-  check("session_key 为 NULL 时唯一索引拦不住重复 → 幂等键失效", dupAllowed, (x) => x === true);
+  check(
+    "with session_key NULL the unique index cannot stop duplicates → idempotency key fails",
+    dupAllowed,
+    (x) => x === true,
+  );
 
   ins.run("D3", "o1", "s1", "r1", "call_1");
   let dupWithSession = false;
@@ -284,11 +288,15 @@ console.log("\n[6] 唯一索引里的 NULL（decision 幂等键）");
     ins.run("D4", "o1", "s1", "r1", "call_1");
     dupWithSession = true;
   } catch {
-    /* 被拒 */
+    /* rejected */
   }
-  check("session_key 非空时同键重复被拒", dupWithSession, (x) => x === false);
+  check(
+    "with non-null session_key a duplicate of the same key is rejected",
+    dupWithSession,
+    (x) => x === false,
+  );
 
-  // 修正后的谓词
+  // Corrected predicate
   db.exec(`
     DROP INDEX decisions_toolcall_bad;
     DELETE FROM decisions;
@@ -302,21 +310,21 @@ console.log("\n[6] 唯一索引里的 NULL（decision 幂等键）");
     ins.run("D6", "o1", null, "r1", "call_1");
     stillAllowed = true;
   } catch {
-    /* 被拒 */
+    /* rejected */
   }
   check(
-    "加上 session_key IS NOT NULL 后，NULL 行不再进索引（所以代码侧必须 fail closed）",
+    "after adding session_key IS NOT NULL, NULL rows no longer enter the index (so the code side must fail closed)",
     stillAllowed,
     (x) => x === true,
   );
   db.close();
 }
 
-// ---- 7. run_triggers：首次写入不可变 + 新鲜度（正式 schema） ----
-console.log("\n[7] run_triggers 不可变与新鲜度");
+// ---- 7. run_triggers: immutable after first write + freshness (official schema) ----
+console.log("\n[7] run_triggers immutability and freshness");
 {
   const db = new DatabaseSync(":memory:");
-  // nexus-agent-core-design.md §6.3 的正式定义：复合主键。单列主键的负例在第 9 组。
+  // The official definition in nexus-agent-core-design.md §6.3: composite primary key. The negative case of a single-column primary key is in group 9.
   db.exec(`
     CREATE TABLE run_triggers (
       run_id TEXT NOT NULL, owner_id TEXT NOT NULL,
@@ -330,10 +338,10 @@ console.log("\n[7] run_triggers 不可变与新鲜度");
        ON CONFLICT(owner_id, run_id) DO NOTHING`,
   );
   record.run("run1", "o1", "cron", "s1", "job1", "w1", 1000, 5000);
-  record.run("run1", "o1", "user", "s1", null, null, 1100, 5100); // 后续 attempt 想改写
+  record.run("run1", "o1", "user", "s1", null, null, 1100, 5100); // a later attempt tries to overwrite
   const row = db.prepare("SELECT trigger FROM run_triggers WHERE run_id='run1'").get();
   check(
-    "ON CONFLICT DO NOTHING → 后续 attempt 改写不了 cron→user",
+    "ON CONFLICT DO NOTHING → a later attempt cannot overwrite cron→user",
     row.trigger,
     (x) => x === "cron",
   );
@@ -342,19 +350,23 @@ console.log("\n[7] run_triggers 不可变与新鲜度");
     `SELECT trigger FROM run_triggers
       WHERE run_id=? AND owner_id=? AND session_key=? AND expires_at > ?`,
   );
-  check("owner 不匹配 → 查不到", lookup.get("run1", "o2", "s1", 2000), (x) => x === undefined);
-  check("session 不匹配 → 查不到", lookup.get("run1", "o1", "s9", 2000), (x) => x === undefined);
-  check("已过期 → 查不到", lookup.get("run1", "o1", "s1", 9000), (x) => x === undefined);
+  check("owner mismatch → not found", lookup.get("run1", "o2", "s1", 2000), (x) => x === undefined);
   check(
-    "主体/会话/新鲜度都对 → 查得到",
+    "session mismatch → not found",
+    lookup.get("run1", "o1", "s9", 2000),
+    (x) => x === undefined,
+  );
+  check("expired → not found", lookup.get("run1", "o1", "s1", 9000), (x) => x === undefined);
+  check(
+    "principal/session/freshness all correct → found",
     lookup.get("run1", "o1", "s1", 2000)?.trigger,
     (x) => x === "cron",
   );
   db.close();
 }
 
-// ---- 8. outbox 认领 CAS 与 prepared execution 唯一性 ----
-console.log("\n[8] outbox 认领 CAS 与 prepared execution 唯一性");
+// ---- 8. outbox claim CAS and prepared execution uniqueness ----
+console.log("\n[8] outbox claim CAS and prepared execution uniqueness");
 {
   const db = new DatabaseSync(":memory:");
   db.exec(`
@@ -380,9 +392,13 @@ console.log("\n[8] outbox 认领 CAS 与 prepared execution 唯一性");
     ).run();
     dupEvent = true;
   } catch {
-    /* 被拒 */
+    /* rejected */
   }
-  check("同一 event_key 重复入队被拒（enqueue 幂等）", dupEvent, (x) => x === false);
+  check(
+    "enqueueing the same event_key again is rejected (enqueue idempotent)",
+    dupEvent,
+    (x) => x === false,
+  );
 
   const claim = db.prepare(
     `UPDATE outbox SET state='delivering', claimed_by=?, claimed_at=?
@@ -392,7 +408,7 @@ console.log("\n[8] outbox 认领 CAS 与 prepared execution 唯一性");
   const w1 = claim.all("worker-1", 100, 100);
   const w2 = claim.all("worker-2", 100, 100);
   check(
-    "两个投递器并发认领 → 只有一个拿到",
+    "two deliverers claim concurrently → only one gets it",
     [w1.length, w2.length],
     (x) => x[0] === 1 && x[1] === 0,
   );
@@ -404,10 +420,10 @@ console.log("\n[8] outbox 认领 CAS 与 prepared execution 唯一性");
     prep.run("E2", "o1", "A1", "SG1");
     dupPrepared = true;
   } catch {
-    /* 被拒 */
+    /* rejected */
   }
   check(
-    "同 action + 同 standing grant 第二条 prepared execution 被拒",
+    "a second prepared execution for the same action + same standing grant is rejected",
     dupPrepared,
     (x) => x === false,
   );
@@ -418,18 +434,20 @@ console.log("\n[8] outbox 认领 CAS 与 prepared execution 唯一性");
     prep.run("E3", "o1", "A1", "SG1");
     afterTerminal = true;
   } catch {
-    /* 被拒 */
+    /* rejected */
   }
   check(
-    "前一条进终态后，索引不再拦截（所以终态拒绝要由代码实现，见 §8.6）",
+    "once the previous one reaches a terminal state, the index no longer blocks (so terminal-state rejection must be implemented in code, see §8.6)",
     afterTerminal,
     (x) => x === true,
   );
   db.close();
 }
 
-// ---- 9. run_triggers 的 owner 隔离 ----
-console.log("\n[9] run_triggers 的 owner 隔离（含旧单列主键负例对照）");
+// ---- 9. run_triggers owner isolation ----
+console.log(
+  "\n[9] run_triggers owner isolation (with the old single-column primary key as a negative control)",
+);
 {
   const mk = (pk) => {
     const db = new DatabaseSync(":memory:");
@@ -448,20 +466,20 @@ console.log("\n[9] run_triggers 的 owner 隔离（含旧单列主键负例对�
          ON CONFLICT(${db.__pk}) DO NOTHING`,
     );
 
-  // 单列主键：owner2 的同名 run 被静默吞掉
+  // Single-column primary key: owner2's same-named run is silently swallowed
   const bad = mk("PRIMARY KEY (run_id)");
   bad.__pk = "run_id";
   insert(bad).run("run1", "o1", "cron", "s1", 0, 9999);
   insert(bad).run("run1", "o2", "user", "s2", 0, 9999);
   const badRows = bad.prepare("SELECT owner_id, trigger FROM run_triggers").all();
   check(
-    "单列主键 → owner2 的同名 run 写不进去（会被错判成非 user turn）",
+    "single-column primary key → owner2's same-named run cannot be written (would be misjudged as a non-user turn)",
     badRows.length,
     (x) => x === 1,
   );
   bad.close();
 
-  // 复合主键：两个 owner 各自独立
+  // Composite primary key: the two owners are independent
   const good = mk("PRIMARY KEY (owner_id, run_id)");
   good.__pk = "owner_id, run_id";
   insert(good).run("run1", "o1", "cron", "s1", 0, 9999);
@@ -470,7 +488,7 @@ console.log("\n[9] run_triggers 的 owner 隔离（含旧单列主键负例对�
     .prepare("SELECT owner_id, trigger FROM run_triggers ORDER BY owner_id")
     .all();
   check(
-    "复合主键 → 两个 owner 的同名 run 各写各的",
+    "composite primary key → same-named runs of two owners each write their own",
     goodRows.map((r) => r.trigger),
     (x) => x.length === 2 && x[0] === "cron" && x[1] === "user",
   );
@@ -479,25 +497,29 @@ console.log("\n[9] run_triggers 的 owner 隔离（含旧单列主键负例对�
     `SELECT trigger FROM run_triggers
       WHERE run_id=? AND owner_id=? AND session_key=? AND expires_at > ?`,
   );
-  check("owner1 读不到 owner2 的那条", lookup.get("run1", "o1", "s2", 100), (x) => x === undefined);
   check(
-    "各自读各自的",
+    "owner1 cannot read owner2's row",
+    lookup.get("run1", "o1", "s2", 100),
+    (x) => x === undefined,
+  );
+  check(
+    "each reads its own",
     [lookup.get("run1", "o1", "s1", 100)?.trigger, lookup.get("run1", "o2", "s2", 100)?.trigger],
     (x) => x[0] === "cron" && x[1] === "user",
   );
 
-  // 不可变：同复合键重写不生效
+  // Immutable: rewriting with the same composite key has no effect
   insert(good).run("run1", "o1", "user", "s1", 0, 9999);
   check(
-    "同 (owner, run) 重写不生效（cron 不会被改成 user）",
+    "rewriting the same (owner, run) has no effect (cron is not changed to user)",
     lookup.get("run1", "o1", "s1", 100)?.trigger,
     (x) => x === "cron",
   );
   good.close();
 }
 
-// ---- 10. core approval 租约：租期必须盖住审批超时 ----
-console.log("\n[10] core approval 租约与审批超时");
+// ---- 10. core approval lease: the lease must cover the approval timeout ----
+console.log("\n[10] core approval lease and approval timeout");
 {
   const db = new DatabaseSync(":memory:");
   db.exec(`
@@ -521,64 +543,82 @@ console.log("\n[10] core approval 租约与审批超时");
   const APPROVAL_TIMEOUT = 600_000;
   const LEASE = APPROVAL_TIMEOUT + 60_000;
 
-  check("首次 claim 成功", claim.all(1_000_000, "att-1", 1_000_000, LEASE).length, (x) => x === 1);
+  check(
+    "first claim succeeds",
+    claim.all(1_000_000, "att-1", 1_000_000, LEASE).length,
+    (x) => x === 1,
+  );
 
-  // v0.8 的 90s 租期：卡还在等用户就被重新 claim
+  // v0.8's 90s lease: the card is re-claimed while still waiting for the user
   const BAD_LEASE = 90_000;
   const at90s = 1_000_000 + 120_000;
   check(
-    "90s 租期 → 卡仍 pending 时被重新 claim（v0.8 的 bug）",
+    "90s lease → card re-claimed while still pending (the v0.8 bug)",
     claim.all(at90s, "att-2", at90s, BAD_LEASE).length,
     (x) => x === 1,
   );
 
-  // 重置后用正确租期
+  // After reset, use the correct lease
   db.prepare(
     "UPDATE decisions SET core_approval_state='attempted', core_approval_attempt_at=1000000, core_approval_attempt_id='att-1'",
   ).run();
   check(
-    "660s 租期 → 同一时刻不会重挂",
+    "660s lease → not re-hung at the same moment",
     claim.all(at90s, "att-3", at90s, LEASE).length,
     (x) => x === 0,
   );
   const afterLease = 1_000_000 + LEASE + 1;
   check(
-    "超过租期（崩溃兜底）→ 允许重新接管",
+    "past the lease (crash fallback) → takeover allowed",
     claim.all(afterLease, "att-4", afterLease, LEASE).length,
     (x) => x === 1,
   );
 
-  // 终态不参与重新 claim
+  // Terminal states do not take part in re-claim
   db.prepare("UPDATE decisions SET core_approval_state='resolved'").run();
   check(
-    "终态 resolved → 不再 claim",
+    "terminal resolved → no longer claimed",
     claim.all(afterLease + 1, "att-5", afterLease + 1, LEASE).length,
     (x) => x === 0,
   );
 
-  // attempt token：迟到的旧回调认不出来
+  // attempt token: a late old callback cannot be recognized
   const current = db.prepare("SELECT core_approval_attempt_id AS id FROM decisions").get();
-  check("当前 attempt token 是最后一次 claim 的，旧回调比对不上", current.id, (x) => x === "att-4");
+  check(
+    "the current attempt token is that of the last claim; an old callback does not match",
+    current.id,
+    (x) => x === "att-4",
+  );
   db.close();
 }
 
-// ---- 11. nexus-agent-core-design.md 的 schema 能建库，且符合命名契约 ----
-// 前十组用的是裁剪过的最小表，只能验证约束语义。这一组把 nexus-agent-core-design.md §6.3 的
-// SQL 原样跑一遍——它是现阶段 schema 的唯一真相，所以这组是真正的漂移闸门，
-// 而不是自己写 fixture 再检查自己。
+// ---- 11. The schema of nexus-agent-core-design.md can build a database and satisfies the naming contract ----
+// The first ten groups use trimmed-down minimal tables and can only verify constraint semantics. This group runs the §6.3 SQL of nexus-agent-core-design.md
+// verbatim -- it is the sole source of truth for the schema at this stage, so this group is the real drift gate,
+// rather than writing a fixture oneself and then checking oneself.
 //
-// ⚠ 口径：主体证明的是"**文档里的 schema** 符合契约"。Stage 1 的生产迁移
-// （src/store/schema.ts）已落地：开头四条检查证它与文档逐字一致、单独建库干净、
-// 后续阶段只靠追加表就能叠上去；Stage 2 迁移（决策/授权/执行/outbox/run_triggers）与 Stage 3 第一批迁移（账本/证据/完成条件）同样逐字比对并叠加。
-// 其余断言还没有换成执行生产迁移。
-console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
+// ⚠ Scope: the main body proves that "**the schema in the document** satisfies the contract". The Stage 1 production migration
+// (src/store/schema.ts) has landed: the first four checks prove it is verbatim identical to the document, builds a database cleanly on its own, and
+// later stages can be stacked on by appending tables alone; the Stage 2 migration (decisions/grants/executions/outbox/run_triggers) and the first Stage 3 migration (ledger/evidence/completion conditions) are likewise compared verbatim and stacked.
+// The remaining assertions have not yet been switched to run the production migration.
+console.log("\n[11] The schema of nexus-agent-core-design.md and the naming contract");
 {
   const designPath = new URL("../nexus-agent-core-design.md", import.meta.url);
+  // DDL comparison ignores `--` comments and whitespace: src/store/schema.ts carries English comments while the design doc keeps Chinese ones.
+  const ddlOf = (text) =>
+    text
+      .replace(/--[^\n]*/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   const readSchemaSource = () => {
     const md = fs.readFileSync(designPath, "utf8");
     const blocks = [...md.matchAll(/```sql\n([\s\S]*?)```/g)].map((m) => m[1]);
     const schema = blocks.filter((b) => b.includes("CREATE TABLE nexus_tasks"));
-    assert.equal(schema.length, 1, "nexus-agent-core-design.md 里应恰好有一个建表 SQL 块");
+    assert.equal(
+      schema.length,
+      1,
+      "nexus-agent-core-design.md should contain exactly one table-creating SQL block",
+    );
     return schema[0];
   };
 
@@ -592,27 +632,27 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     openError = String(error?.message ?? error);
   }
   check(
-    "nexus-agent-core-design.md §6.3 的 schema 可以原样建库",
+    "the §6.3 schema of nexus-agent-core-design.md can build a database verbatim",
     openError ?? "ok",
     (x) => x === "ok",
   );
 
-  // ---- Stage 1 分批建表（DESIGN §13 Stage 1「首发表范围」，2026-10-10）：生产迁移 src/store/schema.ts 是
-  // 第一个"落地的 schema"。这里证三件事：① 它与 DESIGN §6.3 的三张 Task 表逐字一致；② 单独建库干净
-  // （只有三张表、foreign_key_check 为空）；③ 之后的阶段只靠"追加表"就能到达完整 schema，
-  // 不需要 ALTER 已发布的表。
+  // ---- Stage 1 table creation in batches (DESIGN §13 Stage 1 "initial table scope", 2026-10-10): the production migration src/store/schema.ts is
+  // the first "landed schema". This proves three things: ① it is verbatim identical to the three Task tables of DESIGN §6.3; ② it builds a database cleanly on its own
+  // (only three tables, foreign_key_check empty); ③ later stages can reach the full schema by "appending tables" alone,
+  // with no need to ALTER published tables.
   {
     const schemaTs = fs.readFileSync(new URL("../src/store/schema.ts", import.meta.url), "utf8");
     const m = schemaTs.match(/STAGE1_TASK_CORE_SQL = `\n([\s\S]*?)\n`;/);
     const migrationSql = m ? m[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
     const md = readSchemaSource();
-    const startMarker = "---------- L3 目标 ----------";
-    const endMarker = "---------- 候选动作";
+    const startMarker = "---------- L3 \u76ee\u6807 ----------"; // design-doc banner "L3 goal" (kept as an escape so it still matches the Chinese banner in the doc)
+    const endMarker = "---------- \u5019\u9009\u52a8\u4f5c"; // design-doc banner "candidate actions"
     const a = md.indexOf(startMarker);
     const b = md.indexOf(endMarker);
     check(
-      "Stage 1 迁移 SQL 与 DESIGN §6.3 的三张 Task 表逐字一致",
-      [a >= 0 && b > a, migrationSql.trim() === md.slice(a + startMarker.length, b).trim()],
+      "Stage 1 migration SQL is verbatim identical to the three Task tables of DESIGN §6.3",
+      [a >= 0 && b > a, ddlOf(migrationSql) === ddlOf(md.slice(a + startMarker.length, b))],
       (x) => x[0] === true && x[1] === true,
     );
 
@@ -625,7 +665,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     staged.exec("PRAGMA foreign_keys = ON;");
     staged.exec(migrationSql);
     check(
-      "Stage 1 迁移单独建库：恰好三张 Task 表，foreign_key_check 为空",
+      "Stage 1 migration builds a database alone: exactly three Task tables, foreign_key_check empty",
       [names(staged), staged.prepare("PRAGMA foreign_key_check").all().length],
       (x) =>
         JSON.stringify(x[0]) ===
@@ -638,7 +678,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       full.exec(md);
       return names(full);
     })();
-    // 后续阶段 = 完整 schema 去掉 Stage 1 那一段，叠加在已发布的 Stage 1 库上。
+    // Later stages = the full schema minus the Stage 1 segment, stacked on the already published Stage 1 database.
     let appended;
     try {
       staged.exec(md.slice(0, a) + md.slice(b));
@@ -647,34 +687,36 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       appended = String(error?.message ?? error);
     }
     check(
-      "Stage 2–4 的表只靠追加就能叠到 Stage 1 库上（不 ALTER 已发布的表）",
+      "Stage 2–4 tables stack onto the Stage 1 database by appending alone (no ALTER of published tables)",
       appended,
       (x) => x === "ok",
     );
     check(
-      "叠加后的表集合与完整 schema 一致，foreign_key_check 为空",
+      "the table set after stacking matches the full schema, foreign_key_check empty",
       [names(staged), staged.prepare("PRAGMA foreign_key_check").all().length],
       (x) => JSON.stringify(x[0]) === JSON.stringify(fullTables) && x[1] === 0,
     );
 
-    // ---- Stage 2 分批建表（DESIGN §13 Stage 2，2026-10-12）：生产迁移 STAGE2_DECISION_SQL 是 §6.3 的**两段**——
-    // 「候选动作…执行（含 grant_uses）」与「通知 outbox + run 触发源账本」。这里证：① 与文档逐字一致；
-    // ② 叠在 Stage 1 库上干净；③ 剩下的 Stage 3–4 表仍能继续只靠追加叠上去，最终表集合与完整 schema 一致。
+    // ---- Stage 2 table creation in batches (DESIGN §13 Stage 2, 2026-10-12): the production migration STAGE2_DECISION_SQL is **two segments** of §6.3 --
+    // "candidate actions ... executions (including grant_uses)" and "notification outbox + run trigger-source ledger". This proves: ① verbatim identical to the document;
+    // ② stacks cleanly on the Stage 1 database; ③ the remaining Stage 3–4 tables can still keep stacking on by appending alone, and the final table set matches the full schema.
     {
       const m2 = schemaTs.match(/STAGE2_DECISION_SQL = `\n([\s\S]*?)\n`;/);
       const sql2 = m2 ? m2[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
-      const seg1Start = md.indexOf("---------- 候选动作");
-      const seg1End = md.indexOf("---------- 事实：投影 + 追加事件");
-      const seg2Start = md.indexOf("---------- 通知 outbox");
-      const seg2End = md.indexOf("---------- purge 回执");
+      const seg1Start = md.indexOf("---------- \u5019\u9009\u52a8\u4f5c"); // design-doc banner "candidate actions"
+      const seg1End = md.indexOf(
+        "---------- \u4e8b\u5b9e\uff1a\u6295\u5f71 + \u8ffd\u52a0\u4e8b\u4ef6",
+      ); // design-doc banner "facts: projection + append-only events"
+      const seg2Start = md.indexOf("---------- \u901a\u77e5 outbox"); // design-doc banner "notification outbox"
+      const seg2End = md.indexOf("---------- purge \u56de\u6267"); // design-doc banner "purge receipt"
       const ordered =
         seg1Start === b && seg1Start < seg1End && seg1End < seg2Start && seg2Start < seg2End;
       const expected = ordered
         ? `${md.slice(seg1Start, seg1End).trim()}\n\n${md.slice(seg2Start, seg2End).trim()}`
         : "";
       check(
-        "Stage 2 迁移 SQL 与 DESIGN §6.3 的两段逐字一致（候选动作…执行；outbox + run_triggers）",
-        [ordered, sql2.trim() === expected],
+        "Stage 2 migration SQL is verbatim identical to the two segments of DESIGN §6.3 (candidate actions ... executions; outbox + run_triggers)",
+        [ordered, ddlOf(sql2) === ddlOf(expected)],
         (x) => x[0] === true && x[1] === true,
       );
 
@@ -699,7 +741,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         "standing_grants",
       ];
       check(
-        "Stage 2 迁移叠在 Stage 1 库上：无错误，foreign_key_check 为空，新增恰好九张表",
+        "Stage 2 migration stacked on the Stage 1 database: no errors, foreign_key_check empty, exactly nine new tables",
         [stackError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
         (x) =>
           x[0] === "ok" &&
@@ -715,15 +757,17 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
             ),
       );
 
-      // ---- Stage 3 第一批（DESIGN §13 Stage 3 切片①，2026-10-13）：生产迁移 STAGE3_LEDGER_SQL 是 §6.3 的**两段**——
-      // 「事实：投影 + 追加事件」到 blob_reservations 之前（含 evidence / process_incarnations / blob_objects：
-      // evidence 的外键要指向它们，已发布的表不能再 ALTER），以及「完成条件」。字节存储与 purge 留给后续迁移。
+      // ---- Stage 3 first batch (DESIGN §13 Stage 3 slice 1, 2026-10-13): the production migration STAGE3_LEDGER_SQL is **two segments** of §6.3 --
+      // "facts: projection + append-only events" up to before blob_reservations (including evidence / process_incarnations / blob_objects:
+      // the evidence foreign keys point at them, and published tables cannot be ALTERed again), and "completion conditions". Byte storage and purge are left to later migrations.
       const m3 = schemaTs.match(/STAGE3_LEDGER_SQL = `\n([\s\S]*?)\n`;/);
       const sql3 = m3 ? m3[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
       const ledgerStart = seg1End;
       const ledgerEnd = md.indexOf("CREATE TABLE blob_reservations");
-      const completionStart = md.indexOf("---------- 完成条件");
-      const completionEnd = md.indexOf("---------- 偏好与个人上下文");
+      const completionStart = md.indexOf("---------- \u5b8c\u6210\u6761\u4ef6"); // design-doc banner "completion conditions"
+      const completionEnd = md.indexOf(
+        "---------- \u504f\u597d\u4e0e\u4e2a\u4eba\u4e0a\u4e0b\u6587",
+      ); // design-doc banner "preferences and personal context"
       const ordered3 =
         ledgerStart > 0 &&
         ledgerEnd > ledgerStart &&
@@ -734,8 +778,8 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         ? `${md.slice(ledgerStart, ledgerEnd).trim()}\n\n${md.slice(completionStart, completionEnd).trim()}`
         : "";
       check(
-        "Stage 3 迁移 SQL 与 DESIGN §6.3 的两段逐字一致（账本 + 证据 + 进程化身 + blob_objects；完成条件）",
-        [ordered3, sql3.trim() === expected3],
+        "Stage 3 migration SQL is verbatim identical to the two segments of DESIGN §6.3 (ledger + evidence + process incarnation + blob_objects; completion conditions)",
+        [ordered3, ddlOf(sql3) === ddlOf(expected3)],
         (x) => x[0] === true && x[1] === true,
       );
       let stage3Error = "ok";
@@ -755,7 +799,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         "process_incarnations",
       ];
       check(
-        "Stage 3 迁移叠在 Stage 1+2 库上：无错误，foreign_key_check 为空，新增恰好八张表",
+        "Stage 3 migration stacked on the Stage 1+2 database: no errors, foreign_key_check empty, exactly eight new tables",
         [stage3Error, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
         (x) =>
           x[0] === "ok" &&
@@ -772,8 +816,8 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
             ),
       );
 
-      // ---- Stage 3 第二批（切片②）：STAGE3_RESERVATIONS_SQL = §6.3 里从 CREATE TABLE blob_reservations 到
-      // blob_reservations_hash_live 索引结束的那一段，逐字一致，且只靠追加叠在第一批之上。
+      // ---- Stage 3 second batch (slice 2): STAGE3_RESERVATIONS_SQL = the segment of §6.3 from CREATE TABLE blob_reservations to
+      // the end of the blob_reservations_hash_live index, verbatim identical, and stacked on the first batch by appending alone.
       const m4 = schemaTs.match(/STAGE3_RESERVATIONS_SQL = `\n([\s\S]*?)\n`;/);
       const sql4 = m4 ? m4[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
       const hashLiveAt = md.indexOf("CREATE UNIQUE INDEX blob_reservations_hash_live", ledgerEnd);
@@ -783,10 +827,10 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
           ? md.indexOf(reservationsEndMarker, hashLiveAt) + reservationsEndMarker.length
           : -1;
       check(
-        "Stage 3 第二批迁移 SQL 与 DESIGN §6.3 的 blob_reservations 一段逐字一致",
+        "Stage 3 second batch migration SQL is verbatim identical to the blob_reservations segment of DESIGN §6.3",
         [
           reservationsEndAt > ledgerEnd,
-          sql4.trim() === md.slice(ledgerEnd, reservationsEndAt).trim(),
+          ddlOf(sql4) === ddlOf(md.slice(ledgerEnd, reservationsEndAt)),
         ],
         (x) => x[0] === true && x[1] === true,
       );
@@ -797,7 +841,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         stage3bError = String(error?.message ?? error);
       }
       check(
-        "Stage 3 第二批叠在第一批之上：无错误，foreign_key_check 为空，新增 blob_reservations",
+        "Stage 3 second batch stacked on the first batch: no errors, foreign_key_check empty, new blob_reservations",
         [stage3bError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
         (x) =>
           x[0] === "ok" &&
@@ -815,14 +859,14 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
             ),
       );
 
-      // ---- Stage 3 第三批（切片③）：STAGE3_PURGE_SQL = §6.3 里 purge_runs + purge_work_items 一段，加上最后的
-      // purge_receipts（故意不对 nexus_tasks 建外键），逐字一致，且只靠追加叠在前两批之上。
+      // ---- Stage 3 third batch (slice 3): STAGE3_PURGE_SQL = the purge_runs + purge_work_items segment of §6.3, plus the final
+      // purge_receipts (deliberately with no foreign key to nexus_tasks), verbatim identical, and stacked on the first two batches by appending alone.
       const m5 = schemaTs.match(/STAGE3_PURGE_SQL = `\n([\s\S]*?)\n`;/);
       const sql5 = m5 ? m5[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
       const expected5 = `${md.slice(reservationsEndAt, completionStart).trim()}\n\n${md.slice(seg2End).trim()}`;
       check(
-        "Stage 3 第三批迁移 SQL 与 DESIGN §6.3 的 purge_runs / purge_work_items / purge_receipts 逐字一致",
-        [sql5.length > 0, sql5.trim() === expected5],
+        "Stage 3 third batch migration SQL is verbatim identical to purge_runs / purge_work_items / purge_receipts of DESIGN §6.3",
+        [sql5.length > 0, ddlOf(sql5) === ddlOf(expected5)],
         (x) => x[0] === true && x[1] === true,
       );
       let stage3cError = "ok";
@@ -832,7 +876,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         stage3cError = String(error?.message ?? error);
       }
       check(
-        "Stage 3 第三批叠在前两批之上：无错误，foreign_key_check 为空，新增 purge_runs / purge_work_items / purge_receipts",
+        "Stage 3 third batch stacked on the first two batches: no errors, foreign_key_check empty, new purge_runs / purge_work_items / purge_receipts",
         [stage3cError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
         (x) =>
           x[0] === "ok" &&
@@ -853,16 +897,16 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
             ),
       );
 
-      // ---- Stage 4 第一批（偏好）：STAGE4_PREFERENCE_SQL = §6.3 里「偏好与个人上下文」一段，到「回检」之前，逐字一致。
+      // ---- Stage 4 first batch (preferences): STAGE4_PREFERENCE_SQL = the "preferences and personal context" segment of §6.3, up to before "watch", verbatim identical.
       const m6 = schemaTs.match(/STAGE4_PREFERENCE_SQL = `\n([\s\S]*?)\n`;/);
       const sql6 = m6 ? m6[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
-      const watchesStart = md.indexOf("---------- 回检");
+      const watchesStart = md.indexOf("---------- \u56de\u68c0"); // design-doc banner "watch"
       check(
-        "Stage 4 第一批迁移 SQL 与 DESIGN §6.3 的 preferences / preference_revisions 逐字一致",
+        "Stage 4 first batch migration SQL is verbatim identical to preferences / preference_revisions of DESIGN §6.3",
         [
           watchesStart > completionEnd,
           sql6.length > 0,
-          sql6.trim() === md.slice(completionEnd, watchesStart).trim(),
+          ddlOf(sql6) === ddlOf(md.slice(completionEnd, watchesStart)),
         ],
         (x) => x[0] === true && x[1] === true && x[2] === true,
       );
@@ -873,7 +917,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         stage4aError = String(error?.message ?? error);
       }
       check(
-        "Stage 4 第一批叠在前三批之上：无错误，foreign_key_check 为空，新增 preferences / preference_revisions",
+        "Stage 4 first batch stacked on the first three batches: no errors, foreign_key_check empty, new preferences / preference_revisions",
         [stage4aError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
         (x) =>
           x[0] === "ok" &&
@@ -896,15 +940,15 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
             ),
       );
 
-      // ---- Stage 4 第二批（Watcher）：STAGE4_WATCHES_SQL = §6.3 里「回检」一段，到「通知 outbox」之前，逐字一致。
+      // ---- Stage 4 second batch (Watcher): STAGE4_WATCHES_SQL = the "watch" segment of §6.3, up to before "notification outbox", verbatim identical.
       const m7 = schemaTs.match(/STAGE4_WATCHES_SQL = `\n([\s\S]*?)\n`;/);
       const sql7 = m7 ? m7[1].replaceAll("\\`", "`").replaceAll("\\${", "${") : "";
       check(
-        "Stage 4 第二批迁移 SQL 与 DESIGN §6.3 的 watches 逐字一致",
+        "Stage 4 second batch migration SQL is verbatim identical to watches of DESIGN §6.3",
         [
           seg2Start > watchesStart,
           sql7.length > 0,
-          sql7.trim() === md.slice(watchesStart, seg2Start).trim(),
+          ddlOf(sql7) === ddlOf(md.slice(watchesStart, seg2Start)),
         ],
         (x) => x[0] === true && x[1] === true && x[2] === true,
       );
@@ -915,7 +959,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         restError = String(error?.message ?? error);
       }
       check(
-        "Stage 4 第二批（watches）只靠追加叠到已有库上，最终表集合与完整 schema 一致",
+        "Stage 4 second batch (watches) stacks onto the existing database by appending alone, and the final table set matches the full schema",
         [restError, stacked.prepare("PRAGMA foreign_key_check").all().length, names(stacked)],
         (x) => x[0] === "ok" && x[1] === 0 && JSON.stringify(x[2]) === JSON.stringify(fullTables),
       );
@@ -928,7 +972,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       .all()
       .map((r) => r.name);
 
-    // §4.1 规则第二行：Task 聚合根及其直接组成表固定用 nexus_task*
+    // §4.1 rule line 2: the Task aggregate root and its direct constituent tables use the fixed prefix nexus_task*
     const TASK_TABLES = [
       "nexus_tasks",
       "nexus_task_steps",
@@ -936,22 +980,22 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       "nexus_task_completion_claims",
     ];
     check(
-      "四张 Task 聚合表齐全（漏一张即红）",
+      "all four Task aggregate tables present (one missing turns it red)",
       TASK_TABLES.filter((n) => tables.includes(n)),
       (x) => x.length === TASK_TABLES.length,
     );
     check(
-      "没有多余的 nexus_task* 表（新增需同步 §4.1 与本断言）",
+      "no extra nexus_task* tables (new ones must update §4.1 and this assertion together)",
       tables.filter((n) => n.startsWith("nexus_task")).length,
       (x) => x === TASK_TABLES.length,
     );
     check(
-      "旧的 Journey 表名不存在",
+      "old Journey table names do not exist",
       tables.some((n) => n.toLowerCase().includes("journey")),
       (x) => x === false,
     );
     check(
-      "插件私有辅助表不带前缀",
+      "plugin-private helper tables carry no prefix",
       [
         "actions",
         "decisions",
@@ -976,10 +1020,10 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x === true,
     );
 
-    // 外键目标必须都解析得到。SQLite 在 CREATE TABLE 时不校验父表是否存在，
-    // 打错一个表名要等到第一次 DML 才炸；而 PRAGMA foreign_key_check 在**空库**上
-    // 没有行可查，同样发现不了（实测：把父表名改成 nexus_taks 它照样返回 0 行）。
-    // 所以这里逐表读 foreign_key_list，自己确认每个父表都在 sqlite_master 里。
+    // Foreign key targets must all resolve. SQLite does not check whether the parent table exists at CREATE TABLE,
+    // so a mistyped table name only blows up on the first DML; and PRAGMA foreign_key_check on an **empty database**
+    // has no rows to check and likewise cannot find it (verified: renaming the parent table to nexus_taks still returns 0 rows).
+    // So here we read foreign_key_list table by table and confirm ourselves that every parent table is in sqlite_master.
     const danglingFks = [];
     for (const table of tables) {
       for (const fk of db.prepare(`PRAGMA foreign_key_list(${table})`).all()) {
@@ -989,73 +1033,86 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         if (!parentExists) danglingFks.push(`${table} -> ${fk.table}`);
       }
     }
-    check("没有悬空外键：每个父表都存在", danglingFks, (x) => x.length === 0);
+    check(
+      "no dangling foreign keys: every parent table exists",
+      danglingFks,
+      (x) => x.length === 0,
+    );
 
-    // 上面那一遍只看父**表**在不在。父表在、但父**列**拼错或父键不唯一时，
-    // foreign_key_list 照样返回一条看起来正常的记录，扫描发现不了。
-    // 这种情况 PRAGMA foreign_key_check 会**抛** "foreign key mismatch"（不是返回行），
-    // 所以必须 try/catch。两遍互补，缺一不可：
-    //   父表不存在      → foreign_key_check 返回 0 行；父表扫描抓到
-    //   父列不存在      → 父表扫描返回 0 条；foreign_key_check 抛异常
-    //   父列存在但不唯一 → 父表扫描返回 0 条；foreign_key_check 抛异常
+    // The pass above only looks at whether the parent **table** exists. If the parent table exists but the parent **column** is misspelled or the parent key is not unique,
+    // foreign_key_list still returns a normal-looking record, and the scan cannot find it.
+    // In that case PRAGMA foreign_key_check **throws** "foreign key mismatch" (rather than returning rows),
+    // so a try/catch is required. The two passes complement each other and neither can be dropped:
+    //   parent table missing      → foreign_key_check returns 0 rows; the parent-table scan catches it
+    //   parent column missing     → the parent-table scan returns 0 entries; foreign_key_check throws
+    //   parent column not unique  → the parent-table scan returns 0 entries; foreign_key_check throws
     let fkMismatch;
     try {
       const rows = db.prepare("PRAGMA foreign_key_check").all();
-      fkMismatch = rows.length === 0 ? "ok" : `foreign_key_check 返回 ${rows.length} 行违规`;
+      fkMismatch =
+        rows.length === 0 ? "ok" : `foreign_key_check returned ${rows.length} violation rows`;
     } catch (error) {
       fkMismatch = String(error?.message ?? error);
     }
     check(
-      "父键合法：foreign_key_check 不报 mismatch（父列存在且唯一）",
+      "parent key is valid: foreign_key_check reports no mismatch (parent column exists and is unique)",
       fkMismatch,
       (x) => x === "ok",
     );
 
-    // 列名不带前缀（§4.1 规则第四行）
+    // Column names carry no prefix (§4.1 rule line 4)
     const stepCols = db
       .prepare("PRAGMA table_info(nexus_task_steps)")
       .all()
       .map((c) => c.name);
     check(
-      "列名不带前缀，用 task_id 而不是 nexus_task_id",
+      "column names carry no prefix, use task_id rather than nexus_task_id",
       [stepCols.includes("task_id"), stepCols.includes("nexus_task_id")],
       (x) => x[0] === true && x[1] === false,
     );
     check(
-      "core 那层的字段叫 flow_id，不叫 task 什么",
+      "the core layer's field is called flow_id, not task something",
       stepCols.includes("flow_id"),
       (x) => x === true,
     );
 
-    // 只查一张表的列名挡不住别处回退。遍历所有业务表的 table_info，
-    // 任何 /journey/i 列名都算 §4.1 失守。
+    // Checking the column names of one table alone cannot block regressions elsewhere. Traverse the table_info of all business tables,
+    // any /journey/i column name counts as a breach of §4.1.
     const journeyCols = [];
     for (const table of tables) {
       for (const col of db.prepare(`PRAGMA table_info(${table})`).all()) {
         if (/journey/i.test(col.name)) journeyCols.push(`${table}.${col.name}`);
       }
     }
-    check("所有业务表都没有 Journey 残留列名", journeyCols, (x) => x.length === 0);
+    check(
+      "no leftover Journey column names in any business table",
+      journeyCols,
+      (x) => x.length === 0,
+    );
 
-    // 索引、触发器、视图名同样可能把旧词带回来，一次扫完整个 sqlite_master。
+    // Index, trigger and view names may also bring the old word back, so scan all of sqlite_master in one pass.
     const journeyObjects = db
       .prepare("SELECT type, name FROM sqlite_master WHERE name LIKE '%journey%' COLLATE NOCASE")
       .all()
       .map((r) => `${r.type}:${r.name}`);
-    check("索引/触发器/视图名也没有 Journey 残留", journeyObjects, (x) => x.length === 0);
+    check(
+      "no leftover Journey in index/trigger/view names either",
+      journeyObjects,
+      (x) => x.length === 0,
+    );
 
-    // 复合外键与级联在真实 schema 上成立
+    // Composite foreign keys and cascades hold on the real schema
     db.prepare(
       "INSERT INTO nexus_tasks (id, owner_id, kind, title, status, goal_json, risk_ceiling," +
         " origin_session_key, revision, created_at, updated_at)" +
-        " VALUES ('T7','o1','travel.flight','订东京机票','executing','{}','R1','s1',1,0,0)",
+        " VALUES ('T7','o1','travel.flight','Book Tokyo flight','executing','{}','R1','s1',1,0,0)",
     ).run();
     const crossOwner = inTransaction(db, [
       "INSERT INTO nexus_task_steps (id, owner_id, task_id, seq, kind, status, title)" +
         " VALUES ('S1','o2','T7',1,'execute','running','x')",
     ]);
     check(
-      "跨 owner 引用同一个 task 被复合外键拒绝",
+      "referencing the same task across owners is rejected by the composite foreign key",
       crossOwner,
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
@@ -1064,20 +1121,20 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       "INSERT INTO nexus_task_steps (id, owner_id, task_id, seq, kind, status, title)" +
         " VALUES ('S1','o1','T7',1,'execute','running','x')",
     ]);
-    check("同 owner 的 step 可以挂上去", sameOwner, (x) => x.ok);
+    check("a step of the same owner can be attached", sameOwner, (x) => x.ok);
 
-    // ---- 12. 偏好表（§11）的 schema 不变量 ----
-    // §11 的两条承诺要由 schema 兜住，不能靠调用方自觉：
-    //   (a) 投影与 append-only 历史必须同事务写（和 claims/claim_events 同构）；
-    //   (b) 同一 (scope,key) 下三种 origin 并存，但同 origin 只能有一条活的。
-    console.log("\n[12] 偏好表（§11）的 schema 不变量");
+    // ---- 12. Schema invariants of the preference table (§11) ----
+    // Two commitments of §11 must be backed by the schema and not left to caller discipline:
+    //   (a) projection and append-only history must be written in the same transaction (isomorphic to claims/claim_events);
+    //   (b) under the same (scope,key) three origins coexist, but only one live row per origin is allowed.
+    console.log("\n[12] Schema invariants of the preference table (§11)");
     const prefCols =
       "(id, owner_id, scope, key, value_json, origin, task_id, asserted_by, confidence," +
       " head_revision_id, revision, created_at, updated_at)";
     const revCols =
       "(id, owner_id, preference_id, seq, op, value_json, origin, asserted_by," +
       " source_note, created_at)";
-    // origin 决定 task_id / confidence 是否允许为空，见 §11 的 CHECK 约束
+    // origin decides whether task_id / confidence may be empty, see the CHECK constraints of §11
     const actorFor = (origin) => (origin === "observed" ? "agent" : "user");
     const insPref = (id, origin, taskId = "NULL", key = "'seat'", conf = null, actor = null) => {
       const c = conf !== null ? conf : origin === "observed" ? "0.8" : "NULL";
@@ -1087,7 +1144,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       );
     };
     const insRev = (id, origin, note = null, actor = null) => {
-      const n = note !== null ? note : origin === "observed" ? "'从 #T1/#T2 归纳'" : "NULL";
+      const n = note !== null ? note : origin === "observed" ? "'summarized from #T1/#T2'" : "NULL";
       return (
         `INSERT INTO preference_revisions ${revCols} VALUES ('R_${id}','o1','${id}',1,'set',` +
         `'"window"','${origin}','${actor ?? actorFor(origin)}',${n},0)`
@@ -1096,13 +1153,17 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
 
     const prefAlone = inTransaction(db, [insPref("P1", "stated")]);
     check(
-      "只写投影不写 revision → deferred 自引用在 COMMIT 时拒绝",
+      "writing only the projection and no revision → deferred self-reference is rejected at COMMIT",
       prefAlone,
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
 
     const prefPair = inTransaction(db, [insPref("P1", "stated"), insRev("P1", "stated")]);
-    check("投影 + 首条 revision 同事务写入成立", prefPair, (x) => x.ok);
+    check(
+      "projection + first revision written in the same transaction holds",
+      prefPair,
+      (x) => x.ok,
+    );
 
     const threeOrigins = inTransaction(db, [
       insPref("P2", "observed"),
@@ -1110,11 +1171,15 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       insPref("P3", "task_exception", "'T7'"),
       insRev("P3", "task_exception"),
     ]);
-    check("同 (scope,key) 下 stated/observed/task_exception 可并存", threeOrigins, (x) => x.ok);
+    check(
+      "stated/observed/task_exception can coexist under the same (scope,key)",
+      threeOrigins,
+      (x) => x.ok,
+    );
 
     const dupOrigin = inTransaction(db, [insPref("P4", "stated"), insRev("P4", "stated")]);
     check(
-      "同 (scope,key,origin) 第二条活行被 preferences_active 拒",
+      "a second live row under the same (scope,key,origin) is rejected by preferences_active",
       dupOrigin,
       (x) => !x.ok && /UNIQUE constraint failed/i.test(x.error),
     );
@@ -1124,22 +1189,26 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       insRev("P5", "task_exception").replace("'o1'", "'o2'"),
     ]);
     check(
-      "task_exception 引用别的 owner 的 task 被复合外键拒",
+      "task_exception referencing another owner's task is rejected by the composite foreign key",
       crossOwnerPref,
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
 
     db.prepare("UPDATE preferences SET deleted_at=1 WHERE id='P1'").run();
     const afterSoftDelete = inTransaction(db, [insPref("P6", "stated"), insRev("P6", "stated")]);
-    check("软删除腾出槽位：同键可以再建一条 stated", afterSoftDelete, (x) => x.ok);
+    check(
+      "soft delete frees the slot: a stated can be created again under the same key",
+      afterSoftDelete,
+      (x) => x.ok,
+    );
 
-    // origin 不变量的负例：§11 的三条 CHECK 必须真的挡住非法组合
+    // Negative cases of the origin invariants: the three CHECKs of §11 must really block illegal combinations
     const statedWithTask = inTransaction(db, [
       insPref("P7", "stated", "'T7'", "'meal'"),
       insRev("P7", "stated"),
     ]);
     check(
-      "stated 带 task_id 被 CHECK 拒（否则 Task 例外会伪装成长期偏好）",
+      "stated with task_id is rejected by CHECK (otherwise a Task exception would masquerade as a long-term preference)",
       statedWithTask,
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
@@ -1149,7 +1218,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       insRev("P8", "task_exception"),
     ]);
     check(
-      "task_exception 不带 task_id 被 CHECK 拒",
+      "task_exception without task_id is rejected by CHECK",
       exceptionNoTask,
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
@@ -1159,7 +1228,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       insRev("P9", "observed"),
     ]);
     check(
-      "observed 缺 confidence 被 CHECK 拒",
+      "observed missing confidence is rejected by CHECK",
       observedNoConf,
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
@@ -1169,7 +1238,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       insRev("P10", "stated"),
     ]);
     check(
-      "非 observed 带 confidence 被 CHECK 拒",
+      "non-observed with confidence is rejected by CHECK",
       statedWithConf,
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
@@ -1179,13 +1248,13 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       insRev("P11", "observed", "NULL"),
     ]);
     check(
-      "observed 的 revision 缺 source_note 被 CHECK 拒",
+      "observed revision missing source_note is rejected by CHECK",
       observedNoNote,
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
 
-    // ---- 13. 决策的 resolution effect（§8.13）----
-    console.log("\n[13] 决策 effect_kind 与 Claim/Evidence 的来源独立性");
+    // ---- 13. Decision resolution effect (§8.13) ----
+    console.log("\n[13] Decision effect_kind and source independence of Claim/Evidence");
     const decCols =
       "(id, owner_id, task_id, decision_type, risk_tier, question, facts_snapshot," +
       " options_snapshot, unknowns_snapshot, grant_policy_snapshot, authority_hash," +
@@ -1195,27 +1264,27 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       `'[]','[]','[]','{}','h',1,'pending','${effect}',${payload},${action})`;
 
     check(
-      "set_preference 不带 effect_payload 被拒",
+      "set_preference without effect_payload is rejected",
       inTransaction(db, [insDec("D1", "set_preference")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "授权类决策带 effect_payload 被拒",
+      "grant-type decision with effect_payload is rejected",
       inTransaction(db, [insDec("D2", "issue_action_grant", "'{\"k\":1}'")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "set_preference 指定 chosen_action_id 被拒（它不该进 execution 路径）",
+      "set_preference specifying chosen_action_id is rejected (it should not enter the execution path)",
       inTransaction(db, [insDec("D3", "set_preference", "'{\"k\":1}'", "'A1'")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "set_preference 带 payload、不带 action 可以落库",
+      "set_preference with payload and no action can be stored",
       inTransaction(db, [insDec("D4", "set_preference", "'{\"k\":1}'")]),
       (x) => x.ok,
     );
 
-    // Claim 链与证据来源独立性（§9.5）
+    // Claim chain and evidence source independence (§9.5)
     const claimCols =
       "(id, owner_id, task_id, subject, predicate, value_json, state," +
       " verification_policy, head_event_id, created_at, updated_at)";
@@ -1227,20 +1296,20 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       " source_ref_id, source_locator_canonical, source_version, source_identity_hash," +
       " source_run_id, source_session_key, source_group, source_group_rule_version," +
       " retention_policy, captured_at)";
-    // identity 由 locator + version + content_hash 推导（§9.5.3），这里直接给成品
-    // v0.12g：evidence.blob_key = '<content_hash>.<generation>' 且有外键，
-    // 所以物理对象必须先存在。每条证据内容不同 → 自己一个 hash。
+    // identity is derived from locator + version + content_hash (§9.5.3); here the finished value is given directly
+    // v0.12g: evidence.blob_key = '<content_hash>.<generation>' and has a foreign key,
+    // so the physical object must exist first. Each evidence has different content → its own hash.
     const objCols =
       "(owner_id, content_hash, generation, blob_key, byte_size, state, ref_count," +
       " writer_attempt_id, writer_lease_until, writer_incarnation," +
       " reclaim_attempt_id, reclaim_lease_until," +
       " created_at, updated_at)";
-    // writer_incarnation 有外键指向 process_incarnations（v0.12j）
+    // writer_incarnation has a foreign key pointing at process_incarnations (v0.12j)
     db.exec(
       "INSERT INTO process_incarnations (incarnation_id, process_boot_id, started_at)" +
         " VALUES ('proc-1', 'boot-A', 0)",
     );
-    // writing 必须带 writer attempt + 租期；reclaiming 必须带 reclaim attempt + 租期
+    // writing must carry a writer attempt + lease; reclaiming must carry a reclaim attempt + lease
     const insObj = (hash, gen = 1, state = "live", refs = 1, size = 10, lease = 999) => {
       const w = state === "writing" ? `'w_${hash}.${gen}',${lease},'proc-1'` : "NULL,NULL,NULL";
       const r = state === "reclaiming" ? `'g_${hash}.${gen}',${lease}` : "NULL,NULL";
@@ -1268,16 +1337,20 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       `INSERT INTO claim_events ${eventCols} VALUES ('E1','o1','T7','C1',1,'asserted',` +
         `'agent','agent','{}',NULL,'d1',0)`,
     ]);
-    check("claim 与首个 event 同事务写入成立", claimPair, (x) => x.ok);
+    check(
+      "claim and its first event written in the same transaction holds",
+      claimPair,
+      (x) => x.ok,
+    );
 
     check(
-      "Agent 自述不能当证据：source_group='agent_assertion' 被 CHECK 拒",
+      "Agent self-report cannot count as evidence: source_group='agent_assertion' is rejected by CHECK",
       inTransaction(db, [insEv("V0", "id0", "agent_assertion")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
 
     check(
-      "两条不同来源的证据可以共存",
+      "two pieces of evidence from different sources can coexist",
       inTransaction(db, [
         ...insEvWithObj("V1", "merchant-mail-1", "merchant:acme.com"),
         ...insEvWithObj("V2", "bank-txn-9", "bank:dbs"),
@@ -1286,13 +1359,13 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     );
 
     check(
-      "同一原始来源第二次登记被 UNIQUE 拒（不能把一封邮件凑成两条证据）",
+      "registering the same original source a second time is rejected by UNIQUE (one email cannot be made into two pieces of evidence)",
       inTransaction(db, insEvWithObj("V3", "merchant-mail-1", "merchant:acme.com")),
       (x) => !x.ok && /UNIQUE constraint failed/i.test(x.error),
     );
 
     check(
-      "tool_output 引用缺 run/session 作用域被 CHECK 拒（toolCallId 无跨 run 唯一性）",
+      "tool_output reference missing run/session scope is rejected by CHECK (toolCallId is not unique across runs)",
       inTransaction(db, [
         insObj("h9", 1, "writing", 0),
         `INSERT INTO evidence ${evCols} VALUES ('V9','o1','T7','email','h9.1','h9',10,` +
@@ -1301,11 +1374,11 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
 
-    // 链接事件 + 当前有效投影（§9.5.4）
+    // Link events + currently effective projection (§9.5.4)
     const linkEv = (ev, rel) =>
       `INSERT INTO claim_event_evidence (owner_id, task_id, claim_event_id, evidence_id,` +
       ` relation, relation_rule_version, relation_reason)` +
-      ` VALUES ('o1','T7','E1','${ev}','${rel}',1,'verifier 判定')`;
+      ` VALUES ('o1','T7','E1','${ev}','${rel}',1,'verifier verdict')`;
     const linkProj = (ev, rel, eff) =>
       `INSERT INTO claim_evidence_links (owner_id, task_id, claim_id, evidence_id, relation,` +
       ` effective, head_link_event_id, updated_at) VALUES ('o1','T7','C1','${ev}','${rel}',${eff},'E1',0)`;
@@ -1320,7 +1393,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         .get().g;
 
     check(
-      "关联必须带方向与判定依据：缺 relation/rule_version/reason 被 NOT NULL 拒",
+      "a link must carry direction and basis: missing relation/rule_version/reason is rejected by NOT NULL",
       inTransaction(db, [
         `INSERT INTO claim_event_evidence (owner_id, task_id, claim_event_id, evidence_id)` +
           ` VALUES ('o1','T7','E1','V1')`,
@@ -1328,11 +1401,11 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /NOT NULL constraint failed/i.test(x.error),
     );
     check(
-      "unclassified 不能带 supersedes（判不出来就什么都不取代）",
+      "unclassified cannot carry supersedes (if it cannot be judged, it supersedes nothing)",
       inTransaction(db, [
         `INSERT INTO claim_event_evidence (owner_id, task_id, claim_event_id, evidence_id,` +
           ` relation, relation_rule_version, relation_reason, supersedes_evidence_id)` +
-          ` VALUES ('o1','T7','E1','V2','unclassified',1,'判不出',' V1')`,
+          ` VALUES ('o1','T7','E1','V2','unclassified',1,'cannot judge',' V1')`,
       ]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
@@ -1342,27 +1415,27 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     db.exec(linkEv("V2", "contradicts"));
     db.exec(linkProj("V2", "contradicts", 1));
     check(
-      "反证不计入支撑：一条 supports + 一条 contradicts 只有 1 个支撑来源",
+      "contradicting evidence is not counted as support: one supports + one contradicts gives only 1 support source",
       liveSupportGroups(),
       (x) => x === 1,
     );
 
     db.prepare("UPDATE claim_evidence_links SET relation='supports' WHERE evidence_id='V2'").run();
     check(
-      "两条不同来源的有效支撑 → 计数 SQL 返回 2（可升 VERIFIED）",
+      "two effective supports from different sources → the counting SQL returns 2 (can upgrade to VERIFIED)",
       liveSupportGroups(),
       (x) => x === 2,
     );
 
     db.prepare("UPDATE claim_evidence_links SET effective=0 WHERE evidence_id='V2'").run();
     check(
-      "投影里 effective=0 的关联不再被计数 SQL 统计（只证查询过滤，不证 detach 协议）",
+      "links with effective=0 in the projection are no longer counted by the counting SQL (proves only query filtering, not the detach protocol)",
       liveSupportGroups(),
       (x) => x === 1,
     );
 
     check(
-      "同来源的第二条有效支撑不会把来源数推到 2",
+      "a second effective support from the same source does not push the source count to 2",
       (() => {
         insEvWithObj("V3b", "merchant-mail-2", "merchant:acme.com").forEach((q) => db.exec(q));
         db.exec(linkEv("V3b", "supports"));
@@ -1372,9 +1445,9 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x === 1,
     );
 
-    // ---- effect 的跨表隔断与"所选 action"绑定（§8.12）：
-    // CHECK 只管得住 decision 自己那一行；真正的隔断是把 effect_kind 与
-    // chosen_action_id 放进唯一键之后的复合外键。
+    // ---- Cross-table isolation of effect and binding of the "chosen action" (§8.12):
+    // CHECK only controls the decision's own row; the real isolation is the composite foreign key after
+    // putting effect_kind and chosen_action_id into the unique key.
     db.exec(
       "INSERT INTO actions (id, owner_id, task_id, tool_name, capability, params_canonical," +
         " action_hash, reversible, created_at)" +
@@ -1388,7 +1461,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         "        ('o1','T7','D5','A2','issue_action_grant')",
     );
     check(
-      "非授权类决策挂不上候选 action（decision_actions 的复合外键）",
+      "a non-grant decision cannot attach a candidate action (composite foreign key of decision_actions)",
       inTransaction(db, [
         "INSERT INTO decision_actions (owner_id, task_id, decision_id, action_id, decision_effect)" +
           " VALUES ('o1','T7','D4','A1','issue_action_grant')",
@@ -1404,37 +1477,37 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       `'payment','nexus_action_commit','${action}','ah1',1,'n1',0,${FAR_FUTURE})`;
 
     check(
-      "决策还没选定 action 时签不出 grant（chosen_action_id IS NULL）",
+      "no grant can be issued while the decision has not yet chosen an action (chosen_action_id IS NULL)",
       inTransaction(db, [insGrant("G8", "D5", "A1")]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
 
-    // 用户选定 A1 并批准
+    // The user chooses A1 and approves
     db.prepare(
       "UPDATE decisions SET chosen_action_id='A1', status='decided', resolution='approved'" +
         " WHERE id='D5'",
     ).run();
     check(
-      "选定 A1 之后可以签出绑 A1 的 grant",
+      "after choosing A1 a grant bound to A1 can be issued",
       inTransaction(db, [insGrant("G9", "D5", "A1")]),
       (x) => x.ok,
     );
     check(
-      "grant 绑 A2 而用户选的是 A1 → 被拒（只在候选集里是不够的）",
+      "grant bound to A2 while the user chose A1 → rejected (being in the candidate set alone is not enough)",
       inTransaction(db, [insGrant("G12", "D5", "A2")]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
     check(
-      "事后把 chosen_action_id 改成 A2 被拒（否则就成了'选 A2、签 A1'）",
+      "changing chosen_action_id to A2 afterwards is rejected (otherwise it becomes 'choose A2, issue A1')",
       inTransaction(db, ["UPDATE decisions SET chosen_action_id='A2' WHERE id='D5'"]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
 
-    // 先退休 G9，否则下面那条会先撞 action_grants_live 的部分唯一索引而不是外键，
-    // 测试就证明不了"隔断"这件事（实测过：错误会是 UNIQUE 而不是 FOREIGN KEY）。
+    // Retire G9 first, otherwise the next one would hit the action_grants_live partial unique index first instead of the foreign key,
+    // and the test could not prove the "isolation" (verified: the error would be UNIQUE rather than FOREIGN KEY).
     db.prepare("UPDATE action_grants SET revoked_at=1 WHERE id='G9'").run();
     check(
-      "grant 引用 set_preference 决策被复合外键拒（这才是真的隔断）",
+      "grant referencing a set_preference decision is rejected by the composite foreign key (this is the real isolation)",
       inTransaction(db, [insGrant("G10", "D4", "A1")]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
@@ -1456,25 +1529,25 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       `INSERT INTO standing_grants ${sgCols} VALUES ('${id}','o1','T7','D6',` +
       `'issue_standing_grant','${action}','payment',1,0,${FAR_FUTURE})`;
     check(
-      "standing grant 的样板动作等于 chosen_action_id 时可以签出",
+      "a standing grant's template action equal to chosen_action_id can be issued",
       inTransaction(db, [insSg("S1", "A1")]),
       (x) => x.ok,
     );
     check(
-      "standing grant 绑 A2 而用户选的是 A1 → 被拒",
+      "standing grant bound to A2 while the user chose A1 → rejected",
       inTransaction(db, [insSg("S2", "A2")]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
     check(
-      "standing：事后把 chosen_action_id 改成 A2 被拒",
+      "standing: changing chosen_action_id to A2 afterwards is rejected",
       inTransaction(db, ["UPDATE decisions SET chosen_action_id='A2' WHERE id='D6'"]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
 
-    // 批准必须选定 action：两种授权 effect 都要
+    // Approval must choose an action: both grant effects require it
     db.exec(insDec("D7", "issue_action_grant"));
     check(
-      "批准的 action grant 决策不能没有 chosen_action_id",
+      "an approved action grant decision cannot lack chosen_action_id",
       inTransaction(db, [
         "UPDATE decisions SET status='decided', resolution='approved' WHERE id='D7'",
       ]),
@@ -1482,16 +1555,16 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     );
     db.exec(insDec("D8", "issue_standing_grant"));
     check(
-      "批准的 standing 决策也不能没有 chosen_action_id",
+      "an approved standing decision also cannot lack chosen_action_id",
       inTransaction(db, [
         "UPDATE decisions SET status='decided', resolution='approved' WHERE id='D8'",
       ]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
 
-    // ---- 授权状态矩阵（§8.12）：光绑 chosen_action_id 不够，还得绑"已批准"。
-    // 每一格用自己的 decision + 自己的 action，避免撞 action_grants_live 部分唯一索引，
-    // 否则失败原因会变成 UNIQUE 而不是 FOREIGN KEY，矩阵就白跑了。
+    // ---- Grant state matrix (§8.12): binding chosen_action_id alone is not enough, it must also be bound to "approved".
+    // Each cell uses its own decision + its own action, to avoid hitting the action_grants_live partial unique index,
+    // otherwise the failure reason would become UNIQUE rather than FOREIGN KEY and the matrix would run for nothing.
     const insActionRow = (id) =>
       `INSERT INTO actions (id, owner_id, task_id, tool_name, capability, params_canonical,` +
       ` action_hash, reversible, created_at)` +
@@ -1505,7 +1578,12 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       ` VALUES ('o1','T7','${decision}','${action}','${effect}')`;
 
     const AUTH_MATRIX = [
-      { label: "pending（还没批准）", status: "pending", resolution: "NULL", allowed: false },
+      {
+        label: "pending (not yet approved)",
+        status: "pending",
+        resolution: "NULL",
+        allowed: false,
+      },
       { label: "decided + denied", status: "decided", resolution: "'denied'", allowed: false },
       {
         label: "effect_apply_failed + approved",
@@ -1522,13 +1600,17 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         const tag = `${isAction ? "AG" : "SG"}${i}`;
         const act = `AX${tag}`;
         const dec = `DX${tag}`;
-        // chosen_action_id → decision_actions 的外键是 deferred，所以两行同事务写入
+        // the foreign key from chosen_action_id → decision_actions is deferred, so the two rows are written in the same transaction
         const setup = inTransaction(db, [
           insActionRow(act),
           insDecFull(dec, effect, row.status, row.resolution, act),
           insCandidate(dec, act, effect),
         ]);
-        check(`矩阵前置：${kind} / ${row.label} 的决策本身可以落库`, setup, (x) => x.ok);
+        check(
+          `matrix precondition: the decision of ${kind} / ${row.label} can itself be stored`,
+          setup,
+          (x) => x.ok,
+        );
         const attempt = isAction
           ? inTransaction(db, [
               `INSERT INTO action_grants ${grantCols} VALUES ('G_${tag}','o1','T7','${dec}',` +
@@ -1538,21 +1620,23 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
               `INSERT INTO standing_grants ${sgCols} VALUES ('S_${tag}','o1','T7','${dec}',` +
                 `'${effect}','${act}','payment',1,0,${FAR_FUTURE})`,
             ]);
-        check(`${kind} / ${row.label} → ${row.allowed ? "允许签发" : "拒绝签发"}`, attempt, (x) =>
-          row.allowed ? x.ok : !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
+        check(
+          `${kind} / ${row.label} → ${row.allowed ? "issuance allowed" : "issuance refused"}`,
+          attempt,
+          (x) => (row.allowed ? x.ok : !x.ok && /FOREIGN KEY constraint failed/i.test(x.error)),
         );
       });
     }
 
-    // ---- blob_reservations（§9.4 / §9.5.1）：未提交字节的配额持有者。
-    // 这里只证 schema 约束与配额**计数 SQL** 会把 reserved 算进去；
-    // "A2 后 B 失败 → reservation 停在 reserved → 软配额挡住第 k 次" 的完整协议
-    // 属于 Stage 3 真实入口测试。
+    // ---- blob_reservations (§9.4 / §9.5.1): holders of quota for uncommitted bytes.
+    // This only proves the schema constraints and that the quota **counting SQL** counts reserved;
+    // the full protocol of "after A2, B fails → the reservation stays reserved → the soft quota blocks the k-th one"
+    // belongs to the Stage 3 real-entry-point tests.
     const resCols =
       "(id, owner_id, task_id, content_hash, generation, byte_size, state," +
       " reclaim_attempt_id, reclaim_lease_until, expires_at, created_at, updated_at)";
-    // A1 在同一个同步事务里建 writing 对象 + reservation（§9.5.1）；
-    // reclaiming 必须带认领者与租期（CHECK）
+    // A1 creates the writing object + reservation in the same synchronous transaction (§9.5.1);
+    // reclaiming must carry a claimant and a lease (CHECK)
     const insRes = (id, size, state, exp = 100, hash = null) =>
       `INSERT INTO blob_reservations ${resCols} VALUES ('${id}','o1','T7',` +
       `'${hash ?? `ch_${id}`}',1,${size},'${state}',` +
@@ -1562,22 +1646,22 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       insRes(id, size, state, exp),
     ];
     check(
-      "reservation 的 state 只能取四个值（v0.12f 多了 reclaiming）",
+      "reservation state can only take four values (v0.12f added reclaiming)",
       inTransaction(db, insResWithObj("R0", 10, "promoted")),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "reservation 的 byte_size 必须为正（否则配额可以被做成负数）",
+      "reservation byte_size must be positive (otherwise the quota could be made negative)",
       inTransaction(db, insResWithObj("R0", 0, "reserved")),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     insResWithObj("R1", 1000, "reserved").forEach((q) => db.exec(q));
     insResWithObj("R2", 2000, "consumed").forEach((q) => db.exec(q));
     insResWithObj("R4", 400, "reclaiming", 100).forEach((q) => db.exec(q));
-    // §9.4 的公式是 reserved + reclaiming；consumed/abandoned 不算。
-    // 只查 reserved 的旧写法在实现漏算 reclaiming 时不会红，所以这里连 reclaiming 一起断言。
+    // The formula in §9.4 is reserved + reclaiming; consumed/abandoned do not count.
+    // The old form that only checks reserved does not go red when an implementation forgets reclaiming, so reclaiming is asserted together here.
     check(
-      "配额计数 SQL 把 reserved 与 reclaiming 都算进未提交字节，排除 consumed",
+      "the quota counting SQL counts both reserved and reclaiming as uncommitted bytes, excluding consumed",
       db
         .prepare(
           "SELECT COALESCE(SUM(byte_size),0) AS b FROM blob_reservations" +
@@ -1587,7 +1671,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x === 1400,
     );
     check(
-      "漏算 reclaiming 的写法会少 400（证明上一条不是恒真）",
+      "the form that forgets reclaiming would be short by 400 (proves the previous one is not trivially true)",
       db
         .prepare(
           "SELECT COALESCE(SUM(byte_size),0) AS b FROM blob_reservations" +
@@ -1609,12 +1693,12 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     );
     db.exec("COMMIT");
     check(
-      "E9 确实存在、且挂在 C2 上（下一条断言的前提）",
+      "E9 does exist and hangs on C2 (precondition of the next assertion)",
       db.prepare("SELECT claim_id FROM claim_events WHERE id='E9'").get().claim_id,
       (x) => x === "C2",
     );
     check(
-      "投影的 head_link_event_id 不能指向另一条 claim 的事件（跨 claim 完整性）",
+      "the projection's head_link_event_id cannot point at an event of another claim (cross-claim integrity)",
       inTransaction(db, [
         `INSERT INTO claim_evidence_links (owner_id, task_id, claim_id, evidence_id, relation,` +
           ` effective, head_link_event_id, updated_at)` +
@@ -1623,13 +1707,13 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
 
-    // ---- purge 回执的严格联合类型（§9.4 / §11.5）
+    // ---- Strict union type of purge receipts (§9.4 / §11.5)
     const prCols =
       "(id, owner_id, subject_kind, task_id, task_title_hash, preference_key_hash," +
       " ledger_head_digest, claim_event_count, evidence_count, revision_count," +
       " purged_scope, requested_by, executed_at)";
     check(
-      "preference 回执带 Task 元数据被拒（最小化承诺由 CHECK 兜住）",
+      "a preference receipt carrying Task metadata is rejected (the minimization commitment is backed by CHECK)",
       inTransaction(db, [
         `INSERT INTO purge_receipts ${prCols} VALUES ('R1','o1','preference',NULL,'th',` +
           `'pk',NULL,NULL,NULL,3,'preferences','u',0)`,
@@ -1637,7 +1721,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "task 回执带偏好字段被拒",
+      "a task receipt carrying preference fields is rejected",
       inTransaction(db, [
         `INSERT INTO purge_receipts ${prCols} VALUES ('R2','o1','task','T7','th',` +
           `'pk','d',1,1,NULL,'all','u',0)`,
@@ -1645,7 +1729,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "合法的 preference 回执（只有 key hash 与 revision count）可以落库",
+      "a valid preference receipt (only key hash and revision count) can be stored",
       inTransaction(db, [
         `INSERT INTO purge_receipts ${prCols} VALUES ('R3','o1','preference',NULL,NULL,` +
           `'pk',NULL,NULL,NULL,3,'preferences','u',0)`,
@@ -1653,9 +1737,9 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x.ok,
     );
 
-    // ---- 偏好的 actor 与 origin 必须对得上（§11.6）
+    // ---- The actor and origin of a preference must match (§11.6)
     check(
-      "stated + agent 被拒（模型不能自称'用户说过'）",
+      "stated + agent rejected (the model cannot claim 'the user said so')",
       inTransaction(db, [
         insPref("P12", "stated", "NULL", "'bag'", null, "agent"),
         insRev("P12", "stated"),
@@ -1663,7 +1747,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "observed + user 被拒",
+      "observed + user rejected",
       inTransaction(db, [
         insPref("P13", "observed", "NULL", "'bag'", null, "user"),
         insRev("P13", "observed"),
@@ -1671,16 +1755,16 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
 
-    // §9.4：账本对 nexus_tasks 的外键**故意不级联**，所以硬清除只能是一个显式事务；
-    // 而 task_exception 偏好必须级联，否则同一个事务会被一条偏好挡死。
+    // §9.4: the ledger's foreign key to nexus_tasks is **deliberately not cascading**, so a hard purge can only be an explicit transaction;
+    // whereas task_exception preferences must cascade, otherwise the same transaction would be blocked by a preference.
     check(
-      "账本不级联：直接删 task 被 claim_events/evidence 挡住（§9.4 的刻意设计）",
+      "ledger does not cascade: deleting a task directly is blocked by claim_events/evidence (deliberate design of §9.4)",
       inTransaction(db, ["DELETE FROM nexus_tasks WHERE id='T7'"]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
 
-    // v0.12f：reservation 也不级联。先把账本清掉，此时仍有一条 reserved，
-    // 删 Task 必须被外键挡住——这是 purge 协议"先结算字节再删元数据"的强制点。
+    // v0.12f: reservations do not cascade either. Clear the ledger first; at this point one reserved remains,
+    // and deleting the Task must be blocked by the foreign key -- this is the enforcement point of the purge protocol "settle the bytes first, then delete the metadata".
     const ledgerOnly = inTransaction(db, [
       "DELETE FROM claim_evidence_links WHERE task_id='T7'",
       "DELETE FROM claim_event_evidence WHERE task_id='T7'",
@@ -1688,27 +1772,27 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       "DELETE FROM claims WHERE task_id='T7'",
       "DELETE FROM evidence WHERE task_id='T7'",
     ]);
-    check("purge 第一步：清账本本身成立", ledgerOnly, (x) => x.ok);
+    check("purge step one: clearing the ledger itself works", ledgerOnly, (x) => x.ok);
     check(
-      "仍有 reserved reservation 时删 task 被挡住（不级联 → 不会留下无主字节）",
+      "deleting the task is blocked while a reserved reservation remains (no cascade → no ownerless bytes are left behind)",
       inTransaction(db, ["DELETE FROM nexus_tasks WHERE id='T7'"]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
 
-    // GC 的互斥：只有 reserved 能被认领成 reclaiming；B 的 reserved→consumed 与它互斥
+    // GC mutual exclusion: only reserved can be claimed into reclaiming; B's reserved→consumed is mutually exclusive with it
     db.prepare(
       "UPDATE blob_reservations SET state='reclaiming', reclaim_attempt_id='gc1'," +
         " reclaim_lease_until=999 WHERE id='R1' AND state='reserved'",
     ).run();
     check(
-      "GC 认领成功后，阶段 B 的 reserved→consumed CAS 一行都改不到",
+      "after GC claims successfully, the phase B reserved→consumed CAS changes not a single row",
       db
         .prepare("UPDATE blob_reservations SET state='consumed' WHERE id='R1' AND state='reserved'")
         .run().changes,
       (x) => x === 0,
     );
     check(
-      "reclaiming 必须带认领者与租期（否则没法丢弃迟到的收尾写）",
+      "reclaiming must carry a claimant and a lease (otherwise a late finishing write cannot be discarded)",
       inTransaction(db, [
         "UPDATE blob_reservations SET state='reclaiming', reclaim_attempt_id=NULL," +
           " reclaim_lease_until=NULL WHERE id='R1'",
@@ -1716,12 +1800,12 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "同一 owner 的同一 content_hash 不能有第二个在世持有者",
+      "the same content_hash of the same owner cannot have a second live holder",
       inTransaction(db, [insRes("R3", 500, "reserved", 100, "ch_R1")]),
       (x) => !x.ok && /UNIQUE constraint failed/i.test(x.error),
     );
     check(
-      "把在世 reservation 结算掉（abandoned/consumed）之后才腾出同 hash 的槽位",
+      "only after settling the live reservation (abandoned/consumed) is the slot for the same hash freed",
       (() => {
         db.prepare(
           "UPDATE blob_reservations SET state='abandoned', reclaim_attempt_id=NULL," +
@@ -1732,26 +1816,26 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x.ok,
     );
 
-    // ---- blob_objects：generation 寻址、writer/reclaim 租期、引用所有权
-    // （§9.4 / §9.5.1）。口径：这一组证的是 **schema 形状 + 同事务原子性**，
-    // 真实的异步时序（A2 迟到、GC 与 B 抢同一条、purge 的 P1–P5）归 Stage 3 入口测试。
-    console.log("\n[14] blob_objects：generation 寻址、租期与引用所有权");
+    // ---- blob_objects: generation addressing, writer/reclaim lease, reference ownership
+    // (§9.4 / §9.5.1). Scope: this group proves **schema shape + same-transaction atomicity**,
+    // while real asynchronous timing (a late A2, GC and B racing for the same row, P1–P5 of purge) belongs to the Stage 3 entry-point tests.
+    console.log("\n[14] blob_objects: generation addressing, leases and reference ownership");
     const setReclaiming = (key, gc) =>
       `UPDATE blob_objects SET state='reclaiming', reclaim_attempt_id='${gc}',` +
       ` reclaim_lease_until=999,` +
-      // writing 来源抄入 writer 身份；live 来源（writer 已 committed）保留原值，不能被 NULL 覆盖
+      // a writing source copies in the writer identity; a live source (writer already committed) keeps the original value and must not be overwritten by NULL
       ` settled_writer_attempt_id=COALESCE(writer_attempt_id, settled_writer_attempt_id),` +
       ` settled_writer_incarnation=COALESCE(writer_incarnation, settled_writer_incarnation),` +
       ` writer_attempt_id=NULL, writer_lease_until=NULL, writer_incarnation=NULL` +
       ` WHERE blob_key='${key}'`;
 
     check(
-      "同一 content_hash 不能有第二个未删除的 generation（key 永不复用）",
+      "the same content_hash cannot have a second undeleted generation (the key is never reused)",
       inTransaction(db, [insObj("h_V1", 2, "live", 1)]),
       (x) => !x.ok && /UNIQUE constraint failed/i.test(x.error),
     );
     check(
-      "writing 必须带 writer attempt 与租期（否则没有回收路径）",
+      "writing must carry a writer attempt and a lease (otherwise there is no reclaim path)",
       inTransaction(db, [
         `INSERT INTO blob_objects ${objCols} VALUES ('o1','nolease',1,'nolease.1',10,` +
           `'writing',0,'w1',NULL,'proc-1',NULL,NULL,0,0)`,
@@ -1759,7 +1843,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "writing 必须记下发起进程的 incarnation（否则重启后无从判断原 writer 是否还活着）",
+      "writing must record the incarnation of the initiating process (otherwise after a restart there is no way to tell whether the original writer is still alive)",
       inTransaction(db, [
         `INSERT INTO blob_objects ${objCols} VALUES ('o1','noinc',1,'noinc.1',10,` +
           `'writing',0,'w1',999,NULL,NULL,NULL,0,0)`,
@@ -1767,12 +1851,12 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "ref_count>0 的对象不能进 reclaiming",
+      "an object with ref_count>0 cannot enter reclaiming",
       inTransaction(db, [setReclaiming("h_V1.1", "g1")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "缺失证明只能出现在 deleted 墓碑上",
+      "an absence proof can appear only on a deleted tombstone",
       inTransaction(db, [
         "UPDATE blob_objects SET absence_verified_at=1, absence_verified_attempt_id='v1'" +
           " WHERE blob_key='h_V1.1'",
@@ -1780,7 +1864,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "evidence.blob_key 必须指向存在的物理对象",
+      "evidence.blob_key must point to an existing physical object",
       inTransaction(db, [
         `INSERT INTO evidence ${evCols} VALUES ('VX','o1','T7','email','nosuch.1','nosuch',` +
           `10,'blob','b','loc','v1','idx',NULL,NULL,'bank:dbs',1,'default',0)`,
@@ -1788,7 +1872,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
     check(
-      "blob_key 存在但 content_hash 对不上也被拒（身份不能和字节脱钩）",
+      "blob_key exists but content_hash does not match is also rejected (identity cannot be detached from the bytes)",
       inTransaction(db, [
         `INSERT INTO evidence ${evCols} VALUES ('VY','o1','T7','email','h_V1.1','WRONG',` +
           `10,'blob','b','loc','v1','idy',NULL,NULL,'bank:dbs',1,'default',0)`,
@@ -1796,7 +1880,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
 
-    // ---- 阶段 B 的 new_object 分支：一个事务里完成四件事
+    // ---- The new_object branch of phase B: four things complete in one transaction
     db.exec("BEGIN IMMEDIATE");
     db.exec(insObj("newobj", 1, "writing", 0, 10));
     db.exec(insRes("RN", 10, "reserved", 100, "newobj"));
@@ -1813,12 +1897,12 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         `10,'blob','bn','loc_n','v1','id_n',NULL,NULL,'bank:dbs',1,'default',0)`,
     ]);
     check(
-      "new_object 分支：consumed + live + evidence + ref_count 同一个事务里完成",
+      "new_object branch: consumed + live + evidence + ref_count complete in the same transaction",
       admitNew,
       (x) => x.ok,
     );
     check(
-      "writing → live 时 writer token 与租期被清空",
+      "on writing → live the writer token and lease are cleared",
       db
         .prepare(
           "SELECT state, writer_attempt_id AS w, writer_lease_until AS l, ref_count AS r" +
@@ -1828,20 +1912,20 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x.state === "live" && x.w === null && x.l === null && x.r === 1,
     );
 
-    // ---- stale writing 必须有回收路径（A2 超时/崩溃后）
-    db.exec(insObj("stale", 1, "writing", 0, 10, 1)); // writer 租期已过（1 < now）
+    // ---- A stale writing must have a reclaim path (after A2 times out/crashes)
+    db.exec(insObj("stale", 1, "writing", 0, 10, 1)); // writer lease already expired (1 < now)
     const reclaimStale = inTransaction(db, [
       setReclaiming("stale.1", "g_stale"),
       "UPDATE blob_objects SET state='deleted', reclaim_attempt_id=NULL," +
         " reclaim_lease_until=NULL WHERE blob_key='stale.1'",
     ]);
     check(
-      "writer 租期过期的 writing 对象可以 writing → reclaiming → deleted",
+      "a writing object whose writer lease has expired can go writing → reclaiming → deleted",
       reclaimStale,
       (x) => x.ok,
     );
     check(
-      "writing → reclaiming 把 writer 身份抄进 settled_*，但理由留空（尚未确认静默）",
+      "writing → reclaiming copies the writer identity into settled_*, but leaves the reason empty (silence not yet confirmed)",
       db
         .prepare(
           "SELECT settled_writer_attempt_id AS a, settled_writer_incarnation AS i," +
@@ -1851,7 +1935,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x.a === "w_stale.1" && x.i === "proc-1" && x.r === null,
     );
     check(
-      "只写 absence_verified_* 而不记'哪个 writer 已静默'被 CHECK 拒",
+      "writing only absence_verified_* without recording 'which writer has gone silent' is rejected by CHECK",
       inTransaction(db, [
         "UPDATE blob_objects SET absence_verified_at=5, absence_verified_attempt_id='v9'" +
           " WHERE blob_key='stale.1'",
@@ -1859,7 +1943,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "记下 settled writer（attempt + incarnation + 理由）之后才能签发缺失证明",
+      "only after recording the settled writer (attempt + incarnation + reason) can an absence proof be issued",
       inTransaction(db, [
         "UPDATE blob_objects SET absence_verified_at=5, absence_verified_attempt_id='v9'," +
           " settled_writer_attempt_id='w_stale.1', settled_writer_incarnation='proc-1'," +
@@ -1868,14 +1952,14 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x.ok,
     );
     check(
-      "writer_settled_reason 只能取三个值（committed|awaited|incarnation_gone）",
+      "writer_settled_reason can take only three values (committed|awaited|incarnation_gone)",
       inTransaction(db, [
         "UPDATE blob_objects SET writer_settled_reason='assumed' WHERE blob_key='stale.1'",
       ]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "writing → live 把 writer 身份抄进 settled_* 并记 committed",
+      "writing → live copies the writer identity into settled_* and records committed",
       db
         .prepare(
           "SELECT settled_writer_attempt_id AS a, settled_writer_incarnation AS i," +
@@ -1886,7 +1970,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     );
 
     check(
-      "墓碑复查发现字节又回来了：只作废 absence_verified_*，并累加作废次数",
+      "tombstone re-check finds the bytes are back: only invalidate absence_verified_*, and increment the invalidation count",
       inTransaction(db, [
         "UPDATE blob_objects SET absence_verified_at=NULL, absence_verified_attempt_id=NULL," +
           " absence_invalidated_count=absence_invalidated_count+1 WHERE blob_key='stale.1'",
@@ -1894,7 +1978,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x.ok,
     );
     check(
-      "作废之后 settled writer 仍在（此刻崩溃，重启仍有依据重新签发）",
+      "after invalidation the settled writer is still there (if a crash happens now, a restart still has the basis to re-issue)",
       db
         .prepare(
           "SELECT settled_writer_attempt_id AS a, settled_writer_incarnation AS i," +
@@ -1910,7 +1994,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         x.v === null,
     );
     check(
-      "作废之后只需重新写 absence_verified_*（不用重填 writer 信息）就能重新签发",
+      "after invalidation only absence_verified_* needs rewriting (no need to refill writer info) to re-issue",
       inTransaction(db, [
         "UPDATE blob_objects SET absence_verified_at=9, absence_verified_attempt_id='v10'" +
           " WHERE blob_key='stale.1'",
@@ -1918,23 +2002,23 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x.ok,
     );
     check(
-      "settled_* 不能只剩一半（无缺失证明的 committed 对象）：声称静默却说不出是哪个 writer 被 CHECK 拒",
+      "settled_* cannot be left with only half (a committed object without an absence proof): claiming silence without saying which writer is rejected by CHECK",
       inTransaction(db, [
         "UPDATE blob_objects SET settled_writer_attempt_id=NULL WHERE blob_key='newobj.1'",
       ]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "writer_incarnation 必须指向存在的 incarnation（外键）",
+      "writer_incarnation must point to an existing incarnation (foreign key)",
       inTransaction(db, [
         `INSERT INTO blob_objects ${objCols} VALUES ('o1','ghost',1,'ghost.1',10,` +
           `'writing',0,'w1',999,'proc-nope',NULL,NULL,0,0)`,
       ]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
-    // incarnation 的权威记录（v0.12n）：没有"至多一个当前"的唯一索引——旧行遗留不得阻塞
-    // 新的 service.start。supersede 只替换 boot id 不同的旧行；同 boot id 的同进程前任
-    // 保持非 gone，但新行照常登记。
+    // Authoritative record of incarnations (v0.12n): there is no 'at most one current' unique index -- a leftover old row must not block
+    // a new service.start. supersede replaces only old rows with a different boot id; a same-process predecessor
+    // with the same boot id stays non-gone, but the new row registers as usual.
     const insInc = (id, boot) =>
       "INSERT INTO process_incarnations (incarnation_id, process_boot_id, started_at)" +
       ` VALUES ('${id}', '${boot}', 1)`;
@@ -1942,7 +2026,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       "UPDATE process_incarnations SET gone_at=1, gone_basis='superseded_under_gateway_lock'" +
       ` WHERE gone_at IS NULL AND process_boot_id <> '${boot}'`;
     check(
-      "同进程 reload：supersede 不动同 boot id 的前任，但新 start 照常登记（不被旧行阻塞）",
+      "same-process reload: supersede leaves the same-boot-id predecessor alone, but the new start registers as usual (not blocked by the old row)",
       [
         db.prepare(supersede("boot-A")).run().changes,
         inTransaction(db, [insInc("proc-1b", "boot-A")]).ok,
@@ -1953,21 +2037,21 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x[0] === 0 && x[1] === true && x[2] === null,
     );
     check(
-      "不同进程重启：旧行被置 gone 并插入自己，在同一事务里完成",
+      "different-process restart: the old row is set gone and its own is inserted, done in the same transaction",
       inTransaction(db, [supersede("boot-B"), insInc("proc-2", "boot-B")]),
       (x) => x.ok,
     );
     check(
-      "上一条之后：boot-A 的两行都被 supersede，只剩 boot-B 这一行未 gone",
+      "after the previous one: both boot-A rows are superseded, leaving only the boot-B row not gone",
       db
         .prepare("SELECT incarnation_id AS i FROM process_incarnations WHERE gone_at IS NULL")
         .all()
         .map((r) => r.i),
       (x) => x.length === 1 && x[0] === "proc-2",
     );
-    // ---- 真实崩溃：写入当前 incarnation 后 SIGKILL，再用同一个库文件启动"新进程"。
-    // 这是真实进程崩溃（不是模拟），证的是 SQLite 层的恢复形状：新登记必须成功，
-    // 旧行被 supersede，不需要人工改库。真实 OpenClaw 的 kill -9 重启属于 Stage 0 spike 3 ⑤。
+    // ---- Real crash: SIGKILL after writing the current incarnation, then start a "new process" with the same database file.
+    // This is a real process crash (not simulated), and what it proves is the recovery shape at the SQLite layer: the new registration must succeed,
+    // the old row is superseded, and no manual database edit is needed. The real OpenClaw kill -9 restart belongs to Stage 0 spike 3 ⑤.
     {
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-kill-"));
       const dbFile = path.join(tmpDir, "nexus.sqlite");
@@ -2004,12 +2088,12 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       db2.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });
       check(
-        "崩溃进程确实是被 SIGKILL 杀死的，且遗留了未 gone 的 incarnation 行",
+        "the crashed process was indeed killed by SIGKILL, and left behind a not-gone incarnation row",
         [r.signal, before],
         (x) => x[0] === "SIGKILL" && x[1].length === 1 && x[1][0].g === null,
       );
       check(
-        "崩溃后重启：新 service.start 登记成功，旧行被 supersede，无需人工改库",
+        "restart after the crash: the new service.start registers successfully, the old row is superseded, no manual database edit needed",
         after,
         (x) =>
           x.length === 2 &&
@@ -2018,54 +2102,54 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       );
     }
 
-    // ---- process_boot_id 的来源（§9.5.1，2026-10-09 冻结为候选 D：pid + OS 进程启动时间）。
-    // 注意口径：下面只证 `<pid>:<startTime>` 这个**组合规则本身**的性质（Node 级纯函数）。
-    // 真实读到的值、kill -9 前后的变化、pkg/dev 的差异，是 Stage 0 spike 3 的运行时观察，
-    // 记录在 §13；生产函数 resolveProcessBootId 的单元测试在 vitest 里，不在本脚本。
+    // ---- Source of process_boot_id (§9.5.1, frozen as candidate D on 2026-10-09: pid + OS process start time).
+    // Note the scope: the following proves only the properties of the **combination rule itself** `<pid>:<startTime>` (a Node-level pure function).
+    // The values actually read, the change before and after kill -9, and the pkg/dev differences are runtime observations of Stage 0 spike 3,
+    // recorded in §13; the unit tests of the production function resolveProcessBootId are in vitest, not in this script.
     const bootIdOf = (pid, startTime) =>
       Number.isFinite(pid) && Number.isFinite(startTime) ? `${pid}:${startTime}` : null;
     const bootP1 = bootIdOf(4242, 1791544804);
     check(
-      "候选 D：同一个 (pid, 启动时间) 永远得到同一个 boot id（与模块实例无关）",
+      "candidate D: the same (pid, start time) always yields the same boot id (independent of module instance)",
       [bootIdOf(4242, 1791544804), bootP1],
       (x) => typeof x[0] === "string" && x[0] === x[1],
     );
     check(
-      "候选 D：pid 被复用但启动时间不同 → 不同的 boot id（只用 pid 会在这里撞）",
+      "candidate D: pid reused but start time different → different boot id (pid alone would collide here)",
       [bootP1, bootIdOf(4242, 1791545179)],
       (x) => x[0] !== x[1],
     );
     check(
-      "候选 D：启动时间相同但 pid 不同 → 不同的 boot id",
+      "candidate D: same start time but different pid → different boot id",
       [bootP1, bootIdOf(4243, 1791544804)],
       (x) => x[0] !== x[1],
     );
     check(
-      "候选 D 的局限：读不到启动时间时没有 boot id（调用方必须关闭 incarnation_gone，不得自造一个）",
+      "limit of candidate D: with no readable start time there is no boot id (the caller must turn incarnation_gone off and must not fabricate one)",
       [bootIdOf(4242, null), bootIdOf(4242, Number.NaN), bootIdOf(4242, undefined)],
       (x) => x.every((v) => v === null),
     );
     check(
-      "process_boot_id 必须有值",
+      "process_boot_id must have a value",
       inTransaction(db, [
         "INSERT INTO process_incarnations (incarnation_id, started_at) VALUES ('proc-x', 1)",
       ]),
       (x) => !x.ok && /NOT NULL constraint failed/i.test(x.error),
     );
-    db.exec(insInc("proc-2c", "boot-B")); // 一个"当前"行供下一条用例
+    db.exec(insInc("proc-2c", "boot-B")); // one "current" row for the next case
     check(
-      "gone_at 与 gone_basis 必须成对",
+      "gone_at and gone_basis must come in pairs",
       inTransaction(db, [
         "UPDATE process_incarnations SET gone_at=2 WHERE incarnation_id='proc-2c'",
       ]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
 
-    // ---- attach_live_object：owner 已有 live 对象，另一个 Task 首次引用它
+    // ---- attach_live_object: the owner already has a live object, another Task references it for the first time
     db.exec(
       "INSERT INTO nexus_tasks (id, owner_id, kind, title, status, goal_json, risk_ceiling," +
         " origin_session_key, revision, created_at, updated_at)" +
-        " VALUES ('T8','o1','k','另一个 Task','executing','{}','R1','s2',1,0,0)",
+        " VALUES ('T8','o1','k','Another Task','executing','{}','R1','s2',1,0,0)",
     );
     db.exec(insObj("shared", 1, "live", 1));
     db.exec(
@@ -2078,7 +2162,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       "UPDATE blob_objects SET ref_count=ref_count+1 WHERE blob_key='shared.1'",
     ]);
     check(
-      "attach_live_object 分支：插 evidence 与 ref_count+=1 同事务（不新建对象）",
+      "attach_live_object branch: inserting evidence and ref_count+=1 in the same transaction (no new object)",
       attach,
       (x) => x.ok,
     );
@@ -2086,7 +2170,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       db.prepare("SELECT COUNT(*) AS c FROM evidence WHERE owner_id='o1' AND blob_key = ?").get(key)
         .c;
     check(
-      "此时物理对象被两个 Task 共享，ref_count 与 live 引用数一致",
+      "now the physical object is shared by two Tasks, and ref_count matches the live reference count",
       [
         liveRefs("shared.1"),
         db.prepare("SELECT ref_count AS r FROM blob_objects WHERE blob_key='shared.1'").get().r,
@@ -2094,8 +2178,8 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x[0] === 2 && x[1] === 2,
     );
 
-    // ---- purge 的 P3：带 claim 关联的 evidence 不能直接删，只能摘引用
-    // 这一组跑在第 13 组清账本之后，所以自己建一条新的 claim 来挂关联
+    // ---- P3 of purge: evidence with a claim link cannot be deleted directly, only its reference detached
+    // This group runs after the group-13 ledger clearing, so it builds a fresh claim itself to hang the link on
     db.exec("BEGIN IMMEDIATE");
     db.exec(
       `INSERT INTO claims ${claimCols} VALUES ('C3','o1','T7','s3','p','null',` +
@@ -2111,9 +2195,9 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         ` effective, head_link_event_id, updated_at)` +
         ` VALUES ('o1','T7','C3','VS7','supports',1,'E10',0)`,
     ]);
-    check("前置：给共享 evidence 建一条真实 claim 关联", linkVS7, (x) => x.ok);
+    check("precondition: build a real claim link for the shared evidence", linkVS7, (x) => x.ok);
     check(
-      "P3 若直接 DELETE evidence，会被 claim 关联的外键挡住（所以 P3 不删行）",
+      "if P3 DELETEd the evidence directly it would be blocked by the claim link foreign key (so P3 does not delete rows)",
       inTransaction(db, ["DELETE FROM evidence WHERE id='VS7'"]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
@@ -2122,21 +2206,29 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         " AND blob_key='shared.1'",
       "UPDATE blob_objects SET ref_count=ref_count-1 WHERE blob_key='shared.1'",
     ]);
-    check("P3 的正确形状：置 blob_key=NULL 并扣减 ref_count，同一个事务", p3, (x) => x.ok);
-    check("purge 掉一侧之后，另一个 Task 仍持有引用", liveRefs("shared.1"), (x) => x === 1);
-    // 故障注入：同一事务里摘引用 + 扣 ref_count，中间失败必须一起回滚，
-    // 不能出现"引用摘了但 ref_count 没减"或反过来的半成品
+    check(
+      "correct shape of P3: set blob_key=NULL and decrement ref_count, in the same transaction",
+      p3,
+      (x) => x.ok,
+    );
+    check(
+      "after purging one side, the other Task still holds a reference",
+      liveRefs("shared.1"),
+      (x) => x === 1,
+    );
+    // Fault injection: detaching the reference + decrementing ref_count in the same transaction, a mid-way failure must roll back together,
+    // there must be no half-finished state of "reference detached but ref_count not decremented" or the reverse
     const before = db
       .prepare("SELECT ref_count AS r FROM blob_objects WHERE blob_key='shared.1'")
       .get().r;
     const halfway = inTransaction(db, [
       "UPDATE evidence SET blob_key=NULL WHERE id='VS8'",
       "UPDATE blob_objects SET ref_count=ref_count-1 WHERE blob_key='shared.1'",
-      // 触发 ref_count >= 0 的 CHECK，模拟事务中途失败
+      // trigger the ref_count >= 0 CHECK, simulating a mid-transaction failure
       "UPDATE blob_objects SET ref_count=-1 WHERE blob_key='shared.1'",
     ]);
     check(
-      "摘引用与扣 ref_count 同事务：中途失败一起回滚",
+      "detaching the reference and decrementing ref_count in the same transaction: a mid-way failure rolls back together",
       [
         halfway.ok,
         db.prepare("SELECT ref_count AS r FROM blob_objects WHERE blob_key='shared.1'").get().r,
@@ -2145,23 +2237,23 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x[0] === false && x[1] === before && x[2] === 1,
     );
     check(
-      "仍被别的 Task 引用时，物理对象进不了 reclaiming（不会被误删）",
+      "while still referenced by another Task, the physical object cannot enter reclaiming (no accidental deletion)",
       inTransaction(db, [setReclaiming("shared.1", "g2")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "按 content_hash 查会把已删内容的那条算成引用 → 所以必须查 blob_key",
+      "querying by content_hash would count the one with deleted content as a reference → so blob_key must be queried",
       db
         .prepare("SELECT COUNT(*) AS c FROM evidence WHERE owner_id='o1' AND content_hash='shared'")
         .get().c,
       (x) => x === 2,
     );
 
-    // 另一侧也 purge → ref_count 到 0 → 才允许回收
+    // The other side is purged too → ref_count reaches 0 → only then is reclaim allowed
     db.exec("UPDATE evidence SET blob_key=NULL, redaction_state='purged' WHERE id='VS8'");
     db.exec("UPDATE blob_objects SET ref_count=0 WHERE blob_key='shared.1'");
     check(
-      "没人引用之后，物理对象可以进 reclaiming，再进 deleted 墓碑",
+      "after nobody references it, the physical object can enter reclaiming, then the deleted tombstone",
       inTransaction(db, [
         setReclaiming("shared.1", "g3"),
         "UPDATE blob_objects SET state='deleted', reclaim_attempt_id=NULL," +
@@ -2170,49 +2262,49 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x.ok,
     );
     check(
-      "旧 generation 进 deleted 之后才允许建新 generation",
+      "only after the old generation enters deleted is a new generation allowed to be built",
       inTransaction(db, [insObj("shared", 2, "live", 0)]),
       (x) => x.ok,
     );
 
-    // ---- purge work set（§9.4 P3）：P3 清空 blob_key 之前必须先把受影响对象抄进
-    // purge_work_items，否则崩溃后枚举不出来。这里证 schema 形状与同事务原子性。
+    // ---- purge work set (§9.4 P3): before P3 clears blob_key, the affected objects must first be copied into
+    // purge_work_items, otherwise they cannot be enumerated after a crash. This proves the schema shape and same-transaction atomicity.
     const pwiCols =
       "(owner_id, task_id, purge_id, content_hash, generation, blob_key, source_kind," +
       " refs_released, disposition, state, absence_proof_attempt_id, created_at, updated_at)";
-    // absence_verified 必须带 proof token（默认 'tok0'），其余状态不得带
+    // absence_verified must carry a proof token (default 'tok0'), other states must not
     const insPwi = (task, hash, disp, state, refs = 1, source = "evidence", tok = "tok0") =>
       `INSERT INTO purge_work_items ${pwiCols} VALUES ('o1','${task}','pg1','${hash}',1,` +
       `'${hash}.1','${source}',${refs},'${disp}','${state}',` +
       `${state === "absence_verified" ? `'${tok}'` : "NULL"},0,0)`;
-    // purge run owner（v0.12j）：工作项必须挂在一个持久化的 run 上
+    // purge run owner (v0.12j): a work item must hang on a persisted run
     const insRun = (task, purge = "pg1", phase = "sealed", extra = "NULL,NULL") =>
       `INSERT INTO purge_runs (owner_id, task_id, purge_id, phase, workset_item_count,` +
       ` workset_sealed_at, created_at, updated_at) VALUES ('o1','${task}','${purge}',` +
       `'${phase}',${extra},0,0)`;
     check(
-      "工作项不能挂在不存在的 purge run 上（外键）",
+      "a work item cannot hang on a nonexistent purge run (foreign key)",
       inTransaction(db, [insPwi("T7", "shared", "reclaim_pending", "pending")]),
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
     check(
-      "phase='workset_sealed' 必须同时带 item_count 与 sealed_at",
+      "phase='workset_sealed' must carry both item_count and sealed_at",
       inTransaction(db, [insRun("T7", "pgX", "workset_sealed")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "phase 只能取三个值",
+      "phase can take only three values",
       inTransaction(db, [insRun("T7", "pgX", "done")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     db.exec(insRun("T7", "pg1", "sealed"));
     check(
-      "一个 Task 只能有一个 purge run（重试沿用同一个 purge_id，而不是再开一个）",
+      "a Task can have only one purge run (a retry reuses the same purge_id rather than opening another)",
       inTransaction(db, [insRun("T7", "pg2", "sealed")]),
       (x) => !x.ok && /UNIQUE constraint failed/i.test(x.error),
     );
     check(
-      "工作项的 blob_key 必须与声明的 (hash, generation) 指向同一个物理对象",
+      "a work item's blob_key must point to the same physical object as the declared (hash, generation)",
       inTransaction(db, [
         `INSERT INTO purge_work_items ${pwiCols} VALUES ('o1','T7','pg1','h_V1',1,` +
           `'h_V2.1','evidence',1,'reclaim_pending','pending',NULL,0,0)`,
@@ -2220,7 +2312,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => !x.ok && /FOREIGN KEY constraint failed/i.test(x.error),
     );
     check(
-      "工作项的 disposition 随最新引用数改写：shared_retained ↔ reclaim_pending 双向都允许",
+      "a work item's disposition is rewritten with the latest reference count: shared_retained ↔ reclaim_pending is allowed in both directions",
       (() => {
         db.exec(insObj("flip", 1, "live", 1));
         db.exec(insPwi("T7", "flip", "shared_retained", "pending"));
@@ -2243,17 +2335,17 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x[0] === 1 && x[1] === 1,
     );
     check(
-      "工作项的终态必须与 disposition 对应：要删的只能是 absence_verified",
+      "a work item's terminal state must correspond to disposition: one to be deleted can only be absence_verified",
       inTransaction(db, [insPwi("T7", "shared", "reclaim_pending", "retained_verified")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "留下的共享对象只能是 retained_verified",
+      "the shared object that remains can only be retained_verified",
       inTransaction(db, [insPwi("T7", "shared", "shared_retained", "absence_verified")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "reservation 来源的工作项 refs_released 必须为 0；evidence 来源必须为正",
+      "refs_released of a reservation-source work item must be 0; an evidence source must be positive",
       [
         inTransaction(db, [insPwi("T7", "shared", "reclaim_pending", "pending", 1, "reservation")])
           .ok,
@@ -2262,12 +2354,12 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x[0] === false && x[1] === false,
     );
     check(
-      "source_kind 只能取 evidence|reservation",
+      "source_kind can take only evidence|reservation",
       inTransaction(db, [insPwi("T7", "shared", "reclaim_pending", "pending", 1, "guess")]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
     check(
-      "absence_verified 必须带 proof token；其余状态不得带",
+      "absence_verified must carry a proof token; other states must not",
       [
         inTransaction(db, [
           `INSERT INTO purge_work_items ${pwiCols} VALUES ('o1','T7','pg1','shared',1,` +
@@ -2281,17 +2373,17 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x[0] === false && x[1] === false,
     );
     check(
-      "refs_released 必须为正（没摘到引用就不该有工作项）",
+      "refs_released must be positive (a work item should not exist if no reference was detached)",
       inTransaction(db, [insPwi("T7", "shared", "reclaim_pending", "pending", 0)]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
-    // 专门再建一条有引用的证据，证明 P3 的两件事确实在同一个事务里发生
+    // Build one more piece of evidence that has a reference, to prove the two things of P3 really happen in the same transaction
     db.exec(insObj("pw", 1, "live", 1));
     db.exec(
       `INSERT INTO evidence ${evCols} VALUES ('VPW','o1','T7','email','pw.1','pw',` +
         `10,'blob','bpw','loc_pw','v1','id_pw',NULL,NULL,'bank:dbs',1,'default',0)`,
     );
-    // P2 ①：reservation 来源的对象（A1/A2 已落地、阶段 B 没产生 evidence）进工作集
+    // P2 ①: objects from a reservation source (A1/A2 landed, phase B produced no evidence) enter the work set
     db.exec(insObj("rsv", 1, "live", 0));
     db.exec(insPwi("T7", "rsv", "reclaim_pending", "pending", 0, "reservation"));
     const p3WithWorkSet = inTransaction(db, [
@@ -2305,7 +2397,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         " workset_sealed_at=1 WHERE task_id='T7' AND purge_id='pg1' AND phase='sealed'",
     ]);
     check(
-      "P3：写工作项 + 清空 blob_key + 扣 ref_count + 封 run 在同一个事务里",
+      "P3: writing the work item + clearing blob_key + decrementing ref_count + sealing the run in the same transaction",
       [
         p3WithWorkSet.ok,
         db.prepare("SELECT blob_key AS k FROM evidence WHERE id='VPW'").get().k,
@@ -2314,7 +2406,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x[0] === true && x[1] === null && x[2] === 0,
     );
     check(
-      "evidence 的引用已经清空，但工作项仍记着 blob_key → 崩溃重启后可枚举",
+      "the evidence reference is cleared but the work item still records blob_key → enumerable after a crash restart",
       db
         .prepare(
           "SELECT blob_key AS k, state AS s FROM purge_work_items" +
@@ -2324,14 +2416,14 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x.k === "pw.1" && x.s === "pending",
     );
     check(
-      "item_count 把 reservation 来源也算进去（2 = evidence 1 + reservation 1）",
+      "item_count also counts the reservation source (2 = evidence 1 + reservation 1)",
       db.prepare("SELECT workset_item_count AS n FROM purge_runs WHERE task_id='T7'").get().n,
       (x) => x === 2,
     );
 
-    // ---- ref_count 是投影，不是授权（§9.4）：权威事实是 evidence.blob_key。
-    // CHECK 只能保证 ref_count >= 0，保证不了它等于真实引用数，所以每处删除授权
-    // 都必须带"重算"。下面三条证明：漂移能被重算查出来，带重算的回收更新会拒绝漂移对象。
+    // ---- ref_count is a projection, not an authorization (§9.4): the authoritative fact is evidence.blob_key.
+    // CHECK can only guarantee ref_count >= 0, not that it equals the real reference count, so every delete authorization
+    // must carry a "recompute". The following three prove: drift can be found by recomputation, and a reclaim update with recomputation refuses drifted objects.
     const drift = (key) =>
       db
         .prepare(
@@ -2346,13 +2438,13 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         `10,'blob','bdr','loc_dr','v1','id_dr',NULL,NULL,'bank:dbs',1,'default',0)`,
     );
     check(
-      "重算：正常状态下 ref_count 等于 evidence.blob_key 的真实引用数",
+      "recompute: in the normal state ref_count equals the real reference count of evidence.blob_key",
       drift("dr.1"),
       (x) => x.projected === 1 && x.actual === 1,
     );
-    db.exec("UPDATE blob_objects SET ref_count=0 WHERE blob_key='dr.1'"); // 少算：CHECK 拦不住
+    db.exec("UPDATE blob_objects SET ref_count=0 WHERE blob_key='dr.1'"); // under-count: CHECK cannot stop it
     check(
-      "少减/漏记：投影为 0 但仍有 evidence 引用——schema 拦不住，重算能查出",
+      "under-decrement / missed record: projection is 0 but evidence still references it -- the schema cannot stop it, recomputation can find it",
       drift("dr.1"),
       (x) => x.projected === 0 && x.actual === 1,
     );
@@ -2366,7 +2458,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         )
         .run(key).changes;
     check(
-      "带重算的回收更新拒绝漂移对象（0 行）；只信 ref_count 的写法会放行",
+      "a reclaim update with recomputation refuses the drifted object (0 rows); a form that trusts only ref_count would let it through",
       [
         guardedReclaim("dr.1"),
         db
@@ -2381,10 +2473,10 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     db.exec("DELETE FROM evidence WHERE id='VDR'");
     db.exec("DELETE FROM blob_objects WHERE blob_key='dr.1'");
 
-    // P5 的前置（§9.4）：run 已 sealed、工作项数 = item_count、没有非终态项、
-    // 每条 absence_verified 项的 token 等于对象**当前**的缺失证明、无在世 reservation。
-    // 所有条件都带 {ownerId, taskId, purgeId}（principal-first，§4 的 store 契约）。
-    // 只写 NOT EXISTS(非终态) 对空集合真空成立、对过期的终态也成立——下面逐一对照。
+    // P5 precondition (§9.4): run is sealed, work item count = item_count, no non-terminal items,
+    // the token of every absence_verified item equals the object's **current** absence proof, no live reservation.
+    // All conditions carry {ownerId, taskId, purgeId} (principal-first, the store contract of §4).
+    // NOT EXISTS(non-terminal) alone is vacuously true on an empty set and also true for an expired terminal state -- compare them one by one below.
     const p5Gate = (owner, task, purge = "pg1") =>
       db
         .prepare(
@@ -2414,7 +2506,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         )
         .get(task).ok;
     const gate = () => p5Gate("o1", "T7");
-    // 对象走到带证明的墓碑（live 来源，writer 已 committed）
+    // Objects reach a tombstone with proof (live source, writer already committed)
     const tombstone = (key, tok) =>
       inTransaction(db, [
         `UPDATE blob_objects SET settled_writer_attempt_id='w_${key}',` +
@@ -2425,13 +2517,13 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
           ` reclaim_lease_until=NULL, absence_verified_at=20,` +
           ` absence_verified_attempt_id='${tok}' WHERE blob_key='${key}'`,
       ]);
-    check("P5 前置：工作项还是 pending → 不放行", gate(), (x) => x === 0);
+    check("P5 precondition: work item is still pending → not let through", gate(), (x) => x === 0);
     db.prepare(
       "UPDATE blob_reservations SET state='abandoned', reclaim_attempt_id=NULL," +
         " reclaim_lease_until=NULL WHERE state IN ('reserved','reclaiming')",
     ).run();
     check(
-      "两个对象都进墓碑并签发证明，P4 把 token 抄进工作项 → 放行",
+      "both objects enter tombstones and have proofs issued, P4 copies the tokens into the work items → let through",
       [
         tombstone("pw.1", "v20").ok,
         tombstone("rsv.1", "v21").ok,
@@ -2456,7 +2548,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         " absence_invalidated_count=absence_invalidated_count+1 WHERE blob_key='rsv.1'",
     );
     check(
-      "终态工作项 → 对象证明被作废 → P5 拒绝；只看工作项状态的写法会放行",
+      "terminal work item → object proof invalidated → P5 refuses; a form that only looks at the work item state would let it through",
       [gate(), naive("T7")],
       (x) => x[0] === 0 && x[1] === 1,
     );
@@ -2465,14 +2557,14 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         " WHERE blob_key='rsv.1'",
     );
     check(
-      "重签了新证明但工作项还挂着旧 token → 仍不放行（token 必须一致）",
+      "a new proof is re-issued but the work item still holds the old token → still not let through (the tokens must match)",
       gate(),
       (x) => x === 0,
     );
     db.exec("UPDATE purge_work_items SET absence_proof_attempt_id='v22' WHERE blob_key='rsv.1'");
-    check("P4 把新 token 抄进工作项之后 → 放行", gate(), (x) => x === 1);
+    check("after P4 copies the new token into the work item → let through", gate(), (x) => x === 1);
     check(
-      "作废事务同时把工作项退回 pending 并清 token（CHECK 要求成对）",
+      "the invalidation transaction also returns the work item to pending and clears the token (CHECK requires them in pairs)",
       inTransaction(db, [
         "UPDATE blob_objects SET absence_verified_at=NULL, absence_verified_attempt_id=NULL," +
           " absence_invalidated_count=absence_invalidated_count+1 WHERE blob_key='rsv.1'",
@@ -2481,9 +2573,9 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       ]),
       (x) => x.ok,
     );
-    check("退回 pending 之后不放行", gate(), (x) => x === 0);
+    check("after returning to pending → not let through", gate(), (x) => x === 0);
     check(
-      "只把状态退回 pending、不清 token 被 CHECK 拒（两者必须同时变）",
+      "returning only the state to pending without clearing the token is rejected by CHECK (the two must change together)",
       inTransaction(db, ["UPDATE purge_work_items SET state='pending' WHERE blob_key='pw.1'"]),
       (x) => !x.ok && /CHECK constraint failed/i.test(x.error),
     );
@@ -2495,10 +2587,10 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       "UPDATE purge_work_items SET state='absence_verified', absence_proof_attempt_id='v23'" +
         " WHERE blob_key='rsv.1'",
     );
-    check("重新走完 P4 → 再次放行", gate(), (x) => x === 1);
+    check("walk P4 through again → let through again", gate(), (x) => x === 1);
 
-    // ---- P4 终态更新与证明作废的两种交错（§9.4，v0.12l）。
-    // 两条都是同步事务，由 SQLite 写锁串行化，所以只有两种顺序。
+    // ---- Two interleavings of the P4 terminal update and proof invalidation (§9.4, v0.12l).
+    // Both are synchronous transactions serialized by the SQLite write lock, so there are only two orders.
     const p4Finish = (key, tok) =>
       db
         .prepare(
@@ -2531,7 +2623,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
             ` WHERE task_id='T7' AND blob_key='${key}'`,
         )
         .get();
-    // P4 的枚举：pending/failed，外加"终态但 token 已过期"的兜底
+    // P4 enumeration: pending/failed, plus a fallback of "terminal but token expired"
     const p4Pick = (fallback) =>
       db
         .prepare(
@@ -2547,64 +2639,64 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         )
         .all()
         .map((r) => r.k);
-    // 交错 1：P4 读到 v23 之后，作废先提交 → P4 的条件更新必须命中 0 行
-    const inv1 = invalidate("rsv.1"); // 此时项目是 absence_verified(v23)：被退回 pending
+    // Interleaving 1: after P4 reads v23, invalidation commits first → P4's conditional update must hit 0 rows
+    const inv1 = invalidate("rsv.1"); // at this point the item is absence_verified(v23): returned to pending
     check(
-      "交错 1：作废先提交 → P4 拿旧 token 的条件更新命中 0 行，工作项保持 pending",
+      "interleaving 1: invalidation commits first → P4's conditional update with the old token hits 0 rows, the work item stays pending",
       [inv1.ok, p4Finish("rsv.1", "v23"), itemOf("rsv.1")],
       (x) => x[0] && x[1] === 0 && x[2].s === "pending" && x[2].t === null,
     );
     sign("rsv.1", "v24");
     check(
-      "重签 v24 后 P4 取新 token → 命中 1 行，放行",
+      "after re-issuing v24 P4 takes the new token → hits 1 row, let through",
       [p4Finish("rsv.1", "v24"), gate()],
       (x) => x[0] === 1 && x[1] === 1,
     );
-    // 交错 2：P4 的条件更新先提交 → 作废事务必须把它退回 pending
+    // Interleaving 2: P4's conditional update commits first → the invalidation transaction must return it to pending
     const inv2 = invalidate("rsv.1");
     check(
-      "交错 2：P4 先提交 → 作废事务把它退回 pending 并清 token，P5 不放行",
+      "interleaving 2: P4 commits first → the invalidation transaction returns it to pending and clears the token, P5 does not let through",
       [inv2.ok, itemOf("rsv.1"), gate()],
       (x) => x[0] && x[1].s === "pending" && x[1].t === null && x[2] === 0,
     );
     sign("rsv.1", "v25");
     check(
-      "再次 P4 → 终态 → 放行（purge 不会停在 cleanup_pending）",
+      "P4 again → terminal → let through (purge does not stall at cleanup_pending)",
       [p4Finish("rsv.1", "v25"), gate()],
       (x) => x[0] === 1 && x[1] === 1,
     );
-    // 对照：P4 先读 token、后无条件写终态（v0.12k 的写法）→ 作废夹在中间就卡死
-    const inv3 = invalidate("rsv.1"); // 项目是终态 → 退回 pending
+    // Control: P4 reads the token first, then unconditionally writes the terminal state (the v0.12k form) → an invalidation squeezed in between gets it stuck
+    const inv3 = invalidate("rsv.1"); // the item is terminal → returned to pending
     sign("rsv.1", "v26");
     const naiveTok = "v26";
-    invalidate("rsv.1"); // P4 读完 v26 之后又被作废：项目此刻是 pending → 0 行可退
+    invalidate("rsv.1"); // after P4 finished reading v26 it is invalidated again: the item is pending at this moment → 0 rows to return
     db.prepare(
       "UPDATE purge_work_items SET state='absence_verified'," +
         " absence_proof_attempt_id=? WHERE blob_key='rsv.1'",
-    ).run(naiveTok); // 无条件写旧 token
+    ).run(naiveTok); // unconditionally write the old token
     check(
-      "对照：无条件写终态 → 过期终态，P5 拒绝，且只枚举 pending/failed 的 P4 再也捡不起来",
+      "control: unconditionally writing the terminal state → expired terminal state, P5 refuses, and a P4 that enumerates only pending/failed can never pick it up again",
       [inv3.ok, gate(), p4Pick(false).includes("rsv.1")],
       (x) => x[0] && x[1] === 0 && x[2] === false,
     );
     check(
-      "兜底枚举能捡起 token 已过期的终态项（不会永久卡住）",
+      "the fallback enumeration can pick up a terminal item whose token has expired (it is never permanently stuck)",
       p4Pick(true).includes("rsv.1"),
       (x) => x === true,
     );
-    // 兜底：把过期终态退回 pending 并重新取证
+    // Fallback: return the expired terminal state to pending and re-collect proof
     db.exec(
       "UPDATE purge_work_items SET state='pending', absence_proof_attempt_id=NULL" +
         " WHERE blob_key='rsv.1'",
     );
     sign("rsv.1", "v27");
     check(
-      "兜底之后重新取证 → 放行",
+      "after the fallback, re-collecting proof → let through",
       [p4Finish("rsv.1", "v27"), gate()],
       (x) => x[0] === 1 && x[1] === 1,
     );
     check(
-      "本 Task 仍有 reserved 的 reservation → 不放行（P2 必须先结算完）",
+      "this Task still has a reserved reservation → not let through (P2 must settle first)",
       (() => {
         const row = db
           .prepare(
@@ -2620,12 +2712,12 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x === 0,
     );
     check(
-      "错误的 owner 不放行（principal-first：不能只按 task_id 查）",
+      "wrong owner not let through (principal-first: cannot query by task_id alone)",
       [p5Gate("o2", "T7"), p5Gate("o1", "T7", "pgZ")],
       (x) => !x[0] && !x[1],
     );
     check(
-      "item_count 漏算 reservation 来源（=1）→ 不放行",
+      "item_count missing the reservation source (=1) → not let through",
       (() => {
         db.exec("UPDATE purge_runs SET workset_item_count=1 WHERE task_id='T7'");
         const r = gate();
@@ -2636,7 +2728,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     );
     db.exec("DELETE FROM purge_work_items WHERE owner_id='o1' AND task_id='T7'");
     check(
-      "P5 前置：工作项不见了（数量 ≠ item_count）→ 不放行；只查 NOT EXISTS 的写法会放行",
+      "P5 precondition: work items gone (count ≠ item_count) → not let through; a form that only checks NOT EXISTS would let it through",
       [gate(), naive("T7")],
       (x) => x[0] === 0 && x[1] === 1,
     );
@@ -2645,16 +2737,16 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
         " workset_sealed_at=NULL WHERE task_id='T7'",
     );
     check(
-      "P5 前置：P1 之后 P3 之前的空集合 → 不放行（run 还没 sealed）",
+      "P5 precondition: empty set after P1 and before P3 → not let through (the run is not yet sealed)",
       [gate(), naive("T7")],
       (x) => x[0] === 0 && x[1] === 1,
     );
 
-    // ---- P2 ① 的幂等重入（§9.4，v0.12l）：工作集是"每个物理对象一条"，不是每条 reservation 一条
+    // ---- Idempotent re-entry of P2 ① (§9.4, v0.12l): the work set is "one per physical object", not one per reservation
     db.exec(
       "INSERT INTO nexus_tasks (id, owner_id, kind, title, status, goal_json, risk_ceiling," +
         " origin_session_key, revision, created_at, updated_at)" +
-        " VALUES ('T9','o1','k','P2a 重入','purging','{}','R1','s9',1,0,0)",
+        " VALUES ('T9','o1','k','P2a re-entry','purging','{}','R1','s9',1,0,0)",
     );
     db.exec(insRun("T9", "pg9", "sealed"));
     db.exec(insObj("rs2", 1, "live", 0));
@@ -2663,8 +2755,8 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       `INSERT INTO blob_reservations ${resCols} VALUES ('${id}','o1','${task}','${hash}',1,10,` +
       `'${state}',${state === "reclaiming" ? "'gc_x',999" : "NULL,NULL"},100,0,0)`;
     db.exec(insR("RS_a", "T9", "rs2", "abandoned"));
-    db.exec(insR("RS_b", "T9", "rs2", "abandoned")); // 同一对象的第二条历史 reservation
-    db.exec(insR("RS_c", "T9", "rs2", "reclaiming")); // 认领已提交、回收前崩溃
+    db.exec(insR("RS_b", "T9", "rs2", "abandoned")); // a second historical reservation of the same object
+    db.exec(insR("RS_c", "T9", "rs2", "reclaiming")); // claim committed, crashed before reclaiming
     const p2a = () =>
       db
         .prepare(
@@ -2683,13 +2775,13 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     const nItems = () =>
       db.prepare("SELECT COUNT(*) AS c FROM purge_work_items WHERE task_id='T9'").get().c;
     check(
-      "P2 ①：三条 reservation 指向同一个物理对象 → 只写一条工作项（按对象聚合）",
+      "P2 ①: three reservations pointing at the same physical object → only one work item written (aggregated per object)",
       [p2a(), nItems()],
       (x) => x[0] === 1 && x[1] === 1,
     );
     db.exec("UPDATE purge_work_items SET last_error='mark' WHERE task_id='T9'");
     check(
-      "崩溃重入：再跑一遍 P2 ① → 不撞主键、不新增、不覆盖已有项",
+      "crash re-entry: running P2 ① again → no primary key collision, nothing added, existing items not overwritten",
       [
         p2a(),
         nItems(),
@@ -2698,7 +2790,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x[0] === 0 && x[1] === 1 && x[2] === "mark",
     );
     check(
-      "对照：普通 INSERT（不带 ON CONFLICT）重入会撞主键",
+      "control: a plain INSERT (without ON CONFLICT) on re-entry collides on the primary key",
       inTransaction(db, [
         insPwi("T9", "rs2", "reclaim_pending", "pending", 0, "reservation")
           .replace("'pg1'", "'pg9'")
@@ -2709,7 +2801,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     db.exec(insR("RS_d", "T9", "rs3", "abandoned"));
     db.exec("UPDATE purge_runs SET phase='reservations_settled' WHERE task_id='T9'");
     check(
-      "phase 已推进之后 P2 ① 是空操作（不会再往已定的工作集里加项）",
+      "after the phase has advanced P2 ① is a no-op (no more items are added to an already fixed work set)",
       [p2a(), nItems()],
       (x) => x[0] === 0 && x[1] === 1,
     );
@@ -2718,24 +2810,28 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
     db.exec("DELETE FROM purge_runs WHERE task_id='T9'");
     db.exec("DELETE FROM nexus_tasks WHERE id='T9'");
 
-    // P5 按外键顺序销毁账本：links → link events → claims/events → evidence
-    // claims ↔ claim_events 互相引用（deferred），只能同一个事务里一起删
+    // P5 destroys the ledger in foreign key order: links → link events → claims/events → evidence
+    // claims ↔ claim_events reference each other (deferred), so they can only be deleted together in one transaction
     const p5 = inTransaction(db, [
       "DELETE FROM claim_evidence_links WHERE task_id='T7' AND evidence_id='VS7'",
       "DELETE FROM claim_events WHERE id='E10'",
       "DELETE FROM claims WHERE id='C3'",
       "DELETE FROM evidence WHERE task_id IN ('T7','T8')" + " AND id IN ('VS7','VS8','VN','VPW')",
     ]);
-    check("P5 按外键顺序（links → events/claims → evidence）在一个事务里销毁账本", p5, (x) => x.ok);
+    check(
+      "P5 destroys the ledger in foreign key order (links → events/claims → evidence) in one transaction",
+      p5,
+      (x) => x.ok,
+    );
     db.exec("DELETE FROM nexus_tasks WHERE id='T8'");
 
-    // 结算掉全部在世 reservation 之后，才允许删 Task
+    // Only after settling all live reservations is deleting the Task allowed
     db.prepare(
       "UPDATE blob_reservations SET state='abandoned', reclaim_attempt_id=NULL," +
         " reclaim_lease_until=NULL WHERE state IN ('reserved','reclaiming')",
     ).run();
     check(
-      "purge run 还在时 DELETE nexus_tasks 被外键挡住（P5 必须先删 run）",
+      "while the purge run still exists DELETE nexus_tasks is blocked by the foreign key (P5 must delete the run first)",
       inTransaction(db, [
         "DELETE FROM blob_reservations WHERE task_id='T7'",
         "DELETE FROM nexus_tasks WHERE id='T7'",
@@ -2747,14 +2843,18 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       "DELETE FROM purge_runs WHERE task_id='T7'",
       "DELETE FROM nexus_tasks WHERE id='T7'",
     ]);
-    check("结算并删掉 reservation 之后，删 task 成立", purge, (x) => x.ok);
     check(
-      "删除 task 级联清掉 steps",
+      "after settling and deleting the reservations, deleting the task works",
+      purge,
+      (x) => x.ok,
+    );
+    check(
+      "deleting the task cascades and clears steps",
       db.prepare("SELECT COUNT(*) AS c FROM nexus_task_steps").get().c,
       (x) => x === 0,
     );
     check(
-      "删除 task 级联清掉 task_exception 偏好及其 revisions",
+      "deleting the task cascades and clears the task_exception preferences and their revisions",
       [
         db.prepare("SELECT COUNT(*) AS c FROM preferences WHERE task_id IS NOT NULL").get().c,
         db.prepare("SELECT COUNT(*) AS c FROM preference_revisions WHERE preference_id='P3'").get()
@@ -2763,7 +2863,7 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
       (x) => x[0] === 0 && x[1] === 0,
     );
     check(
-      "owner 级偏好（task_id IS NULL）不受 task 删除影响",
+      "owner-level preferences (task_id IS NULL) are unaffected by task deletion",
       db.prepare("SELECT COUNT(*) AS c FROM preferences WHERE task_id IS NULL").get().c,
       (x) => x > 0,
     );
@@ -2772,9 +2872,9 @@ console.log("\n[11] nexus-agent-core-design.md 的 schema 与命名契约");
 }
 
 const failed = results.filter((r) => !r.pass);
-console.log(`\n${results.length - failed.length}/${results.length} 通过`);
+console.log(`\n${results.length - failed.length}/${results.length} passed`);
 if (failed.length > 0) {
-  console.error("\n结论发生变化，请回头核对 nexus-agent-core-design.md §8.5 / §6.3：");
+  console.error("\nConclusions changed, go back and check nexus-agent-core-design.md §8.5 / §6.3:");
   for (const f of failed) console.error(`  - ${f.name}`);
   process.exit(1);
 }

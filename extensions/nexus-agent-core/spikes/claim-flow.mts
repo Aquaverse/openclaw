@@ -1,9 +1,9 @@
-// Stage 3 切片① 验收：Claim / Evidence 账本端到端，全程经 tools.invoke / RPC，不依赖模型。
-// 用法：node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/claim-flow.mts [--url ws://127.0.0.1:19001] [--token <token>]
-//   token 也可放 OPENCLAW_GATEWAY_TOKEN；状态目录用 OPENCLAW_STATE_DIR（默认 ~/.openclaw-dev）。
-// 前提：dev 网关已启动，decisionsEnabled=true，claimsEnabled=true，fakeProviderMode=ok，
-//   tools.alsoAllow 含 nexus_claim_add / nexus_evidence_add / nexus_claim_verify，本机装有 sqlite3。
-// 它自己新建一个 Task 并以「完成」结束，所以可以重复运行；每次会在账本里留下该 Task 的 claim 与证据。
+// Stage 3 slice 1 acceptance: Claim / Evidence ledger end to end, entirely via tools.invoke / RPC, without depending on the model.
+// Usage: node --import ./scripts/tsx.mjs extensions/nexus-agent-core/spikes/claim-flow.mts [--url ws://127.0.0.1:19001] [--token <token>]
+//   The token can also be set via OPENCLAW_GATEWAY_TOKEN; the state directory uses OPENCLAW_STATE_DIR (default ~/.openclaw-dev).
+// Prerequisites: dev gateway started, decisionsEnabled=true, claimsEnabled=true, fakeProviderMode=ok,
+//   tools.alsoAllow includes nexus_claim_add / nexus_evidence_add / nexus_claim_verify, sqlite3 installed locally.
+// It creates its own Task and ends it as "completed", so it can be run repeatedly; each run leaves that Task's claims and evidence in the ledger.
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -27,8 +27,8 @@ const check = (name: string, ok: boolean, detail?: unknown) => {
     `${ok ? "PASS" : "FAIL"}  ${name}${detail === undefined ? "" : `  ← ${JSON.stringify(detail)}`}`,
   );
 };
-// 网关的 SQLite worker 随时可能在写（结算后 outbox 还在投递），裸 sqlite3 读会立刻报 "database is locked"：
-// 给 CLI 5 秒 busy timeout，仍失败再重试几次。
+// The gateway's SQLite worker may be writing at any time (the outbox is still delivering after settlement), so a bare sqlite3 read can fail at once with "database is locked":
+// give the CLI a 5-second busy timeout, and retry a few times if it still fails.
 const sql = (query: string) => {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -67,19 +67,19 @@ const rpcError = async (method: string, params: Json): Promise<string> => {
 async function run() {
   const stamp = Date.now().toString(36);
 
-  // 0 新建一个专用 Task
+  // 0 create a dedicated Task
   const reserve = await tool("nexus_task_reserve", { kind: "claim_probe" });
   const created = await tool("nexus_task_create", {
     kind: "claim_probe",
-    title: `claim 探针 ${stamp}`,
-    goal: { want: "Stage 3 账本验收" },
+    title: `claim probe ${stamp}`,
+    goal: { want: "Stage 3 ledger acceptance" },
     operationToken: String(reserve.operationToken),
   });
   const taskId = String(created.taskId ?? "");
-  check("新建探针 Task", created.ok === true && taskId !== "", created);
+  check("create probe Task", created.ok === true && taskId !== "", created);
   if (!taskId) return;
 
-  // 1 Agent 不能直接写 SUPPORTED / VERIFIED / REFUTED
+  // 1 The Agent cannot write SUPPORTED / VERIFIED / REFUTED directly
   for (const state of ["SUPPORTED", "VERIFIED", "REFUTED"]) {
     const out = await tool("nexus_claim_add", {
       taskId,
@@ -87,22 +87,22 @@ async function run() {
       predicate: "executed",
       state,
     });
-    check(`state=${state} 被拒`, out.code === "state_not_allowed", out);
+    check(`state=${state} rejected`, out.code === "state_not_allowed", out);
   }
   check(
-    "被拒后账本里没有 claim",
+    "no claim in the ledger after rejection",
     sql(`select count(*) from claims where task_id='${taskId}'`) === "0",
   );
 
-  // 2 没有完成条件时，不能把 Task 标成完成
+  // 2 With no completion conditions, a Task cannot be marked completed
   const noClaims = await tool("nexus_task_update", { taskId, status: "succeeded" });
   check(
-    "没有完成条件 → completion_unmet（no_completion_claims 的提示）",
+    "no completion conditions → completion_unmet (the no_completion_claims hint)",
     noClaims.code === "completion_unmet" && String(noClaims.message).includes("nexus_claim_add"),
     noClaims,
   );
 
-  // 3 登记完成条件：ASSERTED，仍然不能完成
+  // 3 Register completion conditions: ASSERTED, still cannot complete
   const claim = await tool("nexus_claim_add", {
     taskId,
     subject: "booking",
@@ -111,13 +111,13 @@ async function run() {
   });
   const claimId = String(claim.claimId ?? "");
   check(
-    "登记完成条件：ASSERTED，requiredForCompletion=SUPPORTED",
+    "register completion condition: ASSERTED, requiredForCompletion=SUPPORTED",
     claim.ok === true && claim.state === "ASSERTED" && claim.requiredForCompletion === "SUPPORTED",
     claim,
   );
   const stillUnmet = await tool("nexus_task_update", { taskId, status: "succeeded" });
   check(
-    "完成条件未达 → 仍是 completion_unmet，且列出未达项",
+    "completion condition not met → still completion_unmet, and the unmet items are listed",
     stillUnmet.code === "completion_unmet" &&
       Array.isArray(stillUnmet.items) &&
       (stillUnmet.items as Json[])[0]?.met === false,
@@ -130,9 +130,9 @@ async function run() {
     predicate: "executed",
     completion: "SUPPORTED",
   });
-  check("重复登记同一 claim 不报错", reassertSame.ok === true, reassertSame);
+  check("registering the same claim again does not error", reassertSame.ok === true, reassertSame);
 
-  // 4 真实订房：R2 → 决策页批准 → commit
+  // 4 Real room booking: R2 → approve on the decision page → commit
   const act = await tool("nexus_action_prepare", {
     taskId,
     toolName: "fake_booking",
@@ -145,31 +145,35 @@ async function run() {
     resolution: "approved",
   });
   const executionId = String(resolved.executionId ?? "");
-  check("批准后得到 executionId", executionId !== "", resolved);
+  check("approval yields an executionId", executionId !== "", resolved);
   const commit = await tool("nexus_action_commit", { executionId });
-  check("commit 成功", commit.ok === true && commit.status === "succeeded", commit);
+  check("commit succeeded", commit.ok === true && commit.status === "succeeded", commit);
 
-  // 5 结算钩子：同一事务里自动写了 execution:<id> 的 claim 与证据
+  // 5 Settlement hook: the execution:<id> claim and evidence are written automatically in the same transaction
   const autoClaims = sql(
     `select count(*) from claims where task_id='${taskId}' and subject='execution:${executionId}' and predicate='executed' and state='SUPPORTED'`,
   );
-  check("结算自动写入 execution claim，状态 SUPPORTED", autoClaims === "1", { autoClaims });
   check(
-    "该证据只有引用没有字节（blob_key 为空，source_ref_kind=execution）",
+    "settlement automatically writes the execution claim, state SUPPORTED",
+    autoClaims === "1",
+    { autoClaims },
+  );
+  check(
+    "this evidence has only a reference, no bytes (blob_key is empty, source_ref_kind=execution)",
     sql(
       `select count(*) from evidence where task_id='${taskId}' and source_ref_id='${executionId}' and blob_key is null and source_ref_kind='execution'`,
     ) === "1",
   );
 
-  // 6 非法引用
+  // 6 Invalid references
   const blob = await tool("nexus_evidence_add", {
     taskId,
     claimId,
     ref: { kind: "blob", id: `${"a".repeat(64)}.1` },
   });
-  // 切片②起：evidenceBlobsEnabled=false → ref_kind_not_supported；打开后 → 不存在的 blobKey 报 ref_not_found
+  // From slice 2: evidenceBlobsEnabled=false → ref_kind_not_supported; once enabled → a nonexistent blobKey gives ref_not_found
   check(
-    "不存在的 blob 引用被拒（未开启字节存储 → ref_kind_not_supported，开启后 → ref_not_found）",
+    "nonexistent blob reference rejected (byte storage not enabled → ref_kind_not_supported, once enabled → ref_not_found)",
     blob.code === "ref_kind_not_supported" || blob.code === "ref_not_found",
     blob,
   );
@@ -178,18 +182,18 @@ async function run() {
     claimId,
     ref: { kind: "execution", id: "NOPE" },
   });
-  check("不存在的 execution → ref_not_found", nope.code === "ref_not_found", nope);
+  check("nonexistent execution → ref_not_found", nope.code === "ref_not_found", nope);
   const mine = await tool("nexus_claim_verify", { taskId, claimId });
-  check("被拒后 claim 状态没变（ASSERTED）", mine.state === "ASSERTED", mine);
+  check("claim state unchanged after rejection (ASSERTED)", mine.state === "ASSERTED", mine);
 
-  // 7 挂上真证据 → SUPPORTED，再挂一次不重复
+  // 7 Attach real evidence → SUPPORTED; attaching again does not duplicate
   const linked = await tool("nexus_evidence_add", {
     taskId,
     claimId,
     ref: { kind: "execution", id: executionId },
   });
   check(
-    "挂证据：relation=supports，ASSERTED → SUPPORTED",
+    "attach evidence: relation=supports, ASSERTED → SUPPORTED",
     linked.ok === true &&
       linked.relation === "supports" &&
       linked.stateBefore === "ASSERTED" &&
@@ -201,29 +205,33 @@ async function run() {
     claimId,
     ref: { kind: "execution", id: executionId },
   });
-  check("同一证据再挂一次 → alreadyLinked，不增行", twice.alreadyLinked === true, twice);
   check(
-    "该 claim 只有一条 link",
+    "attaching the same evidence again → alreadyLinked, no new row",
+    twice.alreadyLinked === true,
+    twice,
+  );
+  check(
+    "this claim has only one link",
     sql(`select count(*) from claim_evidence_links where claim_id='${claimId}'`) === "1",
   );
 
-  // 8 只读：nexus_claim_verify 不改任何行
+  // 8 Read-only: nexus_claim_verify changes no rows
   const before = sql(`select count(*) from claim_events where task_id='${taskId}'`);
   const detail = await tool("nexus_claim_verify", { taskId, claimId });
   const all = await tool("nexus_claim_verify", { taskId });
   const after = sql(`select count(*) from claim_events where task_id='${taskId}'`);
   check(
-    "nexus_claim_verify 只读（claim_events 条数不变），并报出独立来源数",
+    "nexus_claim_verify is read-only (claim_events count unchanged) and reports the number of independent sources",
     before === after && detail.state === "SUPPORTED" && detail.supportGroups === 1,
     { before, after },
   );
   check(
-    "无 claimId 时返回整个 Task 的 claim 与完成判定",
+    "without claimId it returns all claims of the Task and the completion verdict",
     Array.isArray(all.claims) && (all.completion as Json | undefined)?.ok === true,
     all,
   );
 
-  // 9 运维入口：对一条一次性 claim 演练 unlink / retract
+  // 9 Operations entry: rehearse unlink / retract on a throwaway claim
   const probe = await tool("nexus_claim_add", { taskId, subject: "probe", predicate: "executed" });
   const probeId = String(probe.claimId ?? "");
   const probeLinked = await tool("nexus_evidence_add", {
@@ -232,79 +240,99 @@ async function run() {
     ref: { kind: "execution", id: executionId },
   });
   check(
-    "一次性 claim 复用同一条证据 → SUPPORTED",
+    "throwaway claim reuses the same evidence → SUPPORTED",
     probeLinked.stateAfter === "SUPPORTED",
     probeLinked,
   );
   check(
-    "证据行复用（全 Task 仍只有 1 条 evidence）",
+    "evidence row reused (the whole Task still has only 1 evidence)",
     sql(`select count(*) from evidence where task_id='${taskId}'`) === "1",
   );
   const unlink = await rpc("nexus.claim.unlinkEvidence", {
     taskId,
     claimId: probeId,
     evidenceId: String(probeLinked.evidenceId),
-    reason: "探针：演练撤下证据",
+    reason: "probe: rehearse withdrawing evidence",
   });
-  check("unlinkEvidence 成功", unlink.outcome === "unlinked", unlink);
+  check("unlinkEvidence succeeded", unlink.outcome === "unlinked", unlink);
   const afterUnlink = await tool("nexus_claim_verify", { taskId, claimId: probeId });
-  check("撤下后该 claim 回到 ASSERTED", afterUnlink.state === "ASSERTED", afterUnlink);
+  check(
+    "after withdrawal the claim returns to ASSERTED",
+    afterUnlink.state === "ASSERTED",
+    afterUnlink,
+  );
   const reattach = await tool("nexus_evidence_add", {
     taskId,
     claimId: probeId,
     ref: { kind: "execution", id: executionId },
   });
-  check("Agent 不能把被撤下的证据挂回去", reattach.code === "detached_by_operator", reattach);
   check(
-    "unlink 不影响另一条 claim 的 SUPPORTED",
+    "the Agent cannot re-attach withdrawn evidence",
+    reattach.code === "detached_by_operator",
+    reattach,
+  );
+  check(
+    "unlink does not affect the other claim's SUPPORTED",
     (await tool("nexus_claim_verify", { taskId, claimId })).state === "SUPPORTED",
   );
   const noReason = await rpcError("nexus.claim.retract", { taskId, claimId: probeId });
-  check("retract 必须带 reason", noReason.includes("reason"), noReason);
+  check("retract must carry a reason", noReason.includes("reason"), noReason);
   const retract = await rpc("nexus.claim.retract", {
     taskId,
     claimId: probeId,
-    reason: "探针：演练撤回",
+    reason: "probe: rehearse retraction",
   });
-  check("retract 成功 → REFUTED", retract.outcome === "retracted", retract);
+  check("retract succeeded → REFUTED", retract.outcome === "retracted", retract);
   const reassert = await tool("nexus_claim_add", {
     taskId,
     claimId: probeId,
     subject: "probe",
     predicate: "executed",
   });
-  check("撤回是粘性的：再 assert 仍是 REFUTED", reassert.state === "REFUTED", reassert);
+  check(
+    "retraction is sticky: asserting again is still REFUTED",
+    reassert.state === "REFUTED",
+    reassert,
+  );
 
-  // 10 完整性与读接口
+  // 10 Integrity and read interfaces
   const chain = await rpc("nexus.claim.verifyChain", { taskId });
-  check("digest 链校验通过", chain.ok === true && Number(chain.checked) >= 6, chain);
+  check("digest chain verification passed", chain.ok === true && Number(chain.checked) >= 6, chain);
   const list = await rpc("nexus.claim.list", { taskId });
   check(
-    "nexus.claim.list 返回 3 条 claim 与完成判定",
+    "nexus.claim.list returns 3 claims and the completion verdict",
     Array.isArray(list.claims) && (list.claims as unknown[]).length === 3 && !!list.completion,
     { count: Array.isArray(list.claims) ? list.claims.length : null },
   );
   const got = await rpc("nexus.claim.get", { taskId, claimId });
-  check("nexus.claim.get 带事件与证据", Array.isArray(got.events) && Array.isArray(got.links), {
-    events: Array.isArray(got.events) ? got.events.length : null,
-  });
   check(
-    "所有 claim_events 属于该 Task 且 seq 连续",
+    "nexus.claim.get carries events and evidence",
+    Array.isArray(got.events) && Array.isArray(got.links),
+    {
+      events: Array.isArray(got.events) ? got.events.length : null,
+    },
+  );
+  check(
+    "all claim_events belong to this Task and seq is contiguous",
     sql(`select count(*) = max(seq) from claim_events where task_id='${taskId}'`) === "1",
   );
 
-  // 11 完成：条件已达 → succeeded
+  // 11 Completion: conditions met → succeeded
   const done = await tool("nexus_task_update", { taskId, status: "succeeded" });
-  check("完成条件达成后 succeeded 被接受", done.ok === true && done.status === "succeeded", done);
+  check(
+    "succeeded accepted once completion conditions are met",
+    done.ok === true && done.status === "succeeded",
+    done,
+  );
   const closed = await tool("nexus_claim_add", { taskId, subject: "late", predicate: "executed" });
-  check("Task 结束后不再接受新 claim", closed.code === "task_closed", closed);
+  check("no new claim accepted after the Task is closed", closed.code === "task_closed", closed);
 
-  // 12 通知：给 outbox 一点时间，再数事件
+  // 12 Notification: give the outbox a moment, then count events
   await new Promise((resolve) => setTimeout(resolve, 3_000));
   const changed = events.filter((name) => name.endsWith("claim_changed")).length;
-  check("收到 claim_changed 事件（≥ 6）", changed >= 6, { changed, events: events.length });
-  console.log(`\n探针 Task：${taskId}`);
-  console.log(failures === 0 ? "全部通过" : `${failures} 项失败`);
+  check("received claim_changed events (>= 6)", changed >= 6, { changed, events: events.length });
+  console.log(`\nprobe Task: ${taskId}`);
+  console.log(failures === 0 ? "all passed" : `${failures} failed`);
 }
 
 client = new GatewayClient({
@@ -334,6 +362,6 @@ client = new GatewayClient({
 });
 client.start();
 setTimeout(() => {
-  console.error("[timeout] 90s 内没有完成");
+  console.error("[timeout] not finished within 90s");
   process.exit(3);
 }, 90_000);
