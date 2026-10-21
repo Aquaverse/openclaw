@@ -1,0 +1,17 @@
+# Capability preflight
+
+Read before planning a full audit and before executing target-controlled code. Record evidence of actual controls, not inferred capability from a tool name. This skill ships no sandbox launcher or safe artifact promoter; never invent command flags or assume isolation.
+
+| Capability              | Evidence to record                                                                                                                                                                    | If absent                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Read-only source access | Selected source ref, paths and dirty state                                                                                                                                            | Stop the affected investigation.                                                         |
+| Independent delegation  | Available separate agents, capacity and per-call budget                                                                                                                               | Use a clearly limited single-agent source review; full independent audit is unavailable. |
+| Execution sandbox       | OS-enforced network isolation (isolated loopback if needed), empty allowlisted environment, read-only source/toolchain, scratch-only writes, CPU/memory/process/file/disk/time limits | Do not execute target code; retain source observations and exact validation blockers.    |
+| Safe evidence promotion | Trusted parent implementation satisfying SKILL.md descriptor-based procedure and byte limits                                                                                          | Do not retain scratch files as evidence; no dynamic confirmation based on them.          |
+| Writable output         | Authorized writable directory isolated from target execution                                                                                                                          | Use a permitted external directory; ask only if none is available.                       |
+
+Read existing platform documentation/configuration to establish capabilities without running target-controlled probes. Record each control as verified, missing or unknown, with its basis. Missing and unknown both block the affected operation. Never weaken the controls to make a check run, install dependencies automatically, or reuse live credentials.
+
+A full run may continue with source-only work where its independent review and output controls are available; it must report dynamic validation gaps. Confirmed records still require the existing execution evidence contract. A single-agent review must state paths examined, source-supported concerns, untested behavior and absence of independent verification. Reports can be useful without being a full audit.
+
+In full-run metadata, add `capabilities` entries for delegation, sandbox, promotion and output, each with `status` (verified/missing/unknown) and a non-secret `basis`. These are recorded attestations, not machine proof that a sandbox exists.

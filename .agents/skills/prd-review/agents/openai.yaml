@@ -1,0 +1,4 @@
+interface:
+  display_name: "PRD 深度评审"
+  short_description: "深入理解 PRD 和需求文档，发现业务规则、模块关系、异常流程与可测试性问题。"
+  default_prompt: "使用 $prd-review 评审当前需求文档，基于来源区分缺陷、待决策事项与可选增强，并给出可验证的修改建议。"
