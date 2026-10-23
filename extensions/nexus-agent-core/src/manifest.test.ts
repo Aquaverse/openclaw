@@ -6,6 +6,7 @@ import path from "node:path";
 import { describe, it } from "vitest";
 import { ACTION_TOOL_NAMES } from "./tools/action-tools.js";
 import { CLAIM_TOOL_NAMES } from "./tools/claim-tools.js";
+import { VAULT_TOOL_NAMES } from "./tools/file-tools.js";
 import { PREFERENCE_TOOL_NAMES } from "./tools/preference-tools.js";
 import { TASK_TOOL_NAMES } from "./tools/task-tools.js";
 import { WATCH_TOOL_NAMES } from "./tools/watch-tools.js";
@@ -25,6 +26,7 @@ describe("openclaw.plugin.json", () => {
     ...CLAIM_TOOL_NAMES,
     ...PREFERENCE_TOOL_NAMES,
     ...WATCH_TOOL_NAMES,
+    ...VAULT_TOOL_NAMES,
   ];
 
   it("declares every registered tool in contracts.tools", () => {
@@ -75,6 +77,7 @@ describe("openclaw.plugin.json", () => {
       "claimsEnabled",
       "preferencesEnabled",
       "watchersEnabled",
+      "vaultEnabled",
     ]) {
       assert.ok(key in manifest.configSchema.properties, key);
     }

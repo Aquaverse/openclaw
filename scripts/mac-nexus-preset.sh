@@ -71,7 +71,7 @@ NODE_BIN="${NODE_BIN_OVERRIDE:-$PREFIX/tools/node/bin/node}"
 
 # The tools Nexus registers (extensions/nexus-agent-core: *_TOOL_NAMES). The extension's manifest test keeps this
 # list in step with the plugin; `nexus_spike_probe` is a Stage 0 probe and is deliberately not listed.
-NEXUS_TOOLS="nexus_task_reserve nexus_task_create nexus_task_get nexus_task_update nexus_task_note nexus_task_search nexus_action_prepare nexus_action_authorize nexus_decision_request nexus_action_commit nexus_claim_add nexus_evidence_add nexus_claim_verify nexus_preference_get nexus_preference_set nexus_preference_confirm nexus_watch_create nexus_watch_cancel nexus_watch_report"
+NEXUS_TOOLS="nexus_task_reserve nexus_task_create nexus_task_get nexus_task_update nexus_task_note nexus_task_search nexus_action_prepare nexus_action_authorize nexus_decision_request nexus_action_commit nexus_claim_add nexus_evidence_add nexus_claim_verify nexus_preference_get nexus_preference_set nexus_preference_confirm nexus_watch_create nexus_watch_cancel nexus_watch_report nexus_file_search nexus_file_get nexus_file_attach"
 
 log "=================================================="
 log "Nexus preset v$PRESET_VERSION starting (switches: $SWITCHES)"

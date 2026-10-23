@@ -7,14 +7,21 @@ import type { DecisionRecord, ExecutionRecord } from "../src/store/decision-type
 import type { PreferenceReceiptRow, PreferenceRecord } from "../src/store/preference-types.js";
 import type { PurgeReceiptRow } from "../src/store/purge-types.js";
 import type { TaskDetail, TaskRecord } from "../src/store/types.js";
+import type {
+  VaultFileRecord,
+  VaultListResult,
+  VaultStatsResult,
+} from "../src/store/vault-types.js";
 import type { WatchRecord } from "../src/store/watch-types.js";
 import { filterToRpc, pageInfo, type TaskFilter } from "../src/task-query.js";
 import {
+  renderFiles,
   renderPreferences,
   renderReceipts,
   renderTaskDetail,
   renderTaskList,
 } from "../src/ui-render.js";
+import { fileListParams } from "../src/vault-ui.js";
 import { EMPTY_MODEL, type NexusModel } from "./actions.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
 
@@ -23,7 +30,7 @@ export type NexusRequest = <T = unknown>(
   params?: Record<string, unknown>,
 ) => Promise<T>;
 
-export type NexusFeatures = { preferences: boolean };
+export type NexusFeatures = { preferences: boolean; files?: boolean };
 
 /** A method the gateway does not serve (feature switched off) or any read failure reads as "not available". */
 async function optional<T>(read: () => Promise<T>): Promise<T | undefined> {
@@ -35,8 +42,11 @@ async function optional<T>(read: () => Promise<T>): Promise<T | undefined> {
 }
 
 export async function probeFeatures(request: NexusRequest): Promise<NexusFeatures> {
-  const listed = await optional(() => request("nexus.preference.list", { limit: 1 }));
-  return { preferences: listed !== undefined };
+  const [listed, vault] = await Promise.all([
+    optional(() => request("nexus.preference.list", { limit: 1 })),
+    optional(() => request("nexus.vault.stats")),
+  ]);
+  return { preferences: listed !== undefined, files: vault !== undefined };
 }
 
 /** `model` keeps the records the page rendered; action dialogs are built from it, never from the markup. */
@@ -148,6 +158,21 @@ export async function loadView(
         title: tr(lang, "title.preferences"),
         html: renderPreferences(out.preferences, { actions, lang }),
         model: { decisions: [], watches: [], preferences: out.preferences, evidence: [] },
+      };
+    }
+    case "files": {
+      const [list, stats] = await Promise.all([
+        request<VaultListResult>("nexus.vault.list", fileListParams(route.tab)),
+        request<VaultStatsResult>("nexus.vault.stats"),
+      ]);
+      const files: VaultFileRecord[] = list.items;
+      return {
+        title: tr(lang, "title.files"),
+        html: renderFiles(
+          { files, total: list.total, tab: route.tab, stats },
+          { actions, lang, basePath: NAV_BASE },
+        ),
+        model: { decisions: [], watches: [], preferences: [], evidence: [], files },
       };
     }
     case "receipts": {

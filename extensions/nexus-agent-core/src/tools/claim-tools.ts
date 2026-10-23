@@ -89,7 +89,7 @@ export function detailView(detail: ClaimDetail) {
 }
 
 /** Maps the evidence service outcome to a tool result. Never reports a claim as supported unless the store derived it. */
-function blobEvidenceResult(result: EvidenceOutcome): Record<string, unknown> {
+export function blobEvidenceResult(result: EvidenceOutcome): Record<string, unknown> {
   switch (result.outcome) {
     case "not_found":
       return fail("not_found", "Task not found.");

@@ -7,12 +7,14 @@ import {
   parseTaskFilter,
   type TaskFilter,
 } from "../src/task-query.js";
+import { DEFAULT_FILE_TAB, parseFileTab, type FileTab } from "../src/vault-ui.js";
 
 export type NexusRoute =
   | { view: "tasks"; filter: TaskFilter }
   | { view: "task"; taskId: string }
   | { view: "preferences" }
-  | { view: "receipts" };
+  | { view: "receipts" }
+  | { view: "files"; tab: FileTab };
 
 /** The unfiltered first page of the list. */
 export const TASKS_HOME: NexusRoute = { view: "tasks", filter: EMPTY_FILTER };
@@ -33,6 +35,9 @@ export function parseRoute(props: Readonly<Record<string, string>>): NexusRoute 
   if (props.view === "receipts") {
     return { view: "receipts" };
   }
+  if (props.view === "files") {
+    return { view: "files", tab: parseFileTab(props.tab) };
+  }
   return { view: "tasks", filter: parseTaskFilter((name) => props[name]) };
 }
 
@@ -43,6 +48,8 @@ export function routeParams(route: NexusRoute): Record<string, string> {
       return { view: "task", task: route.taskId };
     case "tasks":
       return filterToParams(route.filter);
+    case "files":
+      return route.tab === DEFAULT_FILE_TAB ? { view: "files" } : { view: "files", tab: route.tab };
     default:
       return { view: route.view };
   }
@@ -67,6 +74,9 @@ export function routeFromHref(href: string): NexusRoute | undefined {
   }
   if (segments.length === 1 && (first === "preferences" || first === "receipts")) {
     return { view: first };
+  }
+  if (segments.length === 1 && first === "files") {
+    return { view: "files", tab: parseFileTab(query.get("tab")) };
   }
   return undefined;
 }

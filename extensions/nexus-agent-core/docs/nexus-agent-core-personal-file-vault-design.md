@@ -830,6 +830,40 @@ CREATE TABLE vault_purge_receipts (
 
 ---
 
+## 13. F1 实现说明（与设计的差异和澄清）
+
+F1 已按第 10 节范围实现。以下是实现时对设计文字的澄清；与上文冲突时以本节为准。
+
+### 13.1 已实现范围
+
+- 存储内核（SQLite worker）：`vault_*` 表与迁移、R/W/P/C 写协议、对账（`vaultListRecoverable`/`vaultRecoverCheck`/过期/修复）、回收与墓碑、硬清除（lease + 回执）、完整性校验（`vaultVerifyBatch`/`vaultMarkDamaged`）。`host.ts` 的 `STORE_OPERATIONS` 已穷尽。
+- 服务层 `vault/vault-service.ts`：`ingest`、`importPath`、`read`、`purge`、`maintain`、`drain`；`vault-rpc.ts`：`nexus.vault.*` 全部方法（读 `operator.read`，改与上传 `operator.write`，硬清除 `operator.admin` 且须重复输入 `confirmFileId`）。
+- Agent 工具：`nexus_file_search`（只查元数据与文件名）、`nexus_file_get`（只返回元数据，`contentExtracted:false`）、`nexus_file_attach`（仅在证据字节开启时提供）；三者均 `optional:true`、`catalogMode:"direct-only"`。
+- 控制台“文件”页（仅当网关提供 `nexus.vault.stats` 时出现）、事件 `vault_changed`、配额与 `vaultEnabled` 等 10 个 `vault*` 配置项。
+
+### 13.2 与设计文字的澄清
+
+1. **重启后提升过的预留不重放 C，而是过期**：若进程在 P 之后、C 之前重启，对账不会继续提交，而是把该预留过期并删除文件；过期同时删除 `staging/<id>` 与 `objects/<new_object_id>` 两处。目的是让恢复逻辑只有“提交了”和“没提交”两种结果。
+2. **`clean_shutdown` 的 incarnation 视为写入静默**：上一代若是干净关闭，则无需等待租约即可对账；非干净退出才等 lease 过期。
+3. **Agent 附件流程**：`nexus_file_attach` = 校验文件非敏感且大小不超过证据单条上限 → 分块读取并核对 sha256 → 走证据 `upload` → `attachBlob`；定位符为 `vault:<fileId>`。附件在用户声明其证明内容之前保持“未分类”，Agent 不得据此宣称论断已证实。
+4. **库的维护定时器独立于决策运行时**：`vaultTimer` 每 60 秒调用一次 `maintain`，不依赖 `decisionsEnabled`；插件停止时 `drain()` 等待在途的 ingest/导入/清除/维护完成（默认 10 秒超时）。
+5. **默认集合**：上传默认进入 `vault`，只有显式传 `collection:"inbox"` 才进收件箱；未审阅的收件文件不会出现在 Agent 默认搜索中。
+6. **活动文件允许直接硬清除**：不要求先进回收站；控制台仍要求勾选确认并重复文件 id。
+7. **导入路径**：`nexus.vault.importPath` 展开开头的 `~` / `~/`（网关用户主目录）；路径拒绝原因通过 `error.details.reason` 返回，控制台原样显示原因码。
+8. **预设脚本**：`scripts/mac-nexus-preset.sh` 的 `NEXUS_TOOLS` 已加入三个文件工具，但预设开关与 `PRESET_VERSION` 未改动——文件库保持**默认关闭**（需 `vaultEnabled`）。若希望安装器重新应用工具白名单，需要在构建脚本里提升版本号。
+
+### 13.3 控制台“文件”页的限制
+
+- 列表最多显示前 200 项，没有分页和按名称搜索；没有图片或 PDF 预览（文本类显示前 `PREVIEW_MAX_BYTES` 字节）。
+- 单次上传上限 16 MiB（base64 走一条 RPC 帧）；更大文件用“从本机路径导入”。
+- 独立 HTTP 页面（`ui-http.ts`）没有“文件”页，仅 Control UI 模块有。
+
+### 13.4 仍待验证（需在 Mac 与真实网关上完成）
+
+- 打包路径回归与第三方安装（S7）。
+- S8：宿主的通用文件工具可以读取库目录，因此**不能**声称敏感文件对 Agent 完全不可见，只能说对 `nexus_file_*` 工具不可见。
+- 真实网关上的端到端行为（RPC 权限域、事件刷新、重启对账）。
+
 ## 附：资料索引
 
 - Muse（概念参考，转述，非拷贝）：`MuseAI-Skills/home/hatch/docs/artifacts.md`、`MuseAI-Skills/home/hatch/docs/files-and-library.md`、`MuseAI-Skills/opt/hatch/skills/media-library/SKILL.md`、`MuseAI-Skills/opt/hatch/skills/spaces/ts-runtime/README.md`、`MuseAI-Skills/opt/hatch/skills/muse_db/SKILL.md` 与 `references/schema.md`（`media`、`ingest`、`spaces` 三组表）

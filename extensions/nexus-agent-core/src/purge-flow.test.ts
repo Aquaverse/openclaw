@@ -463,8 +463,8 @@ describe("single-evidence deletion", () => {
     assert.equal(row.content_hash, hashOf("bank statement: charge of 100"));
     assert.equal(objectRow(w, key).ref_count, 0);
     assert.deepEqual(
-      w.k.getClaim({ principal: P, taskId, claimId })?.state,
-      before?.state,
+      w.k.getClaim({ principal: P, taskId, claimId })?.claim.state,
+      before?.claim.state,
       "evidence deletion does not rewrite claim state",
     );
     assert.equal(w.k.verifyChain({ principal: P, taskId })?.ok, true);

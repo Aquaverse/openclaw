@@ -13,7 +13,7 @@ export const PREVIEW_MAX_BYTES = 64 * 1024;
 type HandleReply = { handleId: string; byteSize: number | null; contentHash: string };
 type ReadReply = { dataBase64: string; totalBytes: number; length: number; contentHash: string };
 
-function fromBase64(data: string): Uint8Array {
+export function fromBase64(data: string): Uint8Array {
   const raw = atob(data);
   const bytes = new Uint8Array(raw.length);
   for (let index = 0; index < raw.length; index += 1) {

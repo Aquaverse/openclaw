@@ -8,6 +8,7 @@ import type { DecisionRecord, ExecutionRecord } from "./store/decision-types.js"
 import type { PreferenceReceiptRow, PreferenceRecord } from "./store/preference-types.js";
 import type { PurgeReceiptRow } from "./store/purge-types.js";
 import type { TaskDetail, TaskRecord } from "./store/types.js";
+import type { VaultFileRecord, VaultStatsResult } from "./store/vault-types.js";
 import type { WatchRecord } from "./store/watch-types.js";
 import {
   EMPTY_FILTER,
@@ -23,6 +24,7 @@ import {
   presetRange,
   type TaskFilter,
 } from "./task-query.js";
+import { FILE_TABS, formatBytes, tabCounts, type FileTab } from "./vault-ui.js";
 
 export function esc(value: unknown): string {
   return String(value ?? "")
@@ -594,6 +596,108 @@ export function renderPreferences(
           : []),
       ]),
     )
+  );
+}
+
+export type FilesViewData = {
+  files: readonly VaultFileRecord[];
+  /** Rows matching the tab, across everything the list did not show. */
+  total: number;
+  tab: FileTab;
+  stats: Pick<VaultStatsResult, "files" | "objectBytes" | "reservedBytes">;
+};
+
+const FILE_TAB_LABEL = {
+  all: "files.tab.all",
+  inbox: "files.tab.inbox",
+  vault: "files.tab.vault",
+  deliverable: "files.tab.deliverable",
+  trash: "files.tab.trash",
+  damaged: "files.tab.damaged",
+} as const satisfies Record<FileTab, MsgKey>;
+
+const FILE_STATE_LABEL = {
+  active: "files.st.active",
+  trashed: "files.st.trashed",
+  purging: "files.st.purging",
+  damaged: "files.st.damaged",
+} as const satisfies Record<VaultFileRecord["state"], MsgKey>;
+
+const FILE_COLLECTION_LABEL = {
+  inbox: "files.coll.inbox",
+  vault: "files.coll.vault",
+  deliverable: "files.coll.deliverable",
+} as const satisfies Record<VaultFileRecord["collection"], MsgKey>;
+
+/** The "Files" tab of the console. File names are user text: they only ever reach the page through `esc`. */
+export function renderFiles(
+  data: FilesViewData,
+  options: { actions?: boolean; lang?: Lang; basePath?: string } = {},
+): string {
+  const lang = options.lang ?? DEFAULT_LANG;
+  const withActions = options.actions === true;
+  const base = options.basePath ?? "nexus-nav:";
+  const counts = tabCounts(data.stats);
+  const tabs = FILE_TABS.map((tab) => {
+    const href = tab === "all" ? `${base}/files` : `${base}/files?tab=${tab}`;
+    const label = `${tr(lang, FILE_TAB_LABEL[tab])} (${counts[tab]})`;
+    return `<a href="${esc(href)}"${tab === data.tab ? ' class="on"' : ""}>${esc(label)}</a>`;
+  });
+  const tags = (file: VaultFileRecord) =>
+    [
+      file.sensitivity === "sensitive"
+        ? `<span class="pill bad">${esc(tr(lang, "files.tag.sensitive"))}</span>`
+        : "",
+      file.pinnedAt !== null
+        ? `<span class="pill">${esc(tr(lang, "files.tag.pinned"))}</span>`
+        : "",
+      file.favorite ? `<span class="pill">${esc(tr(lang, "files.tag.favorite"))}</span>` : "",
+    ]
+      .filter((tag) => tag !== "")
+      .join(" ");
+  const stateClass = (state: VaultFileRecord["state"]) =>
+    state === "damaged" ? "bad" : state === "active" ? "" : "pending";
+  return (
+    `<h1>${esc(tr(lang, "title.files"))}</h1>` +
+    `<p class="muted">${esc(
+      tr(lang, "files.usage", {
+        files: counts.all + counts.trash + counts.damaged,
+        used: formatBytes(data.stats.objectBytes),
+        reserved: formatBytes(data.stats.reservedBytes),
+      }),
+    )}</p>` +
+    `<div class="hint">${esc(tr(lang, withActions ? "files.hintActions" : "files.hintReadOnly"))}` +
+    (withActions
+      ? `${button("file-new", "new", tr(lang, "btn.upload"))}${button("file-import", "new", tr(lang, "btn.importPath"))}`
+      : "") +
+    "</div>" +
+    `<div class="nx-tabs">${tabs.join("")}</div>` +
+    table(
+      lang,
+      [
+        "files.col.name",
+        "files.col.folder",
+        "files.col.type",
+        "files.col.size",
+        "files.col.source",
+        "files.col.state",
+        "col.updatedAt",
+        "col.actions",
+      ],
+      data.files.map((file) => [
+        `<td>${esc(file.displayName)} ${tags(file)}</td>`,
+        td(file.folder === "" ? "-" : file.folder),
+        td(file.mime),
+        td(formatBytes(file.size)),
+        td(`${tr(lang, FILE_COLLECTION_LABEL[file.collection])} · ${file.source}`),
+        td(tr(lang, FILE_STATE_LABEL[file.state]), stateClass(file.state)),
+        td(fmtTime(file.updatedAt)),
+        `<td>${button("file-open", file.id, tr(lang, "btn.details"))}</td>`,
+      ]),
+    ) +
+    (data.total > data.files.length
+      ? `<p class="muted">${esc(tr(lang, "files.shown", { shown: data.files.length, total: data.total }))}</p>`
+      : "")
   );
 }
 

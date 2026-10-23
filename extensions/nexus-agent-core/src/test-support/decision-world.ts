@@ -272,7 +272,7 @@ export function world(
       },
       { sessionKey, agentId: "main" },
     );
-  const rpc = new Map(
+  const rpc = new Map<string, (options: never) => unknown>(
     createDecisionRpcHandlers({
       getStore: async () => store,
       events,

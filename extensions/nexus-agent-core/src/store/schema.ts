@@ -814,6 +814,193 @@ CREATE UNIQUE INDEX watches_job ON watches(owner_id, scheduler_job_id)
   WHERE scheduler_job_id IS NOT NULL;
 `;
 
+// Stage 5 (first migration): the personal file vault, Vault design section 6 (tables, constraints and partial unique index).
+// It depends on `process_incarnations` (stage3-0001) through vault_reservations.writer_incarnation and is append-only: no
+// published migration is touched. Goals (stage6, tentative) is independent of this migration. The full-text index
+// (vault_text_fts) is NOT created here: FTS5 availability in the Nexus worker is decided by spike S3 and arrives with F2.
+export const STAGE5_VAULT_SQL = `
+-- Write protocol record (R/W/P/C). The reservation fixes the staging path and the pre-issued object id; it is deleted together
+-- with its object tombstone on retirement.
+CREATE TABLE vault_reservations (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  new_object_id TEXT NOT NULL,
+  staging_path_key TEXT NOT NULL,
+  expected_size INTEGER, content_hash TEXT, byte_size INTEGER,
+  result_object_id TEXT,
+  writer_attempt_id TEXT NOT NULL, writer_incarnation TEXT NOT NULL,
+  state TEXT NOT NULL,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id),
+  UNIQUE (owner_id, new_object_id),
+  CHECK (state IN ('reserved','written','promoted','committed','failed','expired')),
+  CHECK (staging_path_key = id),
+  CHECK (state NOT IN ('written','promoted','committed') OR (content_hash IS NOT NULL AND byte_size IS NOT NULL)),
+  CHECK ((state = 'committed') = (result_object_id IS NOT NULL)),
+  CHECK (byte_size IS NULL OR byte_size >= 0),
+  FOREIGN KEY (writer_incarnation) REFERENCES process_incarnations(incarnation_id),
+  FOREIGN KEY (owner_id, result_object_id) REFERENCES vault_objects(owner_id, id) DEFERRABLE INITIALLY DEFERRED
+) STRICT;
+
+-- Immutable bytes, owner-scoped. The id is a server-issued random id (and the physical file name); content_hash is only used for
+-- same-owner dedup through the partial unique index below.
+CREATE TABLE vault_objects (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  reservation_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  size INTEGER NOT NULL, mime TEXT NOT NULL,
+  state TEXT NOT NULL,
+  reclaim_attempt_id TEXT, reclaim_lease_until INTEGER,
+  absence_verified_at INTEGER, absence_verified_attempt_id TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id),
+  UNIQUE (owner_id, reservation_id),
+  CHECK (state IN ('live','reclaiming','deleted')),
+  CHECK (size >= 0),
+  CHECK ((state = 'reclaiming') = (reclaim_attempt_id IS NOT NULL AND reclaim_lease_until IS NOT NULL)),
+  CHECK (absence_verified_at IS NULL OR state = 'deleted'),
+  CHECK ((absence_verified_at IS NULL) = (absence_verified_attempt_id IS NULL)),
+  FOREIGN KEY (owner_id, reservation_id) REFERENCES vault_reservations(owner_id, id)
+    DEFERRABLE INITIALLY DEFERRED
+) STRICT;
+-- One live object per (owner, content): a concurrent writer that loses the race reuses the winner in the C transaction.
+CREATE UNIQUE INDEX vault_objects_live_hash ON vault_objects(owner_id, content_hash) WHERE state = 'live';
+
+CREATE TABLE vault_files (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  object_id TEXT NOT NULL,
+  display_name TEXT NOT NULL, folder TEXT NOT NULL DEFAULT '',
+  collection TEXT NOT NULL,
+  state TEXT NOT NULL,
+  source TEXT NOT NULL,
+  source_ref TEXT,
+  sensitivity TEXT NOT NULL DEFAULT 'normal',
+  sensitivity_by TEXT NOT NULL DEFAULT 'rule',
+  imported_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  trashed_at INTEGER, expires_at INTEGER,
+  PRIMARY KEY (owner_id, id),
+  CHECK (collection IN ('inbox','vault','deliverable')),
+  CHECK (state IN ('active','trashed','purging','damaged')),
+  CHECK (source IN ('upload','local_import','chat','email','mobile','task_output')),
+  CHECK (sensitivity IN ('normal','sensitive')),
+  CHECK (sensitivity_by IN ('rule','user','operator')),
+  CHECK ((state = 'trashed') = (trashed_at IS NOT NULL)),
+  FOREIGN KEY (owner_id, object_id) REFERENCES vault_objects(owner_id, id)
+) STRICT;
+CREATE INDEX vault_files_list ON vault_files(owner_id, collection, state, updated_at DESC);
+
+CREATE TABLE vault_versions (
+  owner_id TEXT NOT NULL, file_id TEXT NOT NULL, seq INTEGER NOT NULL, object_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, file_id, seq),
+  CHECK (seq >= 1),
+  FOREIGN KEY (owner_id, file_id) REFERENCES vault_files(owner_id, id),
+  FOREIGN KEY (owner_id, object_id) REFERENCES vault_objects(owner_id, id)
+) STRICT;
+
+CREATE TABLE vault_links (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL, file_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  ref_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+  target_gone_at INTEGER,
+  PRIMARY KEY (owner_id, id),
+  UNIQUE (owner_id, file_id, kind, ref_id),
+  CHECK (kind IN ('task','evidence','preference','wiki')),
+  FOREIGN KEY (owner_id, file_id) REFERENCES vault_files(owner_id, id) ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE vault_user_state (
+  owner_id TEXT NOT NULL, file_id TEXT NOT NULL,
+  pinned_at INTEGER, favorite INTEGER NOT NULL DEFAULT 0, last_opened_at INTEGER,
+  PRIMARY KEY (owner_id, file_id),
+  CHECK (favorite IN (0, 1)),
+  FOREIGN KEY (owner_id, file_id) REFERENCES vault_files(owner_id, id) ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE vault_jobs (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL, object_id TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  state TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0, next_run_at INTEGER,
+  extractor TEXT NOT NULL DEFAULT '', extractor_version TEXT NOT NULL DEFAULT '',
+  failure_code TEXT, failure_message TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id),
+  UNIQUE (owner_id, object_id, stage, extractor, extractor_version),
+  UNIQUE (owner_id, object_id, id),
+  CHECK (stage IN ('extract','classify','index','derive')),
+  CHECK (state IN ('pending','running','ready','failed','rejected','cancelled')),
+  CHECK (attempts >= 0),
+  CHECK (state <> 'pending' OR next_run_at IS NOT NULL),
+  CHECK (state <> 'failed' OR failure_code IS NOT NULL),
+  FOREIGN KEY (owner_id, object_id) REFERENCES vault_objects(owner_id, id)
+) STRICT;
+
+CREATE TABLE vault_text (
+  owner_id TEXT NOT NULL, object_id TEXT NOT NULL, page INTEGER NOT NULL,
+  extractor TEXT NOT NULL, extractor_version TEXT NOT NULL, job_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  PRIMARY KEY (owner_id, object_id, page, extractor, extractor_version),
+  CHECK (page >= 0),
+  FOREIGN KEY (owner_id, object_id) REFERENCES vault_objects(owner_id, id),
+  FOREIGN KEY (owner_id, object_id, job_id) REFERENCES vault_jobs(owner_id, object_id, id)
+) STRICT;
+
+-- Hard purge: one run per file for its whole life; purge_id is unique per owner (runs + receipts), requested_by is the original requester.
+CREATE TABLE vault_purge_runs (
+  owner_id TEXT NOT NULL, file_id TEXT NOT NULL,
+  purge_id TEXT NOT NULL,
+  requested_by TEXT NOT NULL, requested_at INTEGER NOT NULL,
+  phase TEXT NOT NULL,
+  item_count INTEGER,
+  version_count INTEGER,
+  worker_attempt_id TEXT, worker_lease_until INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, file_id),
+  UNIQUE (owner_id, purge_id),
+  UNIQUE (owner_id, file_id, purge_id),
+  CHECK (phase IN ('sealed','items_recorded')),
+  CHECK ((phase = 'items_recorded') = (item_count IS NOT NULL)),
+  CHECK ((item_count IS NULL) = (version_count IS NULL)),
+  CHECK (item_count IS NULL OR (item_count >= 0 AND version_count >= item_count)),
+  CHECK ((worker_attempt_id IS NULL) = (worker_lease_until IS NULL)),
+  FOREIGN KEY (owner_id, file_id) REFERENCES vault_files(owner_id, id)
+) STRICT;
+
+-- Work set of a purge: one row per physical object (not per version).
+CREATE TABLE vault_purge_items (
+  owner_id TEXT NOT NULL, file_id TEXT NOT NULL, purge_id TEXT NOT NULL, object_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  absence_proof_attempt_id TEXT,
+  text_pages INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, file_id, object_id),
+  CHECK (state IN ('pending','verified_gone','retained_shared','cleanup_pending')),
+  CHECK ((state = 'verified_gone') = (absence_proof_attempt_id IS NOT NULL)),
+  CHECK (text_pages >= 0),
+  FOREIGN KEY (owner_id, file_id, purge_id) REFERENCES vault_purge_runs(owner_id, file_id, purge_id),
+  FOREIGN KEY (owner_id, object_id) REFERENCES vault_objects(owner_id, id)
+) STRICT;
+
+-- Independent receipts (purge_receipts.subject_kind is fixed to task|preference). Rows are never deleted; after the hash retention
+-- window both hash columns are set to NULL together with compacted_at, so purge_id stays occupied forever.
+CREATE TABLE vault_purge_receipts (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  purge_id TEXT NOT NULL,
+  file_id_hash TEXT,
+  content_hashes_json TEXT,
+  retained_object_count INTEGER NOT NULL DEFAULT 0,
+  version_count INTEGER NOT NULL, text_page_count INTEGER NOT NULL,
+  requested_by TEXT NOT NULL, executed_at INTEGER NOT NULL,
+  compacted_at INTEGER,
+  PRIMARY KEY (owner_id, id),
+  UNIQUE (owner_id, purge_id),
+  CHECK (version_count >= 0 AND text_page_count >= 0 AND retained_object_count >= 0),
+  CHECK ((compacted_at IS NULL) = (file_id_hash IS NOT NULL)),
+  CHECK ((compacted_at IS NULL) = (content_hashes_json IS NOT NULL))
+) STRICT;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { id: "stage1-0001-task-core", sql: STAGE1_TASK_CORE_SQL },
   { id: "stage2-0001-decision-grant-execution", sql: STAGE2_DECISION_SQL },
@@ -822,4 +1009,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: "stage3-0003-purge", sql: STAGE3_PURGE_SQL },
   { id: "stage4-0001-preferences", sql: STAGE4_PREFERENCE_SQL },
   { id: "stage4-0002-watches", sql: STAGE4_WATCHES_SQL },
+  { id: "stage5-0001-vault", sql: STAGE5_VAULT_SQL },
 ];

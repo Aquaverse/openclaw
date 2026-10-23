@@ -226,7 +226,7 @@ describe("nexus page", () => {
     expect(f.text()).toContain("待决策");
     // Only reads are ever issued.
     for (const [method] of f.request.mock.calls) {
-      expect(method).toMatch(/\.(list|get|purgeReceipts)$/);
+      expect(method).toMatch(/\.(list|get|stats|purgeReceipts)$/);
     }
   });
 

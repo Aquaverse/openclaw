@@ -11,11 +11,13 @@ import {
   isValidPreferenceScope,
   MAX_PREFERENCE_VALUE_BYTES,
 } from "../src/store/preference-types.js";
+import type { VaultFileRecord } from "../src/store/vault-types.js";
 import type { WatchRecord } from "../src/store/watch-types.js";
 import { clip, fmtTime } from "../src/ui-render.js";
 import type { NexusRequest } from "./data.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
 import { evidenceViewDialog } from "./evidence-view.ts";
+import { fileDetailDialog, fileImportDialog, fileUploadDialog } from "./files-view.ts";
 import type { NexusAction } from "./sanitize.ts";
 
 export type NexusModel = {
@@ -23,6 +25,8 @@ export type NexusModel = {
   watches: readonly WatchRecord[];
   preferences: readonly PreferenceRecord[];
   evidence: readonly EvidenceBlobView[];
+  /** The files the Files tab rendered; absent on every other tab. */
+  files?: readonly VaultFileRecord[];
 };
 
 export const EMPTY_MODEL: NexusModel = {
@@ -41,6 +45,8 @@ export type ActionContext = {
   redact: (text: string) => string;
   /** Dialog and notice language; follows the host's locale. */
   lang: Lang;
+  /** False when the connection is read-only: dialogs then show details but offer no change. */
+  canWrite?: boolean;
   model: () => NexusModel;
   /** Something changed (or turned out to be stale): show the notice and reload. */
   changed: (notice: ActionNotice) => void;
@@ -436,6 +442,12 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
   switch (action.kind) {
     case "evidence-view":
       return evidenceViewDialog(ctx, action.id);
+    case "file-new":
+      return fileUploadDialog(ctx);
+    case "file-import":
+      return fileImportDialog(ctx);
+    case "file-open":
+      return fileDetailDialog(ctx, action.id);
     case "decision":
       return decisionDialog(ctx, action.id);
     case "watch-cancel":

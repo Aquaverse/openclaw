@@ -8,6 +8,9 @@ describe("nexus route", () => {
     expect(parseRoute({ view: "nope" })).toEqual(TASKS_HOME);
     expect(parseRoute({ view: "task" })).toEqual(TASKS_HOME);
     expect(parseRoute({ view: "task", task: "../x/y" })).toEqual(TASKS_HOME);
+    expect(parseRoute({ view: "files", tab: "nope" })).toEqual({ view: "files", tab: "all" });
+    expect(routeParams({ view: "files", tab: "all" })).toEqual({ view: "files" });
+    expect(routeParams({ view: "files", tab: "trash" })).toEqual({ view: "files", tab: "trash" });
   });
 
   it("round-trips every route through the host page parameters", () => {
@@ -24,6 +27,8 @@ describe("nexus route", () => {
       { view: "task", taskId: "T1ABC" },
       { view: "preferences" },
       { view: "receipts" },
+      { view: "files", tab: "all" },
+      { view: "files", tab: "trash" },
     ] as const) {
       expect(parseRoute(routeParams(route))).toEqual(route);
     }
@@ -58,6 +63,10 @@ describe("nexus route", () => {
     expect(routeFromHref(`${NAV_BASE}/tasks/T1ABC`)).toEqual({ view: "task", taskId: "T1ABC" });
     expect(routeFromHref(`${NAV_BASE}/preferences`)).toEqual({ view: "preferences" });
     expect(routeFromHref(`${NAV_BASE}/receipts`)).toEqual({ view: "receipts" });
+    expect(routeFromHref(`${NAV_BASE}/files`)).toEqual({ view: "files", tab: "all" });
+    expect(routeFromHref(`${NAV_BASE}/files?tab=inbox`)).toEqual({ view: "files", tab: "inbox" });
+    expect(routeFromHref(`${NAV_BASE}/files?tab=../x`)).toEqual({ view: "files", tab: "all" });
+    expect(routeFromHref(`${NAV_BASE}/files/F1`)).toBeUndefined();
     expect(routeFromHref(`${NAV_BASE}/tasks/a/b`)).toBeUndefined();
     expect(routeFromHref(`${NAV_BASE}/tasks/a b`)).toBeUndefined();
     expect(routeFromHref(`${NAV_BASE}/admin`)).toBeUndefined();

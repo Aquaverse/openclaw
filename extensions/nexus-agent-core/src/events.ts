@@ -30,6 +30,26 @@ export const EVIDENCE_CHANGED_EVENT = "evidence_changed";
 export const TASK_PURGED_EVENT = "task_purged";
 export const PREFERENCE_CHANGED_EVENT = "preference_changed";
 export const WATCH_CHANGED_EVENT = "watch_changed";
+export const VAULT_CHANGED_EVENT = "vault_changed";
+
+/** Ids, a collection and what happened. Never a file name or content: clients re-read through nexus.vault.get. */
+export type VaultChangedPayload = {
+  ownerId: string;
+  fileId: string;
+  action:
+    | "imported"
+    | "kept"
+    | "discarded"
+    | "renamed"
+    | "moved"
+    | "pinned"
+    | "sensitivity"
+    | "trashed"
+    | "restored"
+    | "purged"
+    | "damaged";
+  collection?: string;
+};
 
 /** Outbox-delivered ledger notices. Ids and a state only: clients re-read through nexus.claim.get. */
 export type ClaimChangedPayload = {
@@ -156,6 +176,17 @@ export function createEventBridge(onError: (error: unknown) => void = () => {}) 
       }
       try {
         emitter(WATCH_CHANGED_EVENT, payload, { scope: "operator.read" });
+      } catch (error) {
+        onError(error);
+      }
+    },
+    /** vault_changed: a file entered, moved, or left the vault. Ids only; re-read via nexus.vault.get / nexus.vault.list. */
+    vaultChanged(payload: VaultChangedPayload) {
+      if (!emitter) {
+        return;
+      }
+      try {
+        emitter(VAULT_CHANGED_EVENT, payload, { scope: "operator.read" });
       } catch (error) {
         onError(error);
       }

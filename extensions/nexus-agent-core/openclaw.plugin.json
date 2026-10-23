@@ -1,7 +1,7 @@
 {
   "id": "nexus-agent-core",
   "name": "Nexus Agent Core",
-  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). Stage 4: a Preference Store (tools nexus_preference_*, RPC nexus.preference.*), a read-only Control UI tab, and a Watcher for scheduled re-checks (tools nexus_watch_*, RPC nexus.watch.*). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see nexus-agent-core-design.md section 13).",
+  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). Stage 4: a Preference Store (tools nexus_preference_*, RPC nexus.preference.*), a read-only Control UI tab, and a Watcher for scheduled re-checks (tools nexus_watch_*, RPC nexus.watch.*). Stage 5: a personal file vault (tools nexus_file_*, RPC nexus.vault.*). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see nexus-agent-core-design.md section 13).",
   "categories": [
     "agent-orchestration"
   ],
@@ -147,6 +147,75 @@
       "spikeStartFailOnce": {
         "type": "boolean",
         "description": "Spike 3 item 4: make the first probe service start() throw once to observe start-failure retry."
+      },
+      "vaultEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable the Stage 5 personal file vault (needs tasksEnabled): nexus_file_search / nexus_file_get (and nexus_file_attach when evidence bytes are on) as optional tools (allow them via tools.alsoAllow), nexus.vault.* gateway methods, and a file store next to nexus.sqlite. Files are kept on this computer only. Off by default."
+      },
+      "vaultOwnerQuotaBytes": {
+        "type": "integer",
+        "minimum": 1048576,
+        "maximum": 1099511627776,
+        "default": 5368709120,
+        "description": "Soft vault quota per owner in bytes, counted over physical objects plus unsettled reservations (default 5 GB)."
+      },
+      "vaultMaxFileBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 4294967296,
+        "default": 104857600,
+        "description": "Largest single vault file in bytes (default 100 MB). An RPC upload is additionally capped at 16 MB; larger files come in through nexus.vault.importPath."
+      },
+      "vaultInboxRetentionDays": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3650,
+        "default": 30,
+        "description": "Days an unreviewed inbox file waits before it is discarded (default 30)."
+      },
+      "vaultTrashRetentionDays": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3650,
+        "default": 30,
+        "description": "Days a trashed file stays restorable before it is permanently purged (default 30)."
+      },
+      "vaultImportRoots": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 16,
+        "description": "Folders nexus.vault.importPath may read from. Default: Downloads and Documents in the user's home folder. Credential folders and the Nexus state folder are always refused."
+      },
+      "vaultMinFreeBytes": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 1099511627776,
+        "default": 1073741824,
+        "description": "Refuse a vault write when the disk would drop below this many free bytes (default 1 GB). The disk is shared with the user."
+      },
+      "vaultReservationRetentionDays": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 365,
+        "default": 7,
+        "description": "Days settled write reservations are kept for diagnosis before they are pruned (default 7)."
+      },
+      "vaultTombstoneRetentionDays": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 365,
+        "default": 7,
+        "description": "Days a deleted object's tombstone is kept so a late writer can still be recognised (default 7)."
+      },
+      "vaultPurgeReceiptHashRetentionDays": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3650,
+        "default": 90,
+        "description": "Days a purge receipt keeps the content hashes of the purged file; afterwards only counts and times remain (default 90)."
       }
     }
   },
@@ -171,6 +240,9 @@
       "nexus_watch_create",
       "nexus_watch_cancel",
       "nexus_watch_report",
+      "nexus_file_search",
+      "nexus_file_get",
+      "nexus_file_attach",
       "nexus_spike_probe"
     ]
   },
@@ -233,6 +305,15 @@
       "optional": true
     },
     "nexus_watch_report": {
+      "optional": true
+    },
+    "nexus_file_search": {
+      "optional": true
+    },
+    "nexus_file_get": {
+      "optional": true
+    },
+    "nexus_file_attach": {
       "optional": true
     }
   },

@@ -12,7 +12,10 @@ export type NexusAction =
   | { kind: "pref-new" }
   | { kind: "pref-edit"; id: string }
   | { kind: "pref-delete"; id: string }
-  | { kind: "evidence-view"; id: string };
+  | { kind: "evidence-view"; id: string }
+  | { kind: "file-new" }
+  | { kind: "file-import" }
+  | { kind: "file-open"; id: string };
 
 const ACTION_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
@@ -20,6 +23,12 @@ const ACTION_ID = /^[A-Za-z0-9_-]{1,40}$/;
 export function actionFromMarker(act: string | null, id: string | null): NexusAction | undefined {
   if (act === "pref-new") {
     return { kind: "pref-new" };
+  }
+  if (act === "file-new") {
+    return { kind: "file-new" };
+  }
+  if (act === "file-import") {
+    return { kind: "file-import" };
   }
   if (!id || !ACTION_ID.test(id)) {
     return undefined;
@@ -29,7 +38,8 @@ export function actionFromMarker(act: string | null, id: string | null): NexusAc
     act === "watch-cancel" ||
     act === "pref-edit" ||
     act === "pref-delete" ||
-    act === "evidence-view"
+    act === "evidence-view" ||
+    act === "file-open"
   ) {
     return { kind: act, id };
   }

@@ -73,7 +73,9 @@ describe("event bridge", () => {
   it("publishes ids and a summary only, under an event name the host accepts", () => {
     const seen: { event: string; payload: TaskChangedPayload; scope: string }[] = [];
     const bridge = createEventBridge();
-    bridge.attach((event, payload, opts) => seen.push({ event, payload, scope: opts.scope }));
+    bridge.attach((event, payload, opts) =>
+      seen.push({ event, payload: payload as TaskChangedPayload, scope: opts.scope }),
+    );
     bridge.taskChanged("note", task({ revision: 3, updatedAt: 9 }));
     assert.match(TASK_CHANGED_EVENT, /^[a-z][a-z0-9_-]*$/u);
     assert.deepEqual(seen, [

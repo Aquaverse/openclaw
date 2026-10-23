@@ -1,6 +1,7 @@
 // Stage 1 wiring: Task store, tools, prompt hook, RPC and event bridge, all behind `tasksEnabled`.
 // Stage 2 wiring (behind `decisionsEnabled`, which needs `tasksEnabled`): action/decision tools, the decision hook,
 // run-trigger ledger, outbox delivery, decision RPC and startup reconciliation.
+import os from "node:os";
 import path from "node:path";
 import { getPluginRuntimeGatewayRequestScope } from "openclaw/plugin-sdk/plugin-runtime";
 import type { OpenClawPluginApi } from "../api.js";
@@ -42,13 +43,26 @@ import {
   resolveStoreWorkerUrl,
   type StoreHost,
 } from "./store/host.js";
+import {
+  VAULT_DEFAULT_INBOX_RETENTION_MS,
+  VAULT_DEFAULT_MAX_FILE_BYTES,
+  VAULT_DEFAULT_OWNER_QUOTA_BYTES,
+  VAULT_DEFAULT_RESERVATION_TTL_MS,
+  VAULT_DEFAULT_TRASH_RETENTION_MS,
+} from "./store/vault-types.js";
 import { createTokenLedger } from "./tokens.js";
 import { ACTION_TOOL_NAMES, createActionTools } from "./tools/action-tools.js";
 import { CLAIM_TOOL_NAMES, createClaimTools } from "./tools/claim-tools.js";
+import { createFileTools } from "./tools/file-tools.js";
 import { createPreferenceTools, PREFERENCE_TOOL_NAMES } from "./tools/preference-tools.js";
 import { createTaskTools, TASK_TOOL_NAMES } from "./tools/task-tools.js";
 import { createWatchTools, WATCH_TOOL_NAMES } from "./tools/watch-tools.js";
 import { createNexusUiHttpHandler, NEXUS_UI_BASE_PATH } from "./ui-http.js";
+import { createVaultRpcHandlers } from "./vault-rpc.js";
+import { createFsVaultFileStore } from "./vault/vault-file-store.js";
+import { defaultForbiddenLocations } from "./vault/vault-import.js";
+import { NEXUS_VAULT_ATTACH_PROTOCOL, NEXUS_VAULT_PROTOCOL } from "./vault/vault-prompt.js";
+import { createVaultService, type VaultConfig, type VaultService } from "./vault/vault-service.js";
 import { createWatchRpcHandlers } from "./watch-rpc.js";
 import {
   createWatchRuntime,
@@ -70,6 +84,18 @@ export type TaskModuleConfig = {
   watchersEnabled?: boolean;
   /** Extra tools a re-check turn may use; only web_fetch / web_search are accepted (WATCHER_EXTRA_TOOL_ALLOWLIST). */
   watcherExtraTools?: string[];
+  /** Stage 5: the personal file vault (tools nexus_file_*, RPC nexus.vault.*). Needs tasksEnabled; attaching a file to a claim also needs evidence bytes. */
+  vaultEnabled?: boolean;
+  vaultOwnerQuotaBytes?: number;
+  vaultMaxFileBytes?: number;
+  vaultInboxRetentionDays?: number;
+  vaultTrashRetentionDays?: number;
+  /** Folders nexus.vault.importPath may read from (default: Downloads and Documents). */
+  vaultImportRoots?: string[];
+  vaultMinFreeBytes?: number;
+  vaultReservationRetentionDays?: number;
+  vaultTombstoneRetentionDays?: number;
+  vaultPurgeReceiptHashRetentionDays?: number;
   evidenceTaskQuotaBytes?: number;
   evidenceOwnerQuotaBytes?: number;
   evidenceMaxUploadBytes?: number;
@@ -91,6 +117,48 @@ const TICK_MS = 15_000;
 const MAINTAIN_EVERY_TICKS = 4;
 
 const OPEN_TASKS_IN_PROMPT = 8;
+/** The vault's maintenance pass (recovery, reclaim, retention, integrity check) runs about once a minute. */
+const VAULT_MAINTAIN_MS = 60_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const GB = 1024 * 1024 * 1024;
+
+const expandHome = (entry: string, home: string): string =>
+  entry === "~" ? home : entry.startsWith("~/") ? path.join(home, entry.slice(2)) : entry;
+
+/** Everything the vault service reads from the plugin config, with the design defaults (Vault design 5.4). */
+function resolveVaultConfig(config: TaskModuleConfig, stateDir: string): VaultConfig {
+  const home = os.homedir();
+  const maxFileBytes = config.vaultMaxFileBytes ?? VAULT_DEFAULT_MAX_FILE_BYTES;
+  const roots = (
+    config.vaultImportRoots ?? [path.join(home, "Downloads"), path.join(home, "Documents")]
+  ).map((entry) => path.resolve(expandHome(entry, home)));
+  return {
+    limits: {
+      maxFileBytes,
+      ownerQuotaBytes: config.vaultOwnerQuotaBytes ?? VAULT_DEFAULT_OWNER_QUOTA_BYTES,
+    },
+    inboxRetentionMs:
+      config.vaultInboxRetentionDays !== undefined
+        ? config.vaultInboxRetentionDays * DAY_MS
+        : VAULT_DEFAULT_INBOX_RETENTION_MS,
+    trashRetentionMs:
+      config.vaultTrashRetentionDays !== undefined
+        ? config.vaultTrashRetentionDays * DAY_MS
+        : VAULT_DEFAULT_TRASH_RETENTION_MS,
+    reservationTtlMs: VAULT_DEFAULT_RESERVATION_TTL_MS,
+    minFreeBytes: config.vaultMinFreeBytes ?? GB,
+    reservationRetentionMs: (config.vaultReservationRetentionDays ?? 7) * DAY_MS,
+    tombstoneRetentionMs: (config.vaultTombstoneRetentionDays ?? 7) * DAY_MS,
+    receiptHashRetentionMs: (config.vaultPurgeReceiptHashRetentionDays ?? 90) * DAY_MS,
+    reclaimGraceMs: 60_000,
+    // The state directory and credential / system folders are never importable, even from inside a configured root.
+    import: {
+      roots,
+      forbidden: [stateDir, ...defaultForbiddenLocations(home)],
+      maxBytes: maxFileBytes,
+    },
+  };
+}
 
 // Module-level on purpose: reload and replacement re-run register() in the same module, and the store
 // connection, the token ledger and the event bridge must outlive one registration generation.
@@ -144,6 +212,7 @@ export function registerTaskModule(
   const host = sharedHost(resolveNexusDatabasePath(), workerUrl);
   const getStore = async () => host.store;
   const claimsEnabled = config.decisionsEnabled === true && config.claimsEnabled === true;
+  const vaultEnabled = config.vaultEnabled === true;
   if (config.claimsEnabled === true && !claimsEnabled) {
     api.logger.warn(
       "nexus-agent-core: claimsEnabled needs decisionsEnabled; the claim ledger stays off",
@@ -420,6 +489,52 @@ export function registerTaskModule(
     api.on("before_tool_call", async (event, ctx) => watchers.beforeToolCall(event, ctx));
   }
 
+  // ---- Stage 5: the personal file vault (Vault design). Files stay on this computer, next to nexus.sqlite. ----
+  let vault: VaultService | undefined;
+  if (vaultEnabled) {
+    const stateDir = path.dirname(resolveNexusDatabasePath());
+    const vaultConfig = resolveVaultConfig(config, stateDir);
+    const created = createVaultService({
+      getStore,
+      files: createFsVaultFileStore(path.join(stateDir, "vault")),
+      incarnationId: () => incarnationId,
+      incarnationGoneEnabled: config.evidenceIncarnationGoneEnabled === true,
+      config: () => vaultConfig,
+      onChanged: (event) => events.vaultChanged(event),
+      logger: api.logger,
+    });
+    vault = created;
+    api.registerTool(
+      (ctx) =>
+        createFileTools(
+          {
+            getStore,
+            vault: created,
+            resolvePrincipal: principalFor,
+            ...(evidence ? { evidence } : {}),
+          },
+          ctx,
+        ),
+      {
+        names: [
+          "nexus_file_search",
+          "nexus_file_get",
+          ...(evidence ? (["nexus_file_attach"] as const) : []),
+        ],
+        optional: true,
+      },
+    );
+    for (const [method, handler, scope] of createVaultRpcHandlers({
+      getStore,
+      service: created,
+      events,
+      resolvePrincipal: () => principalFor(),
+      maxFileBytes: () => vaultConfig.limits.maxFileBytes,
+    })) {
+      api.registerGatewayMethod(method, handler, { scope });
+    }
+  }
+
   // Stage 1 only handles user turns. The watcher branch for cron/heartbeat turns comes in front of this
   // check in Stage 4 (DESIGN section 7.1); Stage 2 adds `requiresToolAuthority` for per-session lockdown.
   api.on("before_prompt_build", async (event, ctx) => {
@@ -442,17 +557,25 @@ export function registerTaskModule(
     }
     try {
       const open = await host.store.listOpen({ principal, limit: OPEN_TASKS_IN_PROMPT });
+      const protocols = runtime
+        ? [
+            NEXUS_TASK_PROTOCOL,
+            NEXUS_ACTION_PROTOCOL,
+            ...(claimsEnabled ? [NEXUS_CLAIM_PROTOCOL] : []),
+            ...(evidenceEnabled ? [NEXUS_EVIDENCE_PROTOCOL] : []),
+            ...(config.preferencesEnabled === true ? [NEXUS_PREFERENCE_PROTOCOL] : []),
+            ...(watchRuntime ? [NEXUS_WATCH_PROTOCOL] : []),
+          ]
+        : [NEXUS_TASK_PROTOCOL];
+      if (vault) {
+        protocols.push(
+          evidence
+            ? `${NEXUS_VAULT_PROTOCOL}\n${NEXUS_VAULT_ATTACH_PROTOCOL}`
+            : NEXUS_VAULT_PROTOCOL,
+        );
+      }
       return {
-        prependSystemContext: runtime
-          ? [
-              NEXUS_TASK_PROTOCOL,
-              NEXUS_ACTION_PROTOCOL,
-              ...(claimsEnabled ? [NEXUS_CLAIM_PROTOCOL] : []),
-              ...(evidenceEnabled ? [NEXUS_EVIDENCE_PROTOCOL] : []),
-              ...(config.preferencesEnabled === true ? [NEXUS_PREFERENCE_PROTOCOL] : []),
-              ...(watchRuntime ? [NEXUS_WATCH_PROTOCOL] : []),
-            ].join("\n\n")
-          : NEXUS_TASK_PROTOCOL,
+        prependSystemContext: protocols.join("\n\n"),
         ...(open.length > 0 ? { prependContext: renderOpenTasks(open) } : {}),
       };
     } catch (error) {
@@ -525,6 +648,8 @@ export function registerTaskModule(
   // Only the live registration owns the service; discovery passes must not open the database.
   let timer: ReturnType<typeof setInterval> | undefined;
   let incarnationRegistered = false;
+  let vaultTimer: ReturnType<typeof setInterval> | undefined;
+  let vaultMaintaining = false;
   let maintaining = false;
   let resuming = false;
   const resumePurges = async () => {
@@ -544,6 +669,36 @@ export function registerTaskModule(
       );
     } finally {
       resuming = false;
+    }
+  };
+  const maintainVault = async () => {
+    const principal = principalFor();
+    if (!vault || !principal || !incarnationRegistered || vaultMaintaining) {
+      return;
+    }
+    vaultMaintaining = true;
+    try {
+      const report = await vault.maintain(principal);
+      const changed =
+        report.reclaimed +
+        report.purgesResumed +
+        report.inboxDiscarded +
+        report.trashPurged +
+        report.damaged;
+      if (changed > 0 || report.errors.length > 0) {
+        api.logger.info(
+          `nexus-agent-core: vault maintain reclaimed=${report.reclaimed} purgesResumed=${report.purgesResumed} inboxDiscarded=${report.inboxDiscarded} trashPurged=${report.trashPurged} damaged=${report.damaged} errors=${report.errors.length}`,
+        );
+      }
+      for (const message of report.errors) {
+        api.logger.warn(`nexus-agent-core: vault maintain: ${message}`);
+      }
+    } catch (error) {
+      api.logger.warn(
+        `nexus-agent-core: vault maintain failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      vaultMaintaining = false;
     }
   };
   const maintainEvidence = async () => {
@@ -588,7 +743,7 @@ export function registerTaskModule(
           );
           return;
         }
-        if (claimsEnabled) {
+        if (claimsEnabled || vaultEnabled) {
           // Provenance only (section 9.5.1): a row per process start. Nothing here marks another incarnation gone.
           try {
             const principal = principalFor();
@@ -609,6 +764,12 @@ export function registerTaskModule(
               `nexus-agent-core: could not record the process incarnation: ${error instanceof Error ? error.message : String(error)}`,
             );
           }
+        }
+        if (vault && incarnationRegistered) {
+          // The vault has its own clock: it must run with or without the decision runtime.
+          await maintainVault();
+          vaultTimer = setInterval(() => void maintainVault(), VAULT_MAINTAIN_MS);
+          vaultTimer.unref?.();
         }
         if (runtime) {
           // gateway_start reconciliation (section 8.9.1 #3): nothing is inferred from the Control UI or from core.
@@ -672,11 +833,19 @@ export function registerTaskModule(
           clearInterval(timer);
           timer = undefined;
         }
+        if (vaultTimer) {
+          clearInterval(vaultTimer);
+          vaultTimer = undefined;
+        }
         events.attach(undefined);
         // A clean shutdown may only be recorded after every in-flight writer's real Promise has settled (DESIGN 9.5.1);
         // stop() has a 5 s observation window, so wait for part of it and otherwise leave the row open.
-        const writersSettled = evidence ? await evidence.drain(3_500) : true;
-        if (incarnationRegistered && writersSettled) {
+        // The vault's writers are the same kind of promise; both drains share the same window.
+        const [writersSettled, vaultSettled] = await Promise.all([
+          evidence ? evidence.drain(3_500) : true,
+          vault ? vault.drain(3_500) : true,
+        ]);
+        if (incarnationRegistered && writersSettled && vaultSettled) {
           try {
             const principal = principalFor();
             if (principal) {

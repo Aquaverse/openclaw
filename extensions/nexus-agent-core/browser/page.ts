@@ -4,6 +4,7 @@
 import type { ControlUiView } from "openclaw/plugin-sdk/control-ui";
 import { resolveLang, tr, type Lang } from "../src/i18n.js";
 import { EMPTY_FILTER, filterToParams, type TaskFilter } from "../src/task-query.js";
+import { DEFAULT_FILE_TAB } from "../src/vault-ui.js";
 import { EMPTY_MODEL, runAction, type ActionNotice, type NexusModel } from "./actions.ts";
 import { loadView, probeFeatures, type NexusFeatures } from "./data.ts";
 import { createFilterBar } from "./filters.ts";
@@ -22,6 +23,7 @@ const CHANGE_EVENTS = [
   "task_purged",
   "preference_changed",
   "watch_changed",
+  "vault_changed",
 ];
 const REFRESH_DEBOUNCE_MS = 400;
 
@@ -33,7 +35,7 @@ export function createNexusPage(): ControlUiView {
   let remembered: TaskFilter = EMPTY_FILTER;
   return (container, initial) => {
     let context = initial;
-    let features: NexusFeatures = { preferences: false };
+    let features: NexusFeatures = { preferences: false, files: false };
     let probed = false;
     let sequence = 0;
     let unbindClicks: (() => void) | undefined;
@@ -100,6 +102,15 @@ export function createNexusPage(): ControlUiView {
                 tr(lang, "nav.preferences"),
                 { view: "preferences" },
                 route.view === "preferences",
+              ] as [string, NexusRoute, boolean],
+            ]
+          : []),
+        ...(features.files === true
+          ? [
+              [
+                tr(lang, "nav.files"),
+                { view: "files", tab: DEFAULT_FILE_TAB },
+                route.view === "files",
               ] as [string, NexusRoute, boolean],
             ]
           : []),
@@ -197,6 +208,7 @@ export function createNexusPage(): ControlUiView {
               signal: context.signal,
               redact: context.host.redact,
               lang,
+              canWrite: context.host.connection.canWrite,
               model: () => model,
               changed: (result) => {
                 showNotice(result);

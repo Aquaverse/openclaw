@@ -65,6 +65,7 @@ describe("task store kernel", () => {
       "stage3-0003-purge",
       "stage4-0001-preferences",
       "stage4-0002-watches",
+      "stage5-0001-vault",
     ]);
     assert.deepEqual(applyMigrations(db, tx), []);
   });

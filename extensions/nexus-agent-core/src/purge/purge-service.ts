@@ -17,6 +17,7 @@ import type {
   PurgeStatus,
 } from "../store/purge-types.js";
 import type { Principal } from "../store/types.js";
+import { DEFAULT_PURGE_RUN_LEASE_MS } from "./purge-lease.js";
 
 export type PurgeOutcome =
   | { outcome: "purged"; receipt: PurgeReceipt }
@@ -67,7 +68,7 @@ export function createPurgeService(deps: PurgeServiceDeps) {
       const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
       return `${prefix}${[...randomBytes(10)].map((byte) => alphabet[byte % 32]).join("")}`;
     });
-  const workerLeaseMs = deps.workerLeaseMs ?? 30_000;
+  const workerLeaseMs = deps.workerLeaseMs ?? DEFAULT_PURGE_RUN_LEASE_MS;
   const budgetMs = deps.budgetMs ?? 20_000;
   const POLL_MS = 250;
 

@@ -1,6 +1,6 @@
 // Nexus Agent Core plugin entry.
 // Stage 1: the Task module behind `tasksEnabled`; Stage 2: decisions/grants/executions behind `decisionsEnabled`;
-// Stage 3: the Claim / Evidence ledger behind `claimsEnabled`, evidence bytes behind `evidenceBlobsEnabled` (DESIGN section 13). Stage 0 runtime spikes stay behind `spikesEnabled`. Stage 4: the Preference Store behind `preferencesEnabled` (DESIGN section 11) and the Watcher behind `watchersEnabled` (section 10).
+// Stage 3: the Claim / Evidence ledger behind `claimsEnabled`, evidence bytes behind `evidenceBlobsEnabled` (DESIGN section 13). Stage 0 runtime spikes stay behind `spikesEnabled`. Stage 4: the Preference Store behind `preferencesEnabled` (DESIGN section 11) and the Watcher behind `watchersEnabled` (section 10). Stage 5: the personal file vault behind `vaultEnabled`.
 import path from "node:path";
 import { definePluginEntry } from "./api.js";
 import { createCrashWindowHook } from "./src/spikes/crash-window.js";
@@ -20,6 +20,16 @@ type NexusPluginConfig = {
   preferencesEnabled?: boolean;
   watchersEnabled?: boolean;
   watcherExtraTools?: string[];
+  vaultEnabled?: boolean;
+  vaultOwnerQuotaBytes?: number;
+  vaultMaxFileBytes?: number;
+  vaultInboxRetentionDays?: number;
+  vaultTrashRetentionDays?: number;
+  vaultImportRoots?: string[];
+  vaultMinFreeBytes?: number;
+  vaultReservationRetentionDays?: number;
+  vaultTombstoneRetentionDays?: number;
+  vaultPurgeReceiptHashRetentionDays?: number;
   evidenceTaskQuotaBytes?: number;
   evidenceOwnerQuotaBytes?: number;
   evidenceMaxUploadBytes?: number;
@@ -66,6 +76,11 @@ export default definePluginEntry({
         "nexus-agent-core: decisionsEnabled needs tasksEnabled; the decision module stays off",
       );
     }
+    if (config.vaultEnabled === true && config.tasksEnabled !== true) {
+      api.logger.warn(
+        "nexus-agent-core: vaultEnabled needs tasksEnabled; the file vault stays off",
+      );
+    }
     if (config.claimsEnabled === true && config.decisionsEnabled !== true) {
       api.logger.warn(
         "nexus-agent-core: claimsEnabled needs decisionsEnabled; the claim ledger stays off",
@@ -85,6 +100,16 @@ export default definePluginEntry({
           preferencesEnabled: config.preferencesEnabled === true,
           watchersEnabled: config.watchersEnabled === true,
           watcherExtraTools: config.watcherExtraTools,
+          vaultEnabled: config.vaultEnabled === true,
+          vaultOwnerQuotaBytes: config.vaultOwnerQuotaBytes,
+          vaultMaxFileBytes: config.vaultMaxFileBytes,
+          vaultInboxRetentionDays: config.vaultInboxRetentionDays,
+          vaultTrashRetentionDays: config.vaultTrashRetentionDays,
+          vaultImportRoots: config.vaultImportRoots,
+          vaultMinFreeBytes: config.vaultMinFreeBytes,
+          vaultReservationRetentionDays: config.vaultReservationRetentionDays,
+          vaultTombstoneRetentionDays: config.vaultTombstoneRetentionDays,
+          vaultPurgeReceiptHashRetentionDays: config.vaultPurgeReceiptHashRetentionDays,
           evidenceTaskQuotaBytes: config.evidenceTaskQuotaBytes,
           evidenceOwnerQuotaBytes: config.evidenceOwnerQuotaBytes,
           evidenceMaxUploadBytes: config.evidenceMaxUploadBytes,

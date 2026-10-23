@@ -48,5 +48,8 @@ export const NEXUS_CSS = `
 .nexus-page .nx-link{font:inherit;color:#4f7cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
 .nexus-page .pager{margin:8px 0;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
 .nexus-page .pager .cur{font-weight:600}
+.nexus-page .nx-tabs{display:flex;flex-wrap:wrap;gap:4px 16px;margin:8px 0}
+.nexus-page .nx-tabs a{color:inherit;opacity:.65;text-decoration:none}
+.nexus-page .nx-tabs a.on{opacity:1;font-weight:600}
 .nexus-page .nx-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
 `;

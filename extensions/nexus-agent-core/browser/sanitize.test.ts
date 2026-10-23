@@ -142,4 +142,33 @@ describe("action markers", () => {
     );
     expect(() => (bare.querySelector("button") as HTMLButtonElement).click()).not.toThrow();
   });
+
+  it("turns the file markers into actions and drops forged ones", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const onAction = vi.fn();
+    mountSanitized(
+      container,
+      [
+        '<button data-nx-act="file-new" data-nx-id="new">u</button>',
+        '<button data-nx-act="file-import" data-nx-id="new">i</button>',
+        '<button data-nx-act="file-open" data-nx-id="F1ABC">o</button>',
+        '<button data-nx-act="file-open" data-nx-id="../x">bad</button>',
+        '<button data-nx-act="file-open">bare</button>',
+      ].join(""),
+      hrefOf,
+      vi.fn(),
+      onAction,
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons).toHaveLength(3);
+    for (const button of buttons) {
+      button.click();
+    }
+    expect(onAction.mock.calls.map((call) => call[0])).toEqual([
+      { kind: "file-new" },
+      { kind: "file-import" },
+      { kind: "file-open", id: "F1ABC" },
+    ]);
+  });
 });
