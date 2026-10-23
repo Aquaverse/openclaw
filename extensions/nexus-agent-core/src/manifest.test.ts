@@ -67,7 +67,7 @@ describe("openclaw.plugin.json", () => {
     }
     const line = /^NEXUS_TOOLS="([^"]+)"/mu.exec(fs.readFileSync(script, "utf8"));
     assert.ok(line, "NEXUS_TOOLS=... not found in scripts/mac-nexus-preset.sh");
-    assert.deepEqual([...(line[1] ?? "").split(" ")].toSorted(), [...registered].toSorted());
+    assert.deepEqual((line[1] ?? "").split(" ").toSorted(), [...registered].toSorted());
   });
 
   it("declares the feature switches", () => {

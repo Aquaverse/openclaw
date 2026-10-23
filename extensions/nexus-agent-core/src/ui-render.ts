@@ -1,3 +1,5 @@
+import { asText } from "./as-text.js";
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 import { DEFAULT_LANG, tr, trHtml, type Lang, type MsgKey } from "./i18n.js";
 import type { EvidenceBlobView } from "./store/blob-types.js";
 import type { ClaimRecord } from "./store/claim-types.js";
@@ -27,7 +29,7 @@ import {
 import { FILE_TABS, formatBytes, tabCounts, type FileTab } from "./vault-ui.js";
 
 export function esc(value: unknown): string {
-  return String(value ?? "")
+  return asText(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -37,7 +39,7 @@ export function esc(value: unknown): string {
 
 export function clip(value: unknown, max = 240): string {
   const text = typeof value === "string" ? value : (JSON.stringify(value) ?? "null");
-  const chars = [...text];
+  const chars = Array.from(text);
   return chars.length <= max ? text : `${chars.slice(0, max - 1).join("")}…`;
 }
 
@@ -182,28 +184,28 @@ function renderFilterForm(
 }
 
 function renderPager(filter: TaskFilter, total: number, basePath: string, lang: Lang): string {
-  const { page, pages, first, last } = pageInfo(filter, total);
-  const summary = `<span class="muted">${esc(tr(lang, "pager.summary", { total, first, last, page, pages }))}</span>`;
+  const { page: current, pages, first, last } = pageInfo(filter, total);
+  const summary = `<span class="muted">${esc(tr(lang, "pager.summary", { total, first, last, page: current, pages }))}</span>`;
   if (pages <= 1) {
     return `<p class="pager">${summary}</p>`;
   }
   const link = (label: string, target: number) =>
     `<a href="${esc(listLink(basePath, filter, { page: target }))}">${esc(label)}</a>`;
   const items: string[] = [];
-  if (page > 1) {
-    items.push(link(tr(lang, "pager.first"), 1), link(tr(lang, "pager.prev"), page - 1));
+  if (current > 1) {
+    items.push(link(tr(lang, "pager.first"), 1), link(tr(lang, "pager.prev"), current - 1));
   }
-  for (const n of pageWindow(page, pages)) {
+  for (const n of pageWindow(current, pages)) {
     items.push(
       n === null
         ? '<span class="muted">…</span>'
-        : n === page
+        : n === current
           ? `<span class="cur">${n}</span>`
           : link(String(n), n),
     );
   }
-  if (page < pages) {
-    items.push(link(tr(lang, "pager.next"), page + 1), link(tr(lang, "pager.last"), pages));
+  if (current < pages) {
+    items.push(link(tr(lang, "pager.next"), current + 1), link(tr(lang, "pager.last"), pages));
   }
   return `<p class="pager">${summary} ${items.join(" ")}</p>`;
 }
@@ -354,16 +356,21 @@ export function renderTaskDetail(
             "col.deadline",
             ...(withActions ? (["col.actions"] as const) : []),
           ],
-          pending.map((decision) => [
-            tdCode(decision.id),
-            td(clip(decision.question, 200)),
-            td(decision.effectKind),
-            td(decision.riskTier),
-            td(fmtTime(decision.deadlineAt)),
-            ...(withActions
-              ? [`<td>${button("decision", decision.id, tr(lang, "btn.reviewDecide"))}</td>`]
-              : []),
-          ]),
+          pending.map((decision) => {
+            const cells = [
+              tdCode(decision.id),
+              td(clip(decision.question, 200)),
+              td(decision.effectKind),
+              td(decision.riskTier),
+              td(fmtTime(decision.deadlineAt)),
+            ];
+            if (withActions) {
+              cells.push(
+                `<td>${button("decision", decision.id, tr(lang, "btn.reviewDecide"))}</td>`,
+              );
+            }
+            return cells;
+          }),
         ),
     ),
     section(

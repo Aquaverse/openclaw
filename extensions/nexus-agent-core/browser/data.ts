@@ -175,7 +175,7 @@ export async function loadView(
         model: { decisions: [], watches: [], preferences: [], evidence: [], files },
       };
     }
-    case "receipts": {
+    default: {
       const [tasks, preferences] = await Promise.all([
         request<{ receipts: PurgeReceiptRow[] }>("nexus.task.purgeReceipts", { limit: 100 }),
         features.preferences

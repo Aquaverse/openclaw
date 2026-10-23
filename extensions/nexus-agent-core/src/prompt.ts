@@ -108,7 +108,7 @@ const MAX_TITLE = 60;
 const MAX_NOTE = 80;
 
 function clip(text: string, max: number): string {
-  const chars = [...text.replace(/\s+/gu, " ").trim()];
+  const chars = Array.from(text.replace(/\s+/gu, " ").trim());
   return chars.length <= max ? chars.join("") : `${chars.slice(0, max - 1).join("")}…`;
 }
 

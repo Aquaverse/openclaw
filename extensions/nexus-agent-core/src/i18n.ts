@@ -455,7 +455,7 @@ export function langFromAcceptLanguage(header: string | null | undefined): Lang 
       return { tag: tag.trim(), q: Number.isFinite(q) ? q : 0, index };
     })
     .filter((entry) => entry.tag !== "" && entry.tag !== "*" && entry.q > 0)
-    .sort((a, b) => b.q - a.q || a.index - b.index);
+    .toSorted((a, b) => b.q - a.q || a.index - b.index);
   const first = ranked[0];
   return first ? resolveLang(first.tag) : DEFAULT_LANG;
 }

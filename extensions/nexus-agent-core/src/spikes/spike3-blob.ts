@@ -26,7 +26,7 @@ function openStore(
   return api.runtime.state.openBlobStore<BlobMeta>({
     namespace: options.namespace,
     maxEntries: options.maxEntries ?? 16,
-    maxBytesPerEntry: options.maxBytesPerEntry ?? 1 * MB,
+    maxBytesPerEntry: options.maxBytesPerEntry ?? MB,
     maxBytesPerNamespace: options.maxBytesPerNamespace ?? 8 * MB,
     ...(options.overflowPolicy ? { overflowPolicy: options.overflowPolicy } : {}),
   });
@@ -53,9 +53,9 @@ async function attempt<T>(
 export async function runBlobOpenLimits(api: OpenClawPluginApi, recorder: SpikeRecorder) {
   const item = "blob.open-limits";
   const cases: Array<[string, number, number]> = [
-    ["2GB namespace", 2048 * MB, 1 * MB],
-    ["512MB namespace", 512 * MB, 1 * MB],
-    ["513MB namespace", 513 * MB, 1 * MB],
+    ["2GB namespace", 2048 * MB, MB],
+    ["512MB namespace", 512 * MB, MB],
+    ["513MB namespace", 513 * MB, MB],
     ["entry 101MB", 512 * MB, 101 * MB],
   ];
   for (const [label, namespaceBytes, entryBytes] of cases) {
@@ -95,7 +95,7 @@ export async function runBlobSemantics(api: OpenClawPluginApi, recorder: SpikeRe
   const suffix = randomBytes(4).toString("hex");
   const bytes = (n: number) => new Uint8Array(n).fill(7);
 
-  const plain = await openStore(api, { namespace: `nexus-spike-sem-${suffix}` });
+  const plain = openStore(api, { namespace: `nexus-spike-sem-${suffix}` });
   await attempt(
     recorder,
     item,
@@ -147,7 +147,7 @@ export async function runBlobSemantics(api: OpenClawPluginApi, recorder: SpikeRe
     note: "type signature is (key, bytes, metadata, opts?: { ttlMs }) - no AbortSignal",
   });
 
-  const rejecting = await openStore(api, {
+  const rejecting = openStore(api, {
     namespace: `nexus-spike-rej-${suffix}`,
     maxEntries: 2,
     overflowPolicy: "reject-new",
@@ -157,7 +157,7 @@ export async function runBlobSemantics(api: OpenClawPluginApi, recorder: SpikeRe
       rejecting.register(key, bytes(4), { probe: key }),
     );
   }
-  const evicting = await openStore(api, {
+  const evicting = openStore(api, {
     namespace: `nexus-spike-evict-${suffix}`,
     maxEntries: 2,
     overflowPolicy: "evict-oldest",
@@ -194,8 +194,8 @@ export async function runBlobCrossNamespaceCap(api: OpenClawPluginApi, recorder:
     maxBytesPerNamespace: 400 * MB,
     overflowPolicy: "reject-new" as const,
   };
-  const a = await openStore(api, { ...options, namespace: `nexus-spike-capa-${suffix}` });
-  const b = await openStore(api, { ...options, namespace: `nexus-spike-capb-${suffix}` });
+  const a = openStore(api, { ...options, namespace: `nexus-spike-capa-${suffix}` });
+  const b = openStore(api, { ...options, namespace: `nexus-spike-capb-${suffix}` });
   let written = 0;
   try {
     for (let index = 0; index < 12; index += 1) {

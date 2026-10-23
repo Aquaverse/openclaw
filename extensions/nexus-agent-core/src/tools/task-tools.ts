@@ -219,7 +219,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
           if (!KIND.test(kind)) {
             return fail("invalid_kind", "kind must be lower_snake_case, at most 40 characters.");
           }
-          if (!title || [...title].length > LIMITS.title) {
+          if (!title || Array.from(title).length > LIMITS.title) {
             return fail("invalid_title", "title must not be empty, at most 200 characters.");
           }
           if (!isPlainObject(goal) || tooBig(goal, LIMITS.json)) {
@@ -286,10 +286,11 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
               return {
                 ok: true,
                 created: false,
-                existing_candidates: duplicates.map((entry) => ({
-                  ...taskView(entry.task),
-                  similarity: Number(entry.score.toFixed(2)),
-                })),
+                existing_candidates: duplicates.map((entry) =>
+                  Object.assign(taskView(entry.task), {
+                    similarity: Number(entry.score.toFixed(2)),
+                  }),
+                ),
                 duplicate_override_token: issued.token,
                 expiresAt: issued.expiresAt,
                 ...(verdict ? { previousTokenRejected: verdict } : {}),
@@ -410,7 +411,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
             if (
               typeof params.title !== "string" ||
               !params.title.trim() ||
-              [...params.title].length > LIMITS.title
+              Array.from(params.title).length > LIMITS.title
             ) {
               return fail("invalid_title", "title must not be empty, at most 200 characters.");
             }
@@ -427,7 +428,10 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
             patch[key] = value;
           }
           if (params.summary !== undefined) {
-            if (typeof params.summary !== "string" || [...params.summary].length > LIMITS.summary) {
+            if (
+              typeof params.summary !== "string" ||
+              Array.from(params.summary).length > LIMITS.summary
+            ) {
               return fail(
                 "invalid_summary",
                 "summary must be a string of at most 2000 characters.",
@@ -488,7 +492,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
                 revisionBumped: result.revisionBumped,
                 ...taskView(result.task),
               };
-            case "unchanged":
+            default:
               return { ok: true, updated: false, ...taskView(result.task) };
           }
         });
@@ -510,7 +514,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
             return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           const text = typeof params.text === "string" ? params.text.trim() : "";
-          if (!text || [...text].length > LIMITS.note) {
+          if (!text || Array.from(text).length > LIMITS.note) {
             return fail("invalid_text", "text must not be empty, at most 4000 characters.");
           }
           const result = await store.note({
@@ -529,7 +533,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
                 "task_closed",
                 `The Task has ended (${result.task.status}); notes can no longer be added.`,
               );
-            case "added":
+            default:
               deps.events.taskChanged("note", result.task);
               return { ok: true, added: true, seq: result.step.seq, ...taskView(result.task) };
           }
@@ -548,7 +552,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
       async execute(_id: string, params: Record<string, unknown>) {
         return withPrincipal(async (principal, store) => {
           const query = typeof params.query === "string" ? params.query.trim() : "";
-          if (!query || [...query].length > LIMITS.query) {
+          if (!query || Array.from(query).length > LIMITS.query) {
             return fail("invalid_query", "query must not be empty, at most 200 characters.");
           }
           const limit =
@@ -579,7 +583,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
   // `direct-only` keeps these tools model-visible even when the host defers tool schemas behind Tool Search
   // (it switches on automatically for local-model routes, and the search only understands English queries).
   // Without it a local model searches in Chinese, finds nothing, and never calls the Task tools.
-  const visible = tools.map((tool) => ({ ...tool, catalogMode: "direct-only" as const }));
+  const visible = tools.map((tool) => Object.assign(tool, { catalogMode: "direct-only" as const }));
   // The host reads name/label/description/parameters/execute; the precise AgentTool generics are not needed here.
   return visible as unknown as AnyAgentTool[];
 }

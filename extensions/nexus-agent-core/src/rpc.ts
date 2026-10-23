@@ -3,8 +3,7 @@
 import type { GatewayRequestHandlerOptions } from "openclaw/plugin-sdk/gateway-runtime";
 import type { EventBridge } from "./events.js";
 import type { TaskStore } from "./store/host.js";
-import type { Principal } from "./store/types.js";
-import { TASK_STATUSES, type TaskStatus } from "./store/types.js";
+import { TASK_STATUSES, type Principal, type TaskStatus } from "./store/types.js";
 import { normalizeTaskId } from "./tools/task-tools.js";
 
 export type TaskRpcDeps = {
@@ -41,6 +40,7 @@ function readStatuses(raw: unknown): TaskStatus[] | undefined | "invalid" {
 }
 
 /** An optional string param of at most `max` characters; anything else is invalid. */
+// oxlint-disable-next-line typescript/no-redundant-type-constituents -- "invalid" is a sentinel that stays visible in the signature.
 function readSearch(raw: unknown, max: number): string | undefined | "invalid" {
   if (raw === undefined || raw === null) {
     return undefined;

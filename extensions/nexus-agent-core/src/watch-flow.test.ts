@@ -190,7 +190,7 @@ describe("creating a watch", () => {
     assert.equal(call.name, `nexus-watch-${id}-r1`);
     assert.ok(String(call.message).startsWith(`[nexus:watch:${id}]`));
     const changes = watchEvents(w).map((entry) => entry.payload.change);
-    assert.ok(changes.includes("created") && changes.includes("scheduled"), changes.join());
+    assert.ok(changes.includes("created") && changes.includes("scheduled"), changes.join(","));
   });
 
   it("an identical active watch is reused, not duplicated", async () => {
@@ -401,7 +401,9 @@ describe("authenticating a background turn (section 10.2)", () => {
       { runId: "r7", sessionKey: "s1", trigger: "cron", agentId: "main" },
     );
     isClosed(ghostOut);
-    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
     assert.ok(
       w.schedulerCalls.some(
         (call) => call.op === "unschedule" && call.tag === `nexus-watch-${ghost}`,
@@ -498,7 +500,7 @@ describe("two registrations of the plugin (dev run 2026-10-14)", () => {
         sleep: async () => {},
         ...(state ? { state } : {}),
       });
-    const started = (watchId: string) => ({
+    const startedEvent = (watchId: string) => ({
       action: "started",
       jobId: jobOf(w, watchId),
       sessionTarget: "session:s1",
@@ -509,7 +511,7 @@ describe("two registrations of the plugin (dev run 2026-10-14)", () => {
     const shared = createWatchSharedState();
     const cronSide = make(shared);
     const promptSide = make(shared);
-    await cronSide.onCronChanged(started(id));
+    await cronSide.onCronChanged(startedEvent(id));
     const out = await promptSide.authenticate(
       { prompt: buildWatchMessage({ id, taskId: t }) },
       ctx,
@@ -520,7 +522,7 @@ describe("two registrations of the plugin (dev run 2026-10-14)", () => {
     // the bug: each registration with its own state
     const cronAlone = make();
     const promptAlone = make();
-    await cronAlone.onCronChanged(started(other));
+    await cronAlone.onCronChanged(startedEvent(other));
     const closed = await promptAlone.authenticate(
       { prompt: buildWatchMessage({ id: other, taskId: t }) },
       { ...ctx, runId: "run-Y" },
@@ -569,7 +571,7 @@ describe("the watcher's report", () => {
 
     await turn(w, id, "run-1");
     const first = await report(w, id, "not_yet", "run-1", "邮箱里还没有回复");
-    assert.ok(!first.blocked && first.details.ok === true, JSON.stringify(first));
+    assert.ok(!first.blocked && first.details.ok, JSON.stringify(first));
     assert.equal(first.details.outcome, "rescheduled");
     assert.equal(
       w.count(
@@ -617,7 +619,7 @@ describe("the watcher's report", () => {
 
     await proveByExecution(w, t, claimId);
     const done = await report(w, id, "satisfied", "run-1", "邮件已确认");
-    assert.ok(!done.blocked && done.details.ok === true, JSON.stringify(done));
+    assert.ok(!done.blocked && done.details.ok, JSON.stringify(done));
     assert.equal(done.details.outcome, "satisfied");
     assert.equal(watchRow(w, id).status, "satisfied");
     assert.equal(taskStatus(w, t), "planning");
@@ -820,13 +822,16 @@ describe("operator RPC", () => {
       "nexus_invalid_params",
     );
     assert.equal(
-      ((await w.rpc("nexus.watch.list", { statuses: ["satisfied"] })).payload?.watches as unknown[])
-        .length,
+      (
+        (await w.rpc("nexus.watch.list", { statuses: ["satisfied"] })).payload?.watches as
+          | unknown[]
+          | undefined
+      )?.length,
       0,
     );
 
     const got = await w.rpc("nexus.watch.get", { watchId: id });
-    assert.equal((got.payload?.watch as Record<string, unknown>).id, id);
+    assert.equal((got.payload?.watch as Record<string, unknown> | undefined)?.id, id);
     assert.equal(
       (await w.rpc("nexus.watch.get", { watchId: "WNOSUCH0001" })).error?.code,
       "nexus_not_found",

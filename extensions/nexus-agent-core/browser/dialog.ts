@@ -76,24 +76,26 @@ export function openDialog(options: DialogOptions): () => void {
     button.type = "button";
     button.className = `nx-btn nx-${action.tone ?? "primary"}`;
     button.textContent = action.label;
-    button.addEventListener("click", async () => {
-      if (busy || (action.enabled && !action.enabled())) {
-        return;
-      }
-      busy = true;
-      error.hidden = true;
-      refresh();
-      try {
-        await action.run();
-        close();
-      } catch (failure) {
-        busy = false;
-        error.textContent = options.redact(
-          failure instanceof Error ? failure.message : String(failure),
-        );
-        error.hidden = false;
+    button.addEventListener("click", () => {
+      void (async () => {
+        if (busy || (action.enabled && !action.enabled())) {
+          return;
+        }
+        busy = true;
+        error.hidden = true;
         refresh();
-      }
+        try {
+          await action.run();
+          close();
+        } catch (failure) {
+          busy = false;
+          error.textContent = options.redact(
+            failure instanceof Error ? failure.message : String(failure),
+          );
+          error.hidden = false;
+          refresh();
+        }
+      })();
     });
     buttons.push({ button, action });
     footer.append(button);

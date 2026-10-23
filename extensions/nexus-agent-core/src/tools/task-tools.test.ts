@@ -35,7 +35,7 @@ describe("task tools", () => {
     ]),
   ) as unknown as TaskStore;
 
-  let clock = Date.UTC(2026, 9, 10, 8, 0, 0);
+  const clock = Date.UTC(2026, 9, 10, 8, 0, 0);
   let counter = 0;
   const emitted: TaskChangedPayload[] = [];
   const events = createEventBridge();

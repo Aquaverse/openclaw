@@ -24,9 +24,9 @@ async function request(
   const out: Out = { status: 0, headers: {}, body: "", handled: false };
   const req = { url, method, headers } as unknown as IncomingMessage;
   const res = {
-    writeHead(status: number, headers: Record<string, string | number>) {
+    writeHead(status: number, responseHeaders: Record<string, string | number>) {
       out.status = status;
-      out.headers = headers;
+      out.headers = responseHeaders;
     },
     end(body?: string) {
       out.body = body ?? "";
@@ -75,7 +75,7 @@ describe("Nexus Control UI pages", () => {
     assert.ok(nonce && list.body.includes(`nonce="${nonce}"`));
     assert.ok(!/<script\b|<iframe\b|<[^>]*\son\w+=/i.test(list.body));
     assert.ok(
-      /<form class="filters" method="get"/.test(list.body),
+      list.body.includes('<form class="filters" method="get"'),
       "the filter form submits with GET",
     );
     assert.ok(!/method="post"/i.test(list.body));
@@ -419,12 +419,12 @@ describe("Nexus Control UI pages", () => {
       .claimTools("s1")
       .find((tool) => tool.name === "nexus_claim_add")!
       .execute("call", { taskId, subject: "booking", predicate: "executed" } as never);
-    const claimId = String((claim as unknown as { details: { claimId: string } }).details.claimId);
+    const claimId = (claim as unknown as { details: { claimId: string } }).details.claimId;
     const made = await on.w
       .watchTools("s1")
       .find((tool) => tool.name === "nexus_watch_create")!
       .execute("call", { taskId, claimId, expect: EVIL, firstCheckInMinutes: 10 } as never);
-    const watchId = String((made as unknown as { details: { watchId: string } }).details.watchId);
+    const watchId = (made as unknown as { details: { watchId: string } }).details.watchId;
     const shown = await request(on.handler, `${NEXUS_UI_BASE_PATH}/tasks/${taskId}`);
     assert.equal(shown.status, 200);
     assert.ok(shown.body.includes(watchId));

@@ -69,7 +69,6 @@ function respondPurge(respond: Respond, ownerId: string, result: PurgeOutcome): 
       return;
     case "not_found":
       reject(respond, "nexus_not_found", "task not found");
-      return;
   }
 }
 
@@ -224,7 +223,6 @@ export function createPurgeRpcHandlers(deps: PurgeRpcDeps) {
             return;
           case "not_found":
             reject(respond, "nexus_not_found", "task or evidence not found");
-            return;
         }
       }),
       "operator.write",

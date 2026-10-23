@@ -20,8 +20,8 @@ function arg(flag: string): string | undefined {
 const url = arg("--url") ?? process.env.OPENCLAW_GATEWAY_URL ?? "ws://127.0.0.1:19001";
 const token = arg("--token") ?? process.env.OPENCLAW_GATEWAY_TOKEN;
 
+// oxlint-disable-next-line typescript/no-explicit-any -- spike scripts read untyped RPC JSON.
 type Json = Record<string, any>;
-let client: GatewayClient;
 async function tool(name: string, args: Json): Promise<Json> {
   const res = await client.request<{ output?: { content?: Array<{ text?: string }> } }>(
     "tools.invoke",
@@ -100,7 +100,7 @@ async function run() {
   console.log(`\nTask ${taskId}: ${url.replace(/^ws/, "http")}/nexus?p.view=task&p.task=${taskId}`);
 }
 
-client = new GatewayClient({
+const client = new GatewayClient({
   url,
   ...(token ? { token } : {}),
   clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -110,7 +110,7 @@ client = new GatewayClient({
   onConnectError: (err) => console.error(`[connect-error] ${err.message}`),
   onHelloOk: () => {
     run()
-      .catch((error) => {
+      .catch((error: unknown) => {
         console.error("[error]", error instanceof Error ? error.message : error);
         process.exitCode = 1;
       })

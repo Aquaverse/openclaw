@@ -98,10 +98,10 @@ describe("task rpc", () => {
     const list = await call(owner, "nexus.task.list", {});
     assert.equal(list.ok, true);
     assert.equal(list.payload?.ownerId, "local");
-    assert.equal((list.payload?.tasks as unknown[]).length, 1);
+    assert.equal((list.payload?.tasks as unknown[] | undefined)?.length, 1);
     const get = await call(owner, "nexus.task.get", { taskId: "T00000001" });
     assert.equal(get.payload?.ownerId, "local");
-    assert.equal((get.payload?.sessions as unknown[]).length, 1);
+    assert.equal((get.payload?.sessions as unknown[] | undefined)?.length, 1);
   });
   it("validates params", async () => {
     assert.equal(
@@ -134,9 +134,11 @@ describe("task rpc", () => {
       });
     }
     const ids = async (params: Record<string, unknown>) =>
-      ((await call(owner, "nexus.task.list", params)).payload?.tasks as Array<{ id: string }>).map(
-        (task) => task.id,
-      );
+      (
+        (await call(owner, "nexus.task.list", params)).payload?.tasks as
+          | Array<{ id: string }>
+          | undefined
+      )?.map((task) => task.id);
     const page1 = await call(owner, "nexus.task.list", { limit: 2, includeClosed: true });
     assert.equal(page1.payload?.total, 4);
     assert.equal(page1.payload?.offset, 0);
@@ -149,7 +151,7 @@ describe("task rpc", () => {
     assert.equal(page2.payload?.total, 4);
     assert.equal(page2.payload?.offset, 2);
     assert.deepEqual(
-      (page2.payload?.tasks as Array<{ id: string }>).map((task) => task.id),
+      (page2.payload?.tasks as Array<{ id: string }> | undefined)?.map((task) => task.id),
       ["T00000002", "T00000001"],
     );
     assert.deepEqual(await ids({ id: "t0000000" }), [
@@ -168,7 +170,7 @@ describe("task rpc", () => {
     // The total follows the filter, not the page.
     const filtered = await call(owner, "nexus.task.list", { title: "酒店", limit: 1 });
     assert.equal(filtered.payload?.total, 2);
-    assert.equal((filtered.payload?.tasks as unknown[]).length, 1);
+    assert.equal((filtered.payload?.tasks as unknown[] | undefined)?.length, 1);
   });
   it("rejects malformed search and time params", async () => {
     for (const params of [

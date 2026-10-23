@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 // Evidence service (DESIGN sections 9.4 / 9.5.1): the asynchronous half of the four-phase evidence protocol.
 //
 //   A0  store.blobPrecheck      sync   authorisation + quotas, before a single byte is read or written
@@ -109,6 +110,15 @@ export function inflightWriterCount(): number {
   return inflightWriters.size;
 }
 
+function replaceControlChars(value: string, replacement: string): string {
+  let out = "";
+  for (const ch of value) {
+    const code = ch.codePointAt(0) ?? 0;
+    out += code < 0x20 || code === 0x7f ? replacement : ch;
+  }
+  return out;
+}
+
 export function sha256Bytes(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -117,12 +127,8 @@ export function normalizeUploadName(raw: unknown): string | undefined {
   if (typeof raw !== "string") {
     return undefined;
   }
-  // eslint-disable-next-line no-control-regex
-  const cleaned = raw
-    .normalize("NFC")
-    .replace(/[\u0000-\u001f\u007f]/g, "")
-    .trim();
-  const name = [...cleaned].slice(0, 200).join("");
+  const cleaned = replaceControlChars(raw.normalize("NFC"), "").trim();
+  const name = Array.from(cleaned).slice(0, 200).join("");
   return name.length > 0 ? name : undefined;
 }
 
@@ -173,7 +179,11 @@ export type ReadHandleRead =
 export function createEvidenceService(deps: EvidenceServiceDeps) {
   const now = deps.now ?? Date.now;
   const sleep =
-    deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    deps.sleep ??
+    ((ms: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+      }));
   const newId =
     deps.newId ??
     ((prefix: string) => {
@@ -837,7 +847,7 @@ export function createEvidenceService(deps: EvidenceServiceDeps) {
     async drain(timeoutMs: number): Promise<boolean> {
       const deadline = now() + timeoutMs;
       while (inflightWriters.size > 0 && now() < deadline) {
-        await Promise.race([Promise.all([...inflightWriters.values()]), sleep(50)]);
+        await Promise.race([Promise.all(inflightWriters.values()), sleep(50)]);
       }
       return inflightWriters.size === 0;
     },

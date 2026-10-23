@@ -174,7 +174,7 @@ export function blobEvidenceResult(result: EvidenceOutcome): Record<string, unkn
       };
     case "registered":
       return { ok: true, registered: true, evidenceId: result.evidenceId };
-    case "linked":
+    default:
       return {
         ok: true,
         alreadyLinked: false,
@@ -303,7 +303,7 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
             return fail("invalid_task_id", "taskId looks like T0ABC123 (a leading # is allowed).");
           }
           const subject = typeof params.subject === "string" ? params.subject.trim() : "";
-          if (!subject || [...subject].length > CLAIM_LIMITS.subject) {
+          if (!subject || Array.from(subject).length > CLAIM_LIMITS.subject) {
             return fail("invalid_subject", "subject must not be empty, at most 200 characters.");
           }
           const predicate = typeof params.predicate === "string" ? params.predicate.trim() : "";
@@ -395,8 +395,7 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
                   claim: claimView(result.claim),
                 },
               );
-            case "created":
-            case "appended":
+            default:
               deps.onOutboxWritten?.();
               return {
                 ok: true,
@@ -537,7 +536,7 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
                 evidenceId: result.evidenceId,
                 ...claimView(result.claim),
               };
-            case "linked":
+            default:
               deps.onOutboxWritten?.();
               return {
                 ok: true,
@@ -600,18 +599,23 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
               ? {
                   unlinkedEvidence: unlinked
                     .filter((row) => row.blobKey !== null)
-                    .map((row) => ({
-                      blobKey: row.blobKey,
-                      sourceGroup: row.sourceGroup,
-                      bytes: row.byteSize,
-                      classification: row.classification,
+                    .map((row) => {
+                      const entry: Record<string, unknown> = {
+                        blobKey: row.blobKey,
+                        sourceGroup: row.sourceGroup,
+                        bytes: row.byteSize,
+                        classification: row.classification,
+                      };
                       // Names of financial / sensitive material are not shown to the model.
-                      ...(row.classification === "personal" &&
-                      row.meta &&
-                      typeof (row.meta as { name?: unknown }).name === "string"
-                        ? { name: (row.meta as { name: string }).name }
-                        : {}),
-                    })),
+                      if (
+                        row.classification === "personal" &&
+                        row.meta &&
+                        typeof (row.meta as { name?: unknown }).name === "string"
+                      ) {
+                        entry.name = (row.meta as { name: string }).name;
+                      }
+                      return entry;
+                    }),
                 }
               : {}),
           };
@@ -619,6 +623,6 @@ export function createClaimTools(deps: ClaimToolDeps, ctx: ToolContext): AnyAgen
       },
     },
   ];
-  const visible = tools.map((tool) => ({ ...tool, catalogMode: "direct-only" as const }));
+  const visible = tools.map((tool) => Object.assign(tool, { catalogMode: "direct-only" as const }));
   return visible as unknown as AnyAgentTool[];
 }

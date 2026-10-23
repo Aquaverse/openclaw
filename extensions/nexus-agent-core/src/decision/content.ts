@@ -21,7 +21,7 @@ export function decisionTypeFor(effectKind: EffectKind): string {
       return "standing_policy";
     case "set_preference":
       return "preference_confirmation";
-    case "acknowledge":
+    default:
       return "acknowledge";
   }
 }
@@ -164,7 +164,7 @@ export function buildDecisionContent(input: {
 
 function previewValue(value: unknown): string {
   const text = typeof value === "string" ? value : JSON.stringify(value);
-  const chars = [...(text ?? "null")];
+  const chars = Array.from(text ?? "null");
   return chars.length > 200 ? `${chars.slice(0, 200).join("")}...` : chars.join("");
 }
 

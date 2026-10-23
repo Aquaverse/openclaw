@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
+import { asText } from "../src/as-text.js";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -26,7 +27,9 @@ const dbPath = join(stateDir, "plugins", "nexus-agent-core", "nexus.sqlite");
 type Json = Record<string, unknown>;
 let failures = 0;
 const check = (name: string, ok: boolean, detail?: unknown) => {
-  if (!ok) failures += 1;
+  if (!ok) {
+    failures += 1;
+  }
   console.log(
     `${ok ? "PASS" : "FAIL"}  ${name}${detail === undefined ? "" : `  ← ${JSON.stringify(detail)}`}`,
   );
@@ -37,15 +40,19 @@ const sql = (query: string) => {
     try {
       return execFileSync("sqlite3", ["-cmd", ".timeout 5000", dbPath, query]).toString().trim();
     } catch (error) {
-      if (attempt >= 4) throw error;
+      if (attempt >= 4) {
+        throw error;
+      }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
     }
   }
 };
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 const events: string[] = [];
-let client: GatewayClient;
 async function tool(name: string, args: Json): Promise<Json> {
   const res = await client.request<{ output?: { content?: Array<{ text?: string }> } }>(
     "tools.invoke",
@@ -78,7 +85,7 @@ async function newTask(label: string): Promise<string> {
     goal: { want: "Stage 3 slice 3 acceptance" },
     operationToken: String(reserve.operationToken),
   });
-  return String(created.taskId ?? "");
+  return asText(created.taskId);
 }
 const upload = (taskId: string, name: string, text: string, extra: Json = {}) =>
   rpc("nexus.evidence.upload", {
@@ -93,24 +100,22 @@ const objectOf = (blobKey: string) =>
     `select state||'|'||ref_count||'|'||(absence_verified_at is not null) from blob_objects where blob_key='${blobKey}'`,
   );
 const taskRows = (taskId: string) =>
-  Number(
-    [
-      `select count(*) from nexus_tasks where id='${taskId}'`,
-      `select count(*) from evidence where task_id='${taskId}'`,
-      `select count(*) from claims where task_id='${taskId}'`,
-      `select count(*) from claim_events where task_id='${taskId}'`,
-      `select count(*) from blob_reservations where task_id='${taskId}'`,
-      `select count(*) from purge_runs where task_id='${taskId}'`,
-      `select count(*) from purge_work_items where task_id='${taskId}'`,
-    ]
-      .map((query) => Number(sql(query)))
-      .reduce((a, b) => a + b, 0),
-  );
+  [
+    `select count(*) from nexus_tasks where id='${taskId}'`,
+    `select count(*) from evidence where task_id='${taskId}'`,
+    `select count(*) from claims where task_id='${taskId}'`,
+    `select count(*) from claim_events where task_id='${taskId}'`,
+    `select count(*) from blob_reservations where task_id='${taskId}'`,
+    `select count(*) from purge_runs where task_id='${taskId}'`,
+    `select count(*) from purge_work_items where task_id='${taskId}'`,
+  ]
+    .map((query) => Number(sql(query)))
+    .reduce((a, b) => a + b, 0);
 
 async function main() {
   const stamp = Date.now().toString(36);
   const stats0 = await rpc("nexus.evidence.stats");
-  check("evidence is enabled (nexus.evidence.stats is callable)", !!stats0.limits, stats0);
+  check("evidence is enabled (nexus.evidence.stats is callable)", Boolean(stats0.limits), stats0);
   const purgeProbe = await rpcError("nexus.task.purge", { taskId: "T0000" });
   check(
     "purge RPC is registered (rejected for missing confirmation, rather than unknown method)",
@@ -123,13 +128,13 @@ async function main() {
   const a = await newTask(`A ${stamp}`);
   const b = await newTask(`B ${stamp}`);
   const c = await newTask(`C ${stamp}`);
-  check("create A / B / C", !!a && !!b && !!c, { a, b, c });
+  check("create A / B / C", Boolean(a) && Boolean(b) && Boolean(c), { a, b, c });
   const act = await tool("nexus_action_prepare", {
     taskId: a,
     toolName: "fake_booking",
     params: { vendor: "Acme Hotel", item: `Purge Suite ${stamp}`, date: "2026-12-01" },
   });
-  const actionId = String(act.actionId ?? "");
+  const actionId = asText(act.actionId);
   const bound = await tool("nexus_claim_add", {
     taskId: a,
     subject: "booking confirmed",
@@ -137,7 +142,7 @@ async function main() {
     value: { actionId },
     completion: "VERIFIED",
   });
-  const claimId = String(bound.claimId ?? "");
+  const claimId = asText(bound.claimId);
   const dec = await tool("nexus_decision_request", {
     taskId: a,
     effect: { actionIds: [actionId] },
@@ -146,7 +151,7 @@ async function main() {
     decisionId: String(dec.decisionId),
     resolution: "approved",
   });
-  const executionId = String(resolved.executionId ?? "");
+  const executionId = asText(resolved.executionId);
   const commit = await tool("nexus_action_commit", { executionId });
   check("A: booking commit succeeded", commit.ok === true && commit.status === "succeeded", commit);
   await tool("nexus_evidence_add", {
@@ -265,7 +270,7 @@ async function main() {
   const pa = await rpc("nexus.task.purge", { taskId: a, confirmTaskId: a });
   check(
     "purge A → purged, the receipt carries a declaration",
-    pa.outcome === "purged" && /destroyed/.test(String(pa.notice)),
+    pa.outcome === "purged" && String(pa.notice).includes("destroyed"),
     pa,
   );
   const receiptA = (pa.receipt ?? {}) as Json;
@@ -406,7 +411,7 @@ async function incarnation() {
   );
 }
 
-client = new GatewayClient({
+const client = new GatewayClient({
   url,
   ...(token ? { token } : {}),
   clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -422,7 +427,7 @@ client = new GatewayClient({
   onHelloOk: () => {
     (phase === "incarnation" ? incarnation() : main())
       .then(() => console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`))
-      .catch((error) => {
+      .catch((error: unknown) => {
         failures += 1;
         console.error("[error]", error);
       })

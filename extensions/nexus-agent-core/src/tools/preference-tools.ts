@@ -251,9 +251,7 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
                 "limit_reached",
                 `The number of preferences has reached the limit (${out.max}).`,
               );
-            case "unchanged":
-            case "created":
-            case "updated":
+            default:
               if (out.outcome !== "unchanged") {
                 deps.events.preferenceChanged({
                   ownerId: principal.ownerId,
@@ -319,7 +317,8 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
             return {
               ok: true,
               alreadyStated: true,
-              ...{ scope: parsed.scope, key: parsed.key },
+              scope: parsed.scope,
+              key: parsed.key,
               message: "The user already confirmed this value; no need to ask again.",
             };
           }
@@ -361,8 +360,7 @@ export function createPreferenceTools(deps: PreferenceToolDeps, ctx: ToolContext
               deps.events.taskChanged("updated", created.task);
               deps.onOutboxWritten?.();
             // falls through
-            case "replayed":
-            case "reused_pending": {
+            default: {
               const decision = created.decision;
               return {
                 ok: true,

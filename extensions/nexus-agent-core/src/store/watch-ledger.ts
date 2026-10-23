@@ -9,8 +9,7 @@
 import { canonicalJson } from "../canonical.js";
 import type { ClaimLedger } from "./claim-ledger.js";
 import { isClosed, parseJson, toTask, TASK_COLUMNS, type TransactionRunner } from "./kernel.js";
-import type { TaskRecord } from "./types.js";
-import type { Principal } from "./types.js";
+import type { Principal, TaskRecord } from "./types.js";
 import {
   ACTIVE_WATCH_STATUSES,
   DEFAULT_FIRST_CHECK_MS,
@@ -151,7 +150,7 @@ export function createWatchLedger(
     transaction((): WatchCreateOutcome => {
       const owner = input.principal.ownerId;
       const expect = typeof input.expect === "string" ? input.expect.trim() : "";
-      if (expect.length === 0 || [...expect].length > MAX_WATCH_EXPECT_CHARS) {
+      if (expect.length === 0 || Array.from(expect).length > MAX_WATCH_EXPECT_CHARS) {
         return { outcome: "invalid", code: "bad_expect" };
       }
       const delay = input.firstCheckInMs ?? DEFAULT_FIRST_CHECK_MS;

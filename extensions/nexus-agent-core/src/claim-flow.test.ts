@@ -428,13 +428,16 @@ describe("settle hook, operator corrections, events and integrity", () => {
     await bookAndCommit(w, t);
     const list = await w.rpc("nexus.claim.list", { taskId: t });
     assert.equal(list.ok, true);
-    assert.equal((list.payload?.claims as unknown[]).length, 1);
-    assert.equal((list.payload?.completion as { reason: string }).reason, "no_completion_claims");
-    const claimId = (list.payload?.claims as { id: string }[])[0]?.id as string;
+    assert.equal((list.payload?.claims as unknown[] | undefined)?.length, 1);
+    assert.equal(
+      (list.payload?.completion as { reason: string } | undefined)?.reason,
+      "no_completion_claims",
+    );
+    const claimId = (list.payload?.claims as { id: string }[] | undefined)?.[0]?.id as string;
     const got = await w.rpc("nexus.claim.get", { taskId: t, claimId });
     assert.equal(got.ok, true);
     assert.equal(got.payload?.ownerId, P.ownerId);
-    assert.ok((got.payload?.links as unknown[]).length >= 1);
+    assert.ok(((got.payload?.links as unknown[] | undefined)?.length ?? 0) >= 1);
     assert.equal(
       (await w.rpc("nexus.claim.get", { taskId: t, claimId: "NOPE" })).error?.code,
       "nexus_not_found",
@@ -659,9 +662,12 @@ describe("an install without evidence bytes still lists a Task's evidence rows",
       },
     } as never);
     assert.equal(reply?.ok, true);
-    const rows = (
-      reply?.payload as { evidence: { kind: string; blobKey: unknown; linkedClaimIds: string[] }[] }
-    ).evidence;
+    const rows =
+      (
+        reply?.payload as
+          | { evidence: { kind: string; blobKey: unknown; linkedClaimIds: string[] }[] }
+          | undefined
+      )?.evidence ?? [];
     assert.equal(rows.length, 1);
     assert.equal(rows[0]?.kind, "execution_receipt");
     assert.equal(rows[0]?.blobKey, null);

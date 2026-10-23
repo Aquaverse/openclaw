@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 // Decision / Grant / Execution kernel against the real SQL on in-memory SQLite (DESIGN section 13, Stage 2).
 // Every test goes through the kernel's public entry points; direct SQL appears only to inject faults or to prove
 // that the schema itself (not the kernel) refuses a bad row.
@@ -37,7 +38,7 @@ function fixture() {
     newId: (prefix) => `${prefix}${String((n += 1)).padStart(4, "0")}`,
   });
   const count = (sql: string, ...params: (string | number)[]): number =>
-    Number((db.prepare(sql).get(...params) as { c: number }).c);
+    (db.prepare(sql).get(...params) as { c: number }).c;
   const row = (sql: string, ...params: (string | number)[]) =>
     db.prepare(sql).get(...params) as Record<string, unknown>;
   let taskSeq = 0;
@@ -845,9 +846,9 @@ describe("R1: standing policy and nexus_action_authorize (section 8.6)", () => {
   it("authorize signs an execution; repeating it returns the SAME executionId and burns no quota", () => {
     const { f, m1 } = standing();
     const first = authorize(f, m1);
-    assert.ok(first.outcome === "authorized" && first.reentry === false);
+    assert.ok(first.outcome === "authorized" && !first.reentry);
     const second = authorize(f, m1, T0 + 3500);
-    assert.ok(second.outcome === "authorized" && second.reentry === true);
+    assert.ok(second.outcome === "authorized" && second.reentry);
     assert.equal(second.executionId, first.executionId);
     assert.equal(f.count("SELECT COUNT(*) AS c FROM action_executions"), 1);
     assert.equal(f.count("SELECT COUNT(*) AS c FROM grant_uses"), 0);

@@ -40,7 +40,7 @@ export function readBootIdCandidateD(
 ): BootIdCandidateD {
   const pid = process.pid;
   const startedAt = now();
-  let startTime: number | null = null;
+  let startTime: number | null;
   try {
     startTime = read(pid);
   } catch {

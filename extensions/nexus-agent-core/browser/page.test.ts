@@ -20,7 +20,7 @@ const task = (overrides: Record<string, unknown> = {}) => ({
 });
 
 function fixture(
-  responses: Record<string, unknown | Error>,
+  responses: Record<string, unknown>,
   props: Record<string, string> = {},
   locale?: string,
 ) {

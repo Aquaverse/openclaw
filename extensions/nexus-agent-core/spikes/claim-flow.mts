@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
+import { asText } from "../src/as-text.js";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -22,7 +23,9 @@ const dbPath = join(stateDir, "plugins", "nexus-agent-core", "nexus.sqlite");
 type Json = Record<string, unknown>;
 let failures = 0;
 const check = (name: string, ok: boolean, detail?: unknown) => {
-  if (!ok) failures += 1;
+  if (!ok) {
+    failures += 1;
+  }
   console.log(
     `${ok ? "PASS" : "FAIL"}  ${name}${detail === undefined ? "" : `  ← ${JSON.stringify(detail)}`}`,
   );
@@ -34,14 +37,15 @@ const sql = (query: string) => {
     try {
       return execFileSync("sqlite3", ["-cmd", ".timeout 5000", dbPath, query]).toString().trim();
     } catch (error) {
-      if (attempt >= 4) throw error;
+      if (attempt >= 4) {
+        throw error;
+      }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
     }
   }
 };
 
 const events: string[] = [];
-let client: GatewayClient;
 async function tool(name: string, args: Json): Promise<Json> {
   const res = await client.request<{ output?: { content?: Array<{ text?: string }> } }>(
     "tools.invoke",
@@ -75,9 +79,11 @@ async function run() {
     goal: { want: "Stage 3 ledger acceptance" },
     operationToken: String(reserve.operationToken),
   });
-  const taskId = String(created.taskId ?? "");
+  const taskId = asText(created.taskId);
   check("create probe Task", created.ok === true && taskId !== "", created);
-  if (!taskId) return;
+  if (!taskId) {
+    return;
+  }
 
   // 1 The Agent cannot write SUPPORTED / VERIFIED / REFUTED directly
   for (const state of ["SUPPORTED", "VERIFIED", "REFUTED"]) {
@@ -109,7 +115,7 @@ async function run() {
     predicate: "executed",
     completion: "SUPPORTED",
   });
-  const claimId = String(claim.claimId ?? "");
+  const claimId = asText(claim.claimId);
   check(
     "register completion condition: ASSERTED, requiredForCompletion=SUPPORTED",
     claim.ok === true && claim.state === "ASSERTED" && claim.requiredForCompletion === "SUPPORTED",
@@ -138,13 +144,13 @@ async function run() {
     toolName: "fake_booking",
     params: { vendor: "Acme Hotel", item: `Probe Suite ${stamp}`, date: "2026-12-01" },
   });
-  const actionId = String(act.actionId ?? "");
+  const actionId = asText(act.actionId);
   const dec = await tool("nexus_decision_request", { taskId, effect: { actionIds: [actionId] } });
   const resolved = await rpc("nexus.decision.resolve", {
     decisionId: String(dec.decisionId),
     resolution: "approved",
   });
-  const executionId = String(resolved.executionId ?? "");
+  const executionId = asText(resolved.executionId);
   check("approval yields an executionId", executionId !== "", resolved);
   const commit = await tool("nexus_action_commit", { executionId });
   check("commit succeeded", commit.ok === true && commit.status === "succeeded", commit);
@@ -233,7 +239,7 @@ async function run() {
 
   // 9 Operations entry: rehearse unlink / retract on a throwaway claim
   const probe = await tool("nexus_claim_add", { taskId, subject: "probe", predicate: "executed" });
-  const probeId = String(probe.claimId ?? "");
+  const probeId = asText(probe.claimId);
   const probeLinked = await tool("nexus_evidence_add", {
     taskId,
     claimId: probeId,
@@ -301,7 +307,9 @@ async function run() {
   const list = await rpc("nexus.claim.list", { taskId });
   check(
     "nexus.claim.list returns 3 claims and the completion verdict",
-    Array.isArray(list.claims) && (list.claims as unknown[]).length === 3 && !!list.completion,
+    Array.isArray(list.claims) &&
+      (list.claims as unknown[]).length === 3 &&
+      Boolean(list.completion),
     { count: Array.isArray(list.claims) ? list.claims.length : null },
   );
   const got = await rpc("nexus.claim.get", { taskId, claimId });
@@ -328,14 +336,16 @@ async function run() {
   check("no new claim accepted after the Task is closed", closed.code === "task_closed", closed);
 
   // 12 Notification: give the outbox a moment, then count events
-  await new Promise((resolve) => setTimeout(resolve, 3_000));
+  await new Promise((resolve) => {
+    setTimeout(resolve, 3_000);
+  });
   const changed = events.filter((name) => name.endsWith("claim_changed")).length;
   check("received claim_changed events (>= 6)", changed >= 6, { changed, events: events.length });
   console.log(`\nprobe Task: ${taskId}`);
   console.log(failures === 0 ? "all passed" : `${failures} failed`);
 }
 
-client = new GatewayClient({
+const client = new GatewayClient({
   url,
   ...(token ? { token } : {}),
   clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -350,7 +360,7 @@ client = new GatewayClient({
   },
   onHelloOk: () => {
     run()
-      .catch((error) => {
+      .catch((error: unknown) => {
         failures += 1;
         console.error("[error]", error);
       })

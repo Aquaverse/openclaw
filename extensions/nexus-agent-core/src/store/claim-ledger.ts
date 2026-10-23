@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 // Claim / Evidence ledger kernel (DESIGN section 9), Stage 3 slice 1. Runs inside the SQLite worker.
 // Same rules as the other kernels: one input object with a mandatory `principal`, every statement filters on owner_id,
 // every write is ONE synchronous transaction. What is specific here:
@@ -9,6 +10,7 @@
 //     reported as `ref_kind_not_supported`; evidence rows therefore carry blob_key NULL and no bytes at all.
 import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { asText } from "../as-text.js";
 import { canonicalJson, sha256Hex } from "../canonical.js";
 import type {
   AgentClaimState,
@@ -397,15 +399,13 @@ export function createClaimLedger(
     run(
       `UPDATE claims SET state = ?, head_event_id = ?, updated_at = ?${valueJson !== undefined ? ", value_json = ?" : ""} ` +
         "WHERE owner_id = ? AND task_id = ? AND id = ?",
-      ...[
-        state,
-        eventId,
-        now,
-        ...(valueJson !== undefined ? [valueJson] : []),
-        owner,
-        taskId,
-        claimId,
-      ],
+      state,
+      eventId,
+      now,
+      ...(valueJson !== undefined ? [valueJson] : []),
+      owner,
+      taskId,
+      claimId,
     );
     enqueueOutbox(
       owner,
@@ -815,7 +815,7 @@ export function createClaimLedger(
       const taskId = String(idRow.task_id);
       const facts = executionFacts(owner, taskId, executionId) as ExecutionFacts;
       const subject = `execution:${executionId}`;
-      let existing = one(
+      const existing = one(
         `SELECT ${CLAIM_COLUMNS} FROM claims WHERE owner_id = ? AND task_id = ? AND subject = ? AND predicate = 'executed'`,
         owner,
         taskId,
@@ -1115,7 +1115,7 @@ export function createClaimLedger(
     source: String(row.source),
     actor: String(row.actor),
     digest: String(row.digest),
-    prevDigest: row.prev_digest === null ? null : String(row.prev_digest),
+    prevDigest: row.prev_digest === null ? null : asText(row.prev_digest),
     payload: parseJson(row.payload_canonical),
     createdAt: Number(row.created_at),
   });
@@ -1203,7 +1203,7 @@ export function createClaimLedger(
       if (seq !== expectedSeq) {
         return { ok: false, checked: expectedSeq - 1, brokenAtSeq: seq, reason: "seq_gap" };
       }
-      if ((row.prev_digest === null ? null : String(row.prev_digest)) !== prev) {
+      if ((row.prev_digest === null ? null : asText(row.prev_digest)) !== prev) {
         return {
           ok: false,
           checked: expectedSeq - 1,

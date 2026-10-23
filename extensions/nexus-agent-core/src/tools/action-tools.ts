@@ -204,8 +204,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
                 "task_closed",
                 `The Task has ended (${out.task.status}); actions can no longer be registered.`,
               );
-            case "created":
-            case "existing": {
+            default: {
               const tier = out.action.riskTier;
               const done = out.latestExecution;
               return {
@@ -291,7 +290,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
                   executionId: out.execution.id,
                 },
               );
-            case "already_done":
+            default:
               return fail(
                 "already_done",
                 `This action already has a final execution (${out.execution.state}). If the user really wants it done again, register a new action with the occurrence parameter of nexus_action_prepare.`,
@@ -355,7 +354,10 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
             // records it is not awaited by the host, so read until it lands (bounded) instead of reporting "pending".
             const sleep =
               deps.sleep ??
-              ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+              ((ms: number) =>
+                new Promise<void>((resolve) => {
+                  setTimeout(resolve, ms);
+                }));
             const limit = deps.cardWaitMs ?? CARD_WAIT_MS;
             for (
               let waited = 0;
@@ -412,7 +414,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
             case "replayed":
             case "reused_pending":
               return await describeDecision(principal, store, created.decision);
-            case "already_approved": {
+            default: {
               const view = await describeDecision(principal, store, created.decision);
               return {
                 ...view,
@@ -561,6 +563,6 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
       },
     },
   ];
-  const visible = tools.map((tool) => ({ ...tool, catalogMode: "direct-only" as const }));
+  const visible = tools.map((tool) => Object.assign(tool, { catalogMode: "direct-only" as const }));
   return visible as unknown as AnyAgentTool[];
 }

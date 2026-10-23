@@ -61,7 +61,11 @@ const MAX_ROUNDS = 400;
 export function createPurgeService(deps: PurgeServiceDeps) {
   const now = deps.now ?? Date.now;
   const sleep =
-    deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    deps.sleep ??
+    ((ms: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+      }));
   const newId =
     deps.newId ??
     ((prefix: string) => {

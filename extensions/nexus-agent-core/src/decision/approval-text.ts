@@ -6,7 +6,7 @@ export const TITLE_MAX = 80;
 export const DESCRIPTION_MAX = 512;
 
 function clip(text: string, max: number): string {
-  const chars = [...text.replace(/\s+/gu, " ").trim()];
+  const chars = Array.from(text.replace(/\s+/gu, " ").trim());
   return chars.length <= max ? chars.join("") : `${chars.slice(0, max - 1).join("")}…`;
 }
 

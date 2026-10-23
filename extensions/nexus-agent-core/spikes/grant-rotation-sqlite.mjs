@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -120,7 +121,9 @@ function seedLiveGrant(db, { id = "G1", expiresAt = FAR_FUTURE } = {}) {
 function inTransaction(db, statements) {
   try {
     db.exec("BEGIN IMMEDIATE");
-    for (const sql of statements) db.exec(sql);
+    for (const sql of statements) {
+      db.exec(sql);
+    }
     db.exec("COMMIT");
     return { ok: true };
   } catch (error) {
@@ -137,7 +140,9 @@ function check(name, actual, expectation) {
   const pass = expectation(actual);
   results.push({ name, pass, actual });
   console.log(`${pass ? "  ok  " : "  FAIL"}  ${name}`);
-  if (!pass) console.log(`        actual: ${JSON.stringify(actual)}`);
+  if (!pass) {
+    console.log(`        actual: ${JSON.stringify(actual)}`);
+  }
 }
 
 console.log(`node:sqlite — starting Nexus grant constraint regression\n`);
@@ -463,12 +468,12 @@ console.log(
   const insert = (db) =>
     db.prepare(
       `INSERT INTO run_triggers VALUES (?,?,?,?,?,?)
-         ON CONFLICT(${db.__pk}) DO NOTHING`,
+         ON CONFLICT(${db.pkColumns}) DO NOTHING`,
     );
 
   // Single-column primary key: owner2's same-named run is silently swallowed
   const bad = mk("PRIMARY KEY (run_id)");
-  bad.__pk = "run_id";
+  bad.pkColumns = "run_id";
   insert(bad).run("run1", "o1", "cron", "s1", 0, 9999);
   insert(bad).run("run1", "o2", "user", "s2", 0, 9999);
   const badRows = bad.prepare("SELECT owner_id, trigger FROM run_triggers").all();
@@ -481,7 +486,7 @@ console.log(
 
   // Composite primary key: the two owners are independent
   const good = mk("PRIMARY KEY (owner_id, run_id)");
-  good.__pk = "owner_id, run_id";
+  good.pkColumns = "owner_id, run_id";
   insert(good).run("run1", "o1", "cron", "s1", 0, 9999);
   insert(good).run("run1", "o2", "user", "s2", 0, 9999);
   const goodRows = good
@@ -1030,7 +1035,9 @@ console.log("\n[11] The schema of nexus-agent-core-design.md and the naming cont
         const parentExists = db
           .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?")
           .get(fk.table);
-        if (!parentExists) danglingFks.push(`${table} -> ${fk.table}`);
+        if (!parentExists) {
+          danglingFks.push(`${table} -> ${fk.table}`);
+        }
       }
     }
     check(
@@ -1061,18 +1068,20 @@ console.log("\n[11] The schema of nexus-agent-core-design.md and the naming cont
     );
 
     // Column names carry no prefix (§4.1 rule line 4)
-    const stepCols = db
-      .prepare("PRAGMA table_info(nexus_task_steps)")
-      .all()
-      .map((c) => c.name);
+    const stepCols = new Set(
+      db
+        .prepare("PRAGMA table_info(nexus_task_steps)")
+        .all()
+        .map((c) => c.name),
+    );
     check(
       "column names carry no prefix, use task_id rather than nexus_task_id",
-      [stepCols.includes("task_id"), stepCols.includes("nexus_task_id")],
+      [stepCols.has("task_id"), stepCols.has("nexus_task_id")],
       (x) => x[0] === true && x[1] === false,
     );
     check(
       "the core layer's field is called flow_id, not task something",
-      stepCols.includes("flow_id"),
+      stepCols.has("flow_id"),
       (x) => x === true,
     );
 
@@ -1081,7 +1090,9 @@ console.log("\n[11] The schema of nexus-agent-core-design.md and the naming cont
     const journeyCols = [];
     for (const table of tables) {
       for (const col of db.prepare(`PRAGMA table_info(${table})`).all()) {
-        if (/journey/i.test(col.name)) journeyCols.push(`${table}.${col.name}`);
+        if (/journey/i.test(col.name)) {
+          journeyCols.push(`${table}.${col.name}`);
+        }
       }
     }
     check(
@@ -2097,8 +2108,8 @@ console.log("\n[11] The schema of nexus-agent-core-design.md and the naming cont
         after,
         (x) =>
           x.length === 2 &&
-          x.find((r) => r.i === "inc-crashed").b === "superseded_under_gateway_lock" &&
-          x.find((r) => r.i === "inc-new").g === null,
+          x.find((row) => row.i === "inc-crashed").b === "superseded_under_gateway_lock" &&
+          x.find((row) => row.i === "inc-new").g === null,
       );
     }
 
@@ -2703,7 +2714,9 @@ console.log("\n[11] The schema of nexus-agent-core-design.md and the naming cont
             "SELECT id FROM blob_reservations WHERE task_id='T7' AND state='abandoned' LIMIT 1",
           )
           .get();
-        if (!row) return "no-row";
+        if (!row) {
+          return "no-row";
+        }
         db.prepare("UPDATE blob_reservations SET state='reserved' WHERE id=?").run(row.id);
         const r = gate();
         db.prepare("UPDATE blob_reservations SET state='abandoned' WHERE id=?").run(row.id);
@@ -2816,7 +2829,7 @@ console.log("\n[11] The schema of nexus-agent-core-design.md and the naming cont
       "DELETE FROM claim_evidence_links WHERE task_id='T7' AND evidence_id='VS7'",
       "DELETE FROM claim_events WHERE id='E10'",
       "DELETE FROM claims WHERE id='C3'",
-      "DELETE FROM evidence WHERE task_id IN ('T7','T8')" + " AND id IN ('VS7','VS8','VN','VPW')",
+      "DELETE FROM evidence WHERE task_id IN ('T7','T8') AND id IN ('VS7','VS8','VN','VPW')",
     ]);
     check(
       "P5 destroys the ledger in foreign key order (links → events/claims → evidence) in one transaction",
@@ -2875,6 +2888,8 @@ const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
 if (failed.length > 0) {
   console.error("\nConclusions changed, go back and check nexus-agent-core-design.md §8.5 / §6.3:");
-  for (const f of failed) console.error(`  - ${f.name}`);
+  for (const f of failed) {
+    console.error(`  - ${f.name}`);
+  }
   process.exit(1);
 }

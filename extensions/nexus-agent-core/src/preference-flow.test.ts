@@ -46,7 +46,7 @@ describe("who may write which origin (11.2 / 11.4)", () => {
     assert.equal(viaTool.ok, false);
     assert.equal(viaTool.code, "origin_not_allowed");
     // Not only the tool: the kernel method has no way to name `stated` either.
-    const viaStore = await w.k.preferenceAgentSet({
+    const viaStore = w.k.preferenceAgentSet({
       principal: P,
       scope: "global",
       key: "seat",
@@ -211,7 +211,7 @@ describe("who may write which origin (11.2 / 11.4)", () => {
     assert.equal((await setStated(w, "ok", "x", "domain:")).error?.code, "nexus_invalid_params");
     const big = await setStated(w, "ok", "x".repeat(5000));
     assert.equal(big.error?.code, "nexus_invalid_params");
-    assert.match(String(big.error?.message), /value_too_large/);
+    assert.match(big.error?.message, /value_too_large/);
     assert.equal(prefCount(w), 0);
   });
 });
@@ -245,12 +245,16 @@ describe("a preference is not authority (11.1)", () => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-          if (entry.name === "test-support" || entry.name === "spikes") continue;
+          if (entry.name === "test-support" || entry.name === "spikes") {
+            continue;
+          }
           walk(full);
         } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
           const text = fs.readFileSync(full, "utf8");
           const n = (text.match(/\b(FROM|INTO|UPDATE|JOIN)\s+preferences\b/g) ?? []).length;
-          if (n > 0) hits.set(path.relative(root, full), n);
+          if (n > 0) {
+            hits.set(path.relative(root, full), n);
+          }
         }
       }
     };

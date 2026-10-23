@@ -16,18 +16,23 @@ const token = arg("--token") ?? process.env.OPENCLAW_GATEWAY_TOKEN;
 const delayMs = Number(arg("--delay-ms") ?? 90_000);
 const sessionKey = arg("--session-key") ?? "agent:main:main";
 
+// oxlint-disable-next-line typescript/no-explicit-any -- spike scripts record untyped host observations.
 type Obs = { seq: number; at: string; item: string; outcome: string; data?: Record<string, any> };
 let failures = 0;
 const check = (name: string, ok: boolean, detail?: unknown) => {
-  if (!ok) failures += 1;
+  if (!ok) {
+    failures += 1;
+  }
   console.log(
     `${ok ? "PASS" : "FAIL"}  ${name}${detail === undefined ? "" : `  ← ${JSON.stringify(detail)}`}`,
   );
 };
 const note = (text: string) => console.log(`NOTE  ${text}`);
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
-let client: GatewayClient;
 // --dump: do not trigger new turns, just print the already recorded trigger.* observations in order (milliseconds relative to the first).
 async function dump() {
   const report = await client.request<{ observations: Obs[] }>("nexus.spike.report", {
@@ -99,7 +104,9 @@ async function main() {
     await sleep(5_000);
     await fetchRows();
     const ended = rows.filter((row) => row.item === "trigger.agent_end").length;
-    if (ended >= 2 || Date.now() > deadline) break;
+    if (ended >= 2 || Date.now() > deadline) {
+      break;
+    }
   }
   await sleep(3_000);
   await fetchRows();
@@ -200,7 +207,7 @@ async function main() {
   );
 }
 
-client = new GatewayClient({
+const client = new GatewayClient({
   url,
   ...(token ? { token } : {}),
   clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -211,7 +218,7 @@ client = new GatewayClient({
   onHelloOk: () => {
     main()
       .then(() => console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`))
-      .catch((error) => {
+      .catch((error: unknown) => {
         failures += 1;
         console.error("[error]", error);
       })

@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
+import { asText } from "../src/as-text.js";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -27,7 +28,9 @@ const dbPath = join(stateDir, "plugins", "nexus-agent-core", "nexus.sqlite");
 type Json = Record<string, unknown>;
 let failures = 0;
 const check = (name: string, ok: boolean, detail?: unknown) => {
-  if (!ok) failures += 1;
+  if (!ok) {
+    failures += 1;
+  }
   console.log(
     `${ok ? "PASS" : "FAIL"}  ${name}${detail === undefined ? "" : `  ← ${JSON.stringify(detail)}`}`,
   );
@@ -39,15 +42,19 @@ const sql = (query: string) => {
     try {
       return execFileSync("sqlite3", ["-cmd", ".timeout 5000", dbPath, query]).toString().trim();
     } catch (error) {
-      if (attempt >= 4) throw error;
+      if (attempt >= 4) {
+        throw error;
+      }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
     }
   }
 };
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 const events: string[] = [];
-let client: GatewayClient;
 async function tool(name: string, args: Json): Promise<Json> {
   const res = await client.request<{ output?: { content?: Array<{ text?: string }> } }>(
     "tools.invoke",
@@ -80,7 +87,7 @@ async function newTask(label: string): Promise<string> {
     goal: { want: "Stage 3 slice 2 acceptance" },
     operationToken: String(reserve.operationToken),
   });
-  return String(created.taskId ?? "");
+  return asText(created.taskId);
 }
 
 async function main() {
@@ -91,7 +98,7 @@ async function main() {
     ownerQuotaBytes: number;
     maxEntryBytes: number;
   };
-  check("evidence is enabled (nexus.evidence.stats is callable)", !!limits, stats0);
+  check("evidence is enabled (nexus.evidence.stats is callable)", Boolean(limits), stats0);
   const taskId = await newTask(stamp);
   check("create probe Task", taskId !== "");
 
@@ -242,7 +249,7 @@ async function main() {
     toolName: "fake_booking",
     params: { vendor: "Acme Hotel", item: `Blob Suite ${stamp}`, date: "2026-12-01" },
   });
-  const actionId = String(act.actionId ?? "");
+  const actionId = asText(act.actionId);
   const bound = await tool("nexus_claim_add", {
     taskId,
     subject: "booking confirmed",
@@ -255,13 +262,13 @@ async function main() {
     bound.ok === true && bound.requiredForCompletion === "VERIFIED",
     bound,
   );
-  const boundId = String(bound.claimId ?? "");
+  const boundId = asText(bound.claimId);
   const dec = await tool("nexus_decision_request", { taskId, effect: { actionIds: [actionId] } });
   const resolved = await rpc("nexus.decision.resolve", {
     decisionId: String(dec.decisionId),
     resolution: "approved",
   });
-  const executionId = String(resolved.executionId ?? "");
+  const executionId = asText(resolved.executionId);
   const commit = await tool("nexus_action_commit", { executionId });
   check("booking commit succeeded", commit.ok === true && commit.status === "succeeded", commit);
   const exec = await tool("nexus_evidence_add", {
@@ -314,7 +321,7 @@ async function main() {
     subject: "refund",
     predicate: "refunded",
   });
-  const claim2Id = String(claim2.claimId ?? "");
+  const claim2Id = asText(claim2.claimId);
   const listed = await tool("nexus_claim_verify", { taskId });
   const unlinked = (listed.unlinkedEvidence as Json[] | undefined) ?? [];
   check(
@@ -377,18 +384,18 @@ async function main() {
   // 7 Quota: fail closed, and generate an R0 notification decision
   if (limits.taskQuotaBytes <= 4 * 1024 * 1024) {
     const quotaTask = await newTask(`${stamp}-quota`);
-    const chunk = Math.floor(limits.taskQuotaBytes * 0.6);
+    const quotaChunk = Math.floor(limits.taskQuotaBytes * 0.6);
     const first = await rpc("nexus.evidence.upload", {
       taskId: quotaTask,
       name: "a.bin",
-      dataBase64: b64(randomBytes(chunk)),
+      dataBase64: b64(randomBytes(quotaChunk)),
     });
     check("first upload within quota succeeded", first.outcome === "registered", first);
     const objectsBefore = sql("select count(*) from blob_objects");
     const refused = await rpcError("nexus.evidence.upload", {
       taskId: quotaTask,
       name: "b.bin",
-      dataBase64: b64(randomBytes(chunk)),
+      dataBase64: b64(randomBytes(quotaChunk)),
     });
     check("second upload exceeds the Task quota → refused", refused.includes("quota"), refused);
     check(
@@ -404,7 +411,7 @@ async function main() {
     await rpcError("nexus.evidence.upload", {
       taskId: quotaTask,
       name: "c.bin",
-      dataBase64: b64(randomBytes(chunk)),
+      dataBase64: b64(randomBytes(quotaChunk)),
     });
     check(
       "exceeding the limit again does not stack cards (still only 1)",
@@ -484,7 +491,9 @@ async function crashA() {
 // crash-b: after restart, check what the crash left behind and drive reclamation
 async function crashB() {
   const taskId = arg("--task");
-  if (!taskId) throw new Error("--task <taskId> is required");
+  if (!taskId) {
+    throw new Error("--task <taskId> is required");
+  }
   const hash = sql(
     `select content_hash from blob_reservations where task_id='${taskId}' order by created_at desc limit 1`,
   );
@@ -513,10 +522,11 @@ async function crashB() {
     obj === "writing" || reclaimedAtStart,
     { obj },
   );
-  if (reclaimedAtStart)
+  if (reclaimedAtStart) {
     note(
       "the restart took longer than the lease and the startup maintain already reclaimed it; now verifying quota and storage consistency instead",
     );
+  }
   const stats = (await rpc("nexus.evidence.stats")).stats as Json;
   note(`stats: ${JSON.stringify(stats)}`);
   const recon = await rpc("nexus.evidence.reconcile");
@@ -535,7 +545,9 @@ async function crashB() {
     finalState = sql(
       `select state from blob_objects where content_hash='${hash}' order by generation desc limit 1`,
     );
-    if (finalState === "deleted") break;
+    if (finalState === "deleted") {
+      break;
+    }
     await sleep(5_000);
   }
   check(
@@ -579,7 +591,7 @@ async function crashB() {
   );
 }
 
-client = new GatewayClient({
+const client = new GatewayClient({
   url,
   ...(token ? { token } : {}),
   clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -595,7 +607,7 @@ client = new GatewayClient({
   onHelloOk: () => {
     (phase === "crash-a" ? crashA() : phase === "crash-b" ? crashB() : main())
       .then(() => console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`))
-      .catch((error) => {
+      .catch((error: unknown) => {
         failures += 1;
         console.error("[error]", error);
       })

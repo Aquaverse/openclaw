@@ -41,7 +41,7 @@ function readShort(raw: unknown, max: number): string | undefined {
     return undefined;
   }
   const text = raw.trim();
-  return text.length > 0 && [...text].length <= max ? text : undefined;
+  return text.length > 0 && Array.from(text).length <= max ? text : undefined;
 }
 
 /** Strict base64: a length that is not a multiple of 4, or any stray character, is rejected rather than "repaired". */
@@ -385,7 +385,6 @@ export function createEvidenceRpcHandlers(deps: EvidenceRpcDeps) {
             return;
           case "storage_error":
             reject(respond, "nexus_store_error", result.message);
-            return;
         }
       }),
       "operator.read",

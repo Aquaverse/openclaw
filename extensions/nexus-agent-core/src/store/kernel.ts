@@ -243,7 +243,7 @@ export function createTaskKernel(
       where.push("title LIKE ? ESCAPE '\\'");
       params.push(like(titleQuery));
     }
-    for (const term of (input.keyword ?? "").split(/\s+/).filter((term) => term !== "")) {
+    for (const term of (input.keyword ?? "").split(/\s+/).filter((part) => part !== "")) {
       where.push(
         "(title LIKE ? ESCAPE '\\' OR goal_json LIKE ? ESCAPE '\\' " +
           "OR summary LIKE ? ESCAPE '\\' OR entities_json LIKE ? ESCAPE '\\')",
@@ -536,7 +536,7 @@ export function createTaskKernel(
           )
           .get(task.id) as Row;
         const seq = Number(seqRow.next);
-        const title = [...input.text].slice(0, 80).join("");
+        const title = Array.from(input.text).slice(0, 80).join("");
         db.prepare(
           "INSERT INTO nexus_task_steps (id, owner_id, task_id, seq, kind, status, title, detail_json, started_at, ended_at) " +
             "VALUES (?, ?, ?, ?, 'note', 'done', ?, ?, ?, ?)",

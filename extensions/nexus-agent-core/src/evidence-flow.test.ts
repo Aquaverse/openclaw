@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 // Stage 3 slice 2 acceptance flows: evidence bytes through the REAL service, tools and RPC handlers on the real kernel
 // (in-memory SQLite) with an injectable fake byte store. The real openBlobStore is only exercised on the gateway
 // (spikes/blob-flow.mts). What is pinned here: the four-phase protocol (A0 / A1 / A2 / B), the three branches, the
@@ -23,7 +24,10 @@ type World = ReturnType<typeof world>;
 const bytes = (text: string) => new TextEncoder().encode(text);
 const hashOf = (text: string) => createHash("sha256").update(text).digest("hex");
 const b64 = (text: string) => Buffer.from(text).toString("base64");
-const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+const tick = () =>
+  new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
 const MIN = 60_000;
 
 const evidenceWorld = (config?: EvidenceServiceDeps["config"]) =>
@@ -89,7 +93,7 @@ describe("namespaces, names and base64", () => {
     assert.equal(normalizeUploadName("  re\u0000ceipt.pdf \n"), "receipt.pdf");
     assert.equal(normalizeUploadName("   "), undefined);
     assert.equal(normalizeUploadName(7), undefined);
-    assert.equal([...(normalizeUploadName("x".repeat(500)) ?? "")].length, 200);
+    assert.equal(Array.from(normalizeUploadName("x".repeat(500)) ?? "").length, 200);
   });
 
   it("base64 is decoded strictly: padding, alphabet and size are all enforced", () => {
@@ -887,11 +891,11 @@ describe("nexus.evidence.* RPC", () => {
     const rows = list.payload?.evidence as Array<Record<string, unknown>>;
     assert.equal(rows.length, 2);
     const only = await w.rpc("nexus.evidence.list", { taskId: t, onlyUnlinked: true });
-    assert.equal((only.payload?.evidence as unknown[]).length, 1);
+    assert.equal((only.payload?.evidence as unknown[] | undefined)?.length, 1);
 
     const stats = await w.rpc("nexus.evidence.stats");
     assert.equal(
-      (stats.payload?.stats as { ownerBytes: number }).ownerBytes,
+      (stats.payload?.stats as { ownerBytes: number } | undefined)?.ownerBytes,
       "hello".length + "proof".length,
     );
     const recon = await w.rpc("nexus.evidence.reconcile");

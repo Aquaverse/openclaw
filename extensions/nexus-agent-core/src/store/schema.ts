@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 // Stage 1 migration SQL. The DDL below is the nexus-agent-core-design.md section 6.3 text for the three Stage 1 tables,
 // copied verbatim apart from the comments (English here, Chinese in the doc). Tables are STRICT; none of them may be altered after release
 // (DESIGN section 13, Stage 1 "first-release table scope"): later stages only add tables.

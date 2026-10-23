@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
+import { asText } from "../src/as-text.js";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -21,10 +22,13 @@ const token = arg("--token") ?? process.env.OPENCLAW_GATEWAY_TOKEN;
 const stateDir = process.env.OPENCLAW_STATE_DIR ?? join(homedir(), ".openclaw-dev");
 const dbPath = join(stateDir, "plugins", "nexus-agent-core", "nexus.sqlite");
 
+// oxlint-disable-next-line typescript/no-explicit-any -- spike scripts read untyped RPC JSON.
 type Json = Record<string, any>;
 let failures = 0;
 const check = (name: string, ok: boolean, detail?: unknown) => {
-  if (!ok) failures += 1;
+  if (!ok) {
+    failures += 1;
+  }
   console.log(
     `${ok ? "PASS" : "FAIL"}  ${name}${detail === undefined ? "" : `  ← ${JSON.stringify(detail)}`}`,
   );
@@ -35,15 +39,19 @@ const sql = (query: string) => {
     try {
       return execFileSync("sqlite3", ["-cmd", ".timeout 5000", dbPath, query]).toString().trim();
     } catch (error) {
-      if (attempt >= 4) throw error;
+      if (attempt >= 4) {
+        throw error;
+      }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
     }
   }
 };
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
 const changes: Array<{ watchId: string; change: string; status: string }> = [];
-let client: GatewayClient;
 async function tool(name: string, args: Json): Promise<Json> {
   const res = await client.request<{ output?: { content?: Array<{ text?: string }> } }>(
     "tools.invoke",
@@ -67,7 +75,9 @@ const watchRow = (id: string) =>
 async function waitFor(what: string, done: () => boolean, timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (done()) return true;
+    if (done()) {
+      return true;
+    }
     await sleep(2_000);
   }
   note(`wait timed out: ${what}`);
@@ -83,17 +93,21 @@ async function run() {
     goal: { want: "Stage 4 Watcher acceptance" },
     operationToken: String(reserve.operationToken),
   });
-  const taskId = String(created.taskId ?? "");
+  const taskId = asText(created.taskId);
   check("create probe Task", created.ok === true && taskId !== "", created);
-  if (!taskId) return;
+  if (!taskId) {
+    return;
+  }
   const claim = await tool("nexus_claim_add", {
     taskId,
     subject: "booking",
     predicate: "executed",
   });
-  const claimId = String(claim.claimId ?? "");
+  const claimId = asText(claim.claimId);
   check("register a claim that has no evidence yet", claim.ok === true && claimId !== "", claim);
-  if (!claimId) return;
+  if (!claimId) {
+    return;
+  }
 
   // 1 Creation validation and idempotency
   const bad = await tool("nexus_watch_create", { taskId, claimId, expect: "   " });
@@ -125,13 +139,15 @@ async function run() {
     firstCheckInMinutes: 1,
     maxAttempts: 1,
   });
-  const idA = String(a.watchId ?? "");
+  const idA = asText(a.watchId);
   check(
     "create watch A (checks after 1 minute, at most 1 attempt)",
     a.ok === true && idA !== "",
     a,
   );
-  if (!idA) return;
+  if (!idA) {
+    return;
+  }
   const again = await tool("nexus_watch_create", {
     taskId,
     claimId,
@@ -168,7 +184,7 @@ async function run() {
     expect: `probe: watch B ${stamp}`,
     firstCheckInMinutes: 60,
   });
-  const idB = String(b.watchId ?? "");
+  const idB = asText(b.watchId);
   check("create watch B (after 60 minutes)", b.ok === true && idB !== "", b);
   await waitFor("watch B becomes scheduled", () => watchRow(idB)[0] === "scheduled", 30_000);
   const cancelled = await rpc("nexus.watch.cancel", { watchId: idB });
@@ -176,7 +192,7 @@ async function run() {
   check("watch B status is cancelled after cancelling", watchRow(idB)[0] === "cancelled");
   const cancelAgain = await rpc("nexus.watch.cancel", { watchId: idB }).then(
     () => "no-error",
-    (error: Error) => error.message,
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
   );
   check("cancelling again is rejected", cancelAgain !== "no-error", cancelAgain);
   check(
@@ -280,7 +296,7 @@ async function run() {
   );
 }
 
-client = new GatewayClient({
+const client = new GatewayClient({
   url,
   ...(token ? { token } : {}),
   clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -292,15 +308,15 @@ client = new GatewayClient({
     if (evt.event === "plugin.nexus-agent-core.watch_changed") {
       const p = (evt.payload ?? {}) as Json;
       changes.push({
-        watchId: String(p.watchId ?? ""),
-        change: String(p.change ?? ""),
-        status: String(p.status ?? ""),
+        watchId: asText(p.watchId),
+        change: asText(p.change),
+        status: asText(p.status),
       });
     }
   },
   onHelloOk: () => {
     run()
-      .catch((error) => {
+      .catch((error: unknown) => {
         failures += 1;
         console.error("[error]", error);
       })

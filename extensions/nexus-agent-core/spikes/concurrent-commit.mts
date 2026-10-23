@@ -6,6 +6,7 @@ import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-pr
 //   With --task the script registers an action, requests a decision and approves it itself to get a prepared executionId, then commits concurrently
 //   (the fake vendor must be in ok mode).
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
+import { asText } from "../src/as-text.js";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -47,17 +48,17 @@ async function prepareExecution(client: GatewayClient): Promise<string> {
       date: "2026-10-27",
     },
   });
-  const actionId = String(prepared.actionId ?? "");
+  const actionId = asText(prepared.actionId);
   const dec = await tool(client, "nexus_decision_request", {
     taskId,
     effect: { actionIds: [actionId] },
   });
-  const res = await client.request<Record<string, unknown>>("nexus.decision.resolve", {
+  const res = await client.request("nexus.decision.resolve", {
     decisionId: String(dec.decisionId),
     resolution: "approved",
     chosenActionId: actionId,
   });
-  return String(res.executionId ?? "");
+  return asText(res.executionId);
 }
 
 async function fire(client: GatewayClient, index: number) {
@@ -88,41 +89,43 @@ const client = new GatewayClient({
   mode: GATEWAY_CLIENT_MODES.BACKEND,
   scopes: ["operator.write", "operator.read"],
   onConnectError: (err) => console.error(`[connect-error] ${err.message}`),
-  onHelloOk: async () => {
-    if (!executionId) {
-      executionId = await prepareExecution(client);
+  onHelloOk: () => {
+    void (async () => {
       if (!executionId) {
-        console.error(
-          "could not prepare a prepared executionId (is the Task still open? is the fake vendor in ok mode?)",
-        );
-        process.exit(2);
+        executionId = await prepareExecution(client);
+        if (!executionId) {
+          console.error(
+            "could not prepare a prepared executionId (is the Task still open? is the fake vendor in ok mode?)",
+          );
+          process.exit(2);
+        }
       }
-    }
-    console.log(`[connected] fired ${n} commits concurrently, executionId=${executionId}`);
-    const results = await Promise.all(Array.from({ length: n }, (_, i) => fire(client, i + 1)));
-    for (const r of results) {
-      const p = r.parsed;
-      const kind =
-        p.replayed === true
-          ? "replayed (vendor not called)"
-          : p.status === "pending_confirmation"
-            ? `pending_confirmation (vendor not called, reason=${String(p.reason ?? "")})`
-            : p.ok === true
-              ? `executed(${String(p.status)})`
-              : `rejected(${String(p.code ?? p.error)})`;
-      console.log(`#${r.index} ${r.ms}ms ${kind}`);
-    }
-    const first = results.filter(
-      (r) =>
-        r.parsed.ok === true &&
-        r.parsed.replayed !== true &&
-        r.parsed.status !== "pending_confirmation",
-    ).length;
-    console.log(
-      `[summary] ${first} first execution(s) (expected exactly 1); also check the ledger row count is only +1.`,
-    );
-    client.stop();
-    process.exit(first === 1 ? 0 : 1);
+      console.log(`[connected] fired ${n} commits concurrently, executionId=${executionId}`);
+      const results = await Promise.all(Array.from({ length: n }, (_, i) => fire(client, i + 1)));
+      for (const r of results) {
+        const p = r.parsed;
+        const kind =
+          p.replayed === true
+            ? "replayed (vendor not called)"
+            : p.status === "pending_confirmation"
+              ? `pending_confirmation (vendor not called, reason=${asText(p.reason)})`
+              : p.ok === true
+                ? `executed(${String(p.status)})`
+                : `rejected(${String(p.code ?? p.error)})`;
+        console.log(`#${r.index} ${r.ms}ms ${kind}`);
+      }
+      const first = results.filter(
+        (r) =>
+          r.parsed.ok === true &&
+          r.parsed.replayed !== true &&
+          r.parsed.status !== "pending_confirmation",
+      ).length;
+      console.log(
+        `[summary] ${first} first execution(s) (expected exactly 1); also check the ledger row count is only +1.`,
+      );
+      client.stop();
+      process.exit(first === 1 ? 0 : 1);
+    })();
   },
 });
 client.start();

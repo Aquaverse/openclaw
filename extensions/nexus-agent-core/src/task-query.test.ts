@@ -64,8 +64,8 @@ describe("task list query (store)", () => {
     });
 
   // T1..T7, one per day; T7 is the newest.
-  make(P, "T1ALPHA", "订东京机票", { dest: "tokyo" }, BASE + 0 * DAY, { pax: 2 });
-  make(P, "T2BRAVO", "订大阪酒店", { dest: "osaka" }, BASE + 1 * DAY);
+  make(P, "T1ALPHA", "订东京机票", { dest: "tokyo" }, BASE, { pax: 2 });
+  make(P, "T2BRAVO", "订大阪酒店", { dest: "osaka" }, BASE + DAY);
   make(P, "T3CHARLIE", "100% 完成的报告", { note: "a_b" }, BASE + 2 * DAY);
   make(P, "T4DELTA", "订东京酒店", { dest: "tokyo", nights: 3 }, BASE + 3 * DAY);
   make(P, "T5ECHO", "改签", { dest: "kyoto" }, BASE + 4 * DAY, { passenger: "Marvin" });

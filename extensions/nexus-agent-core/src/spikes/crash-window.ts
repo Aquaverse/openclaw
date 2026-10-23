@@ -17,7 +17,10 @@ export function crashWindowMsFromEnv(env: NodeJS.ProcessEnv): number {
 /** The hook to hand to the evidence service, or undefined when no pause is requested. */
 export function createCrashWindowHook(
   env: NodeJS.ProcessEnv,
-  sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  sleep: (ms: number) => Promise<void> = (ms) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    }),
 ): (() => Promise<void>) | undefined {
   const ms = crashWindowMsFromEnv(env);
   return ms > 0 ? () => sleep(ms) : undefined;

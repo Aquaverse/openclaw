@@ -15,7 +15,10 @@ type World = ReturnType<typeof world>;
 const bytes = (text: string) => new TextEncoder().encode(text);
 const hashOf = (text: string) => createHash("sha256").update(text).digest("hex");
 const MIN = 60_000;
-const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+const tick = () =>
+  new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
 
 const purgeWorld = (config?: EvidenceServiceDeps["config"], extra: { leaseMs?: number } = {}) =>
   world({
@@ -83,13 +86,11 @@ function residue(w: World, taskId: string): Record<string, number> {
     if (!key) {
       continue;
     }
-    const n = Number(
-      (
-        w.db.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE ${key} = ?`).get(taskId) as {
-          c: number;
-        }
-      ).c,
-    );
+    const n = (
+      w.db.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE ${key} = ?`).get(taskId) as {
+        c: number;
+      }
+    ).c;
     if (n > 0) {
       out[table] = n;
     }
@@ -146,9 +147,8 @@ describe("hard purge of a Task", () => {
     const other = w.newTask();
     await up(w, other, "an unrelated Task's bytes");
     const hash = hashOf("bank statement: charge of 100");
-    const title = String(
-      (w.row("SELECT title FROM nexus_tasks WHERE id = ?", taskId) as { title: string }).title,
-    );
+    const title = (w.row("SELECT title FROM nexus_tasks WHERE id = ?", taskId) as { title: string })
+      .title;
     const head = w.row(
       "SELECT digest FROM claim_events WHERE task_id = ? ORDER BY seq DESC LIMIT 1",
       taskId,
@@ -187,7 +187,7 @@ describe("hard purge of a Task", () => {
     assert.ok(notice);
     assert.equal(notice.payload.taskId, taskId);
     assert.equal(notice.payload.receiptId, out.receipt.id);
-    assert.deepEqual(Object.keys(notice.payload).sort(), [
+    assert.deepEqual(Object.keys(notice.payload).toSorted(), [
       "executedAt",
       "ownerId",
       "receiptId",
@@ -323,7 +323,10 @@ describe("a purge that cannot finish yet", () => {
     assert.ok(prod(w).has(key), "the bytes are still there");
     const run = w.row("SELECT purge_id, phase FROM purge_runs WHERE task_id = ?", t);
     const status = await w.rpc("nexus.task.purgeStatus", { taskId: t });
-    assert.equal((status.payload?.status as { purgeId: string }).purgeId, run.purge_id);
+    assert.equal(
+      (status.payload?.status as { purgeId: string } | undefined)?.purgeId,
+      run.purge_id,
+    );
 
     w.advance(5 * MIN);
     const second = await purgeOf(w).purge(P, t, "operator:test");
@@ -468,7 +471,7 @@ describe("single-evidence deletion", () => {
       "evidence deletion does not rewrite claim state",
     );
     assert.equal(w.k.verifyChain({ principal: P, taskId })?.ok, true);
-    const notice = w.emitted.filter((entry) => entry.event === "evidence_changed").pop();
+    const notice = w.emitted.findLast((entry) => entry.event === "evidence_changed");
     assert.equal(notice?.payload.change, "deleted");
 
     const again = await w.rpc("nexus.evidence.delete", {
@@ -621,6 +624,6 @@ describe("an install without evidence bytes (no purge service) still lists purge
       },
     } as never);
     assert.equal(reply?.ok, true);
-    assert.deepEqual((reply?.payload as { receipts: unknown[] }).receipts, []);
+    assert.deepEqual((reply?.payload as { receipts: unknown[] } | undefined)?.receipts, []);
   });
 });

@@ -72,8 +72,8 @@ const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?$/;
  * undefined otherwise.
  * `endOfDay` decides what a bare date means: the end of that day (an upper bound) or its start (a lower bound).
  */
-function parseLocal(text: string, endOfDay = false): Date | undefined {
-  const match = DATE_PATTERN.exec(text);
+function parseLocal(raw: string, endOfDay = false): Date | undefined {
+  const match = DATE_PATTERN.exec(raw);
   if (!match) {
     return undefined;
   }
@@ -102,9 +102,17 @@ export function formatDateTime(date: Date): string {
   return `${formatDate(date)}T${two(date.getHours())}:${two(date.getMinutes())}`;
 }
 
+function replaceControlChars(value: string, replacement: string): string {
+  let out = "";
+  for (const ch of value) {
+    const code = ch.codePointAt(0) ?? 0;
+    out += code < 0x20 || code === 0x7f ? replacement : ch;
+  }
+  return out;
+}
+
 function text(raw: string | undefined, max: number): string {
-  return (raw ?? "")
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
+  return replaceControlChars(raw ?? "", " ")
     .trim()
     .slice(0, max);
 }
@@ -245,7 +253,7 @@ export function pageInfo(
 /** Page numbers to link: the first, the last and a window around the current one (null = a gap). */
 export function pageWindow(page: number, pages: number): Array<number | null> {
   const wanted = new Set([1, pages, page - 2, page - 1, page, page + 1, page + 2]);
-  const numbers = [...wanted].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
+  const numbers = [...wanted].filter((n) => n >= 1 && n <= pages).toSorted((a, b) => a - b);
   const out: Array<number | null> = [];
   for (const [index, n] of numbers.entries()) {
     if (index > 0 && n - (numbers[index - 1] as number) > 1) {

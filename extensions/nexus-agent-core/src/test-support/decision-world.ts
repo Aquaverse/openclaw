@@ -109,7 +109,7 @@ export function world(
   ) as unknown as TaskStore;
   let clock = T0;
   const count = (sql: string, ...params: (string | number)[]): number =>
-    Number((db.prepare(sql).get(...params) as { c: number }).c);
+    (db.prepare(sql).get(...params) as { c: number }).c;
   const row = (sql: string, ...params: (string | number)[]) =>
     db.prepare(sql).get(...params) as Record<string, unknown>;
   const emitted: { event: string; payload: Record<string, unknown> }[] = [];
@@ -139,7 +139,10 @@ export function world(
         ...(options.evidenceConfig ? { config: options.evidenceConfig } : {}),
         now: () => clock,
         // Tests never wait in real time: they move the clock explicitly.
-        sleep: () => new Promise<void>((resolve) => setImmediate(resolve)),
+        sleep: () =>
+          new Promise<void>((resolve) => {
+            setImmediate(resolve);
+          }),
         onOutboxWritten: () => {},
         onEvidenceRegistered: (payload) => events.evidenceChanged(payload),
         logger,
@@ -154,7 +157,10 @@ export function world(
           incarnationGoneEnabled: evidence.config.incarnationGoneEnabled,
           ...(options.purgeWorkerLeaseMs ? { workerLeaseMs: options.purgeWorkerLeaseMs } : {}),
           now: () => clock,
-          sleep: () => new Promise<void>((resolve) => setImmediate(resolve)),
+          sleep: () =>
+            new Promise<void>((resolve) => {
+              setImmediate(resolve);
+            }),
           onPurged: (payload) => events.taskPurged(payload),
           logger,
         })
@@ -247,7 +253,10 @@ export function world(
     logger,
     now: () => clock,
     claimWaitMs: 0,
-    sleep: () => new Promise<void>((resolve) => setImmediate(resolve)),
+    sleep: () =>
+      new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      }),
   });
   const watchTools = (sessionKey: string) =>
     createWatchTools(
@@ -527,7 +536,9 @@ export function world(
     settle: async () => {
       for (let i = 0; i < 5; i += 1) {
         await runtime.flushOutbox();
-        await new Promise((r) => setTimeout(r, 1));
+        await new Promise((r) => {
+          setTimeout(r, 1);
+        });
       }
     },
   };

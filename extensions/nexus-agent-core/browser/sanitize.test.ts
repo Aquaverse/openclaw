@@ -40,6 +40,7 @@ describe("mountSanitized", () => {
       expect(anchor.hasAttribute("href")).toBe(false);
       expect(anchor.hasAttribute("data-nexus-route")).toBe(false);
     }
+    // oxlint-disable-next-line no-underscore-dangle -- probes the global the XSS payloads above would set.
     expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
   });
 
@@ -87,7 +88,7 @@ describe("action markers", () => {
       onAction,
     );
     const button = container.querySelector("button") as HTMLButtonElement;
-    expect(button.getAttributeNames().sort()).toEqual([
+    expect(button.getAttributeNames().toSorted()).toEqual([
       "class",
       "data-nx-act",
       "data-nx-id",

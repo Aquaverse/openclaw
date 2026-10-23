@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
+import { asText } from "../src/as-text.js";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -29,7 +30,9 @@ if (!taskId) {
 type Json = Record<string, unknown>;
 let failures = 0;
 const check = (name: string, ok: boolean, detail?: unknown) => {
-  if (!ok) failures += 1;
+  if (!ok) {
+    failures += 1;
+  }
   console.log(
     `${ok ? "PASS" : "FAIL"}  ${name}${detail === undefined ? "" : `  ← ${JSON.stringify(detail)}`}`,
   );
@@ -40,7 +43,6 @@ const sql = (query: string) =>
   Number(execFileSync("sqlite3", [dbPath, query]).toString().trim() || "0");
 const uses = () => sql("select count(*) from grant_uses");
 
-let client: GatewayClient;
 async function tool(name: string, args: Json): Promise<Json> {
   const res = await client.request<{ output?: { content?: Array<{ text?: string }> } }>(
     "tools.invoke",
@@ -91,7 +93,7 @@ async function run() {
     resolution: "approved",
     chosenActionId: a1id,
   });
-  const standingGrantId = String(res.standingGrantId ?? "");
+  const standingGrantId = asText(res.standingGrantId);
   check(
     "approval issues a standing grant and does not pre-issue an execution",
     res.outcome === "approved" && standingGrantId !== "" && !res.executionId,
@@ -175,7 +177,7 @@ async function run() {
   console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`);
 }
 
-client = new GatewayClient({
+const client = new GatewayClient({
   url,
   ...(token ? { token } : {}),
   clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -185,7 +187,7 @@ client = new GatewayClient({
   onConnectError: (err) => console.error(`[connect-error] ${err.message}`),
   onHelloOk: () => {
     run()
-      .catch((error) => {
+      .catch((error: unknown) => {
         failures += 1;
         console.error("[error]", error);
       })

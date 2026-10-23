@@ -27,7 +27,7 @@ describe("task store kernel", () => {
       throw error;
     }
   };
-  const count = (sql: string): number => Number((db.prepare(sql).get() as { c: number }).c);
+  const count = (sql: string): number => (db.prepare(sql).get() as { c: number }).c;
   const must = <T>(value: T | null | undefined): T => {
     assert.ok(value !== null && value !== undefined);
     return value;

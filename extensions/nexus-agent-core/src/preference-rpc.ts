@@ -24,7 +24,11 @@ type GatewayRequestHandler = (opts: GatewayRequestHandlerOptions) => Promise<voi
 type Respond = GatewayRequestHandlerOptions["respond"];
 
 const ID = /^[A-Za-z0-9_-]{1,40}$/;
-const ORIGINS: readonly PreferenceOrigin[] = ["stated", "observed", "task_exception"];
+const ORIGINS: ReadonlySet<string> = new Set([
+  "stated",
+  "observed",
+  "task_exception",
+] satisfies readonly PreferenceOrigin[]);
 const OPERATOR_ACTOR = "operator:nexus-console";
 
 export const PREFERENCE_PURGE_NOTICE =
@@ -119,7 +123,7 @@ export function createPreferenceRpcHandlers(deps: PreferenceRpcDeps) {
           reject(respond, "nexus_invalid_params", "scope is malformed");
           return;
         }
-        if (params.origin !== undefined && !ORIGINS.includes(params.origin as PreferenceOrigin)) {
+        if (params.origin !== undefined && !ORIGINS.has(params.origin as string)) {
           reject(
             respond,
             "nexus_invalid_params",
@@ -220,7 +224,6 @@ export function createPreferenceRpcHandlers(deps: PreferenceRpcDeps) {
               outcome: out.outcome,
               preference: out.preference,
             });
-            return;
         }
       }),
       "operator.write",
@@ -263,7 +266,6 @@ export function createPreferenceRpcHandlers(deps: PreferenceRpcDeps) {
               outcome: "deleted",
               preference: out.preference,
             });
-            return;
         }
       }),
       "operator.write",

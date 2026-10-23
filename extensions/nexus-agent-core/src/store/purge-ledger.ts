@@ -1,3 +1,5 @@
+import { asText } from "../as-text.js";
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 // Purge kernel (DESIGN section 9.4, P1-P5) plus single-evidence deletion and the incarnation_gone settle. Runs inside the
 // SQLite worker, so every method is ONE synchronous transaction; the byte I/O between them is done by the service
 // (src/purge/purge-service.ts), which only ever passes the plain objects in purge-types.ts / blob-types.ts back and forth.
@@ -79,7 +81,7 @@ export function createPurgeLedger(
       !row ||
       String(row.purge_id) !== ref.purgeId ||
       row.worker_attempt_id === null ||
-      String(row.worker_attempt_id) !== ref.workerAttemptId
+      asText(row.worker_attempt_id) !== ref.workerAttemptId
     ) {
       return { ok: false, fail: { outcome: "not_owner" } };
     }
@@ -594,7 +596,7 @@ export function createPurgeLedger(
         }
         if (state === "deleted") {
           if (object.absence_verified_at !== null && object.absence_verified_attempt_id !== null) {
-            const token = String(object.absence_verified_attempt_id);
+            const token = asText(object.absence_verified_attempt_id);
             // v0.12l: a conditional update that re-checks the object's CURRENT proof, never an unconditional terminal write.
             const changed = run(
               "UPDATE purge_work_items SET state = 'absence_verified', absence_proof_attempt_id = ?, last_error = NULL, updated_at = ? " +
@@ -843,7 +845,7 @@ export function createPurgeLedger(
         String(row.purge_id),
       ).map((failed) => ({
         blobKey: String(failed.blob_key),
-        reason: String(failed.last_error ?? "unknown"),
+        reason: asText(failed.last_error ?? "unknown"),
       })),
     };
   };
@@ -887,7 +889,7 @@ export function createPurgeLedger(
     ).map((row) => ({
       id: String(row.id),
       taskId: String(row.task_id),
-      ledgerHeadDigest: row.ledger_head_digest === null ? null : String(row.ledger_head_digest),
+      ledgerHeadDigest: row.ledger_head_digest === null ? null : asText(row.ledger_head_digest),
       claimEventCount: Number(row.claim_event_count),
       evidenceCount: Number(row.evidence_count),
       purgedScope: "all",
@@ -926,7 +928,7 @@ export function createPurgeLedger(
       if (evidence.blob_key === null) {
         return { outcome: "no_bytes", evidenceId: input.evidenceId };
       }
-      const blobKey = String(evidence.blob_key);
+      const blobKey = asText(evidence.blob_key);
       // blob_key goes to NULL, content_hash STAYS: the chain can still say "a piece of evidence with hash X was here and was
       // deleted on request". The file name in meta_json is personal data too, so it goes with the bytes.
       if (

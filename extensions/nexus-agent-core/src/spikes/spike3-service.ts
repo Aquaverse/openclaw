@@ -65,7 +65,9 @@ export function createProbeService(options: ProbeServiceOptions): OpenClawPlugin
       recorder.record(3, "service.stop.begin", "info", { ...snapshot(), started });
       try {
         if (options.stopDelayMs && options.stopDelayMs > 0) {
-          await new Promise((resolve) => setTimeout(resolve, options.stopDelayMs));
+          await new Promise((resolve) => {
+            setTimeout(resolve, options.stopDelayMs);
+          });
         }
         recorder.record(3, "service.stop.end", "ok", {
           ...snapshot(),

@@ -1,3 +1,5 @@
+import { asText } from "../as-text.js";
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 // Blob evidence kernel (DESIGN sections 9.4 and 9.5.1), Stage 3 slice 2. Runs inside the SQLite worker.
 // The worker only does the SYNCHRONOUS phases of the four-phase protocol; every byte of I/O is awaited by the service
 // (src/evidence/evidence-service.ts) between these calls, so no write transaction ever spans an await:
@@ -298,21 +300,21 @@ export function createBlobLedger(
           // Deleted on the user's request (DESIGN 9.4): not a readable reuse, and never silently restored.
           return { outcome: "evidence_purged", evidenceId: String(existing.id) };
         }
-        const object = objectByKey(owner, String(existing.blob_key));
+        const object = objectByKey(owner, asText(existing.blob_key));
         if (object && String(object.state) === "live") {
           return {
             outcome: "planned",
             plan: {
               branch: "reuse_evidence",
               evidenceId: String(existing.id),
-              blobKey: String(existing.blob_key),
+              blobKey: asText(existing.blob_key),
             },
           };
         }
         return {
           outcome: "wait",
           state: "reclaiming",
-          blobKey: String(existing.blob_key),
+          blobKey: asText(existing.blob_key),
           retryAfterMs: 1_000,
         };
       }
@@ -478,7 +480,6 @@ export function createBlobLedger(
       const identity = identityOf(input.facts, input.contentHash);
       const plan = input.plan;
       let evidenceId: string | undefined;
-      let blobKey = plan.blobKey;
       let reusedEvidence = false;
 
       if (plan.branch === "reuse_evidence") {
@@ -498,9 +499,9 @@ export function createBlobLedger(
         if (ev.blob_key === null) {
           return { outcome: "evidence_purged", evidenceId: String(ev.id) };
         }
-        const object = objectByKey(owner, String(ev.blob_key));
-        if (!object || String(object.state) !== "live" || String(ev.blob_key) !== plan.blobKey) {
-          return { outcome: "object_not_live", blobKey: String(ev.blob_key) };
+        const object = objectByKey(owner, asText(ev.blob_key));
+        if (!object || String(object.state) !== "live" || asText(ev.blob_key) !== plan.blobKey) {
+          return { outcome: "object_not_live", blobKey: asText(ev.blob_key) };
         }
         evidenceId = String(ev.id);
         reusedEvidence = true;
@@ -598,7 +599,7 @@ export function createBlobLedger(
         }
         evidenceId = insertEvidence(owner, taskId, plan.blobKey, input, identity);
       }
-      blobKey = plan.blobKey;
+      const blobKey = plan.blobKey;
 
       if (input.claimId === undefined) {
         return { outcome: "registered", evidenceId, blobKey, branch: plan.branch, reusedEvidence };
@@ -977,7 +978,7 @@ export function createBlobLedger(
     ).map((row) => ({
       contentHash: String(row.content_hash),
       generation: Number(row.generation),
-      blobKey: String(row.blob_key),
+      blobKey: asText(row.blob_key),
       writerSettledReason: (row.writer_settled_reason as string | null) ?? null,
       settledWriterAttemptId: (row.settled_writer_attempt_id as string | null) ?? null,
     }));
@@ -1087,7 +1088,7 @@ export function createBlobLedger(
       input.principal.ownerId,
       input.limit,
     ).map((row) => ({
-      blobKey: String(row.blob_key),
+      blobKey: asText(row.blob_key),
       state: String(row.state),
       byteSize: Number(row.byte_size),
       refCount: Number(row.ref_count),
@@ -1157,7 +1158,7 @@ export function createBlobLedger(
       outcome: "found",
       evidenceId: String(row.id),
       taskId: String(row.task_id),
-      blobKey: String(row.blob_key),
+      blobKey: asText(row.blob_key),
       contentHash: String(row.content_hash),
       byteSize: Number(row.byte_size),
       classification: String(row.content_classification),

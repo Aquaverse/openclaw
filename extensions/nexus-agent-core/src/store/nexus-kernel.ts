@@ -66,27 +66,21 @@ type PreferenceKeys = keyof ReturnType<typeof createPreferenceLedger>["kernel"];
 type WatchKeys = keyof ReturnType<typeof createWatchLedger>["kernel"];
 type VaultKeys = keyof ReturnType<typeof createVaultLedger>;
 type VaultMaintenanceKeys = keyof ReturnType<typeof createVaultMaintenanceLedger>;
-type Overlap =
-  | Extract<TaskKeys, DecisionKeys>
-  | Extract<TaskKeys, LedgerKeys>
-  | Extract<DecisionKeys, LedgerKeys>
-  | Extract<BlobKeys, TaskKeys | DecisionKeys | LedgerKeys>
-  | Extract<PurgeKeys, TaskKeys | DecisionKeys | LedgerKeys | BlobKeys>
-  | Extract<PreferenceKeys, TaskKeys | DecisionKeys | LedgerKeys | BlobKeys | PurgeKeys>
-  | Extract<WatchKeys, TaskKeys | DecisionKeys | LedgerKeys | BlobKeys | PurgeKeys | PreferenceKeys>
-  | Extract<
-      VaultKeys,
-      TaskKeys | DecisionKeys | LedgerKeys | BlobKeys | PurgeKeys | PreferenceKeys | WatchKeys
-    >
-  | Extract<
-      VaultMaintenanceKeys,
-      | TaskKeys
-      | DecisionKeys
-      | LedgerKeys
-      | BlobKeys
-      | PurgeKeys
-      | PreferenceKeys
-      | WatchKeys
-      | VaultKeys
-    >;
+/** Method names that appear in more than one kernel part (a union of the repeats; `never` when every name is unique). */
+type Dup<K extends readonly unknown[], Seen = never> = K extends readonly [infer H, ...infer R]
+  ? Extract<H, Seen> | Dup<R, Seen | H>
+  : never;
+type Overlap = Dup<
+  [
+    TaskKeys,
+    DecisionKeys,
+    LedgerKeys,
+    BlobKeys,
+    PurgeKeys,
+    PreferenceKeys,
+    WatchKeys,
+    VaultKeys,
+    VaultMaintenanceKeys,
+  ]
+>;
 export const NO_METHOD_OVERLAP: [Overlap] extends [never] ? true : never = true;

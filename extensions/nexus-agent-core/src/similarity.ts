@@ -1,4 +1,5 @@
 // Deterministic text/entity similarity for Task de-duplication and search (DESIGN section 7.2 / 7.3).
+import { asText } from "./as-text.js";
 // Stage 1 heuristic: thresholds live here, never in the schema, so they can be tuned without a migration.
 
 const WORD = /[\p{L}\p{N}]+/gu;
@@ -12,7 +13,7 @@ export function tokenize(text: string): string[] {
       out.push(word);
       continue;
     }
-    const chars = [...word];
+    const chars = Array.from(word);
     if (chars.length === 1) {
       out.push(word);
       continue;
@@ -37,7 +38,7 @@ export function flattenLeaves(value: unknown, prefix = ""): string[] {
       flattenLeaves(entry, prefix ? `${prefix}.${key}` : key),
     );
   }
-  const text = String(value).normalize("NFKC").trim().toLowerCase();
+  const text = asText(value).normalize("NFKC").trim().toLowerCase();
   return text ? [`${prefix}=${text}`] : [];
 }
 

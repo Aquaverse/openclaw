@@ -190,7 +190,7 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
                 message:
                   "The same claim already has an identical re-check queued; no need to create another.",
               };
-            case "created":
+            default:
               deps.events.taskChanged("updated", out.task);
               deps.events.watchChanged({
                 ownerId: principal.ownerId,
@@ -274,7 +274,7 @@ export function createWatchTools(deps: WatchToolDeps, ctx: ToolContext): AnyAgen
           }
           const finding =
             typeof params.finding === "string"
-              ? [...params.finding.trim()].slice(0, MAX_WATCH_NOTE_CHARS).join("")
+              ? Array.from(params.finding.trim()).slice(0, MAX_WATCH_NOTE_CHARS).join("")
               : "";
           const out = await store.watchReport({
             principal,

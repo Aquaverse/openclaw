@@ -5,7 +5,8 @@ import { allMessageKeys, langFromAcceptLanguage, resolveLang, tr, trHtml } from 
 import { esc } from "./ui-render.js";
 
 describe("page text catalogs", () => {
-  const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+  const placeholders = (text: string) =>
+    [...text.matchAll(/\{(\w+)\}/g)].map((m) => String(m[1])).toSorted();
 
   it("has text in both languages for every key, with the same placeholders", () => {
     for (const key of allMessageKeys()) {

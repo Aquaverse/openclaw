@@ -293,7 +293,7 @@ export function createPreferenceLedger(
         if (note.length === 0) {
           return { outcome: "invalid", code: "source_note_required" };
         }
-        if ([...note].length > MAX_SOURCE_NOTE_CHARS) {
+        if (Array.from(note).length > MAX_SOURCE_NOTE_CHARS) {
           return { outcome: "invalid", code: "source_note_too_long" };
         }
         sourceNote = note;

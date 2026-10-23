@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
+import { asText } from "../src/as-text.js";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -34,7 +35,9 @@ if (!taskId || !mode || !["reject", "drop_before_send", "drop_after_success"].in
 type Json = Record<string, unknown>;
 let failures = 0;
 const check = (name: string, ok: boolean, detail?: unknown) => {
-  if (!ok) failures += 1;
+  if (!ok) {
+    failures += 1;
+  }
   console.log(
     `${ok ? "PASS" : "FAIL"}  ${name}${detail === undefined ? "" : `  ← ${JSON.stringify(detail)}`}`,
   );
@@ -43,9 +46,11 @@ const info = (name: string, detail: unknown) =>
   console.log(`INFO  ${name}  ← ${JSON.stringify(detail)}`);
 const ledgerLines = () =>
   existsSync(ledgerPath) ? readFileSync(ledgerPath, "utf8").split("\n").filter(Boolean).length : 0;
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
-let client: GatewayClient;
 async function tool(name: string, args: Json): Promise<Json> {
   const res = await client.request<{ output?: { content?: Array<{ text?: string }> } }>(
     "tools.invoke",
@@ -81,7 +86,7 @@ async function approvedBooking(stamp: string) {
     resolution: "approved",
     chosenActionId: actionId,
   });
-  const executionId = String(res.executionId ?? "");
+  const executionId = asText(res.executionId);
   check(
     "register, request, approve yields a prepared executionId",
     prepared.ok === true && res.outcome === "approved" && executionId !== "",
@@ -225,7 +230,7 @@ async function run() {
   );
 }
 
-client = new GatewayClient({
+const client = new GatewayClient({
   url,
   ...(token ? { token } : {}),
   clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -235,7 +240,7 @@ client = new GatewayClient({
   onConnectError: (err) => console.error(`[connect-error] ${err.message}`),
   onHelloOk: () => {
     run()
-      .catch((error) => {
+      .catch((error: unknown) => {
         failures += 1;
         console.error("[error]", error);
       })

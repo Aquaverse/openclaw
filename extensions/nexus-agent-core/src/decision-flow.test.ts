@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 // Stage 2 acceptance flows through the REAL entry points: the hook, the four tools, the RPC handlers and the outbox,
 // on the real kernel (in-memory SQLite) with the fake provider. The harness lives in test-support/decision-world.ts.
 import assert from "node:assert/strict";
@@ -28,7 +29,7 @@ describe("R2 through the core card", () => {
     assert.deepEqual(card.allowedDecisions, ["allow-once", "deny"]);
     assert.equal(card.timeoutMs, DEFAULT_APPROVAL_TIMEOUT_MS);
     assert.equal(card.severity, "warning");
-    assert.ok([...card.title].length <= 80 && [...card.description].length <= 512);
+    assert.ok(Array.from(card.title).length <= 80 && Array.from(card.description).length <= 512);
     assert.ok(
       card.description.includes("tokyo"),
       "the card shows the Task's entities for the human to check",
@@ -138,8 +139,8 @@ describe("R2 through the core card", () => {
     assert.equal(w.count("SELECT COUNT(*) AS c FROM action_grants"), 0);
 
     const list = await w.rpc("nexus.decision.list", { statuses: ["pending"] });
-    assert.equal((list.payload?.decisions as unknown[]).length, 2);
-    const pendingId = (list.payload?.decisions as { id: string }[])[0]?.id as string;
+    assert.equal((list.payload?.decisions as unknown[] | undefined)?.length, 2);
+    const pendingId = (list.payload?.decisions as { id: string }[] | undefined)?.[0]?.id as string;
     const resolved = await w.rpc("nexus.decision.resolve", {
       decisionId: pendingId,
       resolution: "approved",
@@ -493,7 +494,9 @@ describe("commit: admission, concurrency, unknown outcomes", () => {
       w.run("nexus_action_commit", { executionId }),
       w.run("nexus_action_commit", { executionId }),
     ]);
-    const statuses = [one.status, two.status].toSorted();
+    const statuses = [one.status, two.status].toSorted((a, b) =>
+      String(a).localeCompare(String(b)),
+    );
     assert.deepEqual(statuses, ["pending_confirmation", "succeeded"]);
     assert.equal(w.provider.stats().writeCalls, 1);
     assert.equal(w.provider.stats().effects, 1);
@@ -556,8 +559,8 @@ describe("commit: admission, concurrency, unknown outcomes", () => {
     assert.equal(pendingDecisions.length, 1);
     assert.equal(pendingDecisions[0]?.decisionId, pending.decisionId);
     assert.deepEqual(
-      Object.keys(pendingDecisions[0] ?? {}).sort(),
-      ["actionIds", "decisionId", "deadlineAt", "question", "riskTier"].sort(),
+      Object.keys(pendingDecisions[0] ?? {}).toSorted(),
+      ["actionIds", "decisionId", "deadlineAt", "question", "riskTier"].toSorted(),
     );
     const ready = got.payload?.readyExecutions as Array<Record<string, unknown>>;
     assert.ok(
@@ -902,10 +905,10 @@ describe("decision page path, outbox and the Agent injection", () => {
     assert.equal(w.injections[0]?.sessionKey, session);
     assert.ok(w.injections[0]?.text.includes(executionId));
     assert.equal(w.injections[0]?.idempotencyKey, `execution_ready:${executionId}`);
-    const kinds = w.emitted.map((entry) => `${entry.event}:${entry.payload.kind}`);
-    assert.ok(kinds.includes("decision_changed:decision_pending"));
-    assert.ok(kinds.includes("decision_changed:decision_resolved"));
-    assert.ok(kinds.includes("execution_changed:execution_ready"));
+    const kinds = new Set(w.emitted.map((entry) => `${entry.event}:${String(entry.payload.kind)}`));
+    assert.ok(kinds.has("decision_changed:decision_pending"));
+    assert.ok(kinds.has("decision_changed:decision_resolved"));
+    assert.ok(kinds.has("execution_changed:execution_ready"));
     await w.settle();
     assert.equal(w.injections.length, 1, "delivered rows are not delivered twice");
 
@@ -1106,12 +1109,13 @@ describe("decision page path, outbox and the Agent injection", () => {
     });
     assert.equal(late.payload?.outcome, "already_resolved");
     const got = await w.rpc("nexus.decision.get", { decisionId: dec.decisionId as string });
-    assert.equal((got.payload?.executions as unknown[]).length, 1);
+    assert.equal((got.payload?.executions as unknown[] | undefined)?.length, 1);
     const grants = await w.rpc("nexus.grant.list", { taskId: t });
-    const grantId = (grants.payload?.actionGrants as { id: string }[])[0]?.id as string;
+    const grantId = (grants.payload?.actionGrants as { id: string }[] | undefined)?.[0]
+      ?.id as string;
     assert.equal((await w.rpc("nexus.grant.revoke", { grantId })).payload?.outcome, "revoked");
     const execs = await w.rpc("nexus.execution.list", { taskId: t });
-    const exec = (execs.payload?.executions as { id: string }[])[0] as { id: string };
+    const exec = (execs.payload?.executions as { id: string }[] | undefined)?.[0] as { id: string };
     const commit = await w.run("nexus_action_commit", { executionId: exec.id });
     assert.equal(commit.code, "execution_failed");
     assert.equal(w.provider.stats().writeCalls, 0);
@@ -1140,7 +1144,7 @@ describe("tool-level validation", () => {
       taskId: t,
       effect: { kind: "booking", actionIds: [booking] },
     });
-    assert.equal(freeText.ok !== false, true);
+    assert.equal(freeText.ok, true);
     assert.equal(freeText.effectKind, "issue_action_grant");
     const mixed = await w.run("nexus_decision_request", {
       taskId: t,

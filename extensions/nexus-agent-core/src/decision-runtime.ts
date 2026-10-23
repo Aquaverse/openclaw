@@ -1,3 +1,4 @@
+import { asText } from "./as-text.js";
 // Stage 2 runtime glue (DESIGN section 8): the run-trigger ledger, the decision hook that attaches an OPTIONAL core
 // approval card, outbox delivery, and gateway-start reconciliation. Pure dependency injection, so the whole flow is
 // testable against the real kernel without a gateway.
@@ -224,7 +225,7 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
       });
       const inner =
         out.outcome === "resolved" && "outcome" in out.result
-          ? ` result=${String(out.result.outcome)}`
+          ? ` result=${out.result.outcome}`
           : "";
       deps.logger.info(
         `nexus: core approval recorded decision=${decisionId} outcome=${out.outcome}${inner}`,
@@ -331,12 +332,12 @@ export function createDecisionRuntime(deps: DecisionRuntimeDeps) {
         });
         const injectedInfo = (injected ?? {}) as { enqueued?: unknown; id?: unknown };
         deps.logger.info(
-          `nexus: execution_ready injection decision=${record.decisionId} execution=${executionId} enqueued=${String(injectedInfo.enqueued)} injectionId=${String(injectedInfo.id ?? "")}`,
+          `nexus: execution_ready injection decision=${record.decisionId} execution=${executionId} enqueued=${asText(injectedInfo.enqueued)} injectionId=${asText(injectedInfo.id)}`,
         );
-        return;
+        break;
       }
       default:
-        return;
+        break;
     }
   }
 

@@ -152,7 +152,11 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
 export function createWatchRuntime(deps: WatchRuntimeDeps) {
   const now = deps.now ?? Date.now;
   const sleep =
-    deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    deps.sleep ??
+    ((ms: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+      }));
   const claimWaitMs = deps.claimWaitMs ?? 2_000;
   const allowedTools = [
     ...WATCHER_BASE_TOOLS,
@@ -207,7 +211,7 @@ export function createWatchRuntime(deps: WatchRuntimeDeps) {
       if (event.action === "started") {
         const sessionKey = sessionOf(event);
         deps.logger.info(
-          `nexus: cron_changed started (job=${event.jobId} session=${sessionKey ?? "-"} nexus=${isNexusWatchJobName(event.job?.name)} name=${String(event.job?.name ?? "-").slice(0, 60)})`,
+          `nexus: cron_changed started (job=${event.jobId} session=${sessionKey ?? "-"} nexus=${isNexusWatchJobName(event.job?.name)} name=${(event.job?.name ?? "-").slice(0, 60)})`,
         );
         if (sessionKey) {
           gc();
@@ -224,7 +228,7 @@ export function createWatchRuntime(deps: WatchRuntimeDeps) {
       if (event.action === "finished" || event.action === "removed") {
         if (pending.delete(event.jobId)) {
           deps.logger.info(
-            `nexus: watch cron job ${event.action} (job=${event.jobId} status=${String(event.status ?? "-")})`,
+            `nexus: watch cron job ${event.action} (job=${event.jobId} status=${event.status ?? "-"})`,
           );
         }
       }

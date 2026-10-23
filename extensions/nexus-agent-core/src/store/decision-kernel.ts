@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 // Synchronous Decision / Grant / Execution kernel for Stage 2 (DESIGN section 8). Runs inside the SQLite worker.
 // Rules carried over from Stage 1: every method takes ONE input object with a mandatory `principal`, every statement
 // filters on owner_id, and every write path is a single synchronous transaction with no await inside it.
@@ -8,6 +9,7 @@
 //   * the two external-I/O halves of a commit are `admitExecution` and `settleExecution`, never one transaction.
 import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { asText } from "../as-text.js";
 import { canonicalJson, sha256Hex } from "../canonical.js";
 import { actionHashFor, specFor, tierForCapability } from "../decision/catalog.js";
 import {
@@ -301,7 +303,7 @@ export function createDecisionKernel(
   const run = (sql: string, ...params: (string | number | null)[]): number =>
     Number(db.prepare(sql).run(...params).changes);
   const countOf = (sql: string, ...params: (string | number | null)[]): number =>
-    Number((one(sql, ...params) as { c: number }).c);
+    (one(sql, ...params) as { c: number }).c;
 
   const taskRow = (owner: string, taskId: string): Row | undefined =>
     one(`SELECT ${TASK_COLUMNS} FROM nexus_tasks WHERE owner_id = ? AND id = ?`, owner, taskId);
@@ -351,7 +353,7 @@ export function createDecisionKernel(
       seq,
       kind,
       status,
-      [...title].slice(0, 80).join(""),
+      Array.from(title).slice(0, 80).join(""),
       JSON.stringify(detail),
       now,
       now,
@@ -927,7 +929,7 @@ export function createDecisionKernel(
     taskId: decision.taskId,
     riskTier: decision.riskTier,
     effectKind: decision.effectKind,
-    question: [...decision.question].slice(0, 120).join(""),
+    question: Array.from(decision.question).slice(0, 120).join(""),
   });
 
   const describeAction = (action: ActionRecord): string => {
@@ -2082,7 +2084,7 @@ export function createDecisionKernel(
         if (
           grant.max_amount !== null &&
           action.amount !== null &&
-          cents(action.amount) > cents(String(grant.max_amount))
+          cents(action.amount) > cents(asText(grant.max_amount))
         ) {
           return reject("amount_exceeds_grant", "The amount exceeds the authorized limit.", true);
         }
@@ -2244,7 +2246,7 @@ export function createDecisionKernel(
           ...(input.operatorResolution
             ? {
                 resolvedBy: input.operatorResolution.actor,
-                note: [...input.operatorResolution.note].slice(0, 500).join(""),
+                note: Array.from(input.operatorResolution.note).slice(0, 500).join(""),
               }
             : {}),
         },

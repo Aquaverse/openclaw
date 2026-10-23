@@ -81,7 +81,9 @@ export function registerSpike2Hooks(api: OpenClawPluginApi, recorder: SpikeRecor
         onResolution: async (decision) => {
           recorder.record(2, "approval.onResolution", "info", { ...base, decision });
           if (scenario === "callback-slow") {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
+            await new Promise((resolve) => {
+              setTimeout(resolve, 2000);
+            });
             recorder.record(2, "approval.onResolution.slow-done", "info", { ...base, decision });
           }
           if (scenario === "callback-throws") {

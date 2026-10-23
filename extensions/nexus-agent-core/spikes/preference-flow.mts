@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "@openclaw/gateway-protocol/client-info";
 import { GatewayClient } from "openclaw/plugin-sdk/gateway-runtime";
+import { asText } from "../src/as-text.js";
 
 function arg(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -20,10 +21,13 @@ const stateDir = process.env.OPENCLAW_STATE_DIR ?? join(homedir(), ".openclaw-de
 const dbPath = join(stateDir, "plugins", "nexus-agent-core", "nexus.sqlite");
 const httpBase = url.replace(/^ws/, "http");
 
+// oxlint-disable-next-line typescript/no-explicit-any -- spike scripts read untyped RPC JSON.
 type Json = Record<string, any>;
 let failures = 0;
 const check = (name: string, ok: boolean, detail?: unknown) => {
-  if (!ok) failures += 1;
+  if (!ok) {
+    failures += 1;
+  }
   console.log(
     `${ok ? "PASS" : "FAIL"}  ${name}${detail === undefined ? "" : `  ← ${JSON.stringify(detail)}`}`,
   );
@@ -34,14 +38,15 @@ const sql = (query: string) => {
     try {
       return execFileSync("sqlite3", ["-cmd", ".timeout 5000", dbPath, query]).toString().trim();
     } catch (error) {
-      if (attempt >= 4) throw error;
+      if (attempt >= 4) {
+        throw error;
+      }
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
     }
   }
 };
 
 const events: string[] = [];
-let client: GatewayClient;
 async function tool(name: string, args: Json): Promise<Json> {
   const res = await client.request<{ output?: { content?: Array<{ text?: string }> } }>(
     "tools.invoke",
@@ -146,9 +151,11 @@ async function run() {
     goal: { want: "Stage 4 preference acceptance" },
     operationToken: String(reserve.operationToken),
   });
-  const taskId = String(created.taskId ?? "");
+  const taskId = asText(created.taskId);
   check("create probe Task", created.ok === true && taskId !== "", created);
-  if (!taskId) return;
+  if (!taskId) {
+    return;
+  }
   const noTask = await tool("nexus_preference_set", {
     key: seat,
     value: "exit-row",
@@ -176,7 +183,7 @@ async function run() {
     key: hotel,
     value: "Park Hotel",
   });
-  const decisionId = String(confirm.decisionId ?? "");
+  const decisionId = asText(confirm.decisionId);
   check(
     "nexus_preference_confirm generates a pending-confirmation decision, the preference is not saved yet",
     confirm.ok === true &&
@@ -292,7 +299,7 @@ async function run() {
   const after = await tool("nexus_preference_get", { key: seat, taskId });
   check(
     "after the Task ends task_exception no longer takes effect, and is flagged as ignored",
-    after.value === "window" && String(after.ignoredTaskException ?? "") === "task_closed",
+    after.value === "window" && asText(after.ignoredTaskException) === "task_closed",
     after,
   );
   const lateExc = await tool("nexus_preference_set", {
@@ -362,7 +369,9 @@ async function run() {
       after: authorityCounts(),
     },
   );
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => {
+    setTimeout(resolve, 500);
+  });
   const seen = new Set(events);
   check(
     "received preference_changed event",
@@ -372,7 +381,7 @@ async function run() {
   note(`events: ${events.length}`);
 }
 
-client = new GatewayClient({
+const client = new GatewayClient({
   url,
   ...(token ? { token } : {}),
   clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
@@ -387,7 +396,7 @@ client = new GatewayClient({
   },
   onHelloOk: () => {
     run()
-      .catch((error) => {
+      .catch((error: unknown) => {
         failures += 1;
         console.error("[error]", error);
       })

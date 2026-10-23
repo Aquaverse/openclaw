@@ -36,7 +36,7 @@ function text(value: unknown, max: number): string | undefined {
     return undefined;
   }
   const trimmed = value.trim();
-  return trimmed && [...trimmed].length <= max ? trimmed : undefined;
+  return trimmed && Array.from(trimmed).length <= max ? trimmed : undefined;
 }
 
 const AMOUNT = /^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/;

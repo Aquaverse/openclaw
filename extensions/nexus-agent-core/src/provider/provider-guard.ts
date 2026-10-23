@@ -6,6 +6,7 @@
 // implements a real provider has to read this, implement the lockdown, and flip the constant in the same change.
 
 /** Flip only together with the T6 lockdown, after it has been verified on the dev gateway and the installed build. */
+// oxlint-disable-next-line typescript/no-inferrable-types -- a flag to flip, so it stays typed `boolean` rather than the literal `false`.
 export const T6_SESSION_LOCKDOWN_IMPLEMENTED: boolean = false;
 
 export function assertProviderAllowed(provider: { readonly kind?: string }): void {
