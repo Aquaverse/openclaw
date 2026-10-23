@@ -164,6 +164,13 @@ function resolveVaultConfig(config: TaskModuleConfig, stateDir: string): VaultCo
 // Module-level on purpose: reload and replacement re-run register() in the same module, and the store
 // connection, the token ledger and the event bridge must outlive one registration generation.
 const hosts = new Map<string, StoreHost>();
+/**
+ * `register()` runs once per registration mode in the same process (full, then discovery), and the tool factories of
+ * either one can serve an Agent turn. Only the full registration starts the service and records its incarnation row,
+ * so a writer started from the other one would name a row that does not exist (FOREIGN KEY on
+ * blob_objects.writer_incarnation). Every registration therefore reads the row that was actually recorded.
+ */
+const processIncarnation: { id?: string } = {};
 const ledger = createTokenLedger();
 const events = createEventBridge();
 let providerState: { key: string; provider: FakeProvider } | undefined;
@@ -256,7 +263,8 @@ export function registerTaskModule(
       : undefined;
   // One boot id per process: the runtime stamps it into attempt ids and the service records the incarnation with it.
   const bootId = resolveProcessBootId();
-  const incarnationId = `inc-${bootId ?? "unavailable"}-${Math.random().toString(36).slice(2, 8)}`;
+  const ownIncarnationId = `inc-${bootId ?? "unavailable"}-${Math.random().toString(36).slice(2, 8)}`;
+  const incarnationId = (): string => processIncarnation.id ?? ownIncarnationId;
   const evidenceEnabled = claimsEnabled && config.evidenceBlobsEnabled === true;
   if (config.evidenceBlobsEnabled === true && !claimsEnabled) {
     api.logger.warn(
@@ -498,7 +506,7 @@ export function registerTaskModule(
     const created = createVaultService({
       getStore,
       files: createFsVaultFileStore(path.join(stateDir, "vault")),
-      incarnationId: () => incarnationId,
+      incarnationId,
       incarnationGoneEnabled: config.evidenceIncarnationGoneEnabled === true,
       config: () => vaultConfig,
       onChanged: (event) => events.vaultChanged(event),
@@ -512,6 +520,7 @@ export function registerTaskModule(
             getStore,
             vault: created,
             resolvePrincipal: principalFor,
+            logger: api.logger,
             ...(evidence ? { evidence } : {}),
           },
           ctx,
@@ -753,11 +762,12 @@ export function registerTaskModule(
               // the FK target of blob_objects.writer_incarnation, and incarnation_gone refuses such rows.
               await host.store.registerIncarnation({
                 principal,
-                incarnationId,
+                incarnationId: ownIncarnationId,
                 bootId: bootId ?? "unavailable",
                 supersedeOthers: config.evidenceIncarnationGoneEnabled === true,
                 now: Date.now(),
               });
+              processIncarnation.id = ownIncarnationId;
               incarnationRegistered = true;
             }
           } catch (error) {
@@ -850,12 +860,19 @@ export function registerTaskModule(
           try {
             const principal = principalFor();
             if (principal) {
-              await host.store.closeIncarnation({ principal, incarnationId, now: Date.now() });
+              await host.store.closeIncarnation({
+                principal,
+                incarnationId: ownIncarnationId,
+                now: Date.now(),
+              });
             }
           } catch {
             // best effort: a missing clean-shutdown mark only means the row stays open
           }
           incarnationRegistered = false;
+          if (processIncarnation.id === ownIncarnationId) {
+            processIncarnation.id = undefined;
+          }
         }
         await host.close();
       },

@@ -73,13 +73,18 @@ export type AgentSearchParams = {
   limit?: unknown;
 };
 
+function isBlank(value: unknown): boolean {
+  return typeof value === "string" && value.trim() === "";
+}
+
 export async function agentSearchFiles(
   store: Pick<VaultStore, "vaultList">,
   principal: Principal,
   params: AgentSearchParams,
 ): Promise<Record<string, unknown>> {
   let collections = DEFAULT_SEARCH_COLLECTIONS;
-  if (params.collection !== undefined) {
+  // Models often fill every optional field with an empty string; blank means "not given", never "the root folder".
+  if (params.collection !== undefined && !isBlank(params.collection)) {
     if (
       typeof params.collection !== "string" ||
       !(VAULT_COLLECTIONS as readonly string[]).includes(params.collection)
@@ -105,7 +110,7 @@ export async function agentSearchFiles(
     nameContains = params.name.trim() === "" ? undefined : params.name.trim();
   }
   let folder: string | undefined;
-  if (params.folder !== undefined) {
+  if (params.folder !== undefined && !isBlank(params.folder)) {
     const normalized =
       typeof params.folder === "string" ? normalizeVaultFolder(params.folder) : null;
     if (normalized === null) {

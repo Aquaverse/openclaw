@@ -1,6 +1,8 @@
 // The Agent surface of the file vault: which tools exist, when nexus_file_attach is offered, and that no tool can change a file.
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
+import type { Principal } from "../store/types.js";
+import { agentSearchFiles } from "../vault/vault-agent-ops.js";
 import { createFileTools, VAULT_TOOL_NAMES } from "./file-tools.js";
 
 const deps = {
@@ -67,5 +69,29 @@ describe("file tools", () => {
     assert.ok(attach);
     const out = await attach.execute("1", { taskId: "nope nope", claimId: "C1", fileId: "VF1" });
     assert.equal(out.details.code, "invalid_task_id");
+  });
+
+  it("treats a blank folder or collection as not given, not as the root folder", async () => {
+    const seen: Array<{ collection?: string; folder?: string }> = [];
+    const store = {
+      vaultList: async (input: { collection?: string; folder?: string }) => {
+        seen.push({ collection: input.collection, folder: input.folder });
+        return { items: [], total: 0 };
+      },
+    };
+    const principal: Principal = { ownerId: "o" };
+    const out = await agentSearchFiles(store as never, principal, {
+      name: "greeting",
+      folder: "",
+      collection: "  ",
+    });
+    assert.equal(out.ok, true);
+    assert.ok(seen.length >= 2, "default collections are all searched");
+    for (const call of seen) {
+      assert.equal(call.folder, undefined);
+    }
+    const named = await agentSearchFiles(store as never, principal, { folder: "Taxes/2025" });
+    assert.equal(named.ok, true);
+    assert.equal(seen.at(-1)?.folder, "Taxes/2025");
   });
 });

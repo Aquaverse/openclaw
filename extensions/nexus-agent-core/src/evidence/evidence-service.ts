@@ -66,8 +66,11 @@ export type EvidenceOutcome =
 export type EvidenceServiceDeps = {
   getStore: () => Promise<TaskStore>;
   blobs: EvidenceBlobStores;
-  /** Row in process_incarnations for this process (blob_objects.writer_incarnation references it). */
-  incarnationId: string;
+  /**
+   * Row in process_incarnations for this process (blob_objects.writer_incarnation references it). A function so the
+   * value can follow the registration that actually recorded the row (see task-module.ts `processIncarnation`).
+   */
+  incarnationId: string | (() => string);
   config?: Partial<Omit<EvidenceConfig, "limits" | "leases">> & {
     limits?: Partial<EvidenceLimits>;
     leases?: Partial<EvidenceLeases>;
@@ -288,7 +291,8 @@ export function createEvidenceService(deps: EvidenceServiceDeps) {
         byteSize: args.bytes.byteLength,
         facts: args.facts,
         attemptId,
-        incarnationId: deps.incarnationId,
+        incarnationId:
+          typeof deps.incarnationId === "function" ? deps.incarnationId() : deps.incarnationId,
         limits: config.limits,
         leases: config.leases,
         now: now(),

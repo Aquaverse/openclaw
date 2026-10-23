@@ -34,6 +34,8 @@ export type FileToolDeps = {
   resolvePrincipal: (ctx: { agentId?: string; sessionKey?: string }) => Principal | undefined;
   /** Present only when evidence bytes are on; without it nexus_file_attach is not offered. */
   evidence?: Pick<EvidenceService, "upload" | "attachBlob" | "config">;
+  /** Receives the stack of an unexpected store error, which the model only sees as a one-line message. */
+  logger?: { warn: (message: string) => void };
 };
 
 type ToolContext = { agentId?: string; sessionKey?: string };
@@ -57,6 +59,9 @@ export function createFileTools(deps: FileToolDeps, ctx: ToolContext): AnyAgentT
     try {
       return jsonResult(await run(principal, await deps.getStore()));
     } catch (error) {
+      deps.logger?.warn(
+        `nexus-agent-core: file tool failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      );
       return jsonResult(
         agentFail("store_error", error instanceof Error ? error.message : String(error)),
       );
@@ -73,12 +78,18 @@ export function createFileTools(deps: FileToolDeps, ctx: ToolContext): AnyAgentT
         name: Type.Optional(
           Type.String({ description: "Part of the file name (case-insensitive)." }),
         ),
-        folder: Type.Optional(Type.String({ description: "Exact folder, like Taxes/2025." })),
+        folder: Type.Optional(
+          Type.String({
+            description:
+              "Exact folder, like Taxes/2025. Omit it to search every folder; do not pass an empty string.",
+          }),
+        ),
         collection: Type.Optional(
           Type.Union(
             VAULT_COLLECTIONS.map((collection) => Type.Literal(collection)),
             {
-              description: "Search only this collection.",
+              description:
+                "Search only this collection. Omit it unless the user named one; by default vault and deliverable are searched.",
             },
           ),
         ),
