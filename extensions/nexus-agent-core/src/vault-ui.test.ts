@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { VaultFileRecord } from "./store/vault-types.js";
-import { renderFiles } from "./ui-render.js";
+import { extractionReason, renderFiles } from "./ui-render.js";
 import {
+  DEFAULT_FILE_QUERY,
   DEFAULT_FILE_TAB,
   FILE_TABS,
   fileActionsFor,
+  fileLink,
   fileListParams,
+  fileQueryToParams,
   formatBytes,
   maybeText,
+  parseFileQuery,
   parseFileTab,
   tabCounts,
+  type FileTab,
 } from "./vault-ui.js";
 
 const file = (overrides: Partial<VaultFileRecord> = {}): VaultFileRecord => ({
@@ -62,15 +67,54 @@ describe("vault ui helpers", () => {
   });
 
   it("maps every tab to list parameters the RPC accepts", () => {
-    expect(fileListParams("all")).toMatchObject({ state: "active", pinnedFirst: true, limit: 200 });
-    expect(fileListParams("all")).not.toHaveProperty("collection");
-    expect(fileListParams("inbox")).toMatchObject({ collection: "inbox", state: "active" });
-    expect(fileListParams("deliverable")).toMatchObject({
+    const query = (tab: FileTab) => ({ ...DEFAULT_FILE_QUERY, tab });
+    expect(fileListParams(query("all"))).toEqual({
+      state: "active",
+      pinnedFirst: true,
+      limit: 20,
+      offset: 0,
+    });
+    expect(fileListParams(query("inbox"))).toMatchObject({ collection: "inbox", state: "active" });
+    expect(fileListParams(query("deliverable"))).toMatchObject({
       collection: "deliverable",
       state: "active",
     });
-    expect(fileListParams("trash")).toMatchObject({ state: "trashed" });
-    expect(fileListParams("damaged")).toMatchObject({ state: "damaged" });
+    expect(fileListParams(query("trash"))).toMatchObject({ state: "trashed" });
+    expect(fileListParams(query("damaged"))).toMatchObject({ state: "damaged" });
+  });
+
+  it("turns the page, page size and name filter into limit, offset and nameContains", () => {
+    expect(fileListParams({ tab: "vault", name: "报告", page: 3, size: 50 })).toEqual({
+      collection: "vault",
+      state: "active",
+      pinnedFirst: true,
+      limit: 50,
+      offset: 100,
+      nameContains: "报告",
+    });
+  });
+
+  it("reads a query from untrusted text, keeps only non-default parts and links pages", () => {
+    const read = (values: Record<string, string>) => parseFileQuery((name) => values[name]);
+    expect(read({})).toEqual(DEFAULT_FILE_QUERY);
+    expect(read({ tab: "x", qname: " a\u0000b ", page: "-2", size: "7" })).toEqual({
+      ...DEFAULT_FILE_QUERY,
+      name: "a b",
+    });
+    expect(read({ qname: "x".repeat(500) }).name).toHaveLength(200);
+    expect(fileQueryToParams(DEFAULT_FILE_QUERY)).toEqual({});
+    expect(fileQueryToParams({ tab: "trash", name: "n", page: 2, size: 100 })).toEqual({
+      tab: "trash",
+      qname: "n",
+      page: "2",
+      size: "100",
+    });
+    const query = { ...DEFAULT_FILE_QUERY, name: "a&b", page: 4 };
+    expect(fileLink("nexus-nav:", query, { page: 5 })).toBe("nexus-nav:/files?qname=a%26b&page=5");
+    expect(fileLink("nexus-nav:", query, { tab: "trash", page: 1 })).toBe(
+      "nexus-nav:/files?tab=trash&qname=a%26b",
+    );
+    expect(fileLink("nexus-nav:", DEFAULT_FILE_QUERY)).toBe("nexus-nav:/files");
   });
 
   it("counts files per tab from the stats keys and ignores purging rows", () => {
@@ -170,5 +214,65 @@ describe("renderFiles", () => {
     expect(html).toContain("pill bad");
     expect(html).toMatch(/Sensitive/i);
     expect(html).toMatch(/Pinned/i);
+  });
+
+  it("puts upload and import on their own row, apart from the search row", () => {
+    const html = renderFiles({ files: [file()], total: 1, tab: "all", stats }, { actions: true });
+    const rows = html.split('<div class="nx-filerow">').slice(1);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toContain('data-nx-act="file-new"');
+    expect(rows[0]).toContain('data-nx-act="file-import"');
+    expect(rows[0]).not.toContain("file-search");
+    expect(rows[1]).toContain('class="nx-filebar-slot"');
+    expect(rows[1]).toContain('data-nx-act="file-search"');
+    expect(rows[1]).not.toContain("file-new");
+    // Read-only: no action row, the search row stays.
+    const readOnly = renderFiles({ files: [file()], total: 1, tab: "all", stats });
+    expect(readOnly.split('<div class="nx-filerow">')).toHaveLength(2);
+    expect(readOnly).toContain("nx-filebar-slot");
+  });
+
+  it("pages the list with links that keep the tab, the name filter and the page size", () => {
+    const html = renderFiles(
+      { files: [file()], total: 250, tab: "vault", name: "a&b", page: 3, size: 50, stats },
+      { lang: "en" },
+    );
+    expect(html).toContain("250 in total, showing 101–150 (page 3 of 5)");
+    expect(html).toContain('href="nexus-nav:/files?tab=vault&amp;qname=a%26b&amp;size=50"');
+    expect(html).toContain("page=4&amp;size=50");
+    expect(html).toContain("Previous");
+    expect(html).toContain("Next");
+    // Tabs start over at the first page but keep the filter.
+    expect(html).toContain('href="nexus-nav:/files?tab=trash&amp;qname=a%26b&amp;size=50"');
+    // The pager sits above and below the table.
+    expect(html.match(/class="pager"/g)).toHaveLength(2);
+  });
+
+  it("shows no pager controls on a single page and says so when a name matches nothing", () => {
+    const single = renderFiles({ files: [file()], total: 1, tab: "all", stats });
+    expect(single).not.toContain("下一页");
+    const none = renderFiles(
+      { files: [], total: 0, tab: "all", name: "zzz", stats },
+      { lang: "en" },
+    );
+    expect(none).toContain("No files match.");
+    expect(none).not.toContain("<table");
+  });
+});
+
+describe("extractionReason", () => {
+  const status = (failureCode: string | null, failureMessage: string | null = null) => ({
+    failureCode,
+    failureMessage,
+  });
+  it("is English by default and Chinese only when asked", () => {
+    expect(extractionReason("en", status("too_large", "file too big"))).toMatch(/larger than/);
+    expect(extractionReason("zh", status("too_large", "file too big"))).toContain("超过");
+    expect(extractionReason("en", status("binary_content"))).toMatch(/binary/);
+  });
+  it("falls back to the server message for a code it does not know", () => {
+    expect(extractionReason("zh", status("brand_new", "something odd"))).toBe("something odd");
+    expect(extractionReason("en", status("brand_new"))).toBe("-");
+    expect(extractionReason("en", status("toString"))).toBe("-");
   });
 });

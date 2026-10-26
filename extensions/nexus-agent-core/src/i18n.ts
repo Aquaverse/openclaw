@@ -188,6 +188,30 @@ const CATALOG = {
   "btn.importPath": ["从本机路径导入", "Import from a path"],
   "btn.details": ["详情", "Details"],
   "btn.searchContent": ["搜索内容", "Search content"],
+  "files.f.name": ["文件名", "File name"],
+  "files.f.name.ph": ["名称包含", "name contains"],
+  "files.f.apply": ["搜索", "Search"],
+  "files.noMatch": ["没有符合条件的文件。", "No files match."],
+  // Why a file's text could not be extracted, by failure code (the server's own message is English only).
+  "files.fc.unsupported_type": [
+    "这种文件类型暂不支持提取文字。",
+    "Text extraction is not supported for this file type.",
+  ],
+  "files.fc.too_large": [
+    "文件超过了提取大小上限（可用 vaultExtractMaxBytes 调整）。",
+    "The file is larger than the extraction size limit (adjustable with vaultExtractMaxBytes).",
+  ],
+  "files.fc.binary_content": [
+    "文件含有二进制内容，不是文本。",
+    "The file contains binary data, not text.",
+  ],
+  "files.fc.undecodable": ["无法识别文件的文字编码。", "The text encoding is not recognised."],
+  "files.fc.bytes_missing": ["文件的存储内容缺失。", "The stored bytes are missing."],
+  "files.fc.extract_error": ["提取过程出错，可稍后重试。", "Extraction failed; try again later."],
+  "files.fc.truncated": [
+    "文字太长，只提取了开头部分。",
+    "The text is long; only the beginning was extracted.",
+  ],
   "files.col.name": ["名称", "Name"],
   "files.col.folder": ["文件夹", "Folder"],
   "files.col.type": ["类型", "Type"],
@@ -208,7 +232,7 @@ const CATALOG = {
     "在对话里写下这个引用码，Agent 就知道你指的是哪个文件（它只能看到名称和基本信息，看不到内容）。",
     "Write this code in a chat message so the Agent knows which file you mean (it sees the name and basic details only, never the contents).",
   ],
-  "files.d.textFail": ["原因：{code}（{message}）", "Reason: {code} ({message})"],
+  "files.d.textFail": ["原因：{reason}（{code}）", "Reason: {reason} ({code})"],
   "files.act.retryExtract": ["重试提取", "Retry extraction"],
   "files.done.retryExtract": [
     "已重新排队提取文件 {id}。",

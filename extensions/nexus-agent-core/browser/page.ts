@@ -4,11 +4,11 @@
 import type { ControlUiView } from "openclaw/plugin-sdk/control-ui";
 import { resolveLang, tr, type Lang } from "../src/i18n.js";
 import { EMPTY_FILTER, filterToParams, type TaskFilter } from "../src/task-query.js";
-import { DEFAULT_FILE_TAB } from "../src/vault-ui.js";
 import { EMPTY_MODEL, runAction, type ActionNotice, type NexusModel } from "./actions.ts";
 import { loadView, probeFeatures, type NexusFeatures } from "./data.ts";
+import { createFileBar } from "./file-bar.ts";
 import { createFilterBar } from "./filters.ts";
-import { parseRoute, routeParams, TASKS_HOME, type NexusRoute } from "./route.ts";
+import { FILES_HOME, parseRoute, routeParams, TASKS_HOME, type NexusRoute } from "./route.ts";
 import { mountSanitized } from "./sanitize.ts";
 import { NEXUS_CSS } from "./style.ts";
 
@@ -72,6 +72,27 @@ export function createNexusPage(): ControlUiView {
     });
     bar.element.hidden = true;
     let barKey: string | undefined;
+    // The file search row is rendered inside the files view (between its buttons and its tabs): the view leaves an empty
+    // slot, and this one form is moved into it after each mount.
+    const fileBar = createFileBar({
+      lang: currentLang(),
+      apply(change) {
+        const current = parseRoute(context.props);
+        const tab = current.view === "files" ? current.tab : FILES_HOME.tab;
+        const next: NexusRoute = { ...FILES_HOME, tab, ...change, page: 1 };
+        // Same query, same URL: the host would not react, so searching again reloads in place.
+        if (JSON.stringify(routeParams(next)) === JSON.stringify(routeParams(current))) {
+          void load();
+          return;
+        }
+        open(next);
+      },
+      reset() {
+        const current = parseRoute(context.props);
+        open({ ...FILES_HOME, tab: current.view === "files" ? current.tab : FILES_HOME.tab });
+      },
+    });
+    let fileBarKey: string | undefined;
     root.append(style, nav, notice, bar.element, main);
     container.replaceChildren(root);
 
@@ -107,11 +128,11 @@ export function createNexusPage(): ControlUiView {
           : []),
         ...(features.files === true
           ? [
-              [
-                tr(lang, "nav.files"),
-                { view: "files", tab: DEFAULT_FILE_TAB },
-                route.view === "files",
-              ] as [string, NexusRoute, boolean],
+              [tr(lang, "nav.files"), FILES_HOME, route.view === "files"] as [
+                string,
+                NexusRoute,
+                boolean,
+              ],
             ]
           : []),
         [tr(lang, "nav.receipts"), { view: "receipts" }, route.view === "receipts"],
@@ -144,6 +165,7 @@ export function createNexusPage(): ControlUiView {
     const showMessage = (text: string, className: string) => {
       unbindClicks?.();
       unbindClicks = undefined;
+      fileBar.element.remove();
       const paragraph = document.createElement("p");
       paragraph.className = className;
       paragraph.textContent = context.host.redact(text);
@@ -165,6 +187,23 @@ export function createNexusPage(): ControlUiView {
       }
     };
 
+    // Puts the file search form into the slot of the files view just mounted. Its values follow the route only when the
+    // name or page size in the route changes, so a refresh never wipes what is being typed.
+    const placeFileBar = (route: NexusRoute) => {
+      const slot = route.view === "files" ? main.querySelector(".nx-filebar-slot") : null;
+      if (route.view !== "files" || !slot) {
+        fileBar.element.remove();
+        fileBarKey = undefined;
+        return;
+      }
+      slot.append(fileBar.element);
+      const key = JSON.stringify([route.name, route.size]);
+      if (key !== fileBarKey) {
+        fileBarKey = key;
+        fileBar.set(route);
+      }
+    };
+
     async function load(keepNotice = false): Promise<void> {
       const mine = ++sequence;
       const route = parseRoute(context.props);
@@ -173,6 +212,7 @@ export function createNexusPage(): ControlUiView {
       }
       const lang = currentLang();
       bar.setLang(lang);
+      fileBar.setLang(lang);
       if (route.view === "tasks") {
         remembered = route.filter;
       }
@@ -218,6 +258,7 @@ export function createNexusPage(): ControlUiView {
             action,
           ),
         );
+        placeFileBar(route);
       } catch (error) {
         if (mine === sequence && !context.signal.aborted) {
           showMessage(

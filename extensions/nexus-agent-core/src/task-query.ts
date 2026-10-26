@@ -241,7 +241,7 @@ export function presetRange(now: Date, preset: TimePreset): { from: string; to: 
 }
 
 export function pageInfo(
-  filter: TaskFilter,
+  filter: Pick<TaskFilter, "page" | "size">,
   total: number,
 ): { page: number; pages: number; first: number; last: number } {
   const pages = Math.max(1, Math.ceil(total / filter.size));

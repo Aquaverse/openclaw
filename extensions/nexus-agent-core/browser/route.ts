@@ -7,17 +7,27 @@ import {
   parseTaskFilter,
   type TaskFilter,
 } from "../src/task-query.js";
-import { DEFAULT_FILE_TAB, parseFileTab, type FileTab } from "../src/vault-ui.js";
+import {
+  DEFAULT_FILE_QUERY,
+  fileQueryToParams,
+  parseFileQuery,
+  type FileQuery,
+} from "../src/vault-ui.js";
 
 export type NexusRoute =
   | { view: "tasks"; filter: TaskFilter }
   | { view: "task"; taskId: string }
   | { view: "preferences" }
   | { view: "receipts" }
-  | { view: "files"; tab: FileTab };
+  | ({ view: "files" } & FileQuery);
 
 /** The unfiltered first page of the list. */
 export const TASKS_HOME: NexusRoute = { view: "tasks", filter: EMPTY_FILTER };
+/** The first page of the "all files" tab. */
+export const FILES_HOME: Extract<NexusRoute, { view: "files" }> = {
+  view: "files",
+  ...DEFAULT_FILE_QUERY,
+};
 
 /** Placeholder link base handed to the renderers; the module rewrites every such link into a host navigation. */
 export const NAV_BASE = "nexus-nav:";
@@ -36,7 +46,7 @@ export function parseRoute(props: Readonly<Record<string, string>>): NexusRoute 
     return { view: "receipts" };
   }
   if (props.view === "files") {
-    return { view: "files", tab: parseFileTab(props.tab) };
+    return { view: "files", ...parseFileQuery((name) => props[name]) };
   }
   return { view: "tasks", filter: parseTaskFilter((name) => props[name]) };
 }
@@ -49,7 +59,7 @@ export function routeParams(route: NexusRoute): Record<string, string> {
     case "tasks":
       return filterToParams(route.filter);
     case "files":
-      return route.tab === DEFAULT_FILE_TAB ? { view: "files" } : { view: "files", tab: route.tab };
+      return { view: "files", ...fileQueryToParams(route) };
     default:
       return { view: route.view };
   }
@@ -76,7 +86,7 @@ export function routeFromHref(href: string): NexusRoute | undefined {
     return { view: first };
   }
   if (segments.length === 1 && first === "files") {
-    return { view: "files", tab: parseFileTab(query.get("tab")) };
+    return { view: "files", ...parseFileQuery((name) => query.get(name) ?? undefined) };
   }
   return undefined;
 }

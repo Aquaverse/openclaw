@@ -22,7 +22,7 @@ import {
   renderTaskDetail,
   renderTaskList,
 } from "../src/ui-render.js";
-import { fileListParams } from "../src/vault-ui.js";
+import { fileListParams, type FileQuery } from "../src/vault-ui.js";
 import { EMPTY_MODEL, type NexusModel } from "./actions.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
 
@@ -162,13 +162,22 @@ export async function loadView(
       };
     }
     case "files": {
-      const [list, stats] = await Promise.all([
+      const listFiles = (query: FileQuery) =>
         request<VaultListResult & { extraction?: Record<string, VaultExtractionStatus> }>(
           "nexus.vault.list",
-          fileListParams(route.tab),
-        ),
+          fileListParams(query),
+        );
+      const [first, stats] = await Promise.all([
+        listFiles(route),
         request<VaultStatsResult>("nexus.vault.stats"),
       ]);
+      let list = first;
+      let page = route.page;
+      // Files were removed since the link was made: land on the last page that still has rows.
+      if (list.items.length === 0 && list.total > 0 && page > 1) {
+        page = pageInfo(route, list.total).pages;
+        list = await listFiles({ ...route, page });
+      }
       const files: VaultFileRecord[] = list.items;
       return {
         title: tr(lang, "title.files"),
@@ -177,6 +186,9 @@ export async function loadView(
             files,
             total: list.total,
             tab: route.tab,
+            name: route.name,
+            page,
+            size: route.size,
             stats,
             ...(list.extraction ? { extraction: list.extraction } : {}),
           },

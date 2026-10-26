@@ -14,6 +14,7 @@ import type { VaultExtractionStatus } from "./store/vault-text-types.js";
 import type { VaultFileRecord, VaultStatsResult } from "./store/vault-types.js";
 import type { WatchRecord } from "./store/watch-types.js";
 import {
+  DEFAULT_PAGE_SIZE,
   EMPTY_FILTER,
   FILTER_FIELDS,
   FILTER_PARAMS,
@@ -27,7 +28,14 @@ import {
   presetRange,
   type TaskFilter,
 } from "./task-query.js";
-import { FILE_TABS, formatBytes, tabCounts, type FileTab } from "./vault-ui.js";
+import {
+  FILE_TABS,
+  fileLink,
+  formatBytes,
+  tabCounts,
+  type FileQuery,
+  type FileTab,
+} from "./vault-ui.js";
 
 export function esc(value: unknown): string {
   return asText(value)
@@ -609,9 +617,13 @@ export function renderPreferences(
 
 export type FilesViewData = {
   files: readonly VaultFileRecord[];
-  /** Rows matching the tab, across everything the list did not show. */
+  /** Rows matching the tab and the name filter, across everything the page did not show. */
   total: number;
   tab: FileTab;
+  /** The name filter, the page (1-based) and the page size; the defaults are no filter, page 1, 20 rows. */
+  name?: string;
+  page?: number;
+  size?: number;
   stats: Pick<VaultStatsResult, "files" | "objectBytes" | "reservedBytes">;
   /** Text extraction per file id (nexus.vault.list); absent when the gateway does not report it. */
   extraction?: Readonly<Record<string, VaultExtractionStatus>>;
@@ -636,6 +648,31 @@ export function extractionLabel(
     default:
       return undefined;
   }
+}
+
+const FAILURE_REASON = {
+  unsupported_type: "files.fc.unsupported_type",
+  too_large: "files.fc.too_large",
+  binary_content: "files.fc.binary_content",
+  undecodable: "files.fc.undecodable",
+  bytes_missing: "files.fc.bytes_missing",
+  extract_error: "files.fc.extract_error",
+  truncated: "files.fc.truncated",
+} as const satisfies Record<string, MsgKey>;
+
+/**
+ * Why extraction failed, in the console's language (English unless the user switched to Chinese). A code this build does
+ * not know falls back to the server's own message, which is English.
+ */
+export function extractionReason(
+  lang: Lang,
+  status: Pick<VaultExtractionStatus, "failureCode" | "failureMessage">,
+): string {
+  const code = status.failureCode ?? "";
+  const key = Object.hasOwn(FAILURE_REASON, code)
+    ? FAILURE_REASON[code as keyof typeof FAILURE_REASON]
+    : undefined;
+  return key ? tr(lang, key) : (status.failureMessage ?? "-");
 }
 
 const FILE_TAB_LABEL = {
@@ -669,8 +706,15 @@ export function renderFiles(
   const withActions = options.actions === true;
   const base = options.basePath ?? "nexus-nav:";
   const counts = tabCounts(data.stats);
+  const query: FileQuery = {
+    tab: data.tab,
+    name: data.name ?? "",
+    page: data.page ?? 1,
+    size: data.size ?? DEFAULT_PAGE_SIZE,
+  };
+  // The tabs keep the name filter and the page size, and start over at the first page.
   const tabs = FILE_TABS.map((tab) => {
-    const href = tab === "all" ? `${base}/files` : `${base}/files?tab=${tab}`;
+    const href = fileLink(base, query, { tab, page: 1 });
     const label = `${tr(lang, FILE_TAB_LABEL[tab])} (${counts[tab]})`;
     return `<a href="${esc(href)}"${tab === data.tab ? ' class="on"' : ""}>${esc(label)}</a>`;
   });
@@ -692,6 +736,8 @@ export function renderFiles(
   };
   const stateClass = (state: VaultFileRecord["state"]) =>
     state === "damaged" ? "bad" : state === "active" ? "" : "pending";
+  const pager = renderFilePager(query, data.total, base, lang);
+  const noMatch = data.files.length === 0 && query.name !== "";
   return (
     `<h1>${esc(tr(lang, "title.files"))}</h1>` +
     `<p class="muted">${esc(
@@ -701,43 +747,71 @@ export function renderFiles(
         reserved: formatBytes(data.stats.reservedBytes),
       }),
     )}</p>` +
-    `<div class="hint">${esc(tr(lang, withActions ? "files.hintActions" : "files.hintReadOnly"))}` +
+    `<p class="muted">${esc(tr(lang, withActions ? "files.hintActions" : "files.hintReadOnly"))}</p>` +
     (withActions
-      ? `${button("file-new", "new", tr(lang, "btn.upload"))}${button("file-import", "new", tr(lang, "btn.importPath"))}`
+      ? `<div class="nx-filerow">${button("file-new", "new", tr(lang, "btn.upload"))}${button("file-import", "new", tr(lang, "btn.importPath"))}</div>`
       : "") +
-    // Searching changes nothing, so the read-only console offers it too.
-    button("file-search", "new", tr(lang, "btn.searchContent")) +
-    "</div>" +
+    // The name filter is a live form the Control UI module moves into the slot; searching changes nothing, so the
+    // read-only console offers it (and the content search next to it) too.
+    `<div class="nx-filerow"><div class="nx-filebar-slot"></div>${button("file-search", "new", tr(lang, "btn.searchContent"))}</div>` +
     `<div class="nx-tabs">${tabs.join("")}</div>` +
-    table(
-      lang,
-      [
-        "files.col.name",
-        "files.col.folder",
-        "files.col.type",
-        "files.col.size",
-        "files.col.source",
-        "files.col.state",
-        "files.col.text",
-        "col.updatedAt",
-        "col.actions",
-      ],
-      data.files.map((file) => [
-        `<td>${esc(file.displayName)} ${tags(file)}</td>`,
-        td(file.folder === "" ? "-" : file.folder),
-        td(file.mime),
-        td(formatBytes(file.size)),
-        td(`${tr(lang, FILE_COLLECTION_LABEL[file.collection])} · ${file.source}`),
-        td(tr(lang, FILE_STATE_LABEL[file.state]), stateClass(file.state)),
-        textCell(file),
-        td(fmtTime(file.updatedAt)),
-        `<td>${button("file-open", file.id, tr(lang, "btn.details"))}</td>`,
-      ]),
-    ) +
-    (data.total > data.files.length
-      ? `<p class="muted">${esc(tr(lang, "files.shown", { shown: data.files.length, total: data.total }))}</p>`
-      : "")
+    pager +
+    (noMatch
+      ? `<p class="muted">${esc(tr(lang, "files.noMatch"))}</p>`
+      : table(
+          lang,
+          [
+            "files.col.name",
+            "files.col.folder",
+            "files.col.type",
+            "files.col.size",
+            "files.col.source",
+            "files.col.state",
+            "files.col.text",
+            "col.updatedAt",
+            "col.actions",
+          ],
+          data.files.map((file) => [
+            `<td>${esc(file.displayName)} ${tags(file)}</td>`,
+            td(file.folder === "" ? "-" : file.folder),
+            td(file.mime),
+            td(formatBytes(file.size)),
+            td(`${tr(lang, FILE_COLLECTION_LABEL[file.collection])} · ${file.source}`),
+            td(tr(lang, FILE_STATE_LABEL[file.state]), stateClass(file.state)),
+            textCell(file),
+            td(fmtTime(file.updatedAt)),
+            `<td>${button("file-open", file.id, tr(lang, "btn.details"))}</td>`,
+          ]),
+        )) +
+    pager
   );
+}
+
+function renderFilePager(query: FileQuery, total: number, base: string, lang: Lang): string {
+  const { page: current, pages, first, last } = pageInfo(query, total);
+  const summary = `<span class="muted">${esc(tr(lang, "pager.summary", { total, first, last, page: current, pages }))}</span>`;
+  if (pages <= 1) {
+    return total === 0 ? "" : `<p class="pager">${summary}</p>`;
+  }
+  const link = (label: string, target: number) =>
+    `<a href="${esc(fileLink(base, query, { page: target }))}">${esc(label)}</a>`;
+  const items: string[] = [];
+  if (current > 1) {
+    items.push(link(tr(lang, "pager.first"), 1), link(tr(lang, "pager.prev"), current - 1));
+  }
+  for (const n of pageWindow(current, pages)) {
+    items.push(
+      n === null
+        ? '<span class="muted">…</span>'
+        : n === current
+          ? `<span class="cur">${n}</span>`
+          : link(String(n), n),
+    );
+  }
+  if (current < pages) {
+    items.push(link(tr(lang, "pager.next"), current + 1), link(tr(lang, "pager.last"), pages));
+  }
+  return `<p class="pager">${summary} ${items.join(" ")}</p>`;
 }
 
 export function renderReceipts(

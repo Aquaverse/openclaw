@@ -4,7 +4,7 @@
 import { tr } from "../src/i18n.js";
 import type { VaultExtractionStatus } from "../src/store/vault-text-types.js";
 import type { VaultFileRecord } from "../src/store/vault-types.js";
-import { extractionLabel, fmtTime } from "../src/ui-render.js";
+import { extractionLabel, extractionReason, fmtTime } from "../src/ui-render.js";
 import {
   fileActionsFor,
   formatBytes,
@@ -553,7 +553,7 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
             body,
             tr(ctx.lang, "files.d.textFail", {
               code: extraction.failureCode,
-              message: extraction.failureMessage ?? "-",
+              reason: extractionReason(ctx.lang, extraction),
             }),
           );
         }

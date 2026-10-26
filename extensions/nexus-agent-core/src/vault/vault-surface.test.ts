@@ -539,7 +539,9 @@ describe("vault surfaces", () => {
   });
 
   it("content search: the console gets files and text, the Agent gets only which files match", async () => {
-    config.extract = { ...VAULT_EXTRACT_DEFAULTS };
+    // This suite shares one store, so earlier tests' files are queued too. The fake clock gives every job the same
+    // timestamp, which leaves the claim order to the job ids: a batch of 20 may not reach the files made here.
+    config.extract = { ...VAULT_EXTRACT_DEFAULTS, batch: 500 };
     try {
       await put("report-q3.md", "Quarterly revenue grew because of the harbor contract.", {
         collection: "vault",

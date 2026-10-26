@@ -39,10 +39,14 @@ function fixture(
     extraction?: Record<string, unknown>;
     search?: unknown;
     text?: unknown;
+    /** Answers nexus.vault.list itself (for paging); the default is one page holding `files`. */
+    list?: (params: Record<string, unknown> | undefined) => { items: unknown[]; total: number };
   },
   props: Record<string, string>,
   canWrite = true,
+  locale?: string,
 ) {
+  const opened: Array<{ id: string; params: Record<string, unknown> }> = [];
   const calls: Array<{ method: string; params: Record<string, unknown> | undefined }> = [];
   const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
     calls.push({ method, params });
@@ -65,8 +69,9 @@ function fixture(
         return STATS;
       case "nexus.vault.list":
         return {
-          items: data.files ?? [file()],
-          total: (data.files ?? [file()]).length,
+          ...(data.list
+            ? data.list(params)
+            : { items: data.files ?? [file()], total: (data.files ?? [file()]).length }),
           ...(data.extraction ? { extraction: data.extraction } : {}),
         };
       case "nexus.vault.search":
@@ -98,7 +103,13 @@ function fixture(
     redact: (text: string) => text,
     subscribe: () => () => {},
     onEvent: () => () => {},
-    navigation: { pageHref: () => "/p", openPage: () => {} },
+    ...(locale ? { locale } : {}),
+    navigation: {
+      pageHref: () => "/p",
+      openPage: (target: { id: string; params: Record<string, unknown> }) => {
+        opened.push(target);
+      },
+    },
   } as unknown as ControlUiHost;
   const context: ControlUiViewContext = {
     host,
@@ -113,6 +124,7 @@ function fixture(
   return {
     container,
     calls,
+    opened,
     dialog: () => container.querySelector(".nx-dialog") as HTMLElement,
     writes: () => calls.filter((call) => !/\.(list|stats|read|get|search|text)$/.test(call.method)),
   };
@@ -162,7 +174,7 @@ describe("files tab", () => {
     const f = fixture({}, { view: "files", tab: "trash" });
     await flush();
     const list = f.calls.find((call) => call.method === "nexus.vault.list");
-    expect(list?.params).toEqual({ limit: 200, pinnedFirst: true, state: "trashed" });
+    expect(list?.params).toEqual({ limit: 20, offset: 0, pinnedFirst: true, state: "trashed" });
     expect(f.container.querySelector("main b, table b")).toBeNull();
     expect(f.container.textContent).toContain("<b>notes</b>.txt");
   });
@@ -379,6 +391,95 @@ describe("files tab", () => {
     expect(f.writes()).toEqual([
       { method: "nexus.vault.retryExtract", params: { fileId: "F1ABC" } },
     ]);
+  });
+
+  it("gives the failure reason in English unless the console is in Chinese", async () => {
+    const failed = {
+      state: "failed",
+      failureCode: "too_large",
+      failureMessage: "file is larger than the extraction limit",
+      attempts: 1,
+      pages: 0,
+      chars: 0,
+      extractor: "text",
+      updatedAt: 1,
+    };
+    for (const [locale, expected] of [
+      ["en", "Reason: The file is larger than the extraction size limit"],
+      ["zh-CN", "原因：文件超过了提取大小上限"],
+    ] as const) {
+      const f = fixture({ extraction: { F1ABC: failed } }, props, true, locale);
+      await flush();
+      click(f.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      expect(f.dialog().textContent).toContain(expected);
+      expect(f.dialog().textContent).toContain("too_large");
+    }
+  });
+
+  it("asks for the page, page size and name filter in the route and pages the list", async () => {
+    const f = fixture(
+      { list: () => ({ items: [file()], total: 130 }) },
+      { view: "files", qname: "tax", page: "2", size: "50" },
+      true,
+      "en",
+    );
+    await flush();
+    const list = f.calls.find((call) => call.method === "nexus.vault.list");
+    expect(list?.params).toEqual({
+      limit: 50,
+      offset: 50,
+      pinnedFirst: true,
+      state: "active",
+      nameContains: "tax",
+    });
+    expect(f.container.textContent).toContain("130 in total, showing 51–100 (page 2 of 3)");
+    const next = [...f.container.querySelectorAll<HTMLAnchorElement>(".pager a")].find(
+      (a) => a.textContent === "Next ›",
+    );
+    expect(next).toBeDefined();
+    next?.click();
+    expect(f.opened.at(-1)?.params).toEqual({ view: "files", qname: "tax", page: "3", size: "50" });
+  });
+
+  it("lands on the last page that still has rows when the requested page is gone", async () => {
+    const f = fixture(
+      {
+        list: (params) =>
+          (params?.offset as number) >= 40
+            ? { items: [], total: 45 }
+            : { items: [file()], total: 45 },
+      },
+      { view: "files", page: "5" },
+    );
+    await flush();
+    const offsets = f.calls
+      .filter((call) => call.method === "nexus.vault.list")
+      .map((call) => call.params?.offset);
+    expect(offsets).toEqual([80, 40]);
+  });
+
+  it("puts the name search between the buttons and the tabs and applies it from the first page", async () => {
+    const f = fixture({}, { view: "files", page: "3" }, true, "en");
+    await flush();
+    const slot = f.container.querySelector(".nx-filebar-slot") as HTMLElement;
+    const input = slot.querySelector<HTMLInputElement>('input[name="qname"]');
+    expect(input).not.toBeNull();
+    // Row order: buttons, search row, tabs.
+    const html = f.container.querySelector("main")?.innerHTML ?? "";
+    expect(html.indexOf('data-nx-act="file-new"')).toBeLessThan(html.indexOf("nx-filebar-slot"));
+    expect(html.indexOf("nx-filebar-slot")).toBeLessThan(html.indexOf("nx-tabs"));
+    (input as HTMLInputElement).value = "  invoice ";
+    (slot.querySelector("select") as HTMLSelectElement).value = "100";
+    slot.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+    expect(f.opened.at(-1)?.params).toEqual({ view: "files", qname: "invoice", size: "100" });
+    // Reset clears the filter, keeps the tab.
+    (
+      Array.from(slot.querySelectorAll("button")).find(
+        (b) => b.textContent === "Reset",
+      ) as HTMLButtonElement
+    ).click();
+    expect(f.opened.at(-1)?.params).toEqual({ view: "files" });
   });
 
   it("builds the upload dialog and refuses to send before a file is chosen", async () => {

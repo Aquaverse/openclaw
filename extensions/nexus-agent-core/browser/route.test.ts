@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_FILTER } from "../src/task-query.js";
-import { NAV_BASE, parseRoute, routeFromHref, routeParams, TASKS_HOME } from "./route.ts";
+import {
+  FILES_HOME,
+  NAV_BASE,
+  parseRoute,
+  routeFromHref,
+  routeParams,
+  TASKS_HOME,
+} from "./route.ts";
 
 describe("nexus route", () => {
   it("defaults to the task list and ignores unknown or malformed parameters", () => {
@@ -8,9 +15,13 @@ describe("nexus route", () => {
     expect(parseRoute({ view: "nope" })).toEqual(TASKS_HOME);
     expect(parseRoute({ view: "task" })).toEqual(TASKS_HOME);
     expect(parseRoute({ view: "task", task: "../x/y" })).toEqual(TASKS_HOME);
-    expect(parseRoute({ view: "files", tab: "nope" })).toEqual({ view: "files", tab: "all" });
-    expect(routeParams({ view: "files", tab: "all" })).toEqual({ view: "files" });
-    expect(routeParams({ view: "files", tab: "trash" })).toEqual({ view: "files", tab: "trash" });
+    expect(parseRoute({ view: "files", tab: "nope" })).toEqual(FILES_HOME);
+    expect(routeParams(FILES_HOME)).toEqual({ view: "files" });
+    expect(routeParams({ ...FILES_HOME, tab: "trash" })).toEqual({ view: "files", tab: "trash" });
+    expect(parseRoute({ view: "files", qname: "  发票\n", page: "0", size: "7" })).toEqual({
+      ...FILES_HOME,
+      name: "发票",
+    });
   });
 
   it("round-trips every route through the host page parameters", () => {
@@ -27,8 +38,9 @@ describe("nexus route", () => {
       { view: "task", taskId: "T1ABC" },
       { view: "preferences" },
       { view: "receipts" },
-      { view: "files", tab: "all" },
-      { view: "files", tab: "trash" },
+      FILES_HOME,
+      { ...FILES_HOME, tab: "trash" },
+      { view: "files", tab: "inbox", name: "合同 2026", page: 3, size: 50 },
     ] as const) {
       expect(parseRoute(routeParams(route))).toEqual(route);
     }
@@ -63,9 +75,16 @@ describe("nexus route", () => {
     expect(routeFromHref(`${NAV_BASE}/tasks/T1ABC`)).toEqual({ view: "task", taskId: "T1ABC" });
     expect(routeFromHref(`${NAV_BASE}/preferences`)).toEqual({ view: "preferences" });
     expect(routeFromHref(`${NAV_BASE}/receipts`)).toEqual({ view: "receipts" });
-    expect(routeFromHref(`${NAV_BASE}/files`)).toEqual({ view: "files", tab: "all" });
-    expect(routeFromHref(`${NAV_BASE}/files?tab=inbox`)).toEqual({ view: "files", tab: "inbox" });
-    expect(routeFromHref(`${NAV_BASE}/files?tab=../x`)).toEqual({ view: "files", tab: "all" });
+    expect(routeFromHref(`${NAV_BASE}/files`)).toEqual(FILES_HOME);
+    expect(routeFromHref(`${NAV_BASE}/files?tab=inbox`)).toEqual({ ...FILES_HOME, tab: "inbox" });
+    expect(routeFromHref(`${NAV_BASE}/files?tab=../x`)).toEqual(FILES_HOME);
+    expect(routeFromHref(`${NAV_BASE}/files?tab=vault&qname=a%20b&page=2&size=50`)).toEqual({
+      view: "files",
+      tab: "vault",
+      name: "a b",
+      page: 2,
+      size: 50,
+    });
     expect(routeFromHref(`${NAV_BASE}/files/F1`)).toBeUndefined();
     expect(routeFromHref(`${NAV_BASE}/tasks/a/b`)).toBeUndefined();
     expect(routeFromHref(`${NAV_BASE}/tasks/a b`)).toBeUndefined();
