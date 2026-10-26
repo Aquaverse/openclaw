@@ -26,8 +26,9 @@ describe("benchmark 06: file processing", () => {
     const card = await runBenchmark06();
     assert.equal(card.byDimension.extraction.total, EXTRACTION_SAMPLES.length);
     assert.ok(card.byDimension.search.total >= SEARCH_CASES.length);
-    assert.ok(card.byDimension.sensitive.total >= 10);
-    assert.ok(card.byDimension.injection.total >= 10);
+    assert.ok(card.byDimension.search.total >= SEARCH_CASES.length + 5);
+    assert.ok(card.byDimension.sensitive.total >= 11);
+    assert.ok(card.byDimension.injection.total >= 11);
     // The ids are unique, so a failure always names exactly one case.
     const ids = card.cases.map((item) => item.id);
     assert.equal(new Set(ids).size, ids.length);

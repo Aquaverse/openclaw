@@ -48,6 +48,7 @@ export type VaultChangedPayload = {
     | "restored"
     | "purged"
     | "damaged"
+    | "replaced"
     | "extracted";
   collection?: string;
 };

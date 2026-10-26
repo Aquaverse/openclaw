@@ -281,6 +281,8 @@ async function run(dir: string): Promise<Scorecard> {
     passport: "SENS-CANARY-PASSPORT-7731",
     diary: "SENS-CANARY-DIARY-5512",
     shared: "SENS-CANARY-SHARED-9908",
+    replacedBefore: "SENS-CANARY-OLDTEXT-3321",
+    replacedAfter: "SENS-CANARY-NEWTEXT-4410",
   };
   const visibleBefore = (await agentSearchFiles(store, A, {
     contentContains: "unicorn ledger",
@@ -553,16 +555,167 @@ async function run(dir: string): Promise<Scorecard> {
     JSON.stringify(wild.map((result) => result.total)),
   );
 
+  // ------------------------------------------------------------------ replacing content and restoring a version
+  const contentOf = async (principal: Principal, fileId: string, seq?: number) => {
+    const out = await service.read(principal, {
+      fileId,
+      offset: 0,
+      length: MIB,
+      ...(seq !== undefined ? { seq } : {}),
+    });
+    return out.outcome === "ok" ? new TextDecoder().decode(out.bytes) : out.outcome;
+  };
+  const hits = (principal: Principal, query: string) =>
+    names(kernel.vaultTextSearch({ principal, query }));
+  const draft = await mustIngest(A, "weekly plan.txt", "plan quokkaalpha is the first draft");
+  await service.extract(A);
+  const swapped = await service.replace(A, {
+    fileId: draft.id,
+    bytes: enc("plan quokkabeta is the second draft"),
+    importedBy: "operator",
+  });
+  await service.extract(A);
+  record(
+    "search",
+    "R01 after a replace the old words no longer match and the new words do",
+    swapped.outcome === "ok" &&
+      hits(A, "quokkaalpha").length === 0 &&
+      hits(A, "quokkabeta").join() === "weekly plan.txt",
+    JSON.stringify({
+      swapped: swapped.outcome,
+      old: hits(A, "quokkaalpha"),
+      now: hits(A, "quokkabeta"),
+    }),
+  );
+  const oldBytes = await contentOf(A, draft.id, 1);
+  const newBytes = await contentOf(A, draft.id);
+  record(
+    "search",
+    "R02 the old content is kept as version 1 and the new content is the current one",
+    oldBytes === "plan quokkaalpha is the first draft" &&
+      newBytes === "plan quokkabeta is the second draft",
+    JSON.stringify({ oldBytes, newBytes }),
+  );
+  const same = await service.replace(A, {
+    fileId: draft.id,
+    bytes: enc("plan quokkabeta is the second draft"),
+    importedBy: "operator",
+  });
+  record(
+    "search",
+    "R03 replacing with identical bytes adds no version",
+    same.outcome === "ok" &&
+      same.replaced?.unchanged === true &&
+      count(
+        "SELECT COUNT(*) AS c FROM vault_versions WHERE owner_id = ? AND file_id = ?",
+        A.ownerId,
+        draft.id,
+      ) === 2,
+    JSON.stringify(same),
+  );
+  const restored = await service.restoreVersion(A, { fileId: draft.id, seq: 1 });
+  await service.extract(A);
+  record(
+    "search",
+    "R04 restoring version 1 brings its words back into the index and removes the others",
+    restored.outcome === "restored" &&
+      hits(A, "quokkaalpha").join() === "weekly plan.txt" &&
+      hits(A, "quokkabeta").length === 0,
+    JSON.stringify({
+      restored: restored.outcome,
+      old: hits(A, "quokkaalpha"),
+      now: hits(A, "quokkabeta"),
+    }),
+  );
+  const crowded = await service.replace(A, {
+    fileId: draft.id,
+    bytes: enc("plan quokkagamma"),
+    importedBy: "operator",
+  });
+  for (let round = 0; round < 6; round += 1) {
+    await service.replace(A, {
+      fileId: draft.id,
+      bytes: enc(`plan round ${round}`),
+      importedBy: "operator",
+    });
+  }
+  record(
+    "search",
+    "R05 only the latest few versions are kept",
+    crowded.outcome === "ok" &&
+      count(
+        "SELECT COUNT(*) AS c FROM vault_versions WHERE owner_id = ? AND file_id = ?",
+        A.ownerId,
+        draft.id,
+      ) === 5,
+    String(
+      count(
+        "SELECT COUNT(*) AS c FROM vault_versions WHERE owner_id = ? AND file_id = ?",
+        A.ownerId,
+        draft.id,
+      ),
+    ),
+  );
+  const foreignReplace = await service.replace(B, {
+    fileId: draft.id,
+    bytes: enc("not yours"),
+    importedBy: "operator",
+  });
+  const foreignRestore = await service.restoreVersion(B, { fileId: draft.id, seq: 2 });
+  record(
+    "injection",
+    "I11 another owner can neither replace nor restore a file (and learns nothing about it)",
+    foreignReplace.outcome === "not_found" &&
+      foreignRestore.outcome === "not_found" &&
+      !(await contentOf(A, draft.id)).includes("not yours"),
+    JSON.stringify({
+      foreignReplace: foreignReplace.outcome,
+      foreignRestore: foreignRestore.outcome,
+    }),
+  );
+  const secret = await mustIngest(A, "Passport copy.txt", `number ${SECRETS.replacedBefore}`);
+  const secretSwap = await service.replace(A, {
+    fileId: secret.id,
+    bytes: enc(`number ${SECRETS.replacedAfter}`),
+    importedBy: "operator",
+  });
+  await service.extract(A);
+  const secretBack = await service.restoreVersion(A, { fileId: secret.id, seq: 1 });
+  await service.extract(A);
+  const secretNow = (await agentSearchFiles(store, A, { name: "Passport copy" })) as {
+    total: number;
+  };
+  see(secretNow);
+  record(
+    "sensitive",
+    "X13 a sensitive file stays unreadable and unsearchable through a replace and a restore",
+    secretSwap.outcome === "ok" &&
+      secretBack.outcome === "restored" &&
+      hits(A, SECRETS.replacedBefore).length === 0 &&
+      hits(A, SECRETS.replacedAfter).length === 0 &&
+      secretNow.total === 0 &&
+      count(
+        "SELECT COUNT(*) AS c FROM vault_text WHERE object_id IN (SELECT object_id FROM vault_versions WHERE file_id = ?)",
+        secret.id,
+      ) === 0,
+    JSON.stringify({
+      hitsBefore: hits(A, SECRETS.replacedBefore),
+      hitsAfter: hits(A, SECRETS.replacedAfter),
+      secretNow,
+    }),
+  );
+
   // ------------------------------------------------------------------ leak scan over everything the Agent saw
   const forbiddenEverywhere = [
     ...Object.values(SECRETS),
     "Passport scan",
+    "Passport copy",
     "shared two",
     bodyCanary,
     scriptCanary,
     INJECT,
   ];
-  const forbiddenInSearchResults = [passport.id, second.id];
+  const forbiddenInSearchResults = [passport.id, second.id, secret.id];
   const searchText = agentSeen.join("\n");
   const promptText = refsSeen.join("\n");
   const leaks = [

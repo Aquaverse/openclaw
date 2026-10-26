@@ -19,6 +19,7 @@ import {
   MAX_VAULT_LINKS,
   MAX_VAULT_LIST_LIMIT,
   MAX_VAULT_VERSIONS,
+  VAULT_KEEP_VERSIONS,
   VAULT_COLLECTIONS,
   type VaultCollection,
   type VaultCommitInput,
@@ -53,6 +54,8 @@ import {
   type VaultVersionsOutcome,
   type VaultReservationState,
   type VaultRestoreInput,
+  type VaultRestoreVersionInput,
+  type VaultRestoreVersionOutcome,
   type VaultSensitivity,
   type VaultSensitivityBy,
   type VaultSetSensitivityInput,
@@ -336,6 +339,87 @@ export function createVaultLedger(
 
   // ------------------------------------------------------------------ C: commit (dedup-aware)
 
+  /**
+   * Makes `objectId` the file's current content as a new latest version, then releases the versions beyond `keep` (the
+   * oldest first). Released objects are found by the reconcile pass (an object no version refers to is reclaimed). The same
+   * object may appear in several versions (A -> B -> A). Returns the version now current; `unchanged` when nothing was added.
+   */
+  const appendVersion = (
+    owner: string,
+    fileId: string,
+    objectId: string,
+    now: number,
+    keep: number,
+  ): { seq: number; unchanged: boolean } => {
+    const current = one(
+      "SELECT f.object_id, COALESCE((SELECT MAX(seq) FROM vault_versions v WHERE v.owner_id = f.owner_id AND v.file_id = f.id), 0) AS top " +
+        "FROM vault_files f WHERE f.owner_id = ? AND f.id = ?",
+      owner,
+      fileId,
+    ) as Row;
+    const top = Number(current.top);
+    if (String(current.object_id) === objectId) {
+      return { seq: top, unchanged: true };
+    }
+    const seq = top + 1;
+    run(
+      "INSERT INTO vault_versions (owner_id, file_id, seq, object_id, created_at) VALUES (?, ?, ?, ?, ?)",
+      owner,
+      fileId,
+      seq,
+      objectId,
+      now,
+    );
+    run(
+      "UPDATE vault_files SET object_id = ?, updated_at = ? WHERE owner_id = ? AND id = ?",
+      objectId,
+      now,
+      owner,
+      fileId,
+    );
+    run(
+      "DELETE FROM vault_versions WHERE owner_id = ? AND file_id = ? AND seq <= ?",
+      owner,
+      fileId,
+      seq - Math.max(1, Math.floor(keep)),
+    );
+    return { seq, unchanged: false };
+  };
+
+  /** Brings an older version's content back as the newest version (history is never rewritten). */
+  const vaultRestoreVersion = (input: VaultRestoreVersionInput): VaultRestoreVersionOutcome =>
+    transaction((): VaultRestoreVersionOutcome => {
+      const owner = input.principal.ownerId;
+      const file = fileRecord(owner, input.fileId);
+      if (!file) {
+        return { outcome: "not_found" };
+      }
+      if (file.state !== "active") {
+        return { outcome: "wrong_state", state: file.state };
+      }
+      const version = one(
+        "SELECT v.object_id FROM vault_versions v JOIN vault_objects o ON o.owner_id = v.owner_id AND o.id = v.object_id " +
+          "WHERE v.owner_id = ? AND v.file_id = ? AND v.seq = ? AND o.state = 'live'",
+        owner,
+        input.fileId,
+        input.seq,
+      );
+      if (!version) {
+        return { outcome: "version_not_found" };
+      }
+      const result = appendVersion(
+        owner,
+        input.fileId,
+        String(version.object_id),
+        input.now,
+        input.keepVersions ?? VAULT_KEEP_VERSIONS,
+      );
+      const after = fileRecord(owner, input.fileId) as VaultFileRecord;
+      return result.unchanged
+        ? { outcome: "unchanged", file: after }
+        : { outcome: "restored", file: after, seq: result.seq };
+    });
+
   const commitOnce = (input: VaultCommitInput): VaultCommitOutcome =>
     transaction((): VaultCommitOutcome => {
       const owner = input.principal.ownerId;
@@ -358,6 +442,17 @@ export function createVaultLedger(
       }
       if (!VAULT_COLLECTIONS.includes(input.file.collection)) {
         return { outcome: "invalid", reason: "collection" };
+      }
+      // A replace needs an active target; checked before anything is written so a refusal leaves nothing behind.
+      let target: VaultFileRecord | null = null;
+      if (input.replaceFileId !== undefined) {
+        target = fileRecord(owner, input.replaceFileId);
+        if (!target) {
+          return { outcome: "replace_refused", reason: "not_found" };
+        }
+        if (target.state !== "active") {
+          return { outcome: "replace_refused", reason: "not_active", state: target.state };
+        }
       }
       // 2. ask again who the winner is: what P saw may be stale
       const winner = liveObjectByHash(owner, String(row.content_hash));
@@ -393,6 +488,31 @@ export function createVaultLedger(
           input.now,
           input.now,
         );
+      }
+      if (target) {
+        const replaced = appendVersion(
+          owner,
+          target.id,
+          objectId,
+          input.now,
+          input.keepVersions ?? VAULT_KEEP_VERSIONS,
+        );
+        run(
+          "UPDATE vault_reservations SET state = 'committed', result_object_id = ?, updated_at = ? " +
+            "WHERE owner_id = ? AND id = ? AND state IN ('written','promoted')",
+          objectId,
+          input.now,
+          owner,
+          input.reservationId,
+        );
+        return {
+          outcome: "committed",
+          fileId: target.id,
+          objectId,
+          newObject,
+          loser,
+          replaced,
+        };
       }
       const fileId = newId("VF");
       const inbox = input.file.collection === "inbox";
@@ -907,6 +1027,7 @@ export function createVaultLedger(
     vaultReadRef,
     vaultVersions,
     vaultLinks,
+    vaultRestoreVersion,
     vaultKeep,
     vaultDiscard,
     vaultTrash,

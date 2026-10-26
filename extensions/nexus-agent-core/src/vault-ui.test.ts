@@ -197,6 +197,7 @@ describe("vault ui helpers", () => {
       "keep",
       "discard",
       "edit",
+      "replace",
       "pin",
       "favorite",
       "sensitivity",
@@ -206,6 +207,8 @@ describe("vault ui helpers", () => {
     expect(fileActionsFor({ state: "trashed", collection: "vault" })).not.toContain("favorite");
     expect(fileActionsFor({ state: "active", collection: "vault" })).toContain("trash");
     expect(fileActionsFor({ state: "active", collection: "vault" })).not.toContain("keep");
+    expect(fileActionsFor({ state: "active", collection: "vault" })).toContain("replace");
+    expect(fileActionsFor({ state: "trashed", collection: "vault" })).not.toContain("replace");
     expect(fileActionsFor({ state: "trashed", collection: "vault" })).toEqual(["restore", "purge"]);
     expect(fileActionsFor({ state: "damaged", collection: "vault" })).toEqual(["purge"]);
     expect(fileActionsFor({ state: "purging", collection: "vault" })).toEqual([]);

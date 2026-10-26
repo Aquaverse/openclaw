@@ -44,6 +44,8 @@ function fixture(
     /** Answers nexus.vault.read (the default serves "hello"). */
     read?: (params: Record<string, unknown> | undefined) => unknown;
     links?: { total?: number; links: unknown[] };
+    /** Answers nexus.vault.replace (the default reports a new version 2). */
+    replace?: unknown;
     /** Answers nexus.vault.list itself (for paging); the default is one page holding `files`. */
     list?: (params: Record<string, unknown> | undefined) => { items: unknown[]; total: number };
   },
@@ -102,6 +104,16 @@ function fixture(
         return { file: file(), deduplicated: false };
       case "nexus.vault.importPath":
         return { file: file({ displayName: "invoice.pdf" }) };
+      case "nexus.vault.replace":
+        return (
+          data.replace ?? {
+            file: file(),
+            deduplicated: false,
+            replaced: { seq: 2, unchanged: false },
+          }
+        );
+      case "nexus.vault.restoreVersion":
+        return { file: file(), unchanged: false, restoredFrom: 1, seq: 3 };
       case "nexus.vault.purge":
         return { outcome: "purged" };
       default:
@@ -796,6 +808,180 @@ describe("files tab", () => {
     click(old.container, 'button[data-nx-act="file-open"]');
     await flush();
     expect(old.dialog().textContent).not.toContain("还没有任务把这个文件作为证据使用。");
+  });
+
+  describe("replace content and restore a version", () => {
+    const twoVersions = [
+      {
+        seq: 2,
+        objectId: "O2",
+        size: 7,
+        mime: "text/plain",
+        contentHash: "b".repeat(64),
+        createdAt: 1_700_000_200_000,
+        current: true,
+      },
+      {
+        seq: 1,
+        objectId: "O1",
+        size: 5,
+        mime: "text/plain",
+        contentHash: "a".repeat(64),
+        createdAt: 1_700_000_000_000,
+        current: false,
+      },
+    ];
+    const choose = (dialog: HTMLElement, name: string, text: string) => {
+      const picker = dialog.querySelector<HTMLInputElement>('input[type="file"]')!;
+      const bytes = new TextEncoder().encode(text);
+      Object.defineProperty(picker, "files", {
+        configurable: true,
+        value: [{ name, size: bytes.length, arrayBuffer: async () => bytes.buffer }],
+      });
+      picker.dispatchEvent(new Event("change"));
+    };
+
+    it("replaces the content from the detail dialog and says which version it is now", async () => {
+      const f = fixture({}, props);
+      await flush();
+      click(f.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      (buttonByText(f.dialog(), "替换内容") as HTMLButtonElement).click();
+      await flush();
+      vi.advanceTimersByTime(5);
+      await flush();
+      expect(f.container.querySelectorAll(".nx-dialog")).toHaveLength(1);
+      const dialog = f.dialog();
+      expect(dialog.querySelector(".nx-title")?.textContent).toBe("替换文件 F1ABC 的内容");
+      expect(dialog.textContent).toContain("最多保留 5 个");
+      const send = buttonByText(dialog, "替换") as HTMLButtonElement;
+      expect(send.disabled).toBe(true);
+      choose(dialog, "new.txt", "brand new");
+      expect(send.disabled).toBe(false);
+      send.click();
+      await flush();
+      await flush();
+      const replace = f.calls.find((call) => call.method === "nexus.vault.replace");
+      expect(replace?.params).toEqual({
+        fileId: "F1ABC",
+        dataBase64: toBase64(new TextEncoder().encode("brand new")),
+      });
+      expect(f.container.querySelector(".nx-notice")?.textContent).toContain("现在是版本 2");
+      expect(f.container.querySelector(".nx-dialog")).toBeNull();
+    });
+
+    it("says so when the new content equals the current one", async () => {
+      const f = fixture(
+        { replace: { file: file(), deduplicated: true, replaced: { seq: 1, unchanged: true } } },
+        props,
+      );
+      await flush();
+      click(f.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      (buttonByText(f.dialog(), "替换内容") as HTMLButtonElement).click();
+      await flush();
+      vi.advanceTimersByTime(5);
+      await flush();
+      choose(f.dialog(), "same.txt", "hello");
+      (buttonByText(f.dialog(), "替换") as HTMLButtonElement).click();
+      await flush();
+      await flush();
+      expect(f.container.querySelector(".nx-notice")?.textContent).toContain("没有产生新版本");
+    });
+
+    it("offers no replace on a trashed file or a read-only connection", async () => {
+      const trashed = fixture(
+        { files: [file({ state: "trashed" })] },
+        { view: "files", tab: "trash" },
+      );
+      await flush();
+      click(trashed.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      expect(buttonByText(trashed.dialog(), "替换内容")).toBeUndefined();
+      const readonly = fixture({}, props, false);
+      await flush();
+      click(readonly.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      expect(buttonByText(readonly.dialog(), "替换内容")).toBeUndefined();
+    });
+
+    it("keeps the dialog open and shows the refusal when the gateway says no", async () => {
+      const f = fixture(
+        { fail: { "nexus.vault.replace": "the vault quota would be exceeded" } },
+        props,
+      );
+      await flush();
+      click(f.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      (buttonByText(f.dialog(), "替换内容") as HTMLButtonElement).click();
+      await flush();
+      vi.advanceTimersByTime(5);
+      await flush();
+      choose(f.dialog(), "new.txt", "x");
+      (buttonByText(f.dialog(), "替换") as HTMLButtonElement).click();
+      await flush();
+      await flush();
+      expect(f.dialog().textContent).toContain("the vault quota would be exceeded");
+    });
+
+    it("restores an older version, but never offers it for the current one", async () => {
+      const f = fixture({ files: [file({ versionCount: 2 })], versions: twoVersions }, props);
+      await flush();
+      click(f.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      (buttonByText(f.dialog(), "更多版本（2）") as HTMLButtonElement).click();
+      await flush();
+      const history = f.dialog();
+      expect(history.textContent).toContain("最多保留 5 个版本");
+      const restores = Array.from(history.querySelectorAll<HTMLButtonElement>("button")).filter(
+        (b) => b.textContent === "恢复为此版本",
+      );
+      expect(restores).toHaveLength(1);
+      restores[0]!.click();
+      await flush();
+      await flush();
+      const call = f.calls.find((c) => c.method === "nexus.vault.restoreVersion");
+      expect(call?.params).toEqual({ fileId: "F1ABC", version: 1 });
+      expect(f.container.querySelector(".nx-notice")?.textContent).toContain("版本 1");
+      expect(f.container.querySelector(".nx-notice")?.textContent).toContain("版本 3");
+      expect(f.container.querySelector(".nx-dialog")).toBeNull();
+    });
+
+    it("shows a failed restore inside the history and keeps it open", async () => {
+      const f = fixture(
+        {
+          files: [file({ versionCount: 2 })],
+          versions: twoVersions,
+          fail: { "nexus.vault.restoreVersion": "that version no longer exists" },
+        },
+        props,
+      );
+      await flush();
+      click(f.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      (buttonByText(f.dialog(), "更多版本（2）") as HTMLButtonElement).click();
+      await flush();
+      (buttonByText(f.dialog(), "恢复为此版本") as HTMLButtonElement).click();
+      await flush();
+      await flush();
+      expect(f.dialog().textContent).toContain("恢复失败：that version no longer exists");
+      expect((buttonByText(f.dialog(), "恢复为此版本") as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("hides restore for a read-only connection", async () => {
+      const f = fixture(
+        { files: [file({ versionCount: 2 })], versions: twoVersions },
+        props,
+        false,
+      );
+      await flush();
+      click(f.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      (buttonByText(f.dialog(), "更多版本（2）") as HTMLButtonElement).click();
+      await flush();
+      expect(buttonByText(f.dialog(), "恢复为此版本")).toBeUndefined();
+      expect(f.dialog().textContent).not.toContain("最多保留");
+    });
   });
 
   it("builds the upload dialog and refuses to send before a file is chosen", async () => {

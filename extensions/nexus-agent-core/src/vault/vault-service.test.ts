@@ -787,6 +787,183 @@ describe("vault service", () => {
     assert.ok(events.includes(`damaged:${gone.file.id}`));
   });
 
+  // ------------------------------------------------------------------ replace content and restore a version
+
+  const replaceWith = (principal: Principal, fileId: string, body: string | Uint8Array) =>
+    svc.replace(principal, {
+      fileId,
+      bytes: typeof body === "string" ? text(body) : body,
+      importedBy: "operator",
+    });
+  const versionsOf = async (fileId: string) => {
+    const out = await store.vaultVersions({ principal: A, fileId });
+    assert.equal(out.outcome, "ok");
+    return out.outcome === "ok" ? out.versions : [];
+  };
+  const bodyOf = async (fileId: string, seq?: number) => {
+    const out = await svc.read(A, { fileId, ...(seq !== undefined ? { seq } : {}) });
+    assert.equal(out.outcome, "ok");
+    return out.outcome === "ok" ? Buffer.from(out.bytes).toString() : "";
+  };
+
+  it("replace: the new content becomes the latest version, the old one stays readable, name and marks stay", async () => {
+    const first = await must(upload(A, "plan.txt", "version one body", { collection: "vault" }));
+    await store.vaultPin({ principal: A, fileId: first.file.id, now: ++clock, favorite: true });
+    const out = await replaceWith(A, first.file.id, "version two body is longer");
+    assert.equal(out.outcome, "ok", JSON.stringify(out));
+    if (out.outcome !== "ok") {
+      throw new Error("unreachable");
+    }
+    assert.deepEqual(out.replaced, { seq: 2, unchanged: false });
+    assert.equal(out.file.id, first.file.id);
+    assert.equal(out.file.displayName, "plan.txt");
+    assert.equal(out.file.favorite, true);
+    assert.equal(out.file.versionCount, 2);
+    assert.equal(out.file.size, "version two body is longer".length);
+    assert.notEqual(out.file.objectId, first.file.objectId);
+    assert.equal(await bodyOf(first.file.id), "version two body is longer");
+    assert.equal(await bodyOf(first.file.id, 1), "version one body");
+    assert.deepEqual(
+      (await versionsOf(first.file.id)).map((v) => [v.seq, v.current]),
+      [
+        [2, true],
+        [1, false],
+      ],
+    );
+    assert.ok(events.includes(`replaced:${first.file.id}`));
+    assert.equal(
+      count("SELECT COUNT(*) AS c FROM vault_files WHERE display_name = ?", "plan.txt"),
+      1,
+    );
+  });
+
+  it("replace: identical bytes add no version, and going back to older content reuses its object", async () => {
+    const first = await must(upload(A, "again.txt", "alpha content"));
+    await replaceWith(A, first.file.id, "beta content");
+    const same = await replaceWith(A, first.file.id, "beta content");
+    assert.equal(same.outcome, "ok");
+    assert.deepEqual(same.outcome === "ok" ? same.replaced : null, { seq: 2, unchanged: true });
+    assert.equal((await versionsOf(first.file.id)).length, 2);
+    const objectsBefore = count(
+      "SELECT COUNT(*) AS c FROM vault_objects WHERE owner_id = ?",
+      A.ownerId,
+    );
+    const back = await replaceWith(A, first.file.id, "alpha content");
+    assert.equal(back.outcome, "ok", JSON.stringify(back));
+    if (back.outcome !== "ok") {
+      throw new Error("unreachable");
+    }
+    assert.deepEqual(back.replaced, { seq: 3, unchanged: false });
+    assert.equal(back.file.objectId, first.file.objectId);
+    assert.equal(
+      count("SELECT COUNT(*) AS c FROM vault_objects WHERE owner_id = ?", A.ownerId),
+      objectsBefore,
+    );
+    assert.equal(await bodyOf(first.file.id), "alpha content");
+  });
+
+  it("replace: only the newest versions are kept and the released bytes are reclaimed", async () => {
+    config = { ...baseConfig, keepVersions: 3 };
+    try {
+      const first = await must(upload(A, "history.txt", "history body 1"));
+      const v1Object = first.file.objectId;
+      for (let n = 2; n <= 6; n += 1) {
+        const out = await replaceWith(A, first.file.id, `history body ${n}`);
+        assert.equal(out.outcome, "ok", JSON.stringify(out));
+      }
+      assert.deepEqual(
+        (await versionsOf(first.file.id)).map((v) => v.seq),
+        [6, 5, 4],
+      );
+      assert.equal(
+        count("SELECT COUNT(*) AS c FROM vault_versions WHERE file_id = ?", first.file.id),
+        3,
+      );
+      assert.equal(await bodyOf(first.file.id, 4), "history body 4");
+      assert.equal((await svc.read(A, { fileId: first.file.id, seq: 3 })).outcome, "not_found");
+      clock += baseConfig.reclaimGraceMs + 1;
+      const report = await svc.maintain(A);
+      assert.equal(report.errors.length, 0, report.errors.join("; "));
+      assert.equal(onDisk(vaultObjectKey(v1Object)), false);
+      assert.equal(await bodyOf(first.file.id), "history body 6");
+      assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+    } finally {
+      config = baseConfig;
+    }
+  });
+
+  it("replace: a missing, trashed or foreign file is refused and nothing is left behind", async () => {
+    const mine = await must(upload(A, "refuse.txt", "refuse body"));
+    const open = () =>
+      count(
+        "SELECT COUNT(*) AS c FROM vault_reservations WHERE state IN ('reserved','written','promoted')",
+      );
+    const before = open();
+    assert.deepEqual(await replaceWith(A, "VF_NOPE0000", "x"), { outcome: "not_found" });
+    assert.deepEqual(await replaceWith(B, mine.file.id, "x"), { outcome: "not_found" });
+    await store.vaultTrash({ principal: A, fileId: mine.file.id, now: ++clock });
+    assert.deepEqual(await replaceWith(A, mine.file.id, "x"), {
+      outcome: "not_active",
+      state: "trashed",
+    });
+    assert.equal(open(), before);
+    assert.equal((await versionsOf(mine.file.id)).length, 1);
+  });
+
+  it("replace: a size refusal leaves the file as it was", async () => {
+    const mine = await must(upload(A, "small.txt", "tiny"));
+    config = { ...baseConfig, limits: { ...baseConfig.limits, maxFileBytes: 16 } };
+    try {
+      const out = await replaceWith(A, mine.file.id, "this is much longer than sixteen bytes");
+      assert.equal(out.outcome, "quota_exceeded");
+    } finally {
+      config = baseConfig;
+    }
+    assert.equal((await versionsOf(mine.file.id)).length, 1);
+    assert.equal(await bodyOf(mine.file.id), "tiny");
+  });
+
+  it("restoreVersion: an older content comes back as the newest version, history is not rewritten", async () => {
+    const first = await must(upload(A, "restore.txt", "first text"));
+    await replaceWith(A, first.file.id, "second text");
+    const out = await svc.restoreVersion(A, { fileId: first.file.id, seq: 1 });
+    assert.equal(out.outcome, "restored", JSON.stringify(out));
+    if (out.outcome !== "restored") {
+      throw new Error("unreachable");
+    }
+    assert.equal(out.seq, 3);
+    assert.equal(out.file.objectId, first.file.objectId);
+    assert.equal(await bodyOf(first.file.id), "first text");
+    assert.equal(await bodyOf(first.file.id, 2), "second text");
+    assert.deepEqual(
+      (await versionsOf(first.file.id)).map((v) => v.seq),
+      [3, 2, 1],
+    );
+    assert.ok(events.includes(`replaced:${first.file.id}`));
+    // the current content again: nothing to do
+    assert.equal(
+      (await svc.restoreVersion(A, { fileId: first.file.id, seq: 3 })).outcome,
+      "unchanged",
+    );
+    assert.equal(
+      (await svc.restoreVersion(A, { fileId: first.file.id, seq: 1 })).outcome,
+      "unchanged",
+    );
+    assert.equal(
+      (await svc.restoreVersion(A, { fileId: first.file.id, seq: 99 })).outcome,
+      "version_not_found",
+    );
+    assert.equal(
+      (await svc.restoreVersion(B, { fileId: first.file.id, seq: 1 })).outcome,
+      "not_found",
+    );
+    await store.vaultTrash({ principal: A, fileId: first.file.id, now: ++clock });
+    assert.deepEqual(await svc.restoreVersion(A, { fileId: first.file.id, seq: 2 }), {
+      outcome: "wrong_state",
+      state: "trashed",
+    });
+  });
+
   it("owner isolation end to end: B sees nothing of A's files, bytes or objects", async () => {
     const mine = await must(upload(A, "iso.txt", "isolated bytes"));
     assert.deepEqual(await svc.read(B, { fileId: mine.file.id }), { outcome: "not_found" });

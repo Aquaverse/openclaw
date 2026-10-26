@@ -40,7 +40,17 @@ export function expandHome(input: string): string {
 
 export type VaultRpcDeps = {
   getStore: () => Promise<VaultStore>;
-  service: Pick<VaultService, "ingest" | "importPath" | "read" | "purge" | "maintain" | "extract">;
+  service: Pick<
+    VaultService,
+    | "ingest"
+    | "importPath"
+    | "read"
+    | "purge"
+    | "maintain"
+    | "extract"
+    | "replace"
+    | "restoreVersion"
+  >;
   events: Pick<EventBridge, "vaultChanged">;
   resolvePrincipal: () => Principal | undefined;
   /** The configured single-file limit; an upload above min(this, VAULT_RPC_UPLOAD_MAX_BYTES) is refused before decoding. */
@@ -312,7 +322,16 @@ export function createVaultRpcHandlers(deps: VaultRpcDeps) {
       }),
       "operator.read",
     ],
-    ...createVaultHistoryRpcEntries({ service: deps.service, guarded, reject, needFileId }),
+    ...createVaultHistoryRpcEntries({
+      service: deps.service,
+      uploadLimit: () => Math.min(deps.maxFileBytes(), VAULT_RPC_UPLOAD_MAX_BYTES),
+      decode: decodeVaultBase64,
+      answerIngest,
+      actor: VAULT_OPERATOR_ACTOR,
+      guarded,
+      reject,
+      needFileId,
+    }),
     ...createVaultTextRpcEntries({
       service: deps.service,
       now,
@@ -653,6 +672,7 @@ export function createVaultRpcHandlers(deps: VaultRpcDeps) {
           ownerId: principal.ownerId,
           file: out.file,
           deduplicated: out.deduplicated,
+          ...(out.replaced ? { replaced: out.replaced } : {}),
         });
         return;
       case "invalid":

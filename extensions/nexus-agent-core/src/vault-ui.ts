@@ -197,6 +197,7 @@ export type FileAction =
   | "keep"
   | "discard"
   | "edit"
+  | "replace"
   | "pin"
   | "favorite"
   | "sensitivity"
@@ -209,8 +210,8 @@ export function fileActionsFor(file: Pick<VaultFileRecord, "state" | "collection
   const state: VaultFileState = file.state;
   if (state === "active") {
     return file.collection === "inbox"
-      ? ["keep", "discard", "edit", "pin", "favorite", "sensitivity", "purge"]
-      : ["edit", "pin", "favorite", "sensitivity", "trash", "purge"];
+      ? ["keep", "discard", "edit", "replace", "pin", "favorite", "sensitivity", "purge"]
+      : ["edit", "replace", "pin", "favorite", "sensitivity", "trash", "purge"];
   }
   if (state === "trashed") {
     return ["restore", "purge"];

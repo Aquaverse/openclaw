@@ -397,6 +397,41 @@ const CATALOG = {
     "已上传 {name}（内容与库里已有文件相同，共用同一份存储）。",
     "Uploaded {name} (identical to a file already in the vault, so the storage is shared).",
   ],
+  "files.act.replace": ["替换内容", "Replace content"],
+  "files.rp.title": ["替换文件 {id} 的内容", "Replace the content of file {id}"],
+  "files.rp.pick": ["新内容", "New content"],
+  "files.rp.hint": [
+    "新内容会成为最新版本，旧内容留作历史版本（最多保留 {keep} 个，更早的会被清理）。名称、文件夹、收藏、置顶和敏感标记不变。",
+    "The new content becomes the latest version and the old content stays as a history version (up to {keep} are kept; older ones are cleaned up). Name, folder, favorite, pin and sensitivity stay.",
+  ],
+  "files.rp.tooBig": [
+    "新内容超过 {max} 字节，暂不支持替换这么大的内容。",
+    "The new content is larger than {max} bytes; replacing with something that large is not supported yet.",
+  ],
+  "files.rp.send": ["替换", "Replace"],
+  "files.rp.done": [
+    "已替换 {name} 的内容，现在是版本 {seq}。",
+    "Replaced the content of {name}; it is now version {seq}.",
+  ],
+  "files.rp.same": [
+    "新内容和当前内容相同，没有产生新版本。",
+    "The new content is the same as the current one, so no version was added.",
+  ],
+  "files.v.restore": ["恢复为此版本", "Restore this version"],
+  "files.v.restoring": ["正在恢复……", "Restoring…"],
+  "files.v.restored": [
+    "已把版本 {seq} 的内容恢复为最新版本（版本 {now}）。",
+    "Restored the content of version {seq} as the latest version (version {now}).",
+  ],
+  "files.v.restoreSame": [
+    "这个版本已经是当前内容。",
+    "That version is already the current content.",
+  ],
+  "files.v.restoreFailed": ["恢复失败：{message}", "Restore failed: {message}"],
+  "files.v.keepNote": [
+    "最多保留 {keep} 个版本；恢复或替换后，更早的版本会被清理。",
+    "Up to {keep} versions are kept; after a restore or replace the oldest ones are cleaned up.",
+  ],
   "files.imp.title": ["从本机路径导入", "Import from a path"],
   "files.imp.path": ["路径", "Path"],
   "files.imp.placeholder": ["例如 ~/Downloads/invoice.pdf", "e.g. ~/Downloads/invoice.pdf"],

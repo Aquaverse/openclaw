@@ -406,6 +406,55 @@ describe("vault text queue and content search", () => {
     assert.equal(kernel.vaultTextRead({ principal: A, fileId: long.id }).outcome, "no_text");
   });
 
+  it("replacing a file's content moves the search to the new text, and a sensitive file stays unindexed", async () => {
+    const file = await upload(A, "replace-me.txt", "first edition zanzibar-old");
+    assert.deepEqual(names(search(A, "zanzibar-old")), ["replace-me.txt"]);
+    const out = await svc.replace(A, {
+      fileId: file.id,
+      bytes: bytes("second edition quokka-new"),
+      importedBy: "operator",
+    });
+    assert.equal(out.outcome, "ok", JSON.stringify(out));
+    await svc.extract(A);
+    assert.deepEqual(names(search(A, "quokka-new")), ["replace-me.txt"]);
+    // The old text is not what the file says any more, even though the old version is still kept.
+    assert.deepEqual(names(search(A, "zanzibar-old")), []);
+    const current = kernel.vaultTextRead({ principal: A, fileId: file.id });
+    assert.equal(current.outcome === "ok" ? current.text : "", "second edition quokka-new");
+
+    const secret = await upload(A, "passport copy.txt", "number P-OLD-1111");
+    assert.equal(secret.sensitivity, "sensitive");
+    const swapped = await svc.replace(A, {
+      fileId: secret.id,
+      bytes: bytes("number P-NEW-2222"),
+      importedBy: "operator",
+    });
+    assert.equal(swapped.outcome, "ok", JSON.stringify(swapped));
+    await svc.extract(A);
+    assert.deepEqual(names(search(A, "P-NEW-2222")), []);
+    assert.deepEqual(names(search(A, "P-OLD-1111")), []);
+    const after = kernel.vaultGet({ principal: A, fileId: secret.id });
+    assert.equal(after.outcome === "ok" ? after.file.sensitivity : "", "sensitive");
+    assert.equal(statusOf(A, after.outcome === "ok" ? after.file.objectId : "")?.state, "skipped");
+  });
+
+  it("restoring an older version puts its text back in the index", async () => {
+    const file = await upload(A, "restore-text.txt", "edition one marmot-first");
+    await svc.replace(A, {
+      fileId: file.id,
+      bytes: bytes("edition two ibex-second"),
+      importedBy: "operator",
+    });
+    await svc.extract(A);
+    assert.deepEqual(names(search(A, "ibex-second")), ["restore-text.txt"]);
+    assert.deepEqual(names(search(A, "marmot-first")), []);
+    const out = await svc.restoreVersion(A, { fileId: file.id, seq: 1 });
+    assert.equal(out.outcome, "restored", JSON.stringify(out));
+    await svc.extract(A);
+    assert.deepEqual(names(search(A, "marmot-first")), ["restore-text.txt"]);
+    assert.deepEqual(names(search(A, "ibex-second")), []);
+  });
+
   it("deletes index rows together with the text when the object is reclaimed", async () => {
     const gone = await upload(A, "to-trash.txt", "unique-gone-marker text");
     assert.deepEqual(names(search(A, "unique-gone-marker")), ["to-trash.txt"]);

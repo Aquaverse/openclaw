@@ -1,6 +1,7 @@
 // Pieces of the file details dialog that are not the file's own fields: the download button, the version section and its
 // history dialog, and the list of tasks that hold the file as evidence. Everything is built from DOM nodes and textContent.
 import { tr } from "../src/i18n.js";
+import { VAULT_KEEP_VERSIONS } from "../src/store/vault-types.js";
 import type {
   VaultFileRecord,
   VaultLinkRecord,
@@ -11,6 +12,15 @@ import { fileDownloadable, formatBytes } from "../src/vault-ui.js";
 import type { ActionContext } from "./actions.ts";
 import { openDialog } from "./dialog.ts";
 import { downloadFile } from "./file-download.ts";
+
+export function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const step = 0x8000;
+  for (let index = 0; index < bytes.length; index += step) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + step));
+  }
+  return btoa(binary);
+}
 
 export function line(body: HTMLElement, label: string, text: string): void {
   const row = document.createElement("div");
@@ -199,7 +209,7 @@ export function fileVersionsDialog(
   file: VaultFileRecord,
   back: () => void,
 ): void {
-  openDialog({
+  const close = openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
     redact: ctx.redact,
@@ -217,6 +227,9 @@ export function fileVersionsDialog(
     ],
     build: (body) => {
       line(body, tr(ctx.lang, "files.d.name"), file.displayName);
+      if (canRestore(ctx, file)) {
+        note(body, tr(ctx.lang, "files.v.keepNote", { keep: VAULT_KEEP_VERSIONS }));
+      }
       const status = note(body, tr(ctx.lang, "files.v.loading"));
       const list = document.createElement("div");
       body.append(list);
@@ -232,7 +245,7 @@ export function fileVersionsDialog(
           status.hidden = versions.length > 0;
           status.textContent = tr(ctx.lang, "files.v.empty");
           for (const version of versions) {
-            list.append(versionItem(ctx, file, version));
+            list.append(versionItem(ctx, file, version, close));
           }
         } catch (error) {
           if (!ctx.signal.aborted) {
@@ -245,10 +258,76 @@ export function fileVersionsDialog(
   });
 }
 
+/** Restoring is a write on an active file; the gateway re-checks both. */
+function canRestore(ctx: ActionContext, file: Pick<VaultFileRecord, "state">): boolean {
+  return ctx.canWrite !== false && file.state === "active";
+}
+
+function restoreRow(
+  ctx: ActionContext,
+  body: HTMLElement,
+  file: Pick<VaultFileRecord, "id">,
+  version: VaultVersionRecord,
+  close: () => void,
+): void {
+  const row = document.createElement("div");
+  row.className = "nx-row";
+  const label = document.createElement("span");
+  label.className = "nx-label";
+  const holder = document.createElement("span");
+  holder.className = "nx-value";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "nx-btn";
+  button.textContent = tr(ctx.lang, "files.v.restore");
+  const status = document.createElement("span");
+  status.className = "muted nx-dlstatus";
+  holder.append(button, status);
+  row.append(label, holder);
+  body.append(row);
+  button.addEventListener("click", () => {
+    button.disabled = true;
+    status.className = "muted nx-dlstatus";
+    status.textContent = tr(ctx.lang, "files.v.restoring");
+    void ctx
+      .request<{ unchanged?: boolean; seq?: number }>("nexus.vault.restoreVersion", {
+        fileId: file.id,
+        version: version.seq,
+      })
+      .then((reply) => {
+        if (ctx.signal.aborted) {
+          return;
+        }
+        ctx.changed({
+          ok: true,
+          text:
+            reply.unchanged === true
+              ? tr(ctx.lang, "files.v.restoreSame")
+              : tr(ctx.lang, "files.v.restored", { seq: version.seq, now: reply.seq ?? "?" }),
+        });
+        // The list on screen is out of date now; the file view reopens from the refreshed page.
+        close();
+      })
+      .catch((error: unknown) => {
+        if (ctx.signal.aborted) {
+          return;
+        }
+        button.disabled = false;
+        status.className = "error nx-dlstatus";
+        status.textContent = ctx.redact(
+          tr(ctx.lang, "files.v.restoreFailed", {
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      });
+  });
+}
+
 function versionItem(
   ctx: ActionContext,
   file: VaultFileRecord,
   version: VaultVersionRecord,
+  close: () => void,
 ): HTMLElement {
   const item = document.createElement("div");
   item.className = "nx-version";
@@ -280,6 +359,9 @@ function versionItem(
       ...(version.current ? {} : { version: version.seq }),
       size: version.size,
     });
+  }
+  if (!version.current && canRestore(ctx, file)) {
+    restoreRow(ctx, item, file, version, close);
   }
   return item;
 }

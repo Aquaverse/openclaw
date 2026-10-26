@@ -54,6 +54,8 @@ export const MAX_VAULT_FOLDER_CHARS = 512;
 export const MAX_VAULT_FOLDER_DEPTH = 8;
 export const MAX_VAULT_LIST_LIMIT = 200;
 export const MAX_VAULT_VERSIONS = 200;
+/** How many versions of one file are kept (the newest ones); older ones are released and their bytes reclaimed. */
+export const VAULT_KEEP_VERSIONS = 5;
 export const MAX_VAULT_LINKS = 200;
 
 export type VaultLimits = {
@@ -291,6 +293,10 @@ export type VaultCommitInput = {
   file: VaultFileDraft;
   /** Inbox entries expire after this long (Vault design 5.4). */
   inboxRetentionMs: number;
+  /** Add the bytes as a new version of this file instead of creating a file (the draft's name and folder are then unused). */
+  replaceFileId?: string;
+  /** Versions kept after a replace; defaults to VAULT_KEEP_VERSIONS. */
+  keepVersions?: number;
 };
 
 export type VaultCommitOutcome =
@@ -302,12 +308,33 @@ export type VaultCommitOutcome =
       newObject: boolean;
       /** Set when the reservation was already `promoted` but lost the race: its physical file is now the failed side. */
       loser: { newObjectId: string; stagingKey: string } | null;
+      /** Set for a replace: the version number now current, and true when the bytes equal the current version (nothing added). */
+      replaced?: { seq: number; unchanged: boolean };
     }
   | { outcome: "noop"; state: VaultReservationState }
+  /** A replace whose target is gone or not active; the service abandons the reservation. */
+  | { outcome: "replace_refused"; reason: "not_found" | "not_active"; state?: VaultFileState }
   /** `written` and no winner any more: the service must run P (rename) and call commit again. */
   | { outcome: "need_promote" }
   | { outcome: "invalid"; reason: "name" | "folder" | "collection" }
   | { outcome: "not_found" };
+
+export type VaultRestoreVersionInput = {
+  principal: Principal;
+  fileId: string;
+  /** The version whose content becomes current again (as a new, latest version). */
+  seq: number;
+  now: number;
+  keepVersions?: number;
+};
+
+export type VaultRestoreVersionOutcome =
+  | { outcome: "restored"; file: VaultFileRecord; seq: number }
+  /** That version is already the current content. */
+  | { outcome: "unchanged"; file: VaultFileRecord }
+  | { outcome: "not_found" }
+  | { outcome: "version_not_found" }
+  | { outcome: "wrong_state"; state: VaultFileState };
 
 // ---------------------------------------------------------------- lifecycle edits
 

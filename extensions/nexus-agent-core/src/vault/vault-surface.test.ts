@@ -150,6 +150,8 @@ describe("vault surfaces", () => {
       "maintain",
       "retryExtract",
       "extract",
+      "replace",
+      "restoreVersion",
     ]) {
       assert.equal(scope(`nexus.vault.${m}`), "operator.write", m);
     }
@@ -191,19 +193,17 @@ describe("vault surfaces", () => {
 
   it("rpc: versions lists newest first and read can fetch an older one", async () => {
     const file = await put("versioned.txt", "version one body", { collection: "vault" });
-    const second = await put("versioned-next.txt", "version two body!", { collection: "vault" });
     const one = (await call("nexus.vault.versions", { fileId: file.id })).payload!;
     assert.equal(one.versions.length, 1);
     assert.equal(one.versions[0].seq, 1);
     assert.equal(one.versions[0].current, true);
     assert.equal(one.versions[0].size, "version one body".length);
-    // No operation creates a second version yet; add one the way a future "replace" would.
-    const next = db
-      .prepare("SELECT object_id FROM vault_versions WHERE owner_id = ? AND file_id = ?")
-      .get("owner-a", second.id) as { object_id: string };
-    db.prepare(
-      "INSERT INTO vault_versions (owner_id, file_id, seq, object_id, created_at) VALUES (?, ?, 2, ?, ?)",
-    ).run("owner-a", file.id, next.object_id, clock + 5);
+    clock += 5;
+    const replaced = await call("nexus.vault.replace", {
+      fileId: file.id,
+      dataBase64: b64("version two body!"),
+    });
+    assert.equal(replaced.ok, true, JSON.stringify(replaced));
     const two = (await call("nexus.vault.versions", { fileId: file.id })).payload!;
     assert.deepEqual(
       two.versions.map((v: { seq: number; current: boolean }) => [v.seq, v.current]),
@@ -239,6 +239,88 @@ describe("vault surfaces", () => {
     const other = await call("nexus.vault.versions", { fileId: file.id });
     principal = A;
     assert.equal(other.error?.code, "nexus_not_found");
+  });
+
+  it("rpc: replace keeps the old content as a version; restoreVersion brings it back", async () => {
+    const file = await put("evolving.txt", "first draft", { collection: "vault" });
+    await call("nexus.vault.pin", { fileId: file.id, pinned: true });
+    const same = await call("nexus.vault.replace", {
+      fileId: file.id,
+      dataBase64: b64("first draft"),
+    });
+    assert.equal(same.ok, true);
+    assert.equal(same.payload!.replaced.unchanged, true);
+    const done = await call("nexus.vault.replace", {
+      fileId: file.id,
+      dataBase64: b64("second draft!"),
+    });
+    assert.equal(done.ok, true, JSON.stringify(done));
+    assert.equal(done.payload!.replaced.seq, 2);
+    assert.equal(done.payload!.replaced.unchanged, false);
+    assert.equal(done.payload!.file.id, file.id);
+    assert.equal(done.payload!.file.displayName, "evolving.txt");
+    assert.equal(done.payload!.file.size, "second draft!".length);
+    const now = await call("nexus.vault.read", { fileId: file.id });
+    assert.equal(Buffer.from(now.payload!.dataBase64, "base64").toString(), "second draft!");
+    const old = await call("nexus.vault.read", { fileId: file.id, version: 1 });
+    assert.equal(Buffer.from(old.payload!.dataBase64, "base64").toString(), "first draft");
+    // Restoring the first draft makes it the newest version; nothing is lost.
+    const back = await call("nexus.vault.restoreVersion", { fileId: file.id, version: 1 });
+    assert.equal(back.ok, true, JSON.stringify(back));
+    assert.equal(back.payload!.unchanged, false);
+    assert.equal(back.payload!.file.size, "first draft".length);
+    const list = (await call("nexus.vault.versions", { fileId: file.id })).payload!.versions as {
+      seq: number;
+      current: boolean;
+    }[];
+    assert.equal(list.find((v) => v.current)?.seq, 3);
+    const again = await call("nexus.vault.restoreVersion", { fileId: file.id, version: 3 });
+    assert.equal(again.payload!.unchanged, true);
+    // Refusals.
+    assert.equal(
+      (await call("nexus.vault.restoreVersion", { fileId: file.id, version: 99 })).error?.code,
+      "nexus_not_found",
+    );
+    for (const bad of [undefined, 0, -1, 1.5, "1"]) {
+      assert.equal(
+        (await call("nexus.vault.restoreVersion", { fileId: file.id, version: bad })).error?.code,
+        "nexus_invalid_params",
+        String(bad),
+      );
+    }
+    assert.equal(
+      (await call("nexus.vault.replace", { fileId: file.id, dataBase64: "!!!" })).error?.code,
+      "nexus_invalid_params",
+    );
+    assert.equal(
+      (await call("nexus.vault.replace", { fileId: file.id, dataBase64: b64("x".repeat(MIB + 1)) }))
+        .error?.code,
+      "nexus_quota_exceeded",
+    );
+    assert.equal(
+      (await call("nexus.vault.replace", { fileId: "VF_NOPE", dataBase64: b64("x") })).error?.code,
+      "nexus_not_found",
+    );
+    assert.equal((await call("nexus.vault.replace", { dataBase64: b64("x") })).ok, false);
+    principal = B;
+    const foreign = await call("nexus.vault.replace", { fileId: file.id, dataBase64: b64("mine") });
+    const foreignRestore = await call("nexus.vault.restoreVersion", {
+      fileId: file.id,
+      version: 1,
+    });
+    principal = A;
+    assert.equal(foreign.error?.code, "nexus_not_found");
+    assert.equal(foreignRestore.error?.code, "nexus_not_found");
+    // A trashed file cannot get new content.
+    await call("nexus.vault.trash", { fileId: file.id });
+    const trashed = await call("nexus.vault.replace", { fileId: file.id, dataBase64: b64("late") });
+    assert.equal(trashed.error?.code, "nexus_conflict");
+    assert.equal(trashed.error?.details?.state, "trashed");
+    const trashedRestore = await call("nexus.vault.restoreVersion", {
+      fileId: file.id,
+      version: 1,
+    });
+    assert.equal(trashedRestore.error?.code, "nexus_conflict");
   });
 
   it("rpc: links lists the tasks that hold the file as evidence", async () => {

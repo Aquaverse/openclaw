@@ -22,8 +22,10 @@ import {
   line,
   note,
   downloadRow,
+  toBase64,
   versionsSection,
 } from "./file-parts.ts";
+import { fileReplaceDialog } from "./file-replace.ts";
 
 function field<T extends HTMLInputElement | HTMLTextAreaElement>(
   body: HTMLElement,
@@ -45,14 +47,7 @@ function field<T extends HTMLInputElement | HTMLTextAreaElement>(
   return input;
 }
 
-export function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const step = 0x8000;
-  for (let index = 0; index < bytes.length; index += step) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + step));
-  }
-  return btoa(binary);
-}
+export { toBase64 };
 
 // ------------------------------------------------------------------ upload
 
@@ -412,6 +407,14 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
         await ctx.request("nexus.vault.move", { fileId: file.id, folder: folder.trim() });
       }
       done("files.done.edit");
+    },
+  });
+  add("replace", {
+    label: tr(ctx.lang, "files.act.replace"),
+    tone: "plain",
+    run: async () => {
+      // The detail dialog closes when this resolves; the replace dialog opens right after (dialogs do not nest).
+      setTimeout(() => fileReplaceDialog(ctx, file), 0);
     },
   });
   if (extraction?.state === "failed") {

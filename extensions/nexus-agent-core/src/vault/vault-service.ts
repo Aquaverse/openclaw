@@ -23,6 +23,7 @@ import {
   type VaultFileRecord,
   type VaultLimits,
   type VaultQuotaScope,
+  type VaultRestoreVersionOutcome,
   type VaultSensitivity,
   type VaultSource,
 } from "../store/vault-types.js";
@@ -57,6 +58,8 @@ export type VaultConfig = {
   /** Objects younger than this are not reclaimed by maintenance (reclaim must not race a finishing reservation). */
   reclaimGraceMs: number;
   import: ImportGuardConfig;
+  /** Versions kept per file when content is replaced (default VAULT_KEEP_VERSIONS). */
+  keepVersions?: number;
   /** Text extraction (F2). Absent or `enabled: false`: no jobs are queued or run and nothing is ever searchable by content. */
   extract?: VaultExtractConfig;
 };
@@ -64,7 +67,7 @@ export type VaultConfig = {
 export type VaultChangeEvent = {
   ownerId: string;
   fileId: string;
-  action: "imported" | "discarded" | "purged" | "damaged" | "extracted";
+  action: "imported" | "discarded" | "purged" | "damaged" | "replaced" | "extracted";
   collection?: VaultCollection;
 };
 
@@ -103,6 +106,8 @@ export type VaultIngestOutcome =
       file: VaultFileRecord;
       /** true: the bytes already existed in this owner's vault and an existing object was reused (a new entry was still made). */
       deduplicated: boolean;
+      /** Only for a replace: the version now current, and whether the bytes equalled it (nothing was added). */
+      replaced?: { seq: number; unchanged: boolean };
     }
   | { outcome: "invalid"; reason: "name" | "folder" | "collection" }
   | {
@@ -115,6 +120,12 @@ export type VaultIngestOutcome =
   | { outcome: "disk_low"; freeBytes: number; requiredBytes: number }
   | { outcome: "writer_unregistered" }
   | { outcome: "write_failed"; message: string };
+
+/** What ingest can answer for a replace: everything an ingest can, and the target being gone or not active. */
+export type VaultReplaceOutcome =
+  | VaultIngestOutcome
+  | { outcome: "not_found" }
+  | { outcome: "not_active"; state: string };
 
 export type VaultImportOutcome =
   | VaultIngestOutcome
@@ -339,6 +350,22 @@ export function createVaultService(deps: VaultServiceDeps) {
     principal: Principal,
     input: VaultIngestInput,
   ): Promise<VaultIngestOutcome> {
+    const out = await ingestCore(principal, input);
+    // Only a replace can be refused by its target, and this is not one.
+    return out.outcome === "replace_refused"
+      ? { outcome: "write_failed", message: "unexpected replace refusal" }
+      : out;
+  }
+
+  type CoreOutcome =
+    | VaultIngestOutcome
+    | { outcome: "replace_refused"; reason: "not_found" | "not_active"; state?: string };
+
+  async function ingestCore(
+    principal: Principal,
+    input: VaultIngestInput,
+    replaceFileId?: string,
+  ): Promise<CoreOutcome> {
     const cfg = deps.config();
     const displayName = normalizeVaultName(input.displayName);
     if (displayName === null) {
@@ -383,11 +410,14 @@ export function createVaultService(deps: VaultServiceDeps) {
     const reservation = reserved.reservation;
     inflight.add(reservation.id);
     try {
-      const outcome = await runWriteProtocol(principal, input, cfg, reservation, {
-        displayName,
-        folder,
-        collection,
-      });
+      const outcome = await runWriteProtocol(
+        principal,
+        input,
+        cfg,
+        reservation,
+        { displayName, folder, collection },
+        replaceFileId,
+      );
       if (outcome.outcome === "ok" && cfg.extract?.enabled) {
         // Fire and forget: the caller never waits for parsing, and a failed pass is retried by the next maintenance tick.
         void kickExtract(principal);
@@ -411,7 +441,8 @@ export function createVaultService(deps: VaultServiceDeps) {
     cfg: VaultConfig,
     reservation: { id: string; newObjectId: string; stagingKey: string },
     resolved: { displayName: string; folder: string; collection: VaultCollection },
-  ): Promise<VaultIngestOutcome> {
+    replaceFileId?: string,
+  ): Promise<CoreOutcome> {
     const store = await deps.getStore();
     const fail = async (reason: "write_failed" | "rejected"): Promise<void> => {
       await store.vaultFailReservation({
@@ -525,6 +556,12 @@ export function createVaultService(deps: VaultServiceDeps) {
         mime,
         file: draft,
         inboxRetentionMs: cfg.inboxRetentionMs,
+        ...(replaceFileId !== undefined
+          ? {
+              replaceFileId,
+              ...(cfg.keepVersions !== undefined ? { keepVersions: cfg.keepVersions } : {}),
+            }
+          : {}),
       });
       if (out.outcome === "need_promote") {
         if (!(await promote())) {
@@ -546,10 +583,19 @@ export function createVaultService(deps: VaultServiceDeps) {
         deps.onChanged?.({
           ownerId: principal.ownerId,
           fileId: out.fileId,
-          action: "imported",
+          action: out.replaced ? "replaced" : "imported",
           collection: got.file.collection,
         });
-        return { outcome: "ok", file: got.file, deduplicated: !out.newObject };
+        return {
+          outcome: "ok",
+          file: got.file,
+          deduplicated: !out.newObject,
+          ...(out.replaced ? { replaced: out.replaced } : {}),
+        };
+      }
+      if (out.outcome === "replace_refused") {
+        await abandonReservation(principal, reservation.id, true).catch(() => undefined);
+        return out;
       }
       if (out.outcome === "invalid") {
         await abandonReservation(principal, reservation.id, true).catch(() => undefined);
@@ -559,6 +605,75 @@ export function createVaultService(deps: VaultServiceDeps) {
     }
     await abandonReservation(principal, reservation.id, true).catch(() => undefined);
     return { outcome: "write_failed", message: "the reservation could not be committed" };
+  }
+
+  // ------------------------------------------------------------------ replace content / restore a version
+
+  /**
+   * New content for an existing file, kept as a new latest version (the older ones stay until more than `keepVersions` exist).
+   * Name, folder, collection, sensitivity and the favorite and pin marks stay; the type is sniffed from the new bytes. The
+   * bytes follow the same write protocol as an import, so a quota, a full disk or a crash behaves exactly the same way.
+   */
+  async function replace(
+    principal: Principal,
+    input: { fileId: string; bytes: VaultBytes; expectedSize?: number | null; importedBy: string },
+  ): Promise<VaultReplaceOutcome> {
+    const store = await deps.getStore();
+    const got = await store.vaultGet({ principal, fileId: input.fileId });
+    if (got.outcome !== "ok") {
+      return { outcome: "not_found" };
+    }
+    const { file } = got;
+    if (file.state !== "active") {
+      return { outcome: "not_active", state: file.state };
+    }
+    const out = await ingestCore(
+      principal,
+      {
+        displayName: file.displayName,
+        folder: file.folder,
+        collection: file.collection,
+        bytes: input.bytes,
+        ...(input.expectedSize !== undefined ? { expectedSize: input.expectedSize } : {}),
+        source: file.source,
+        importedBy: input.importedBy,
+      },
+      file.id,
+    );
+    if (out.outcome === "replace_refused") {
+      return out.reason === "not_found"
+        ? { outcome: "not_found" }
+        : { outcome: "not_active", state: out.state ?? "unknown" };
+    }
+    return out;
+  }
+
+  /** Brings an older version's content back as the newest version. */
+  async function restoreVersion(
+    principal: Principal,
+    input: { fileId: string; seq: number },
+  ): Promise<VaultRestoreVersionOutcome> {
+    const store = await deps.getStore();
+    const cfg = deps.config();
+    const out = await store.vaultRestoreVersion({
+      principal,
+      fileId: input.fileId,
+      seq: input.seq,
+      now: now(),
+      ...(cfg.keepVersions !== undefined ? { keepVersions: cfg.keepVersions } : {}),
+    });
+    if (out.outcome === "restored") {
+      deps.onChanged?.({
+        ownerId: principal.ownerId,
+        fileId: input.fileId,
+        action: "replaced",
+        collection: out.file.collection,
+      });
+      if (cfg.extract?.enabled) {
+        void kickExtract(principal);
+      }
+    }
+    return out;
   }
 
   // ------------------------------------------------------------------ local path import
@@ -1069,6 +1184,8 @@ export function createVaultService(deps: VaultServiceDeps) {
     ingest: tracked(ingest),
     extract: extractTracked,
     importPath: tracked(importPath),
+    replace: tracked(replace),
+    restoreVersion: tracked(restoreVersion),
     read,
     purge: tracked(purge),
     maintain: tracked(maintain),
