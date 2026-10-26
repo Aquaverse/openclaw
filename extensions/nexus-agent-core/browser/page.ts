@@ -278,6 +278,7 @@ export function createNexusPage(): ControlUiView {
                 showNotice(result);
                 void load(true);
               },
+              notify: showNotice,
             },
             action,
           ),

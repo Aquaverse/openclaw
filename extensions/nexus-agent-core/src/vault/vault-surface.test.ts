@@ -126,6 +126,8 @@ describe("vault surfaces", () => {
       "get",
       "stats",
       "read",
+      "versions",
+      "links",
       "purgeStatus",
       "purgeReceipts",
       "search",
@@ -185,6 +187,113 @@ describe("vault surfaces", () => {
     const read = await call("nexus.vault.read", { fileId: first.id });
     assert.equal(Buffer.from(read.payload!.dataBase64, "base64").toString(), "hello vault");
     assert.equal(read.payload?.eof, true);
+  });
+
+  it("rpc: versions lists newest first and read can fetch an older one", async () => {
+    const file = await put("versioned.txt", "version one body", { collection: "vault" });
+    const second = await put("versioned-next.txt", "version two body!", { collection: "vault" });
+    const one = (await call("nexus.vault.versions", { fileId: file.id })).payload!;
+    assert.equal(one.versions.length, 1);
+    assert.equal(one.versions[0].seq, 1);
+    assert.equal(one.versions[0].current, true);
+    assert.equal(one.versions[0].size, "version one body".length);
+    // No operation creates a second version yet; add one the way a future "replace" would.
+    const next = db
+      .prepare("SELECT object_id FROM vault_versions WHERE owner_id = ? AND file_id = ?")
+      .get("owner-a", second.id) as { object_id: string };
+    db.prepare(
+      "INSERT INTO vault_versions (owner_id, file_id, seq, object_id, created_at) VALUES (?, ?, 2, ?, ?)",
+    ).run("owner-a", file.id, next.object_id, clock + 5);
+    const two = (await call("nexus.vault.versions", { fileId: file.id })).payload!;
+    assert.deepEqual(
+      two.versions.map((v: { seq: number; current: boolean }) => [v.seq, v.current]),
+      [
+        [2, true],
+        [1, false],
+      ],
+    );
+    assert.equal(two.versions[0].size, "version two body!".length);
+    assert.match(two.versions[1].contentHash, /^[0-9a-f]{64}$/);
+    const old = await call("nexus.vault.read", { fileId: file.id, version: 1 });
+    assert.equal(Buffer.from(old.payload!.dataBase64, "base64").toString(), "version one body");
+    assert.equal(old.payload!.contentHash, two.versions[1].contentHash);
+    assert.equal(old.payload!.name, "versioned.txt");
+    const newer = await call("nexus.vault.read", { fileId: file.id, version: 2 });
+    assert.equal(Buffer.from(newer.payload!.dataBase64, "base64").toString(), "version two body!");
+    assert.equal(
+      (await call("nexus.vault.read", { fileId: file.id, version: 9 })).error?.code,
+      "nexus_not_found",
+    );
+    for (const bad of [0, -1, 1.5, "1", null]) {
+      assert.equal(
+        (await call("nexus.vault.read", { fileId: file.id, version: bad })).error?.code,
+        "nexus_invalid_params",
+        String(bad),
+      );
+    }
+    assert.equal(
+      (await call("nexus.vault.versions", { fileId: "VF_NOPE" })).error?.code,
+      "nexus_not_found",
+    );
+    principal = B;
+    const other = await call("nexus.vault.versions", { fileId: file.id });
+    principal = A;
+    assert.equal(other.error?.code, "nexus_not_found");
+  });
+
+  it("rpc: links lists the tasks that hold the file as evidence", async () => {
+    const file = await put("linked.txt", "linked body", { collection: "vault" });
+    const none = (await call("nexus.vault.links", { fileId: file.id })).payload!;
+    assert.deepEqual([none.total, none.links], [0, []]);
+    // Minimal rows by hand: the evidence flow itself is covered elsewhere; here only the derived view matters.
+    db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      const task = db.prepare(
+        "INSERT INTO nexus_tasks (id, owner_id, kind, title, status, goal_json, origin_session_key, revision, created_at, updated_at) " +
+          "VALUES (?, 'owner-a', 'general', ?, 'executing', '{}', 'sess', 1, 1, 1)",
+      );
+      task.run("TASK_L1", "Claim the refund");
+      task.run("TASK_L2", "Older task");
+      const ev = db.prepare(
+        "INSERT INTO evidence (id, owner_id, task_id, kind, blob_key, content_hash, byte_size, source_ref_kind, source_ref_id, " +
+          "source_locator_canonical, source_version, source_identity_hash, source_group, source_group_rule_version, retention_policy, captured_at) " +
+          "VALUES (?, 'owner-a', ?, 'document', NULL, ?, NULL, 'blob', 'k', ?, 'v', ?, 'user_file', 1, 'default', ?)",
+      );
+      ev.run("EV_L1", "TASK_L1", "a".repeat(64), `vault:${file.id}`, "h1", 2_000);
+      ev.run("EV_L2", "TASK_L2", "a".repeat(64), `vault:${file.id}`, "h2", 1_000);
+      ev.run("EV_X", "TASK_L2", "b".repeat(64), "vault:VF_OTHER", "h3", 3_000);
+      db.prepare(
+        "INSERT INTO claim_evidence_links (owner_id, task_id, claim_id, evidence_id, relation, effective, head_link_event_id, updated_at) " +
+          "VALUES ('owner-a', 'TASK_L1', ?, 'EV_L1', 'supports', ?, 'E1', 1)",
+      ).run("CL_ON", 1);
+      db.prepare(
+        "INSERT INTO claim_evidence_links (owner_id, task_id, claim_id, evidence_id, relation, effective, head_link_event_id, updated_at) " +
+          "VALUES ('owner-a', 'TASK_L1', ?, 'EV_L1', 'supports', ?, 'E1', 1)",
+      ).run("CL_OFF", 0);
+    } finally {
+      db.exec("PRAGMA foreign_keys = ON");
+    }
+    const out = (await call("nexus.vault.links", { fileId: file.id })).payload!;
+    assert.equal(out.total, 2);
+    assert.deepEqual(
+      out.links.map((l: any) => [
+        l.evidenceId,
+        l.taskId,
+        l.taskTitle,
+        l.taskStatus,
+        l.claimIds,
+        l.bytesKept,
+      ]),
+      [
+        ["EV_L1", "TASK_L1", "Claim the refund", "executing", ["CL_ON"], false],
+        ["EV_L2", "TASK_L2", "Older task", "executing", [], false],
+      ],
+    );
+    principal = B;
+    const other = await call("nexus.vault.links", { fileId: file.id });
+    principal = A;
+    assert.equal(other.error?.code, "nexus_not_found");
+    assert.equal((await call("nexus.vault.links", {})).error?.code, "nexus_invalid_params");
   });
 
   it("rpc: list filters by kind, favorite and sensitivity", async () => {

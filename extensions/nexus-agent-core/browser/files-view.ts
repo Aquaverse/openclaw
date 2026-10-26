@@ -7,6 +7,7 @@ import type { VaultFileRecord } from "../src/store/vault-types.js";
 import { extractionLabel, extractionReason, fmtTime } from "../src/ui-render.js";
 import {
   fileActionsFor,
+  fileDownloadable,
   formatBytes,
   maybeText,
   VAULT_UPLOAD_MAX_BYTES,
@@ -15,27 +16,14 @@ import {
 import type { ActionContext } from "./actions.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
 import { decodePreviewText, fromBase64, PREVIEW_MAX_BYTES } from "./evidence-view.ts";
-
-function line(body: HTMLElement, label: string, text: string): void {
-  const row = document.createElement("div");
-  row.className = "nx-row";
-  const name = document.createElement("span");
-  name.className = "nx-label";
-  name.textContent = label;
-  const value = document.createElement("span");
-  value.className = "nx-value";
-  value.textContent = text;
-  row.append(name, value);
-  body.append(row);
-}
-
-function note(body: HTMLElement, text: string, className = "muted"): HTMLElement {
-  const paragraph = document.createElement("p");
-  paragraph.className = className;
-  paragraph.textContent = text;
-  body.append(paragraph);
-  return paragraph;
-}
+import {
+  fileVersionsDialog,
+  linksSection,
+  line,
+  note,
+  downloadRow,
+  versionsSection,
+} from "./file-parts.ts";
 
 function field<T extends HTMLInputElement | HTMLTextAreaElement>(
   body: HTMLElement,
@@ -444,6 +432,14 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
       done("files.done.pin");
     },
   });
+  add("favorite", {
+    label: tr(ctx.lang, file.favorite ? "files.act.unfavorite" : "files.act.favorite"),
+    tone: "plain",
+    run: async () => {
+      await ctx.request("nexus.vault.pin", { fileId: file.id, favorite: !file.favorite });
+      done("files.done.favorite");
+    },
+  });
   add("sensitivity", {
     label: tr(
       ctx.lang,
@@ -497,7 +493,7 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
     },
   });
 
-  openDialog({
+  const closeDetail = openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
     redact: ctx.redact,
@@ -532,6 +528,9 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
       line(body, tr(ctx.lang, "files.d.where"), `${file.collection} · ${file.state}`);
       line(body, tr(ctx.lang, "files.d.type"), file.mime);
       line(body, tr(ctx.lang, "files.d.size"), `${formatBytes(file.size)} (${file.size} B)`);
+      if (fileDownloadable(file)) {
+        downloadRow(ctx, body, file);
+      }
       line(body, tr(ctx.lang, "files.d.hash"), file.contentHash);
       line(body, tr(ctx.lang, "files.d.source"), file.source);
       line(
@@ -544,7 +543,16 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
       if (file.expiresAt !== null) {
         line(body, tr(ctx.lang, "files.d.expires"), fmtTime(file.expiresAt));
       }
-      line(body, tr(ctx.lang, "files.d.versions"), String(file.versionCount));
+      const versionsBox = document.createElement("div");
+      body.append(versionsBox);
+      line(versionsBox, tr(ctx.lang, "files.d.versions"), String(file.versionCount));
+      void versionsSection(ctx, file, versionsBox, () => {
+        closeDetail();
+        fileVersionsDialog(ctx, file, () => fileDetailDialog(ctx, file.id));
+      });
+      const linksBox = document.createElement("div");
+      body.append(linksBox);
+      void linksSection(ctx, file, linksBox);
       const textLabel = extractionLabel(extraction);
       if (textLabel) {
         line(body, tr(ctx.lang, "files.d.text"), tr(ctx.lang, textLabel.key));

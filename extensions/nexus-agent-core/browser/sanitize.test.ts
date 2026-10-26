@@ -157,13 +157,16 @@ describe("action markers", () => {
         '<button data-nx-act="file-open" data-nx-id="F1ABC">o</button>',
         '<button data-nx-act="file-open" data-nx-id="../x">bad</button>',
         '<button data-nx-act="file-open">bare</button>',
+        '<button data-nx-act="file-download" data-nx-id="F1ABC">d</button>',
+        '<button data-nx-act="file-download" data-nx-id="../x">bad</button>',
+        '<button data-nx-act="file-download">bare</button>',
       ].join(""),
       hrefOf,
       vi.fn(),
       onAction,
     );
     const buttons = Array.from(container.querySelectorAll("button"));
-    expect(buttons).toHaveLength(4);
+    expect(buttons).toHaveLength(5);
     for (const button of buttons) {
       button.click();
     }
@@ -172,6 +175,7 @@ describe("action markers", () => {
       { kind: "file-import" },
       { kind: "file-search" },
       { kind: "file-open", id: "F1ABC" },
+      { kind: "file-download", id: "F1ABC" },
     ]);
   });
 });

@@ -49,6 +49,9 @@ export const NEXUS_CSS = `
 .nexus-page .nx-filters input,.nexus-page .nx-filters select{font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:2px 8px}
 .nexus-page .nx-filters .f-keyword input{width:22em;max-width:100%}
 .nexus-page .nx-filters .f-presets{flex-basis:100%}
+.nexus-page .nx-sub{margin:14px 0 4px;font-weight:600;border-top:1px solid color-mix(in srgb,currentColor 14%,transparent);padding-top:10px}
+.nexus-page .nx-link,.nexus-page .nx-version{margin:6px 0;padding:6px 8px;border:1px solid color-mix(in srgb,currentColor 14%,transparent);border-radius:6px}
+.nexus-page .nx-dlstatus{margin-left:10px}
 .nexus-page .nx-filerow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:8px 0}
 .nexus-page .nx-filebar-slot{display:contents}
 .nexus-page .nx-filebar{margin:0;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
@@ -62,5 +65,6 @@ export const NEXUS_CSS = `
 .nexus-page .nx-tabs{display:flex;flex-wrap:wrap;gap:4px 16px;margin:8px 0}
 .nexus-page .nx-tabs a{color:inherit;opacity:.65;text-decoration:none}
 .nexus-page .nx-tabs a.on{opacity:1;font-weight:600}
-.nexus-page .nx-footer{display:flex;justify-content:flex-end;gap:8px;position:sticky;bottom:-16px;z-index:2;background:Canvas;margin:12px -20px -16px;padding:8px 20px 16px}
+.nexus-page .nx-footer{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;position:sticky;bottom:-16px;z-index:2;background:Canvas;margin:12px -20px -16px;padding:8px 20px 16px}
+.nexus-page .nx-footer .nx-btn{white-space:nowrap}
 `;

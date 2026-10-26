@@ -4,8 +4,10 @@ import { extractionReason, renderFiles } from "./ui-render.js";
 import {
   DEFAULT_FILE_QUERY,
   DEFAULT_FILE_TAB,
+  downloadFileName,
   FILE_TABS,
   fileActionsFor,
+  fileDownloadable,
   fileFilterActive,
   fileLink,
   fileListParams,
@@ -196,14 +198,41 @@ describe("vault ui helpers", () => {
       "discard",
       "edit",
       "pin",
+      "favorite",
       "sensitivity",
       "purge",
     ]);
+    expect(fileActionsFor({ state: "active", collection: "vault" })).toContain("favorite");
+    expect(fileActionsFor({ state: "trashed", collection: "vault" })).not.toContain("favorite");
     expect(fileActionsFor({ state: "active", collection: "vault" })).toContain("trash");
     expect(fileActionsFor({ state: "active", collection: "vault" })).not.toContain("keep");
     expect(fileActionsFor({ state: "trashed", collection: "vault" })).toEqual(["restore", "purge"]);
     expect(fileActionsFor({ state: "damaged", collection: "vault" })).toEqual(["purge"]);
     expect(fileActionsFor({ state: "purging", collection: "vault" })).toEqual([]);
+  });
+
+  it("downloads active and trashed files only", () => {
+    expect(fileDownloadable({ state: "active" })).toBe(true);
+    expect(fileDownloadable({ state: "trashed" })).toBe(true);
+    expect(fileDownloadable({ state: "damaged" })).toBe(false);
+    expect(fileDownloadable({ state: "purging" })).toBe(false);
+  });
+
+  it("makes a download name that is safe on any file system", () => {
+    expect(downloadFileName("tax.pdf")).toBe("tax.pdf");
+    expect(downloadFileName("../../etc/passwd")).toBe("_.._etc_passwd");
+    expect(downloadFileName("a:b*c?.txt")).toBe("a_b_c_.txt");
+    expect(downloadFileName("<b>notes</b>.txt")).toBe("_b_notes__b_.txt");
+    expect(downloadFileName("..hidden")).toBe("hidden");
+    expect(downloadFileName("trailing. . ")).toBe("trailing");
+    expect(downloadFileName("tab\tname\u0000.txt")).toBe("tab_name_.txt");
+    expect(downloadFileName("   ")).toBe("file");
+    expect(downloadFileName("...")).toBe("file");
+    expect(downloadFileName("report.pdf", 2)).toBe("report-v2.pdf");
+    expect(downloadFileName("README", 1)).toBe("README-v1");
+    const long = downloadFileName(`${"x".repeat(300)}.pdf`);
+    expect(long.length).toBe(200);
+    expect(long.endsWith(".pdf")).toBe(true);
   });
 
   it("only previews text-like types", () => {
@@ -246,11 +275,33 @@ describe("renderFiles", () => {
     expect(writable).toContain('data-nx-act="file-new"');
     expect(writable).toContain('data-nx-act="file-import"');
     expect(writable).toContain('data-nx-act="file-open" data-nx-id="F1ABC"');
+    expect(writable).toContain('data-nx-act="file-download" data-nx-id="F1ABC"');
     expect(writable).toContain("250");
     const readOnly = renderFiles({ files: rows, total: 2, tab: "all", stats }, { actions: false });
     expect(readOnly).not.toContain("file-new");
     expect(readOnly).not.toContain("file-import");
     expect(readOnly).toContain('data-nx-act="file-open"');
+    // Reading is allowed on a read-only connection, so is taking a copy.
+    expect(readOnly).toContain('data-nx-act="file-download"');
+  });
+
+  it("offers a download only for files whose bytes can be read", () => {
+    const html = renderFiles(
+      {
+        files: [
+          file({ id: "FACTIVE", state: "active" }),
+          file({ id: "FTRASH", state: "trashed" }),
+          file({ id: "FDAMAGED", state: "damaged" }),
+        ],
+        total: 3,
+        tab: "all",
+        stats,
+      },
+      { actions: true },
+    );
+    expect(html).toContain('data-nx-act="file-download" data-nx-id="FACTIVE"');
+    expect(html).toContain('data-nx-act="file-download" data-nx-id="FTRASH"');
+    expect(html).not.toContain('data-nx-act="file-download" data-nx-id="FDAMAGED"');
   });
 
   it("tags sensitive and pinned files and speaks English on request", () => {

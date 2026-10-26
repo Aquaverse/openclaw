@@ -18,6 +18,7 @@ import { clip, fmtTime } from "../src/ui-render.js";
 import type { NexusRequest } from "./data.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
 import { evidenceViewDialog } from "./evidence-view.ts";
+import { downloadFile } from "./file-download.ts";
 import {
   fileDetailDialog,
   fileImportDialog,
@@ -58,6 +59,8 @@ export type ActionContext = {
   model: () => NexusModel;
   /** Something changed (or turned out to be stale): show the notice and reload. */
   changed: (notice: ActionNotice) => void;
+  /** Show a notice without reloading (a download changes nothing). Falls back to `changed`. */
+  notify?: (notice: ActionNotice) => void;
 };
 
 function row(body: HTMLElement, label: string, text: string, mono = false): void {
@@ -458,6 +461,15 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
       return fileSearchDialog(ctx);
     case "file-open":
       return fileDetailDialog(ctx, action.id);
+    case "file-download": {
+      const file = ctx.model().files?.find((item) => item.id === action.id);
+      if (!file) {
+        ctx.changed({ ok: false, text: tr(ctx.lang, "files.gone", { id: action.id }) });
+        return;
+      }
+      void downloadFile(ctx, file);
+      return;
+    }
     case "decision":
       return decisionDialog(ctx, action.id);
     case "watch-cancel":

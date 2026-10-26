@@ -51,6 +51,13 @@
 - **这轮踩到的坑**（都在手册里写了）：① zsh 不会拆分 `$RUN` 变量，要用函数和数组；② 探针客户端是仓库构建（schema 17），不能用官方网关（schema 19）的状态目录，给探针一个独立目录，里面只放指向网关 `plugins/` 的符号链接；③ `OPENCLAW_STATE_DIR` 必须是目录，不是 `nexus.sqlite` 文件；④ `r1-flow` 固定用 `Acme Rooms`，事项上已有 standing grant 会误报，已改为每次运行用不同 vendor。
 - **事项列表默认排序**：最近更新在前，更新时间相同按编号升序（`ORDER BY updated_at DESC, id`），自 Stage 1 起没变。决策批准、拒绝、回检等造成的事项状态变化会让事项重新排到最前；用户决定保持现状。
 
+## 2026-10-26：文件库 F1 + F2 + F3 与文件页改进在安装版上通过
+
+- **范围**：打包默认带上文件柜和证据原文（`OPENCLAW_INSTALLER_NEXUS_PRESET=1`，预设版本 2），命令为 `OPENCLAW_INSTALLER_NEXUS_PRESET=1 OPENCLAW_INSTALLER_DEFAULT_MODEL=0 OPENCLAW_INSTALLER_LLAMA=0 OPENCLAW_INSTALLER_LITELLM=0 ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer`；安装版 2026.9.4（77bb1cf 之后重新打包），网关 18789，状态目录 `~/.openclaw`。
+- **已验证（用户确认，功能正常）**：文件页出现；上传、预览、搜索内容、引用码、挂证据与“查看原文”、标敏感后搜不到、分块上传、永久清除；文件页的名称搜索、分页（含切换标签页后保留筛选和页码）、类型 / 收藏 / 敏感筛选、失败原因按语言显示。
+- **没有逐项记录输出**：用户口头确认“基本验证完成，功能正常”。
+- **仍未做**：WebSocket 只读客户端的权限拒绝（可选实验）；S8 缺口记为已知限制。
+
 ## 还没做（可选）
 
 - Stage 2 在安装版上的卡片流（注入、迟到 Deny）和 kill -9 恢复（K1–K3）、Stage 3 的 kill -9 崩溃测试（`blob-flow --phase crash-a / crash-b`，需要调试配置）。

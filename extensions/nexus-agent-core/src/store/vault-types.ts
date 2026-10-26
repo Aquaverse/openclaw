@@ -53,6 +53,8 @@ export const MAX_VAULT_NAME_CHARS = 255;
 export const MAX_VAULT_FOLDER_CHARS = 512;
 export const MAX_VAULT_FOLDER_DEPTH = 8;
 export const MAX_VAULT_LIST_LIMIT = 200;
+export const MAX_VAULT_VERSIONS = 200;
+export const MAX_VAULT_LINKS = 200;
 
 export type VaultLimits = {
   /** Largest single file (checked at R when the size is known, always at W). */
@@ -146,10 +148,43 @@ export type VaultFindByHashResult = {
 export type VaultReadRefInput = {
   principal: Principal;
   fileId: string;
+  /** Read this version (1 = the first) instead of the latest. */
+  seq?: number;
   allowTrashed?: boolean;
   /** Stamp `last_opened_at` (the only write a read may do; it never changes access). */
   touchAt?: number;
 };
+/** One stored version of a file (the newest has the highest `seq`). */
+export type VaultVersionRecord = {
+  seq: number;
+  objectId: string;
+  size: number;
+  mime: string;
+  contentHash: string;
+  createdAt: number;
+  /** The version the file currently shows. */
+  current: boolean;
+};
+export type VaultVersionsOutcome =
+  | { outcome: "ok"; versions: VaultVersionRecord[] }
+  | { outcome: "not_found" };
+
+/** A task that holds this file as evidence (attached with `nexus_file_attach`; the evidence locator is `vault:<id>`). */
+export type VaultLinkRecord = {
+  evidenceId: string;
+  taskId: string;
+  taskTitle: string;
+  taskStatus: string;
+  /** Claims this evidence currently supports or contradicts. */
+  claimIds: string[];
+  capturedAt: number;
+  /** False once the evidence bytes were deleted (the record of the attachment stays). */
+  bytesKept: boolean;
+};
+export type VaultLinksOutcome =
+  | { outcome: "ok"; links: VaultLinkRecord[]; total: number }
+  | { outcome: "not_found" };
+
 export type VaultReadRefOutcome =
   | {
       outcome: "ok";

@@ -128,6 +128,7 @@ export type VaultReadOutcome =
       mime: string;
       displayName: string;
       sensitivity: VaultSensitivity;
+      contentHash: string;
       eof: boolean;
     }
   | { outcome: "not_found" }
@@ -602,12 +603,20 @@ export function createVaultService(deps: VaultServiceDeps) {
 
   async function read(
     principal: Principal,
-    input: { fileId: string; offset?: number; length?: number; allowTrashed?: boolean },
+    input: {
+      fileId: string;
+      /** An older version; absent reads the current one. */
+      seq?: number;
+      offset?: number;
+      length?: number;
+      allowTrashed?: boolean;
+    },
   ): Promise<VaultReadOutcome> {
     const store = await deps.getStore();
     const ref = await store.vaultReadRef({
       principal,
       fileId: input.fileId,
+      ...(input.seq !== undefined ? { seq: input.seq } : {}),
       ...(input.allowTrashed ? { allowTrashed: true } : {}),
       touchAt: now(),
     });
@@ -634,6 +643,7 @@ export function createVaultService(deps: VaultServiceDeps) {
       mime: ref.mime,
       displayName: ref.displayName,
       sensitivity: ref.sensitivity,
+      contentHash: ref.contentHash,
       eof: offset + bytes.byteLength >= ref.size,
     };
   }

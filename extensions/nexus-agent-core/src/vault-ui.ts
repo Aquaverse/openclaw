@@ -198,6 +198,7 @@ export type FileAction =
   | "discard"
   | "edit"
   | "pin"
+  | "favorite"
   | "sensitivity"
   | "trash"
   | "restore"
@@ -208,8 +209,8 @@ export function fileActionsFor(file: Pick<VaultFileRecord, "state" | "collection
   const state: VaultFileState = file.state;
   if (state === "active") {
     return file.collection === "inbox"
-      ? ["keep", "discard", "edit", "pin", "sensitivity", "purge"]
-      : ["edit", "pin", "sensitivity", "trash", "purge"];
+      ? ["keep", "discard", "edit", "pin", "favorite", "sensitivity", "purge"]
+      : ["edit", "pin", "favorite", "sensitivity", "trash", "purge"];
   }
   if (state === "trashed") {
     return ["restore", "purge"];
@@ -231,4 +232,45 @@ export function maybeText(mime: string): boolean {
     mime.endsWith("+xml") ||
     mime === "application/octet-stream"
   );
+}
+
+/** Whether the bytes can be read back for a download: an active or trashed file (a trashed file is still the user's). */
+export function fileDownloadable(file: Pick<VaultFileRecord, "state">): boolean {
+  return file.state === "active" || file.state === "trashed";
+}
+
+/** The most the console downloads through the gateway connection (the bytes are held in the page until saved). */
+export const VAULT_DOWNLOAD_MAX_BYTES = 256 * 1024 * 1024;
+
+const FILE_NAME_FORBIDDEN = /[/\\:*?"<>|]/g;
+
+/** Control characters (C0 and DEL) become underscores too; done by code point so no control character sits in a pattern. */
+function replaceControlChars(text: string): string {
+  return Array.from(text, (char) => {
+    const code = char.charCodeAt(0);
+    return code < 0x20 || code === 0x7f ? "_" : char;
+  }).join("");
+}
+const FILE_NAME_MAX = 200;
+
+/**
+ * The name a download is saved under: the file's own name made safe for any file system (no path separators, control or
+ * reserved characters, no leading dots), with `-v<n>` before the extension for an older version.
+ */
+export function downloadFileName(displayName: string, version?: number): string {
+  let name = replaceControlChars(displayName).replace(FILE_NAME_FORBIDDEN, "_").trim();
+  name = name.replace(/^\.+/, "").replace(/[. ]+$/, "");
+  if (name === "") {
+    name = "file";
+  }
+  if (name.length > FILE_NAME_MAX) {
+    const dot = name.lastIndexOf(".");
+    const ext = dot > 0 && name.length - dot <= 16 ? name.slice(dot) : "";
+    name = name.slice(0, FILE_NAME_MAX - ext.length) + ext;
+  }
+  if (version !== undefined) {
+    const dot = name.lastIndexOf(".");
+    name = dot > 0 ? `${name.slice(0, dot)}-v${version}${name.slice(dot)}` : `${name}-v${version}`;
+  }
+  return name;
 }

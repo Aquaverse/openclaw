@@ -115,6 +115,8 @@ const STORE_OPERATIONS: Record<StoreOperationName, true> = {
   vaultStats: true,
   vaultFindByHash: true,
   vaultReadRef: true,
+  vaultVersions: true,
+  vaultLinks: true,
   vaultKeep: true,
   vaultDiscard: true,
   vaultTrash: true,

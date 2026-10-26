@@ -16,6 +16,7 @@ import {
   type VaultFileState,
   type VaultSensitivity,
 } from "./store/vault-types.js";
+import { createVaultHistoryRpcEntries } from "./vault-history-rpc.js";
 import { parseFileKind } from "./vault-kind.js";
 import { createVaultTextRpcEntries } from "./vault-text-rpc.js";
 import { VAULT_UPLOAD_MAX_BYTES } from "./vault-ui.js";
@@ -23,7 +24,7 @@ import type { VaultService, VaultStore } from "./vault/vault-service.js";
 
 /** One RPC upload carries the whole file as base64; larger files come in through importPath. */
 export const VAULT_RPC_UPLOAD_MAX_BYTES = VAULT_UPLOAD_MAX_BYTES;
-export const VAULT_RPC_READ_MAX_BYTES = 2 * 1024 * 1024;
+export { VAULT_RPC_READ_MAX_BYTES } from "./vault-history-rpc.js";
 export const VAULT_OPERATOR_ACTOR = "operator:console";
 
 /** A leading `~` or `~/` means the home directory of the gateway user; everything else is passed through unchanged. */
@@ -311,6 +312,7 @@ export function createVaultRpcHandlers(deps: VaultRpcDeps) {
       }),
       "operator.read",
     ],
+    ...createVaultHistoryRpcEntries({ service: deps.service, guarded, reject, needFileId }),
     ...createVaultTextRpcEntries({
       service: deps.service,
       now,
@@ -321,49 +323,6 @@ export function createVaultRpcHandlers(deps: VaultRpcDeps) {
       extractionFor,
       emit,
     }),
-    [
-      "nexus.vault.read",
-      guarded(async ({ principal, params, respond }) => {
-        const fileId = needFileId(params, respond);
-        if (!fileId) {
-          return;
-        }
-        const out = await deps.service.read(principal, {
-          fileId,
-          allowTrashed: true,
-          offset: Number(params.offset ?? 0) || 0,
-          length: Math.min(
-            Number(params.length ?? VAULT_RPC_READ_MAX_BYTES) || VAULT_RPC_READ_MAX_BYTES,
-            VAULT_RPC_READ_MAX_BYTES,
-          ),
-        });
-        switch (out.outcome) {
-          case "not_found":
-            reject(respond, "nexus_not_found", "file not found");
-            return;
-          case "not_readable":
-            reject(respond, "nexus_conflict", `file cannot be read (${out.state})`, {
-              state: out.state,
-            });
-            return;
-          case "bytes_missing":
-            reject(respond, "nexus_store_error", "the stored bytes of this file are missing");
-            return;
-          case "ok":
-            respond(true, {
-              ownerId: principal.ownerId,
-              fileId,
-              name: out.displayName,
-              mime: out.mime,
-              size: out.size,
-              sensitivity: out.sensitivity,
-              eof: out.eof,
-              dataBase64: Buffer.from(out.bytes).toString("base64"),
-            });
-        }
-      }),
-      "operator.read",
-    ],
     [
       "nexus.vault.purgeStatus",
       guarded(async ({ principal, store, params, respond }) => {

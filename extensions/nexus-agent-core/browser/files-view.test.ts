@@ -39,6 +39,11 @@ function fixture(
     extraction?: Record<string, unknown>;
     search?: unknown;
     text?: unknown;
+    /** The version list and the task links of the (single) file. */
+    versions?: unknown[];
+    /** Answers nexus.vault.read (the default serves "hello"). */
+    read?: (params: Record<string, unknown> | undefined) => unknown;
+    links?: { total?: number; links: unknown[] };
     /** Answers nexus.vault.list itself (for paging); the default is one page holding `files`. */
     list?: (params: Record<string, unknown> | undefined) => { items: unknown[]; total: number };
   },
@@ -86,7 +91,13 @@ function fixture(
       case "nexus.vault.text":
         return data.text ?? { available: false, outcome: "no_text", state: "none" };
       case "nexus.vault.read":
-        return { dataBase64: toBase64(new TextEncoder().encode("hello")), size: 5, eof: true };
+        return data.read
+          ? data.read(params)
+          : { dataBase64: toBase64(new TextEncoder().encode("hello")), size: 5, eof: true };
+      case "nexus.vault.versions":
+        return { versions: data.versions ?? [] };
+      case "nexus.vault.links":
+        return data.links ?? { total: 0, links: [] };
       case "nexus.vault.upload":
         return { file: file(), deduplicated: false };
       case "nexus.vault.importPath":
@@ -126,7 +137,10 @@ function fixture(
     calls,
     opened,
     dialog: () => container.querySelector(".nx-dialog") as HTMLElement,
-    writes: () => calls.filter((call) => !/\.(list|stats|read|get|search|text)$/.test(call.method)),
+    writes: () =>
+      calls.filter(
+        (call) => !/\.(list|stats|read|get|search|text|versions|links)$/.test(call.method),
+      ),
   };
 }
 
@@ -521,6 +535,267 @@ describe("files tab", () => {
       ) as HTMLButtonElement
     ).click();
     expect(f.opened.at(-1)?.params).toEqual({ view: "files" });
+  });
+
+  it("marks a file as favorite and takes the mark back, for active files only", async () => {
+    const plain = fixture({}, props);
+    await flush();
+    click(plain.container, 'button[data-nx-act="file-open"]');
+    await flush();
+    (buttonByText(plain.dialog(), "收藏") as HTMLButtonElement).click();
+    await flush();
+    expect(plain.writes()).toEqual([
+      { method: "nexus.vault.pin", params: { fileId: "F1ABC", favorite: true } },
+    ]);
+    const marked = fixture({ files: [file({ favorite: true })] }, props);
+    await flush();
+    click(marked.container, 'button[data-nx-act="file-open"]');
+    await flush();
+    expect(buttonByText(marked.dialog(), "收藏")).toBeUndefined();
+    (buttonByText(marked.dialog(), "取消收藏") as HTMLButtonElement).click();
+    await flush();
+    expect(marked.writes()).toEqual([
+      { method: "nexus.vault.pin", params: { fileId: "F1ABC", favorite: false } },
+    ]);
+    const trashed = fixture(
+      { files: [file({ state: "trashed" })] },
+      { view: "files", tab: "trash" },
+    );
+    await flush();
+    click(trashed.container, 'button[data-nx-act="file-open"]');
+    await flush();
+    expect(buttonByText(trashed.dialog(), "收藏")).toBeUndefined();
+  });
+
+  describe("downloads", () => {
+    const saved: Array<{ name: string; size: number }> = [];
+    let blobs: Blob[] = [];
+    beforeEach(() => {
+      saved.length = 0;
+      blobs = [];
+      Object.assign(URL, {
+        createObjectURL: (blob: Blob) => {
+          blobs.push(blob);
+          return "blob:test";
+        },
+        revokeObjectURL: () => {},
+      });
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+        function (this: HTMLAnchorElement) {
+          saved.push({ name: this.download, size: blobs.at(-1)?.size ?? -1 });
+        },
+      );
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("downloads from the list without reloading, under a safe name, even on a read-only connection", async () => {
+      const f = fixture({}, props, false);
+      await flush();
+      const listCalls = () => f.calls.filter((call) => call.method === "nexus.vault.list").length;
+      const before = listCalls();
+      click(f.container, 'button[data-nx-act="file-download"]');
+      await flush();
+      await flush();
+      expect(saved).toEqual([{ name: "_b_notes__b_.txt", size: 5 }]);
+      expect(f.container.querySelector(".nx-notice")?.textContent).toContain("已下载");
+      expect(f.container.querySelector(".nx-notice")?.textContent).toContain("_b_notes__b_.txt");
+      expect(f.calls.find((call) => call.method === "nexus.vault.read")?.params).toEqual({
+        fileId: "F1ABC",
+        offset: 0,
+        length: 1024 * 1024,
+      });
+      expect(listCalls()).toBe(before);
+    });
+
+    it("downloads from the details and keeps the dialog open", async () => {
+      const f = fixture({}, props);
+      await flush();
+      click(f.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      const button = Array.from(f.dialog().querySelectorAll<HTMLButtonElement>("button")).find(
+        (b) => b.textContent === "下载",
+      ) as HTMLButtonElement;
+      button.click();
+      await flush();
+      await flush();
+      expect(saved).toHaveLength(1);
+      expect(f.dialog().textContent).toContain("已下载");
+      expect(button.disabled).toBe(false);
+    });
+
+    it("saves nothing when the bytes do not match the recorded hash", async () => {
+      const f = fixture(
+        {
+          read: () => ({
+            dataBase64: toBase64(new TextEncoder().encode("hello")),
+            size: 5,
+            eof: true,
+            contentHash: "0".repeat(64),
+          }),
+        },
+        props,
+      );
+      await flush();
+      click(f.container, 'button[data-nx-act="file-download"]');
+      await flush();
+      await flush();
+      expect(saved).toEqual([]);
+      const notice = f.container.querySelector(".nx-notice") as HTMLElement;
+      expect(notice.className).toContain("error");
+      expect(notice.textContent).toContain("哈希不一致");
+    });
+
+    it("offers no download for a damaged file", async () => {
+      const f = fixture({ files: [file({ state: "damaged" })] }, { view: "files", tab: "damaged" });
+      await flush();
+      expect(f.container.querySelector('button[data-nx-act="file-download"]')).toBeNull();
+      click(f.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      expect(
+        Array.from(f.dialog().querySelectorAll("button")).some((b) => b.textContent === "下载"),
+      ).toBe(false);
+    });
+
+    it("lists the versions, shows the latest by default and opens the history on request", async () => {
+      const versions = [
+        {
+          seq: 2,
+          objectId: "O2",
+          size: 7,
+          mime: "text/plain",
+          contentHash: "b".repeat(64),
+          createdAt: 1_700_000_200_000,
+          current: true,
+        },
+        {
+          seq: 1,
+          objectId: "O1",
+          size: 5,
+          mime: "text/plain",
+          contentHash: "a".repeat(64),
+          createdAt: 1_700_000_000_000,
+          current: false,
+        },
+      ];
+      const f = fixture({ files: [file({ versionCount: 2 })], versions }, props);
+      await flush();
+      click(f.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      const detail = f.dialog();
+      expect(detail.textContent).toContain("版本 2");
+      expect(detail.textContent).not.toContain("版本 1");
+      (buttonByText(detail, "更多版本（2）") as HTMLButtonElement).click();
+      await flush();
+      expect(f.container.querySelectorAll(".nx-dialog")).toHaveLength(1);
+      const history = f.dialog();
+      expect(history.querySelector(".nx-title")?.textContent).toBe("文件 F1ABC 的版本");
+      expect(history.textContent).toContain("版本 2 (当前)");
+      expect(history.textContent).toContain("版本 1");
+      expect(history.textContent).not.toContain("a".repeat(64));
+      Array.from(history.querySelectorAll<HTMLButtonElement>("button"))
+        .filter((b) => b.textContent === "详情")[1]!
+        .click();
+      expect(history.textContent).toContain("a".repeat(64));
+      // The older version downloads by its number and keeps it in the name.
+      Array.from(history.querySelectorAll<HTMLButtonElement>("button"))
+        .filter((b) => b.textContent === "下载")[1]!
+        .click();
+      await flush();
+      await flush();
+      const reads = f.calls.filter((call) => call.method === "nexus.vault.read");
+      expect(reads.at(-1)?.params).toEqual({
+        fileId: "F1ABC",
+        offset: 0,
+        length: 1024 * 1024,
+        version: 1,
+      });
+      expect(saved.at(-1)?.name).toBe("_b_notes__b_-v1.txt");
+      // Back to the file.
+      (buttonByText(history, "返回文件详情") as HTMLButtonElement).click();
+      await flush();
+      vi.advanceTimersByTime(5);
+      await flush();
+      expect(f.dialog().querySelector(".nx-title")?.textContent).toBe("文件 F1ABC");
+    });
+
+    it("has no more-versions button for a file with a single version, or on an older gateway", async () => {
+      const one = [
+        {
+          seq: 1,
+          objectId: "O1",
+          size: 5,
+          mime: "text/plain",
+          contentHash: "a".repeat(64),
+          createdAt: 1_700_000_000_000,
+          current: true,
+        },
+      ];
+      const single = fixture({ versions: one }, props);
+      await flush();
+      click(single.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      expect(single.dialog().textContent).toContain("版本 1");
+      expect(
+        Array.from(single.dialog().querySelectorAll("button")).some((b) =>
+          (b.textContent ?? "").startsWith("更多版本"),
+        ),
+      ).toBe(false);
+      const old = fixture({ fail: { "nexus.vault.versions": "unknown method" } }, props);
+      await flush();
+      click(old.container, 'button[data-nx-act="file-open"]');
+      await flush();
+      expect(old.dialog().textContent).toContain("版本数");
+    });
+  });
+
+  it("shows the tasks that use the file as evidence, as text", async () => {
+    const link = {
+      evidenceId: "EV1",
+      taskId: "T1",
+      taskTitle: "<i>Refund</i> the order",
+      taskStatus: "executing",
+      claimIds: ["CL1", "CL2"],
+      capturedAt: 1_700_000_000_000,
+      bytesKept: true,
+    };
+    const f = fixture(
+      {
+        links: {
+          total: 3,
+          links: [
+            link,
+            { ...link, evidenceId: "EV2", taskId: "T2", claimIds: [], bytesKept: false },
+          ],
+        },
+      },
+      props,
+    );
+    await flush();
+    click(f.container, 'button[data-nx-act="file-open"]');
+    await flush();
+    const dialog = f.dialog();
+    expect(dialog.querySelector("i")).toBeNull();
+    expect(dialog.textContent).toContain("<i>Refund</i> the order");
+    expect(dialog.textContent).toContain("任务 T1");
+    expect(dialog.textContent).toContain("证据 EV1");
+    expect(dialog.textContent).toContain("支持的论断：CL1, CL2");
+    expect(dialog.textContent).toContain("证据的原件已清理");
+    expect(dialog.textContent).toContain("还有 1 条关联没有显示");
+  });
+
+  it("says so when no task uses the file, and hides the section on an older gateway", async () => {
+    const none = fixture({}, props);
+    await flush();
+    click(none.container, 'button[data-nx-act="file-open"]');
+    await flush();
+    expect(none.dialog().textContent).toContain("还没有任务把这个文件作为证据使用。");
+    const old = fixture({ fail: { "nexus.vault.links": "unknown method" } }, props);
+    await flush();
+    click(old.container, 'button[data-nx-act="file-open"]');
+    await flush();
+    expect(old.dialog().textContent).not.toContain("还没有任务把这个文件作为证据使用。");
   });
 
   it("builds the upload dialog and refuses to send before a file is chosen", async () => {

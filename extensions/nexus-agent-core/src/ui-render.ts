@@ -30,6 +30,7 @@ import {
 } from "./task-query.js";
 import {
   FILE_TABS,
+  fileDownloadable,
   fileFilterActive,
   fileLink,
   formatBytes,
@@ -787,7 +788,11 @@ export function renderFiles(
             td(tr(lang, FILE_STATE_LABEL[file.state]), stateClass(file.state)),
             textCell(file),
             td(fmtTime(file.updatedAt)),
-            `<td>${button("file-open", file.id, tr(lang, "btn.details"))}</td>`,
+            `<td>${button("file-open", file.id, tr(lang, "btn.details"))}${
+              fileDownloadable(file)
+                ? ` ${button("file-download", file.id, tr(lang, "btn.download"))}`
+                : ""
+            }</td>`,
           ]),
         )) +
     pager

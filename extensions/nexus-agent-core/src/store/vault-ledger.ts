@@ -16,7 +16,9 @@ import type { Principal } from "./types.js";
 import {
   normalizeVaultFolder,
   normalizeVaultName,
+  MAX_VAULT_LINKS,
   MAX_VAULT_LIST_LIMIT,
+  MAX_VAULT_VERSIONS,
   VAULT_COLLECTIONS,
   type VaultCollection,
   type VaultCommitInput,
@@ -31,6 +33,7 @@ import {
   type VaultFindByHashResult,
   type VaultGetInput,
   type VaultGetOutcome,
+  type VaultLinksOutcome,
   type VaultKeepInput,
   type VaultListInput,
   type VaultListResult,
@@ -47,6 +50,7 @@ import {
   type VaultRenameInput,
   type VaultReserveInput,
   type VaultReserveOutcome,
+  type VaultVersionsOutcome,
   type VaultReservationState,
   type VaultRestoreInput,
   type VaultSensitivity,
@@ -569,6 +573,32 @@ export function createVaultLedger(
       if (!readable) {
         return { outcome: "not_readable", state: file.state };
       }
+      // An older version has its own object (bytes, size, type, hash); the name and sensitivity are the file's.
+      let source = {
+        objectId: file.objectId,
+        size: file.size,
+        mime: file.mime,
+        contentHash: file.contentHash,
+      };
+      if (input.seq !== undefined) {
+        const version = one(
+          "SELECT o.id, o.size, o.mime, o.content_hash FROM vault_versions v " +
+            "JOIN vault_objects o ON o.owner_id = v.owner_id AND o.id = v.object_id " +
+            "WHERE v.owner_id = ? AND v.file_id = ? AND v.seq = ?",
+          owner,
+          input.fileId,
+          input.seq,
+        );
+        if (!version) {
+          return { outcome: "not_found" };
+        }
+        source = {
+          objectId: String(version.id),
+          size: Number(version.size),
+          mime: String(version.mime),
+          contentHash: String(version.content_hash),
+        };
+      }
       if (input.touchAt !== undefined) {
         run(
           "INSERT INTO vault_user_state (owner_id, file_id, last_opened_at) VALUES (?, ?, ?) " +
@@ -581,14 +611,92 @@ export function createVaultLedger(
       return {
         outcome: "ok",
         fileId: file.id,
-        objectId: file.objectId,
-        size: file.size,
-        mime: file.mime,
+        ...source,
         displayName: file.displayName,
-        contentHash: file.contentHash,
         sensitivity: file.sensitivity,
       };
     });
+
+  /** Every stored version of one file, newest first. Readable in any state: a trashed or damaged file still has a history. */
+  const vaultVersions = (input: { principal: Principal; fileId: string }): VaultVersionsOutcome => {
+    const owner = input.principal.ownerId;
+    if (!fileRecord(owner, input.fileId)) {
+      return { outcome: "not_found" };
+    }
+    const rows = all(
+      "SELECT v.seq, v.object_id, v.created_at, o.size, o.mime, o.content_hash FROM vault_versions v " +
+        "JOIN vault_objects o ON o.owner_id = v.owner_id AND o.id = v.object_id " +
+        "WHERE v.owner_id = ? AND v.file_id = ? ORDER BY v.seq DESC LIMIT ?",
+      owner,
+      input.fileId,
+      MAX_VAULT_VERSIONS,
+    );
+    return {
+      outcome: "ok",
+      versions: rows.map((row, index) => ({
+        seq: Number(row.seq),
+        objectId: String(row.object_id),
+        size: Number(row.size),
+        mime: String(row.mime),
+        contentHash: String(row.content_hash),
+        createdAt: Number(row.created_at),
+        current: index === 0,
+      })),
+    };
+  };
+
+  /**
+   * The tasks that hold this file as evidence. `nexus_file_attach` registers the bytes on the task with the locator
+   * `vault:<fileId>`, so the evidence ledger is the record of the link (it also covers files attached before this view
+   * existed); nothing is written to `vault_links`.
+   */
+  const vaultLinks = (input: {
+    principal: Principal;
+    fileId: string;
+    limit?: number;
+  }): VaultLinksOutcome => {
+    const owner = input.principal.ownerId;
+    if (!fileRecord(owner, input.fileId)) {
+      return { outcome: "not_found" };
+    }
+    const locator = `vault:${input.fileId}`;
+    const limit = Math.min(Math.max(Math.floor(input.limit ?? 50), 1), MAX_VAULT_LINKS);
+    const total = Number(
+      (
+        one(
+          "SELECT COUNT(*) AS c FROM evidence WHERE owner_id = ? AND source_locator_canonical = ?",
+          owner,
+          locator,
+        ) as Row
+      ).c,
+    );
+    const rows = all(
+      "SELECT e.id, e.task_id, e.captured_at, e.blob_key, t.title, t.status FROM evidence e " +
+        "JOIN nexus_tasks t ON t.owner_id = e.owner_id AND t.id = e.task_id " +
+        "WHERE e.owner_id = ? AND e.source_locator_canonical = ? ORDER BY e.captured_at DESC, e.id LIMIT ?",
+      owner,
+      locator,
+      limit,
+    );
+    return {
+      outcome: "ok",
+      total,
+      links: rows.map((row) => ({
+        evidenceId: String(row.id),
+        taskId: String(row.task_id),
+        taskTitle: String(row.title),
+        taskStatus: String(row.status),
+        claimIds: all(
+          "SELECT claim_id FROM claim_evidence_links WHERE owner_id = ? AND task_id = ? AND evidence_id = ? AND effective = 1 ORDER BY claim_id",
+          owner,
+          String(row.task_id),
+          String(row.id),
+        ).map((link) => String(link.claim_id)),
+        capturedAt: Number(row.captured_at),
+        bytesKept: row.blob_key !== null,
+      })),
+    };
+  };
 
   // ------------------------------------------------------------------ lifecycle edits (state machine, Vault design 4.3)
 
@@ -797,6 +905,8 @@ export function createVaultLedger(
     vaultStats,
     vaultFindByHash,
     vaultReadRef,
+    vaultVersions,
+    vaultLinks,
     vaultKeep,
     vaultDiscard,
     vaultTrash,
