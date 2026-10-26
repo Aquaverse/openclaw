@@ -14,7 +14,9 @@ import {
   type VaultCollection,
   type VaultEditOutcome,
   type VaultFileState,
+  type VaultSensitivity,
 } from "./store/vault-types.js";
+import { parseFileKind } from "./vault-kind.js";
 import { createVaultTextRpcEntries } from "./vault-text-rpc.js";
 import { VAULT_UPLOAD_MAX_BYTES } from "./vault-ui.js";
 import type { VaultService, VaultStore } from "./vault/vault-service.js";
@@ -236,9 +238,33 @@ export function createVaultRpcHandlers(deps: VaultRpcDeps) {
           reject(respond, "nexus_invalid_params", "nameContains must be text");
           return;
         }
+        const kind = parseFileKind(params.kind);
+        if (params.kind !== undefined && kind === undefined) {
+          reject(respond, "nexus_invalid_params", "kind must be text|image|pdf|office|other");
+          return;
+        }
+        if (params.favorite !== undefined && typeof params.favorite !== "boolean") {
+          reject(respond, "nexus_invalid_params", "favorite must be true or false");
+          return;
+        }
+        if (
+          params.sensitivity !== undefined &&
+          !(
+            typeof params.sensitivity === "string" &&
+            (VAULT_SENSITIVITIES as readonly string[]).includes(params.sensitivity)
+          )
+        ) {
+          reject(respond, "nexus_invalid_params", "sensitivity must be normal|sensitive");
+          return;
+        }
         const result = await store.vaultList({
           principal,
           ...(collection ? { collection } : {}),
+          ...(kind ? { kind } : {}),
+          ...(params.favorite === true ? { favoriteOnly: true } : {}),
+          ...(typeof params.sensitivity === "string"
+            ? { sensitivity: params.sensitivity as VaultSensitivity }
+            : {}),
           ...(typeof params.state === "string" ? { state: params.state as VaultFileState } : {}),
           ...(typeof params.folder === "string" ? { folder: params.folder } : {}),
           ...(typeof params.nameContains === "string" ? { nameContains: params.nameContains } : {}),

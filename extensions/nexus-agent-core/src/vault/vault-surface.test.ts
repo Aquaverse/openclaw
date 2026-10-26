@@ -187,6 +187,39 @@ describe("vault surfaces", () => {
     assert.equal(read.payload?.eof, true);
   });
 
+  it("rpc: list filters by kind, favorite and sensitivity", async () => {
+    const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4];
+    const image = await call("nexus.vault.upload", {
+      name: "filter-pic.png",
+      dataBase64: Buffer.from(png).toString("base64"),
+      collection: "vault",
+    });
+    assert.equal(image.ok, true, JSON.stringify(image));
+    const picId = image.payload!.file.id as string;
+    const note = await put("filter-note.txt", "filter note body", { collection: "vault" });
+    const names = async (params: Record<string, unknown>) =>
+      (
+        (await call("nexus.vault.list", { nameContains: "filter-", ...params })).payload!
+          .items as Array<{
+          displayName: string;
+        }>
+      )
+        .map((item) => item.displayName)
+        .toSorted();
+    assert.deepEqual(await names({}), ["filter-note.txt", "filter-pic.png"]);
+    assert.deepEqual(await names({ kind: "image" }), ["filter-pic.png"]);
+    assert.deepEqual(await names({ kind: "text" }), ["filter-note.txt"]);
+    assert.deepEqual(await names({ favorite: true }), []);
+    await call("nexus.vault.pin", { fileId: note.id, favorite: true });
+    assert.deepEqual(await names({ favorite: true }), ["filter-note.txt"]);
+    assert.deepEqual(await names({ favorite: false }), ["filter-note.txt", "filter-pic.png"]);
+    await call("nexus.vault.setSensitivity", { fileId: picId, sensitivity: "sensitive" });
+    assert.deepEqual(await names({ sensitivity: "sensitive" }), ["filter-pic.png"]);
+    assert.deepEqual(await names({ sensitivity: "normal" }), ["filter-note.txt"]);
+    const counted = await call("nexus.vault.list", { nameContains: "filter-", kind: "image" });
+    assert.equal(counted.payload?.total, 1);
+  });
+
   it("rpc: bad input is rejected with a code, not a store error", async () => {
     assert.equal(
       (await call("nexus.vault.get", { fileId: "../x" })).error?.code,
@@ -212,6 +245,13 @@ describe("vault surfaces", () => {
       (await call("nexus.vault.list", { state: "gone" })).error?.code,
       "nexus_invalid_params",
     );
+    for (const bad of [{ kind: "exe" }, { favorite: "yes" }, { sensitivity: "secret" }]) {
+      assert.equal(
+        (await call("nexus.vault.list", bad)).error?.code,
+        "nexus_invalid_params",
+        JSON.stringify(bad),
+      );
+    }
     assert.equal(
       (await call("nexus.vault.pin", { fileId: "VF_X" })).error?.code,
       "nexus_invalid_params",

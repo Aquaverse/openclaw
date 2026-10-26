@@ -2,6 +2,7 @@
 // so it is data only. The sync phases (R / W-done / P-plan / P-done / C and the lifecycle edits) run in the worker
 // (vault-ledger.ts); every byte of file I/O is awaited by the service (src/vault/vault-service.ts) between these calls, so no
 // write transaction ever spans an await.
+import type { FileKind } from "../vault-kind.js";
 import type { Principal } from "./types.js";
 
 export const VAULT_COLLECTIONS = ["inbox", "vault", "deliverable"] as const;
@@ -108,6 +109,12 @@ export type VaultListInput = {
   /** Substring match on the display name only (never on content; content search is F2). */
   nameContains?: string;
   includeSensitive?: boolean;
+  /** Only files of this kind (by stored media type). */
+  kind?: FileKind;
+  /** Only files the owner marked as favorite. */
+  favoriteOnly?: boolean;
+  /** Only sensitive, or only normal, files. Combines with `includeSensitive`. */
+  sensitivity?: VaultSensitivity;
   pinnedFirst?: boolean;
   limit?: number;
   offset?: number;

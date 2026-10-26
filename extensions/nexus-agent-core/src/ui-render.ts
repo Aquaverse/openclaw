@@ -30,6 +30,7 @@ import {
 } from "./task-query.js";
 import {
   FILE_TABS,
+  fileFilterActive,
   fileLink,
   formatBytes,
   tabCounts,
@@ -620,8 +621,11 @@ export type FilesViewData = {
   /** Rows matching the tab and the name filter, across everything the page did not show. */
   total: number;
   tab: FileTab;
-  /** The name filter, the page (1-based) and the page size; the defaults are no filter, page 1, 20 rows. */
+  /** The filters, the page (1-based) and the page size; the defaults are no filter, page 1, 20 rows. */
   name?: string;
+  kind?: FileQuery["kind"];
+  favorite?: boolean;
+  sensitivity?: FileQuery["sensitivity"];
   page?: number;
   size?: number;
   stats: Pick<VaultStatsResult, "files" | "objectBytes" | "reservedBytes">;
@@ -709,6 +713,9 @@ export function renderFiles(
   const query: FileQuery = {
     tab: data.tab,
     name: data.name ?? "",
+    kind: data.kind ?? "",
+    favorite: data.favorite ?? false,
+    sensitivity: data.sensitivity ?? "",
     page: data.page ?? 1,
     size: data.size ?? DEFAULT_PAGE_SIZE,
   };
@@ -737,7 +744,7 @@ export function renderFiles(
   const stateClass = (state: VaultFileRecord["state"]) =>
     state === "damaged" ? "bad" : state === "active" ? "" : "pending";
   const pager = renderFilePager(query, data.total, base, lang);
-  const noMatch = data.files.length === 0 && query.name !== "";
+  const noMatch = data.files.length === 0 && fileFilterActive(query);
   return (
     `<h1>${esc(tr(lang, "title.files"))}</h1>` +
     `<p class="muted">${esc(

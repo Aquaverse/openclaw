@@ -367,6 +367,38 @@ describe("nexus page", () => {
       ]);
     });
 
+    it("hands the Files tab back with its tab, name filter, page and page size after a visit elsewhere", async () => {
+      const f = fixture(
+        {
+          ...LIST,
+          "nexus.vault.stats": { files: { "vault:active": 90 }, objectBytes: 0, reservedBytes: 0 },
+          "nexus.vault.list": { items: [], total: 0 },
+        },
+        { view: "files", tab: "vault", qname: "tax", page: "2", size: "50" },
+      );
+      await flush();
+      const link = (label: string) =>
+        [...f.container.querySelectorAll("nav a")].find((a) => a.textContent === label);
+      const click = (a: Element | undefined) =>
+        a?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      // Leave for the Tasks tab (the host swaps the page parameters) and come back through the nav link.
+      f.view.update?.(f.context({}));
+      await flush();
+      expect(link("文件")?.getAttribute("href")).toContain("qname=tax");
+      click(link("文件"));
+      expect(f.opened.at(-1)).toEqual({
+        id: "nexus",
+        params: { view: "files", tab: "vault", qname: "tax", page: "2", size: "50" },
+      });
+      // From the Files tab itself the same link means start over.
+      f.view.update?.(
+        f.context({ view: "files", tab: "vault", qname: "tax", page: "2", size: "50" }),
+      );
+      await flush();
+      click(link("文件"));
+      expect(f.opened.at(-1)).toEqual({ id: "nexus", params: { view: "files" } });
+    });
+
     it("submits a new search at page 1 through the host navigation", async () => {
       const f = fixture(
         { ...LIST, "nexus.task.list": { tasks: [task()], total: 1 } },

@@ -54,7 +54,7 @@ export const NEXUS_CSS = `
 .nexus-page .nx-filebar{margin:0;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
 .nexus-page .nx-filebar label{display:flex;gap:4px;align-items:center;opacity:.85}
 .nexus-page .nx-filebar input,.nexus-page .nx-filebar select{font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:2px 8px}
-.nexus-page .nx-filebar .f-name input{width:18em;max-width:100%}
+.nexus-page .nx-filebar .f-name input{width:13em;max-width:100%}
 .nexus-page .nx-filters .f-from input,.nexus-page .nx-filters .f-to input{width:11em}
 .nexus-page .nx-link{font:inherit;color:#4f7cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
 .nexus-page .pager{margin:8px 0;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}

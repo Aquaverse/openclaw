@@ -6,6 +6,7 @@ import {
   DEFAULT_FILE_TAB,
   FILE_TABS,
   fileActionsFor,
+  fileFilterActive,
   fileLink,
   fileListParams,
   fileQueryToParams,
@@ -14,6 +15,7 @@ import {
   parseFileQuery,
   parseFileTab,
   tabCounts,
+  type FileQuery,
   type FileTab,
 } from "./vault-ui.js";
 
@@ -84,7 +86,9 @@ describe("vault ui helpers", () => {
   });
 
   it("turns the page, page size and name filter into limit, offset and nameContains", () => {
-    expect(fileListParams({ tab: "vault", name: "报告", page: 3, size: 50 })).toEqual({
+    expect(
+      fileListParams({ ...DEFAULT_FILE_QUERY, tab: "vault", name: "报告", page: 3, size: 50 }),
+    ).toEqual({
       collection: "vault",
       state: "active",
       pinnedFirst: true,
@@ -92,6 +96,53 @@ describe("vault ui helpers", () => {
       offset: 100,
       nameContains: "报告",
     });
+  });
+
+  it("sends the kind, favorite and sensitivity filters only when they are set", () => {
+    expect(
+      fileListParams({
+        ...DEFAULT_FILE_QUERY,
+        kind: "pdf",
+        favorite: true,
+        sensitivity: "sensitive",
+      }),
+    ).toEqual({
+      state: "active",
+      pinnedFirst: true,
+      limit: 20,
+      offset: 0,
+      kind: "pdf",
+      favorite: true,
+      sensitivity: "sensitive",
+    });
+    expect(fileListParams(DEFAULT_FILE_QUERY)).not.toHaveProperty("kind");
+    expect(fileListParams(DEFAULT_FILE_QUERY)).not.toHaveProperty("favorite");
+    expect(fileListParams(DEFAULT_FILE_QUERY)).not.toHaveProperty("sensitivity");
+  });
+
+  it("round-trips the filters through the page parameters and says when any narrows the list", () => {
+    const query = {
+      ...DEFAULT_FILE_QUERY,
+      kind: "office" as const,
+      favorite: true,
+      sensitivity: "normal" as const,
+    };
+    expect(fileQueryToParams(query)).toEqual({ qkind: "office", qfav: "1", qsens: "normal" });
+    expect(parseFileQuery((name) => fileQueryToParams(query)[name])).toEqual(query);
+    expect(fileLink("nexus-nav:", query, { tab: "trash" })).toBe(
+      "nexus-nav:/files?tab=trash&qkind=office&qfav=1&qsens=normal",
+    );
+    expect(fileFilterActive(DEFAULT_FILE_QUERY)).toBe(false);
+    const paged: FileQuery = { ...DEFAULT_FILE_QUERY, size: 100, page: 4, tab: "trash" };
+    expect(fileFilterActive(paged)).toBe(false);
+    for (const change of [
+      { name: "a" },
+      { kind: "pdf" },
+      { favorite: true },
+      { sensitivity: "normal" },
+    ] as const) {
+      expect(fileFilterActive({ ...DEFAULT_FILE_QUERY, ...change })).toBe(true);
+    }
   });
 
   it("reads a query from untrusted text, keeps only non-default parts and links pages", () => {
@@ -103,7 +154,9 @@ describe("vault ui helpers", () => {
     });
     expect(read({ qname: "x".repeat(500) }).name).toHaveLength(200);
     expect(fileQueryToParams(DEFAULT_FILE_QUERY)).toEqual({});
-    expect(fileQueryToParams({ tab: "trash", name: "n", page: 2, size: 100 })).toEqual({
+    expect(
+      fileQueryToParams({ ...DEFAULT_FILE_QUERY, tab: "trash", name: "n", page: 2, size: 100 }),
+    ).toEqual({
       tab: "trash",
       qname: "n",
       page: "2",
@@ -256,6 +309,13 @@ describe("renderFiles", () => {
       { lang: "en" },
     );
     expect(none).toContain("No files match.");
+    // A kind, favorite or sensitivity filter that matches nothing says so as well.
+    const filtered = renderFiles(
+      { files: [], total: 0, tab: "all", favorite: true, stats },
+      { lang: "en" },
+    );
+    expect(filtered).toContain("No files match.");
+    expect(filtered).not.toContain("<table");
     expect(none).not.toContain("<table");
   });
 });

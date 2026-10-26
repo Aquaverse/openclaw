@@ -9,6 +9,7 @@
 //   * files never own bytes: `vault_versions` rows are the reference count, objects are reclaimed only when no version row is
 //     left (reclaim and hard purge live in the second half of this file).
 import { sha256Hex } from "../canonical.js";
+import { kindCondition } from "../vault-kind.js";
 import type { ClaimLedger } from "./claim-ledger.js";
 import type { TransactionRunner } from "./kernel.js";
 import type { Principal } from "./types.js";
@@ -474,12 +475,23 @@ export function createVaultLedger(
     if (input.includeSensitive === false) {
       where.push("f.sensitivity = 'normal'");
     }
+    if (input.sensitivity !== undefined) {
+      where.push("f.sensitivity = ?");
+      params.push(input.sensitivity);
+    }
+    if (input.kind !== undefined) {
+      where.push(kindCondition(input.kind, "o.mime"));
+    }
+    if (input.favoriteOnly === true) {
+      where.push("u.favorite = 1");
+    }
     const limit = Math.min(Math.max(Math.floor(input.limit ?? 50), 1), MAX_VAULT_LIST_LIMIT);
     const offset = Math.max(Math.floor(input.offset ?? 0), 0);
     const total = Number(
       (
         one(
-          `SELECT COUNT(*) AS c FROM vault_files f WHERE ${where.join(" AND ")}`,
+          "SELECT COUNT(*) AS c FROM vault_files f JOIN vault_objects o ON o.owner_id = f.owner_id AND o.id = f.object_id " +
+            `LEFT JOIN vault_user_state u ON u.owner_id = f.owner_id AND u.file_id = f.id WHERE ${where.join(" AND ")}`,
           ...params,
         ) as Row
       ).c,

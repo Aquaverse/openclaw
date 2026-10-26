@@ -1,7 +1,13 @@
 // Pure helpers for the console's "Files" tab, shared by the page renderer (src/ui-render.ts) and the browser module
 // (browser/). No node or DOM imports: this file is bundled into the Control UI module as well.
-import type { VaultFileRecord, VaultFileState, VaultStatsResult } from "./store/vault-types.js";
+import type {
+  VaultFileRecord,
+  VaultFileState,
+  VaultSensitivity,
+  VaultStatsResult,
+} from "./store/vault-types.js";
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from "./task-query.js";
+import { parseFileKind, type FileKind } from "./vault-kind.js";
 
 /** An upload carries the file as base64 in one RPC frame; the gateway frame limit is 25 MiB, so stay well under it. */
 export const VAULT_UPLOAD_MAX_BYTES = 16 * 1024 * 1024;
@@ -16,17 +22,49 @@ export function parseFileTab(raw: string | null | undefined): FileTab {
   return (FILE_TABS as readonly string[]).includes(raw ?? "") ? (raw as FileTab) : DEFAULT_FILE_TAB;
 }
 
-/** What the Files tab shows: one tab, an optional file-name filter, and a page of the result. */
-export type FileQuery = { tab: FileTab; name: string; page: number; size: number };
+/**
+ * What the Files tab shows: one tab, optional filters (file name, kind, favorites only, sensitivity) and a page of the
+ * result. `kind` and `sensitivity` are "" for "any".
+ */
+export type FileQuery = {
+  tab: FileTab;
+  name: string;
+  kind: FileKind | "";
+  favorite: boolean;
+  sensitivity: VaultSensitivity | "";
+  page: number;
+  size: number;
+};
 export const DEFAULT_FILE_QUERY: FileQuery = {
   tab: DEFAULT_FILE_TAB,
   name: "",
+  kind: "",
+  favorite: false,
+  sensitivity: "",
   page: 1,
   size: DEFAULT_PAGE_SIZE,
 };
 
 /** Host page parameters (and link query keys) of a file query. */
-export const FILE_PARAMS = { tab: "tab", name: "qname", page: "page", size: "size" } as const;
+export const FILE_PARAMS = {
+  tab: "tab",
+  name: "qname",
+  kind: "qkind",
+  favorite: "qfav",
+  sensitivity: "qsens",
+  page: "page",
+  size: "size",
+} as const;
+
+/** The parts a search changes (everything but the tab and the page). */
+export type FileFilters = Pick<FileQuery, "name" | "kind" | "favorite" | "sensitivity" | "size">;
+
+/** Whether any filter narrows the list (the page size and the tab do not). */
+export function fileFilterActive(
+  query: Pick<FileQuery, "name" | "kind" | "favorite" | "sensitivity">,
+) {
+  return query.name !== "" || query.kind !== "" || query.favorite || query.sensitivity !== "";
+}
 
 function cleanName(raw: string | undefined): string {
   let out = "";
@@ -44,6 +82,11 @@ export function parseFileQuery(read: (name: string) => string | undefined): File
   return {
     tab: parseFileTab(read(FILE_PARAMS.tab)),
     name: cleanName(read(FILE_PARAMS.name)),
+    kind: parseFileKind(read(FILE_PARAMS.kind)) ?? "",
+    favorite: read(FILE_PARAMS.favorite) === "1",
+    sensitivity: ((raw) => (raw === "sensitive" || raw === "normal" ? raw : ""))(
+      read(FILE_PARAMS.sensitivity),
+    ),
     page: Number.isInteger(page) && page >= 1 ? Math.min(page, MAX_PAGE) : 1,
     size: (PAGE_SIZES as readonly number[]).includes(size) ? size : DEFAULT_PAGE_SIZE,
   };
@@ -57,6 +100,15 @@ export function fileQueryToParams(query: FileQuery): Record<string, string> {
   }
   if (query.name !== "") {
     out[FILE_PARAMS.name] = query.name;
+  }
+  if (query.kind !== "") {
+    out[FILE_PARAMS.kind] = query.kind;
+  }
+  if (query.favorite) {
+    out[FILE_PARAMS.favorite] = "1";
+  }
+  if (query.sensitivity !== "") {
+    out[FILE_PARAMS.sensitivity] = query.sensitivity;
   }
   if (query.page > 1) {
     out[FILE_PARAMS.page] = String(query.page);
@@ -80,6 +132,9 @@ export function fileListParams(query: FileQuery): Record<string, unknown> {
     offset: (query.page - 1) * query.size,
     pinnedFirst: true,
     ...(query.name === "" ? {} : { nameContains: query.name }),
+    ...(query.kind === "" ? {} : { kind: query.kind }),
+    ...(query.favorite ? { favorite: true } : {}),
+    ...(query.sensitivity === "" ? {} : { sensitivity: query.sensitivity }),
   };
   switch (query.tab) {
     case "inbox":

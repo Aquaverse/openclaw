@@ -442,6 +442,26 @@ describe("files tab", () => {
     expect(f.opened.at(-1)?.params).toEqual({ view: "files", qname: "tax", page: "3", size: "50" });
   });
 
+  it("sends the filters from the route to the list and shows them in the controls", async () => {
+    const f = fixture(
+      {},
+      { view: "files", qkind: "image", qfav: "1", qsens: "normal", qname: "x" },
+      true,
+      "en",
+    );
+    await flush();
+    const list = f.calls.find((call) => call.method === "nexus.vault.list");
+    expect(list?.params).toMatchObject({
+      nameContains: "x",
+      kind: "image",
+      favorite: true,
+      sensitivity: "normal",
+    });
+    const value = (field: string) =>
+      (f.container.querySelector(`.nx-filebar select[name="${field}"]`) as HTMLSelectElement).value;
+    expect([value("qkind"), value("qfav"), value("qsens")]).toEqual(["image", "1", "normal"]);
+  });
+
   it("lands on the last page that still has rows when the requested page is gone", async () => {
     const f = fixture(
       {
@@ -473,6 +493,27 @@ describe("files tab", () => {
     (slot.querySelector("select") as HTMLSelectElement).value = "100";
     slot.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
     expect(f.opened.at(-1)?.params).toEqual({ view: "files", qname: "invoice", size: "100" });
+    // The kind, favorite and sensitivity filters travel with the name and the page size.
+    const choose = (field: string, value: string) => {
+      (slot.querySelector(`select[name="${field}"]`) as HTMLSelectElement).value = value;
+    };
+    choose("qkind", "pdf");
+    choose("qfav", "1");
+    choose("qsens", "sensitive");
+    slot.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+    expect(f.opened.at(-1)?.params).toEqual({
+      view: "files",
+      qname: "invoice",
+      qkind: "pdf",
+      qfav: "1",
+      qsens: "sensitive",
+      size: "100",
+    });
+    expect(
+      [...(slot.querySelector('select[name="qkind"]') as HTMLSelectElement).options].map(
+        (o) => o.text,
+      ),
+    ).toEqual(["All types", "Text", "Images", "PDF", "Office documents", "Other"]);
     // Reset clears the filter, keeps the tab.
     (
       Array.from(slot.querySelectorAll("button")).find(

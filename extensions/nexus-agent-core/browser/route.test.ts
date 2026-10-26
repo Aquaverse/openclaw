@@ -40,7 +40,16 @@ describe("nexus route", () => {
       { view: "receipts" },
       FILES_HOME,
       { ...FILES_HOME, tab: "trash" },
-      { view: "files", tab: "inbox", name: "合同 2026", page: 3, size: 50 },
+      {
+        view: "files",
+        tab: "inbox",
+        name: "合同 2026",
+        kind: "pdf",
+        favorite: true,
+        sensitivity: "normal",
+        page: 3,
+        size: 50,
+      },
     ] as const) {
       expect(parseRoute(routeParams(route))).toEqual(route);
     }
@@ -78,13 +87,21 @@ describe("nexus route", () => {
     expect(routeFromHref(`${NAV_BASE}/files`)).toEqual(FILES_HOME);
     expect(routeFromHref(`${NAV_BASE}/files?tab=inbox`)).toEqual({ ...FILES_HOME, tab: "inbox" });
     expect(routeFromHref(`${NAV_BASE}/files?tab=../x`)).toEqual(FILES_HOME);
-    expect(routeFromHref(`${NAV_BASE}/files?tab=vault&qname=a%20b&page=2&size=50`)).toEqual({
+    expect(
+      routeFromHref(
+        `${NAV_BASE}/files?tab=vault&qname=a%20b&qkind=image&qfav=1&qsens=sensitive&page=2&size=50`,
+      ),
+    ).toEqual({
       view: "files",
       tab: "vault",
       name: "a b",
+      kind: "image",
+      favorite: true,
+      sensitivity: "sensitive",
       page: 2,
       size: 50,
     });
+    expect(routeFromHref(`${NAV_BASE}/files?qkind=exe&qfav=yes&qsens=all`)).toEqual(FILES_HOME);
     expect(routeFromHref(`${NAV_BASE}/files/F1`)).toBeUndefined();
     expect(routeFromHref(`${NAV_BASE}/tasks/a/b`)).toBeUndefined();
     expect(routeFromHref(`${NAV_BASE}/tasks/a b`)).toBeUndefined();

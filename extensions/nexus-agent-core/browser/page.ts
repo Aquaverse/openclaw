@@ -27,12 +27,19 @@ const CHANGE_EVENTS = [
 ];
 const REFRESH_DEBOUNCE_MS = 400;
 
+type FilesRoute = Extract<NexusRoute, { view: "files" }>;
+/** The Files tab link with nothing chosen: the only link that is replaced by the remembered query. */
+const isPlainFiles = (route: FilesRoute) =>
+  JSON.stringify(routeParams(route)) === JSON.stringify(routeParams(FILES_HOME));
+
 const target = (route: NexusRoute) => ({ id: NEXUS_PAGE_ID, params: routeParams(route) });
 
 export function createNexusPage(): ControlUiView {
   // The last list filter, kept for as long as the module is loaded: a task detail, the preference tab or a reload of the
   // page hands the list back exactly as the user left it. Only "reset" and a new search change it.
   let remembered: TaskFilter = EMPTY_FILTER;
+  // The same for the Files tab: tab, name filter, page and page size come back after a visit to another tab.
+  let rememberedFiles: FilesRoute = FILES_HOME;
   return (container, initial) => {
     let context = initial;
     let features: NexusFeatures = { preferences: false, files: false };
@@ -97,13 +104,21 @@ export function createNexusPage(): ControlUiView {
     container.replaceChildren(root);
 
     // Links back to the plain list (the tab, "back to list") come from another view: give them the remembered filter.
-    // From the list itself the same link still means "start over".
-    const resolve = (route: NexusRoute): NexusRoute =>
-      route.view === "tasks" &&
-      parseRoute(context.props).view !== "tasks" &&
-      Object.keys(routeParams(route)).length === 0
-        ? { view: "tasks", filter: remembered }
-        : route;
+    // From the list itself the same link still means "start over". The Files tab works the same way.
+    const resolve = (route: NexusRoute): NexusRoute => {
+      const here = parseRoute(context.props).view;
+      if (
+        route.view === "tasks" &&
+        here !== "tasks" &&
+        Object.keys(routeParams(route)).length === 0
+      ) {
+        return { view: "tasks", filter: remembered };
+      }
+      if (route.view === "files" && here !== "files" && isPlainFiles(route)) {
+        return rememberedFiles;
+      }
+      return route;
+    };
     const hrefOf = (route: NexusRoute) => context.host.navigation.pageHref(target(resolve(route)));
     const open = (route: NexusRoute) => context.host.navigation.openPage(target(resolve(route)));
 
@@ -188,7 +203,7 @@ export function createNexusPage(): ControlUiView {
     };
 
     // Puts the file search form into the slot of the files view just mounted. Its values follow the route only when the
-    // name or page size in the route changes, so a refresh never wipes what is being typed.
+    // filters or page size in the route change, so a refresh never wipes what is being typed.
     const placeFileBar = (route: NexusRoute) => {
       const slot = route.view === "files" ? main.querySelector(".nx-filebar-slot") : null;
       if (route.view !== "files" || !slot) {
@@ -197,7 +212,13 @@ export function createNexusPage(): ControlUiView {
         return;
       }
       slot.append(fileBar.element);
-      const key = JSON.stringify([route.name, route.size]);
+      const key = JSON.stringify([
+        route.name,
+        route.kind,
+        route.favorite,
+        route.sensitivity,
+        route.size,
+      ]);
       if (key !== fileBarKey) {
         fileBarKey = key;
         fileBar.set(route);
@@ -215,6 +236,9 @@ export function createNexusPage(): ControlUiView {
       fileBar.setLang(lang);
       if (route.view === "tasks") {
         remembered = route.filter;
+      }
+      if (route.view === "files") {
+        rememberedFiles = route;
       }
       renderNav(route);
       syncBar(route);

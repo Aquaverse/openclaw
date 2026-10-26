@@ -84,21 +84,27 @@ describe("vault kernel: write protocol, dedup and lifecycle", () => {
     }
     return plan;
   };
-  const commit = (principal: Principal, id: string, file = draft()) =>
+  const commit = (principal: Principal, id: string, file = draft(), mime = "text/plain") =>
     k.vaultCommit({
       principal,
       reservationId: id,
       now: now(),
-      mime: "text/plain",
+      mime,
       file,
       inboxRetentionMs: 5_000,
     });
   /** R, W, P, C for one file of the given content. */
-  const ingest = (principal: Principal, hash: string, file = draft(), size = 10) => {
+  const ingest = (
+    principal: Principal,
+    hash: string,
+    file = draft(),
+    size = 10,
+    mime = "text/plain",
+  ) => {
     const r = reserve(principal, size);
     assert.equal(write(principal, r.id, hash, size).outcome, "written");
     promote(principal, r.id);
-    const out = commit(principal, r.id, file);
+    const out = commit(principal, r.id, file, mime);
     assert.equal(out.outcome, "committed");
     if (out.outcome !== "committed") {
       throw new Error("unreachable");
@@ -570,6 +576,65 @@ describe("vault kernel: write protocol, dedup and lifecycle", () => {
       false,
     );
     assert.equal(k.vaultList({ principal: B, folder: "../bad" }).total, 0);
+  });
+
+  it("list: filters by kind, favorites and sensitivity, with a total that follows the filter", () => {
+    const K: Principal = { ownerId: "owner-kind" };
+    // hashOf looks at the first letter only: every file needs its own.
+    const made = (hash: string, name: string, mime: string) =>
+      ingest(K, hashOf(hash), draft({ displayName: name }), 10, mime).fileId;
+    const note = made("q", "note.md", "text/markdown");
+    const data = made("r", "data.json", "application/json");
+    const photo = made("s", "photo.png", "image/png");
+    const scan = made("t", "scan.pdf", "application/pdf");
+    const sheet = made(
+      "k5",
+      "sheet.xlsx",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    const bundle = made("v", "bundle.zip", "application/zip");
+    const blob = made("w", "blob.bin", "application/octet-stream");
+    const ids = (input: Omit<Parameters<typeof k.vaultList>[0], "principal">) =>
+      k
+        .vaultList({ principal: K, ...input })
+        .items.map((f) => f.id)
+        .toSorted();
+    assert.deepEqual(ids({ kind: "text" }), [note, data].toSorted());
+    assert.deepEqual(ids({ kind: "image" }), [photo]);
+    assert.deepEqual(ids({ kind: "pdf" }), [scan]);
+    assert.deepEqual(ids({ kind: "office" }), [sheet]);
+    assert.deepEqual(ids({ kind: "other" }), [bundle, blob].toSorted());
+    assert.equal(k.vaultList({ principal: K, kind: "other" }).total, 2);
+    assert.equal(k.vaultList({ principal: K }).total, 7);
+
+    k.vaultPin({ principal: K, fileId: scan, now: now(), favorite: true });
+    k.vaultPin({ principal: K, fileId: note, now: now(), favorite: true });
+    k.vaultPin({ principal: K, fileId: note, now: now(), favorite: false });
+    assert.deepEqual(ids({ favoriteOnly: true }), [scan]);
+    assert.equal(k.vaultList({ principal: K, favoriteOnly: true }).total, 1);
+    assert.deepEqual(ids({ favoriteOnly: true, kind: "image" }), []);
+
+    k.vaultSetSensitivity({
+      principal: K,
+      fileId: photo,
+      now: now(),
+      sensitivity: "sensitive",
+      by: "user",
+    });
+    assert.deepEqual(ids({ sensitivity: "sensitive" }), [photo]);
+    assert.equal(k.vaultList({ principal: K, sensitivity: "normal" }).total, 6);
+    assert.deepEqual(ids({ sensitivity: "sensitive", kind: "pdf" }), []);
+    // The three filters and the name filter combine, and another owner's files never leak in.
+    assert.deepEqual(
+      ids({ sensitivity: "normal", favoriteOnly: true, kind: "pdf", nameContains: "SCAN" }),
+      [scan],
+    );
+    assert.equal(
+      k
+        .vaultList({ principal: A, kind: "pdf", favoriteOnly: true })
+        .items.some((f) => f.id === scan),
+      false,
+    );
   });
 
   it("readRef: only active files are readable (trashed needs allowTrashed); touch stamps last_opened_at", () => {
