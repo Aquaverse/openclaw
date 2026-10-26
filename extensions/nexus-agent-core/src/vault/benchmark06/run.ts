@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- TODO: split this oversized file (one kernel/service unit per file for now). */
 // Benchmark 06 "File processing", first version (Vault design 10): runs the fixed sample set through the real vault stack
 // (service, SQLite ledger, FTS index, Agent operations) and scores four things:
 //   extraction   - the text that comes back for each sample is exactly what was decided by hand, unsupported files are refused
@@ -580,7 +581,7 @@ async function run(dir: string): Promise<Scorecard> {
     "R01 after a replace the old words no longer match and the new words do",
     swapped.outcome === "ok" &&
       hits(A, "quokkaalpha").length === 0 &&
-      hits(A, "quokkabeta").join() === "weekly plan.txt",
+      hits(A, "quokkabeta").join(",") === "weekly plan.txt",
     JSON.stringify({
       swapped: swapped.outcome,
       old: hits(A, "quokkaalpha"),
@@ -619,7 +620,7 @@ async function run(dir: string): Promise<Scorecard> {
     "search",
     "R04 restoring version 1 brings its words back into the index and removes the others",
     restored.outcome === "restored" &&
-      hits(A, "quokkaalpha").join() === "weekly plan.txt" &&
+      hits(A, "quokkaalpha").join(",") === "weekly plan.txt" &&
       hits(A, "quokkabeta").length === 0,
     JSON.stringify({
       restored: restored.outcome,
@@ -673,14 +674,14 @@ async function run(dir: string): Promise<Scorecard> {
       foreignRestore: foreignRestore.outcome,
     }),
   );
-  const secret = await mustIngest(A, "Passport copy.txt", `number ${SECRETS.replacedBefore}`);
+  const passportCopy = await mustIngest(A, "Passport copy.txt", `number ${SECRETS.replacedBefore}`);
   const secretSwap = await service.replace(A, {
-    fileId: secret.id,
+    fileId: passportCopy.id,
     bytes: enc(`number ${SECRETS.replacedAfter}`),
     importedBy: "operator",
   });
   await service.extract(A);
-  const secretBack = await service.restoreVersion(A, { fileId: secret.id, seq: 1 });
+  const secretBack = await service.restoreVersion(A, { fileId: passportCopy.id, seq: 1 });
   await service.extract(A);
   const secretNow = (await agentSearchFiles(store, A, { name: "Passport copy" })) as {
     total: number;
@@ -696,7 +697,7 @@ async function run(dir: string): Promise<Scorecard> {
       secretNow.total === 0 &&
       count(
         "SELECT COUNT(*) AS c FROM vault_text WHERE object_id IN (SELECT object_id FROM vault_versions WHERE file_id = ?)",
-        secret.id,
+        passportCopy.id,
       ) === 0,
     JSON.stringify({
       hitsBefore: hits(A, SECRETS.replacedBefore),
@@ -715,7 +716,7 @@ async function run(dir: string): Promise<Scorecard> {
     scriptCanary,
     INJECT,
   ];
-  const forbiddenInSearchResults = [passport.id, second.id, secret.id];
+  const forbiddenInSearchResults = [passport.id, second.id, passportCopy.id];
   const searchText = agentSeen.join("\n");
   const promptText = refsSeen.join("\n");
   const leaks = [
