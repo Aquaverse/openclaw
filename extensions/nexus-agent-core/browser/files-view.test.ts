@@ -268,6 +268,19 @@ describe("files tab", () => {
     expect(dialog.textContent).toContain("sha256:abc");
   });
 
+  it("closes a detail dialog from the close button in its header", async () => {
+    const f = fixture({}, props, false);
+    await flush();
+    click(f.container, 'button[data-nx-act="file-open"]');
+    await flush();
+    const head = f.dialog().querySelector(".nx-head") as HTMLElement;
+    expect(head.querySelector(".nx-title")).not.toBeNull();
+    const closeButton = head.querySelector("button.nx-x") as HTMLButtonElement;
+    expect(closeButton.getAttribute("aria-label")).toBe("关闭");
+    closeButton.click();
+    expect(f.container.querySelector(".nx-dialog")).toBeNull();
+  });
+
   it("shows the text state in the list and offers content search to a read-only connection too", async () => {
     const ready = {
       state: "ready",

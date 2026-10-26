@@ -31,6 +31,11 @@ export const NEXUS_CSS = `
 .nexus-page .nx-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
 .nexus-page .nx-dialog{background:Canvas;color:CanvasText;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:10px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:16px 20px;box-shadow:0 12px 40px rgba(0,0,0,.35)}
 .nexus-page .nx-title{font-size:16px;margin:0 0 8px;opacity:1}
+.nexus-page .nx-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;position:sticky;top:-16px;z-index:2;background:Canvas;margin:-16px -20px 0;padding:16px 20px 8px}
+.nexus-page .nx-head .nx-title{margin:0;min-width:0;word-break:break-word}
+.nexus-page .nx-x{flex:0 0 auto;font:inherit;font-size:22px;line-height:1;color:inherit;background:none;border:none;border-radius:6px;padding:0 6px;cursor:pointer;opacity:.7}
+.nexus-page .nx-x:hover{opacity:1}
+.nexus-page .nx-x:disabled{opacity:.35;cursor:not-allowed}
 .nexus-page .nx-row{display:flex;gap:12px;align-items:flex-start;margin:6px 0}
 .nexus-page .nx-label{flex:0 0 88px;opacity:.65}
 .nexus-page .nx-value{flex:1;min-width:0;word-break:break-word}
@@ -51,5 +56,5 @@ export const NEXUS_CSS = `
 .nexus-page .nx-tabs{display:flex;flex-wrap:wrap;gap:4px 16px;margin:8px 0}
 .nexus-page .nx-tabs a{color:inherit;opacity:.65;text-decoration:none}
 .nexus-page .nx-tabs a.on{opacity:1;font-weight:600}
-.nexus-page .nx-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.nexus-page .nx-footer{display:flex;justify-content:flex-end;gap:8px;position:sticky;bottom:-16px;z-index:2;background:Canvas;margin:12px -20px -16px;padding:8px 20px 16px}
 `;

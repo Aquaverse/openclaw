@@ -43,7 +43,17 @@ export function openDialog(options: DialogOptions): () => void {
   error.hidden = true;
   const footer = document.createElement("div");
   footer.className = "nx-footer";
-  dialog.append(title, body, error, footer);
+  // The header and footer stay in view while a long body scrolls, so the dialog can always be closed.
+  const head = document.createElement("div");
+  head.className = "nx-head";
+  const closeX = document.createElement("button");
+  closeX.type = "button";
+  closeX.className = "nx-x";
+  closeX.textContent = "\u00d7";
+  closeX.title = options.cancelLabel;
+  closeX.setAttribute("aria-label", options.cancelLabel);
+  head.append(title, closeX);
+  dialog.append(head, body, error, footer);
   overlay.append(dialog);
 
   let busy = false;
@@ -54,6 +64,7 @@ export function openDialog(options: DialogOptions): () => void {
       button.disabled = busy || (action.enabled ? !action.enabled() : false);
     }
     cancel.disabled = busy;
+    closeX.disabled = busy;
   };
   const close = () => {
     if (closed) {
@@ -70,6 +81,7 @@ export function openDialog(options: DialogOptions): () => void {
   cancel.className = "nx-btn";
   cancel.textContent = options.cancelLabel;
   cancel.addEventListener("click", close);
+  closeX.addEventListener("click", close);
   footer.append(cancel);
   for (const action of options.actions) {
     const button = document.createElement("button");
