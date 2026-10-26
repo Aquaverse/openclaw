@@ -11,13 +11,19 @@ import {
   isValidPreferenceScope,
   MAX_PREFERENCE_VALUE_BYTES,
 } from "../src/store/preference-types.js";
+import type { VaultExtractionStatus } from "../src/store/vault-text-types.js";
 import type { VaultFileRecord } from "../src/store/vault-types.js";
 import type { WatchRecord } from "../src/store/watch-types.js";
 import { clip, fmtTime } from "../src/ui-render.js";
 import type { NexusRequest } from "./data.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
 import { evidenceViewDialog } from "./evidence-view.ts";
-import { fileDetailDialog, fileImportDialog, fileUploadDialog } from "./files-view.ts";
+import {
+  fileDetailDialog,
+  fileImportDialog,
+  fileSearchDialog,
+  fileUploadDialog,
+} from "./files-view.ts";
 import type { NexusAction } from "./sanitize.ts";
 
 export type NexusModel = {
@@ -27,6 +33,8 @@ export type NexusModel = {
   evidence: readonly EvidenceBlobView[];
   /** The files the Files tab rendered; absent on every other tab. */
   files?: readonly VaultFileRecord[];
+  /** Text extraction state per file id, as the same RPC reply reported it. */
+  extraction?: Readonly<Record<string, VaultExtractionStatus>>;
 };
 
 export const EMPTY_MODEL: NexusModel = {
@@ -446,6 +454,8 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
       return fileUploadDialog(ctx);
     case "file-import":
       return fileImportDialog(ctx);
+    case "file-search":
+      return fileSearchDialog(ctx);
     case "file-open":
       return fileDetailDialog(ctx, action.id);
     case "decision":

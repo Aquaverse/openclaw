@@ -147,6 +147,16 @@ const STORE_OPERATIONS: Record<StoreOperationName, true> = {
   vaultPurgeReceipts: true,
   vaultPurgeListRuns: true,
   vaultCompactReceipts: true,
+  vaultJobSweep: true,
+  vaultJobClaim: true,
+  vaultJobComplete: true,
+  vaultJobFail: true,
+  vaultJobRetry: true,
+  vaultJobList: true,
+  vaultExtractionStatus: true,
+  vaultTextRead: true,
+  vaultTextSearch: true,
+  vaultTextStats: true,
 };
 
 export type StoreHost = {

@@ -226,6 +226,9 @@ node openclaw.mjs --dev gateway call nexus.vault.importPath --params '{"path":"~
 # 列出、看统计
 node openclaw.mjs --dev gateway call nexus.vault.list  --params '{}'
 node openclaw.mjs --dev gateway call nexus.vault.stats --params '{}'
+
+# 按内容搜索（文本类文件上传后几秒内会自动提取）
+node openclaw.mjs --dev gateway call nexus.vault.search --params '{"query":"hello"}'
 ```
 
 **重置开发环境**：停掉网关，删除 `~/.openclaw-dev` 即可（会清空开发环境里所有 Nexus 数据）。`pnpm gateway:dev:reset` 是宿主自带的重置启动命令，行为见其本身的说明。
@@ -285,6 +288,10 @@ node openclaw.mjs --dev gateway call nexus.vault.stats --params '{}'
 | `vaultReservationRetentionDays`      | 7          | 已完成的写入预约保留多久用于排查                                  |
 | `vaultTombstoneRetentionDays`        | 7          | 已删除对象的墓碑保留多久                                          |
 | `vaultPurgeReceiptHashRetentionDays` | 90         | 清除回执里的内容哈希保留多久，之后只留计数和时间                  |
+| `vaultExtractEnabled`                | true       | 文本类文件自动提取文字、支持按内容搜索（敏感文件永不提取）        |
+| `vaultExtractMaxBytes`               | 5 MB       | 超过此大小的文件不提取，标为“不支持”                              |
+| `vaultExtractMaxChars`               | 2,000,000  | 提取出的文字上限，超出部分截断并在控制台标注                      |
+| `vaultHttpUploadEnabled`             | true       | 开放可续传的分块上传 HTTP 入口，给大文件和手机使用                |
 
 **其他**
 
@@ -325,8 +332,8 @@ node openclaw.mjs --dev gateway call nexus.vault.stats --params '{}'
 | `nexus_claim_verify`                                                         | 只读：看某个声明（或整个事项）的证据到底建立了什么，以及完成条件是否满足                                                           |
 | `nexus_preference_get` / `nexus_preference_set` / `nexus_preference_confirm` | 读取、记录偏好；`confirm` 是请用户确认某个值为“明确表达的偏好”，用户在决策页批准之前不算数                                         |
 | `nexus_watch_create` / `nexus_watch_cancel` / `nexus_watch_report`           | 创建、取消回检；`report` 只能在回检回合里使用，汇报“已满足 / 还没有 / 无法检查”                                                    |
-| `nexus_file_search`                                                          | 按文件名、文件夹找文件，只返回元数据，永远不返回敏感文件                                                                           |
-| `nexus_file_get`                                                             | 读一个文件的元数据（不含内容）                                                                                                     |
+| `nexus_file_search`                                                          | 按文件名、文件夹找文件；`contentContains` 可按内容找，但只返回命中的文件元数据，不返回文字片段，永远不返回敏感文件                 |
+| `nexus_file_get`                                                             | 读一个文件的元数据（不含内容，只告诉你“能否按内容搜索”和提取状态）                                                                 |
 | `nexus_file_attach`                                                          | 把文件柜里的文件挂到声明上作为证据（需要证据原文已开启）                                                                           |
 
 `nexus_spike_probe` 是 Stage 0 的探针工具，只在 `spikesEnabled` 时存在，不放进 `tools.alsoAllow`。
@@ -335,15 +342,15 @@ node openclaw.mjs --dev gateway call nexus.vault.stats --params '{}'
 
 控制台和探针脚本通过这些方法读写数据。读操作要求 `operator.read`，写操作 `operator.write`，危险操作（永久清除等）`operator.admin`。
 
-| 命名空间                                                   | 方法                                                                                                                                                                         |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `nexus.task.*`                                             | `list` `get` `abort` `delete` `purge` `purgeStatus` `purgeReceipts`                                                                                                          |
-| `nexus.decision.*` / `nexus.execution.*` / `nexus.grant.*` | `decision.list` `get` `resolve`；`execution.list` `resolve` `reconcile`；`grant.list` `revoke`                                                                               |
-| `nexus.claim.*`                                            | `list` `get` `retract` `unlinkEvidence` `verifyChain`                                                                                                                        |
-| `nexus.evidence.*`                                         | `list` `upload` `link` `handle` `read` `delete` `stats` `maintain` `reconcile`                                                                                               |
-| `nexus.preference.*`                                       | `list` `get` `set` `delete` `history` `purge` `purgeReceipts`                                                                                                                |
-| `nexus.watch.*`                                            | `list` `get` `cancel`                                                                                                                                                        |
-| `nexus.vault.*`                                            | `list` `get` `stats` `read` `upload` `importPath` `keep` `discard` `trash` `restore` `rename` `move` `pin` `setSensitivity` `purge` `purgeStatus` `purgeReceipts` `maintain` |
+| 命名空间                                                   | 方法                                                                                                                                                                                                                         |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nexus.task.*`                                             | `list` `get` `abort` `delete` `purge` `purgeStatus` `purgeReceipts`                                                                                                                                                          |
+| `nexus.decision.*` / `nexus.execution.*` / `nexus.grant.*` | `decision.list` `get` `resolve`；`execution.list` `resolve` `reconcile`；`grant.list` `revoke`                                                                                                                               |
+| `nexus.claim.*`                                            | `list` `get` `retract` `unlinkEvidence` `verifyChain`                                                                                                                                                                        |
+| `nexus.evidence.*`                                         | `list` `upload` `link` `handle` `read` `delete` `stats` `maintain` `reconcile`                                                                                                                                               |
+| `nexus.preference.*`                                       | `list` `get` `set` `delete` `history` `purge` `purgeReceipts`                                                                                                                                                                |
+| `nexus.watch.*`                                            | `list` `get` `cancel`                                                                                                                                                                                                        |
+| `nexus.vault.*`                                            | `list` `get` `stats` `read` `upload` `importPath` `keep` `discard` `trash` `restore` `rename` `move` `pin` `setSensitivity` `purge` `purgeStatus` `purgeReceipts` `maintain` `search` `text` `jobs` `extract` `retryExtract` |
 
 变化会以事件广播给控制台（`decision_changed`、`claim_changed`、`evidence_changed`、`preference_changed`、`watch_changed`、`vault_changed`、`task_purged` 等），事件只带 id 和摘要，不带文件名等内容，客户端收到后重新读取。
 
@@ -380,16 +387,30 @@ Nexus 页面是一个 Control UI 模块（源码在 `browser/`），标签包括
 
 **Agent 能做什么**
 
-只能按名称找（`nexus_file_search`）、读元数据（`nexus_file_get`）、挂为证据（`nexus_file_attach`）。不能新建、改名、移动、删除，看不到敏感文件，也读不到文件内容。
+可以按名称找，也可以按内容找（`nexus_file_search` 的 `contentContains`），但只会得到“哪些文件命中”，**读不到文字本身**（`nexus_file_get` 只返回元数据）；还可以挂为证据（`nexus_file_attach`）。不能新建、改名、移动、删除，看不到敏感文件。
+
+**按内容搜索（F2）**
+
+- 文本类文件（txt、md、csv、json、html、代码等）上传后自动提取文字，不需要联网、不依赖外部程序；常见中文编码（UTF-8、UTF-16、GB18030）能识别。
+- 文件列表里有“文字”一列：可搜索 / 处理中 / 提取失败 / 不支持 / 已跳过（敏感）。提取失败可点“重试提取”。
+- 点“搜索内容”输入关键词，只在已提取的文件里找；结果会提示“另有 N 个文件暂时不能按内容搜索”，所以“没找到”不等于“没有”。
+- 文件被标为敏感：已提取的文字立即删除，之后不再提取；取消敏感后自动重新提取。
+- 文字只在控制台里给你自己看，Agent 看不到。
+
+**在对话里引用文件、手机上传（F3）**
+
+- 每个非敏感文件在详情里有一个引用码，形如 `#VF0123456789`。在聊天里写上它，Agent 就知道你指的是哪个文件（只告诉它文件名、类型、大小等元数据；敏感、已删除或不存在的文件一律回复“不可用”）。一条消息最多识别 5 个引用码。
+- 大文件和手机可以走网关的分块上传入口 `/plugins/nexus-agent-core/vault-upload`：先建会话，再按偏移分块上传（可断点续传），最后确认；用网关令牌认证，需要 `operator.write` 权限。同时最多 4 个未完成的上传，24 小时内要传完。不涉及账号系统或 Relay。
 
 **目前的限制**
 
-- 没有按文件内容的检索、没有 PDF 和图片提取（计划在后续阶段）；
+- 只提取文本类文件，没有 PDF、图片、Office 文档的文字提取（计划在后续阶段）；内容搜索是精确子串匹配，不是语义搜索；
 - 控制台列表最多 200 项，没有分页和按名称搜索，没有图片 / PDF 预览，文本类文件显示前一段内容；
 - 独立 HTTP 页面（`/plugins/nexus-agent-core/ui`）没有“文件”标签；
-- 手机端上传、对话里直接引用文件还没做，依赖账号系统和 Relay。
+- 宿主的命令行类工具仍可能读到文件库目录里的原始字节（已实测，`tools.fs.workspaceOnly=true` 也挡不住 shell），所以“敏感文件”只保证不经 `nexus_file_*` 工具提供，**不能**当作对 Agent 完全保密，详见设计文档 13.4；
+- 没有手机端界面和账号系统；手机目前只能直接调用分块上传的 HTTP 入口。
 
-设计细节见 `docs/nexus-agent-core-personal-file-vault-design.md`，第 13 节记录了实现时的澄清。
+设计细节见 `docs/nexus-agent-core-personal-file-vault-design.md`，第 13 节记录 F1 的澄清，第 14 节记录 F2、F3。
 
 ---
 

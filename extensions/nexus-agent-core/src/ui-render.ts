@@ -10,6 +10,7 @@ import type { DecisionRecord, ExecutionRecord } from "./store/decision-types.js"
 import type { PreferenceReceiptRow, PreferenceRecord } from "./store/preference-types.js";
 import type { PurgeReceiptRow } from "./store/purge-types.js";
 import type { TaskDetail, TaskRecord } from "./store/types.js";
+import type { VaultExtractionStatus } from "./store/vault-text-types.js";
 import type { VaultFileRecord, VaultStatsResult } from "./store/vault-types.js";
 import type { WatchRecord } from "./store/watch-types.js";
 import {
@@ -612,7 +613,30 @@ export type FilesViewData = {
   total: number;
   tab: FileTab;
   stats: Pick<VaultStatsResult, "files" | "objectBytes" | "reservedBytes">;
+  /** Text extraction per file id (nexus.vault.list); absent when the gateway does not report it. */
+  extraction?: Readonly<Record<string, VaultExtractionStatus>>;
 };
+
+/** The "Text" column and the dialogs show extraction in the same words. */
+export function extractionLabel(
+  status: Pick<VaultExtractionStatus, "state" | "failureCode"> | undefined,
+): { key: MsgKey; tone: "" | "pending" | "bad" } | undefined {
+  switch (status?.state) {
+    case "ready":
+      return status.failureCode === "truncated"
+        ? { key: "files.tx.partial", tone: "" }
+        : { key: "files.tx.ready", tone: "" };
+    case "pending":
+    case "running":
+      return { key: "files.tx.pending", tone: "pending" };
+    case "failed":
+      return { key: "files.tx.failed", tone: "bad" };
+    case "rejected":
+      return { key: "files.tx.rejected", tone: "pending" };
+    default:
+      return undefined;
+  }
+}
 
 const FILE_TAB_LABEL = {
   all: "files.tab.all",
@@ -662,6 +686,10 @@ export function renderFiles(
     ]
       .filter((tag) => tag !== "")
       .join(" ");
+  const textCell = (file: VaultFileRecord): string => {
+    const label = extractionLabel(data.extraction?.[file.id]);
+    return label ? td(tr(lang, label.key), label.tone) : td("-");
+  };
   const stateClass = (state: VaultFileRecord["state"]) =>
     state === "damaged" ? "bad" : state === "active" ? "" : "pending";
   return (
@@ -677,6 +705,8 @@ export function renderFiles(
     (withActions
       ? `${button("file-new", "new", tr(lang, "btn.upload"))}${button("file-import", "new", tr(lang, "btn.importPath"))}`
       : "") +
+    // Searching changes nothing, so the read-only console offers it too.
+    button("file-search", "new", tr(lang, "btn.searchContent")) +
     "</div>" +
     `<div class="nx-tabs">${tabs.join("")}</div>` +
     table(
@@ -688,6 +718,7 @@ export function renderFiles(
         "files.col.size",
         "files.col.source",
         "files.col.state",
+        "files.col.text",
         "col.updatedAt",
         "col.actions",
       ],
@@ -698,6 +729,7 @@ export function renderFiles(
         td(formatBytes(file.size)),
         td(`${tr(lang, FILE_COLLECTION_LABEL[file.collection])} · ${file.source}`),
         td(tr(lang, FILE_STATE_LABEL[file.state]), stateClass(file.state)),
+        textCell(file),
         td(fmtTime(file.updatedAt)),
         `<td>${button("file-open", file.id, tr(lang, "btn.details"))}</td>`,
       ]),

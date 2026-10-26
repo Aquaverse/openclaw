@@ -7,6 +7,8 @@
 
 **配套设计文档**（2026-10-22 新增）：个人文件库的完整设计方案见 `extensions/nexus-agent-core/docs/nexus-agent-core-personal-file-vault-design.md`；任务表里没有对应行的"目标"功能（参考 Muse 的 Goals）见 `extensions/nexus-agent-core/docs/nexus-agent-core-goals-design.md`。本文第 4 节保留评估与方案比较，设计细节以配套文档为准。
 
+**2026-10-26 更新**：文件库 F1 已实现并提交（`bad96641ca4`、`e89adc313b2`），F2（文本类提取与内容搜索）与 F3（对话引用码、可续传分块上传）已在工作区实现、尚未提交。本文下面的表和判断写于 10-21 / 10-22，凡与此段冲突，以此段为准；F1 的手工验证清单见文件库设计第 13.4 节（`nexus_file_attach` 已于 10-26 验证通过），F2 / F3 见第 14 节。
+
 **评估基线**
 
 | 项目     | 内容                                                                                                                                                                                                                                |
@@ -27,32 +29,32 @@
 
 ## 16 个子任务的完成度
 
-| #   | 子任务                                  | 优先级 / 里程碑 | 表里状态 | 实际完成度                      | 一句话                                                                              |
-| --- | --------------------------------------- | --------------- | -------- | ------------------------------- | ----------------------------------------------------------------------------------- |
-| 69  | WebSocket command / event               | P0 / M1         | PENDING  | **完成（v1）**                  | 39 个业务 RPC、9 类事件、至少一次投递；缺 Handoff 命令                              |
-| 70  | Task / Workflow Manager                 | P0 / M1         | PENDING  | **完成（Task）**；Workflow 未做 | 表里列的 create / get / update 全有；多步编排没有设计                               |
-| 71  | Permission / Authorization Engine       | P0 / M1         | 空       | **核心完成，仅假供应商**        | 风险分档、授权、执行对账都有；T6 会话级锁定未实现                                   |
-| 72  | Human Decision / Approval Manager       | P0 / M1         | PENDING  | **核心完成，仅假供应商**        | 决策页与聊天卡片、迟到点击、kill -9 恢复；R2 / R3 页面全流程未走完                  |
-| 73  | Agent Handoff / Routing Context         | P0 / M2         | 空       | **未做**                        | 没有设计                                                                            |
-| 74  | Evidence / Claim Ledger                 | P0 / M2         | PENDING  | **完成（v1）**                  | 账本、摘要链、证据字节、清除；`tool_output` 没做                                    |
-| 75  | Watcher / Long-running Task Manager     | P0 / M2         | 空       | **完成（v1）**                  | 回检的建立、认证、退避、交还用户；安装版通过                                        |
-| 76  | Personal Context / Preference Store     | P0 / M2         | PENDING  | **完成（v1）**                  | 三种来源、修订历史、清除；页面保存回读未走完                                        |
-| 77  | Connector Registry                      | P1 / M2         | 空       | **未做**                        | 只有假供应商和守卫，没有注册表                                                      |
-| 78  | Audit / Observability                   | P1 / M2         | 空       | **部分**                        | 有只追加的底账；没有审计查询、真实操作者、度量                                      |
-| 79  | Notification dispatch                   | P0 / M2         | 空       | **部分**                        | 有事件和 outbox；没有到用户手机或渠道的推送                                         |
-| 80  | Entity / Relationship Layer             | P1 / M2         | 空       | **未做（明确推迟）**            | 设计文档写明只留占位                                                                |
-| 81  | Phone Call tools                        | P0 / M1         | 空       | **未做**                        | Wiz.ai 未接                                                                         |
-| 82  | Nexus Personal File Vault（个人文件库） | P0 / M2         | 空       | **未做（有设计草案）**          | 设计草案已成文（见配套文档），代码未实现，设计评审与 spike 未做                     |
-| 83  | Nexus Personal Wiki                     | P2 / M4         | 空       | **未做**                        | 仍未设计（仅有文件库设计里的边界说明）；OpenClaw 自带 `memory-wiki` 可借            |
-| 84  | Nexus File Processing Pipeline          | P2 / M4         | 空       | **未做（有规划）**              | 流水线阶段与任务状态已在文件库设计第 9 节规划，代码未实现；OpenClaw 的 PDF 提取可借 |
+| #   | 子任务                                  | 优先级 / 里程碑 | 表里状态 | 实际完成度                      | 一句话                                                                    |
+| --- | --------------------------------------- | --------------- | -------- | ------------------------------- | ------------------------------------------------------------------------- |
+| 69  | WebSocket command / event               | P0 / M1         | PENDING  | **完成（v1）**                  | 39 个业务 RPC、9 类事件、至少一次投递；缺 Handoff 命令                    |
+| 70  | Task / Workflow Manager                 | P0 / M1         | PENDING  | **完成（Task）**；Workflow 未做 | 表里列的 create / get / update 全有；多步编排没有设计                     |
+| 71  | Permission / Authorization Engine       | P0 / M1         | 空       | **核心完成，仅假供应商**        | 风险分档、授权、执行对账都有；T6 会话级锁定未实现                         |
+| 72  | Human Decision / Approval Manager       | P0 / M1         | PENDING  | **核心完成，仅假供应商**        | 决策页与聊天卡片、迟到点击、kill -9 恢复；R2 / R3 页面全流程未走完        |
+| 73  | Agent Handoff / Routing Context         | P0 / M2         | 空       | **未做**                        | 没有设计                                                                  |
+| 74  | Evidence / Claim Ledger                 | P0 / M2         | PENDING  | **完成（v1）**                  | 账本、摘要链、证据字节、清除；`tool_output` 没做                          |
+| 75  | Watcher / Long-running Task Manager     | P0 / M2         | 空       | **完成（v1）**                  | 回检的建立、认证、退避、交还用户；安装版通过                              |
+| 76  | Personal Context / Preference Store     | P0 / M2         | PENDING  | **完成（v1）**                  | 三种来源、修订历史、清除；页面保存回读未走完                              |
+| 77  | Connector Registry                      | P1 / M2         | 空       | **未做**                        | 只有假供应商和守卫，没有注册表                                            |
+| 78  | Audit / Observability                   | P1 / M2         | 空       | **部分**                        | 有只追加的底账；没有审计查询、真实操作者、度量                            |
+| 79  | Notification dispatch                   | P0 / M2         | 空       | **部分**                        | 有事件和 outbox；没有到用户手机或渠道的推送                               |
+| 80  | Entity / Relationship Layer             | P1 / M2         | 空       | **未做（明确推迟）**            | 设计文档写明只留占位                                                      |
+| 81  | Phone Call tools                        | P0 / M1         | 空       | **未做**                        | Wiz.ai 未接                                                               |
+| 82  | Nexus Personal File Vault（个人文件库） | P0 / M2         | 空       | **完成（v1），手工验证未收口**  | F1 已实现并提交；挂证据已验证；打包回归、S8 等见设计文档 13.4             |
+| 83  | Nexus Personal Wiki                     | P2 / M4         | 空       | **未做**                        | 仍未设计（仅有文件库设计里的边界说明）；OpenClaw 自带 `memory-wiki` 可借  |
+| 84  | Nexus File Processing Pipeline          | P2 / M4         | 空       | **部分**                        | 文本类提取与内容搜索（F2）已实现；PDF、图片、Office 与分类 / 衍生阶段未做 |
 
-计数：完成 v1 的 5 行（69、70、74、75、76）；核心完成但受限于假供应商的 2 行（71、72）；部分的 2 行（78、79）；未做的 7 行（73、77、80、81、82、83、84）。合计 16。
+计数（2026-10-26 更新）：完成 v1 的 6 行（69、70、74、75、76、82）；核心完成但受限于假供应商的 2 行（71、72）；部分的 3 行（78、79、84）；未做的 5 行（73、77、80、81、83）。合计 16。
 
 ## 几点需要你知道的判断
 
 1. **表里的状态落后于实际**：你之前处理了 PENDING 的行，但 75（Watcher）是空白，实际已经完成并在安装版回归过；78、79 也有一半的东西在。建议按第二部分 2.2 更新状态列。
 2. **"做完"是"在假供应商上做完"**：授权、对账、账本都靠假供应商验证。接真实供应商前必须有三样东西：T6 会话级锁定（71 的缺口）、Connector 注册表（77）、至少一个真实 provider（81 电话是第一个候选）。这三样现在都没有。
-3. **文件库是最大的未实现部分（有设计草案，无代码），而且表里的优先级互相矛盾**：文件库是 P0 / M2，而文件处理流水线是 P2 / M4，测试基准里"File processing"却是 P0 / M2。没有处理能力的文件库只能存取，没法支持 Moneywise 的账单与收据，也没法通过那条基准。需要你决定是把处理能力提前，还是把基准降级（见第二部分 4.8）。
+3. **（10-26 更新：文件库 v1 与文本类提取已实现，下面描述的是实现前的判断。）文件库曾是最大的未实现部分（有设计草案，无代码），而且表里的优先级互相矛盾**：文件库是 P0 / M2，而文件处理流水线是 P2 / M4，测试基准里"File processing"却是 P0 / M2。没有处理能力的文件库只能存取，没法支持 Moneywise 的账单与收据，也没法通过那条基准。需要你决定是把处理能力提前，还是把基准降级（见第二部分 4.8）。
 4. **OpenClaw 已有不少现成部件，但没有一个能直接当"个人文件库"**：它的媒体目录是临时缓存，插件 Blob 存储总共 512 MiB 且已被证据账本占用，PDF 提取只支持 PDF，知识库 `memory-wiki` 是 Markdown 库。结论：文件库要自己建（按内容哈希去重的文件存储 + SQLite 元数据），再桥接这些现成部件。
 5. **试点路线图与表的优先级也有出入**：`docs/nexus/nexus-development-roadmap-2026-10-02.md` 把通知提前到 W4、把审计拆出"介入次数与成本标记"提为 P0，并让 Personal Wiki、File Pipeline、Entity Layer 继续推迟。本文的建议顺序按这份路线图对齐，冲突处已标出。
 

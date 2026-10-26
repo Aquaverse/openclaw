@@ -10,6 +10,7 @@ import { createNexusKernel } from "../store/nexus-kernel.js";
 import type { Principal } from "../store/types.js";
 import { createVaultRpcHandlers, decodeVaultBase64 } from "../vault-rpc.js";
 import { agentAttachFile, agentGetFile, agentSearchFiles } from "./vault-agent-ops.js";
+import { VAULT_EXTRACT_DEFAULTS } from "./vault-extract.js";
 import { createFsVaultFileStore } from "./vault-file-store.js";
 import { createVaultService, type VaultConfig, type VaultStore } from "./vault-service.js";
 
@@ -120,7 +121,17 @@ describe("vault surfaces", () => {
 
   it("rpc: scopes - reads are read, edits are write, purge alone is admin", () => {
     const scope = (method: string) => handlers.get(method)!.scope;
-    for (const m of ["list", "get", "stats", "read", "purgeStatus", "purgeReceipts"]) {
+    for (const m of [
+      "list",
+      "get",
+      "stats",
+      "read",
+      "purgeStatus",
+      "purgeReceipts",
+      "search",
+      "text",
+      "jobs",
+    ]) {
       assert.equal(scope(`nexus.vault.${m}`), "operator.read", m);
     }
     for (const m of [
@@ -135,6 +146,8 @@ describe("vault surfaces", () => {
       "pin",
       "setSensitivity",
       "maintain",
+      "retryExtract",
+      "extract",
     ]) {
       assert.equal(scope(`nexus.vault.${m}`), "operator.write", m);
     }
@@ -384,7 +397,8 @@ describe("vault surfaces", () => {
     const file = await put("agent-get.txt", "get me", { collection: "vault" });
     const got = (await agentGetFile(store, A, file.id)) as any;
     assert.equal(got.ok, true);
-    assert.equal(got.contentExtracted, false);
+    assert.equal(got.contentSearchable, false);
+    assert.equal(got.textState, "none");
     assert.equal("contentHash" in got, false);
     await call("nexus.vault.setSensitivity", { fileId: file.id, sensitivity: "sensitive" });
     assert.equal(((await agentGetFile(store, A, file.id)) as any).code, "file_sensitive");
@@ -522,6 +536,97 @@ describe("vault surfaces", () => {
     assert.equal(out.reason, "unsupported");
     const boom = makeEvidence({ throwOnUpload: new Error("disk exploded") });
     await assert.rejects(() => attach(boom, A, file.id), /disk exploded/);
+  });
+
+  it("content search: the console gets files and text, the Agent gets only which files match", async () => {
+    config.extract = { ...VAULT_EXTRACT_DEFAULTS };
+    try {
+      await put("report-q3.md", "Quarterly revenue grew because of the harbor contract.", {
+        collection: "vault",
+      });
+      await call("nexus.vault.upload", {
+        name: "holiday.png",
+        dataBase64: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]).toString(
+          "base64",
+        ),
+        collection: "vault",
+      });
+      await call("nexus.vault.extract");
+
+      const found = await call("nexus.vault.search", { query: "harbor contract" });
+      assert.equal(found.ok, true, JSON.stringify(found));
+      assert.deepEqual(
+        found.payload!.items.map((item: { displayName: string }) => item.displayName),
+        ["report-q3.md"],
+      );
+      const fileId = found.payload!.items[0].id as string;
+      assert.equal(found.payload!.extraction[fileId].state, "ready");
+      assert.equal(
+        (await call("nexus.vault.search", { query: "" })).error?.code,
+        "nexus_invalid_params",
+      );
+
+      const body = await call("nexus.vault.text", { fileId });
+      assert.equal(body.payload!.available, true);
+      assert.ok(String(body.payload!.text).includes("harbor contract"));
+
+      const agent = (await agentSearchFiles(store, A, {
+        contentContains: "harbor contract",
+      })) as any;
+      assert.equal(agent.ok, true);
+      assert.deepEqual(
+        agent.files.map((file: { name: string }) => file.name),
+        ["report-q3.md"],
+      );
+      assert.equal(agent.contentSearch.textAvailableToYou, false);
+      assert.ok(!JSON.stringify(agent).includes("revenue"), "no text or snippet reaches the Agent");
+      assert.equal(((await agentGetFile(store, A, fileId)) as any).contentSearchable, true);
+
+      const none = (await agentSearchFiles(store, A, {
+        contentContains: "zzz-nothing-like-this",
+      })) as any;
+      assert.equal(none.returned, 0);
+      assert.match(
+        String(none.note),
+        /does NOT prove the content is absent|Every file in this scope was searched/,
+      );
+
+      await call("nexus.vault.setSensitivity", { fileId, sensitivity: "sensitive" });
+      assert.equal(
+        ((await agentSearchFiles(store, A, { contentContains: "harbor contract" })) as any)
+          .returned,
+        0,
+      );
+      assert.equal(
+        (await call("nexus.vault.search", { query: "harbor contract" })).payload!.total,
+        0,
+      );
+      assert.equal((await call("nexus.vault.text", { fileId })).payload!.available, false);
+      assert.equal(
+        (await call("nexus.vault.get", { fileId })).payload!.extraction.state,
+        "skipped",
+      );
+      await call("nexus.vault.setSensitivity", { fileId, sensitivity: "normal" });
+      // The cancelled job may be queued again by hand (the sweep would do it too); a finished one may not.
+      assert.equal((await call("nexus.vault.retryExtract", { fileId })).ok, true);
+      await call("nexus.vault.extract");
+      assert.equal((await call("nexus.vault.get", { fileId })).payload!.extraction.state, "ready");
+      assert.equal(
+        (await call("nexus.vault.retryExtract", { fileId })).error?.code,
+        "nexus_conflict",
+      );
+
+      const stats = await call("nexus.vault.stats");
+      assert.equal(stats.payload!.text.fts, true);
+      const jobs = await call("nexus.vault.jobs", { state: "rejected" });
+      assert.ok(
+        jobs.payload!.items.some(
+          (job: { displayName: string }) => job.displayName === "holiday.png",
+        ),
+      );
+    } finally {
+      delete config.extract;
+    }
   });
 });
 

@@ -2,8 +2,9 @@
 // nodes and textContent (file names are user text and never become markup), from the records the page itself loaded, and
 // every change goes through the nexus.vault.* RPCs, which stay the authority: a stale dialog can at worst be refused.
 import { tr } from "../src/i18n.js";
+import type { VaultExtractionStatus } from "../src/store/vault-text-types.js";
 import type { VaultFileRecord } from "../src/store/vault-types.js";
-import { fmtTime } from "../src/ui-render.js";
+import { extractionLabel, fmtTime } from "../src/ui-render.js";
 import {
   fileActionsFor,
   formatBytes,
@@ -185,6 +186,111 @@ export function fileImportDialog(ctx: ActionContext): void {
   });
 }
 
+// ------------------------------------------------------------------ content search
+
+type SearchReply = {
+  items: VaultFileRecord[];
+  total: number;
+  mode: "fts" | "like";
+  unindexed: { pending: number; failed: number; unsupported: number };
+  extraction?: Record<string, VaultExtractionStatus>;
+};
+
+/** Search by what the files say. The reply is files only; the details dialog reads one file's text, exactly as from the list. */
+export function fileSearchDialog(ctx: ActionContext): void {
+  openDialog({
+    parent: ctx.parent,
+    signal: ctx.signal,
+    redact: ctx.redact,
+    cancelLabel: tr(ctx.lang, "btn.close"),
+    title: tr(ctx.lang, "files.sr.title"),
+    actions: [],
+    build: (body) => {
+      const input = document.createElement("input");
+      input.placeholder = tr(ctx.lang, "files.sr.placeholder");
+      field(body, tr(ctx.lang, "files.sr.query"), input);
+      const go = document.createElement("button");
+      go.type = "button";
+      go.className = "nx-btn nx-primary";
+      go.textContent = tr(ctx.lang, "files.sr.go");
+      body.append(go);
+      const status = note(body, "");
+      const results = document.createElement("div");
+      body.append(results);
+      note(body, tr(ctx.lang, "files.sr.hint"));
+
+      const show = (reply: SearchReply) => {
+        results.replaceChildren();
+        const model = () => ({
+          ...ctx.model(),
+          files: reply.items,
+          ...(reply.extraction ? { extraction: reply.extraction } : {}),
+        });
+        for (const item of reply.items) {
+          const row = document.createElement("div");
+          row.className = "nx-row";
+          const name = document.createElement("span");
+          name.className = "nx-value";
+          name.textContent =
+            item.folder === "" ? item.displayName : `${item.folder}/${item.displayName}`;
+          const open = document.createElement("button");
+          open.type = "button";
+          open.className = "nx-btn";
+          open.textContent = tr(ctx.lang, "btn.details");
+          open.addEventListener("click", () => fileDetailDialog({ ...ctx, model }, item.id));
+          row.append(name, open);
+          results.append(row);
+        }
+        const unsearched =
+          reply.unindexed.pending + reply.unindexed.failed + reply.unindexed.unsupported;
+        status.className = "muted";
+        status.textContent =
+          (reply.total === 0
+            ? tr(ctx.lang, "files.sr.none")
+            : tr(ctx.lang, "files.sr.found", { n: reply.total })) +
+          (unsearched > 0
+            ? ` ${tr(ctx.lang, "files.sr.notSearchable", {
+                n: unsearched,
+                pending: reply.unindexed.pending,
+                failed: reply.unindexed.failed,
+                unsupported: reply.unindexed.unsupported,
+              })}`
+            : "");
+      };
+      const run = async () => {
+        const query = input.value.trim();
+        if (query === "") {
+          return;
+        }
+        go.disabled = true;
+        status.className = "muted";
+        status.textContent = tr(ctx.lang, "files.sr.searching");
+        try {
+          const reply = await ctx.request<SearchReply>("nexus.vault.search", { query, limit: 50 });
+          if (!ctx.signal.aborted) {
+            show(reply);
+          }
+        } catch (error) {
+          if (!ctx.signal.aborted) {
+            results.replaceChildren();
+            status.className = "error";
+            status.textContent = ctx.redact(error instanceof Error ? error.message : String(error));
+          }
+        } finally {
+          go.disabled = false;
+        }
+      };
+      go.addEventListener("click", () => void run());
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void run();
+        }
+      });
+    },
+  });
+}
+
 // ------------------------------------------------------------------ details and actions
 
 type ReadReply = { dataBase64: string; size: number; eof: boolean };
@@ -231,12 +337,52 @@ async function preview(
   }
 }
 
+type TextReply = {
+  available: boolean;
+  page?: number;
+  pageCount?: number;
+  text?: string;
+  truncated?: boolean;
+};
+
+/** The extracted text (what the content search indexes). Returns false when there is none to show, so the caller falls back. */
+async function extractedPreview(
+  ctx: ActionContext,
+  file: VaultFileRecord,
+  body: HTMLElement,
+): Promise<boolean> {
+  try {
+    const reply = await ctx.request<TextReply>("nexus.vault.text", { fileId: file.id, page: 0 });
+    if (ctx.signal.aborted) {
+      return true;
+    }
+    if (!reply.available || reply.text === undefined) {
+      return false;
+    }
+    note(
+      body,
+      tr(ctx.lang, "files.pv.extracted", {
+        page: (reply.page ?? 0) + 1,
+        pages: reply.pageCount ?? 1,
+      }),
+    );
+    const pre = document.createElement("pre");
+    pre.className = "nx-original";
+    pre.textContent = reply.text === "" ? tr(ctx.lang, "ev.empty") : ctx.redact(reply.text);
+    body.append(pre);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function fileDetailDialog(ctx: ActionContext, id: string): void {
   const file = ctx.model().files?.find((item) => item.id === id);
   if (!file) {
     ctx.changed({ ok: false, text: tr(ctx.lang, "files.gone", { id }) });
     return;
   }
+  const extraction = ctx.model().extraction?.[file.id];
   const offered = new Set<FileAction>(fileActionsFor(file));
   let name = file.displayName;
   let folder = file.folder;
@@ -280,6 +426,16 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
       done("files.done.edit");
     },
   });
+  if (extraction?.state === "failed") {
+    actions.push({
+      label: tr(ctx.lang, "files.act.retryExtract"),
+      tone: "plain",
+      run: async () => {
+        await ctx.request("nexus.vault.retryExtract", { fileId: file.id });
+        done("files.done.retryExtract");
+      },
+    });
+  }
   add("pin", {
     label: tr(ctx.lang, file.pinnedAt === null ? "files.act.pin" : "files.act.unpin"),
     tone: "plain",
@@ -368,6 +524,11 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
         line(body, tr(ctx.lang, "files.d.name"), file.displayName);
         line(body, tr(ctx.lang, "files.d.folder"), file.folder === "" ? "-" : file.folder);
       }
+      if (file.sensitivity !== "sensitive") {
+        // Not offered for a sensitive file: the Agent could not use it anyway.
+        line(body, tr(ctx.lang, "files.d.ref"), `#${file.id}`);
+        note(body, tr(ctx.lang, "files.d.refHint"));
+      }
       line(body, tr(ctx.lang, "files.d.where"), `${file.collection} · ${file.state}`);
       line(body, tr(ctx.lang, "files.d.type"), file.mime);
       line(body, tr(ctx.lang, "files.d.size"), `${formatBytes(file.size)} (${file.size} B)`);
@@ -384,6 +545,19 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
         line(body, tr(ctx.lang, "files.d.expires"), fmtTime(file.expiresAt));
       }
       line(body, tr(ctx.lang, "files.d.versions"), String(file.versionCount));
+      const textLabel = extractionLabel(extraction);
+      if (textLabel) {
+        line(body, tr(ctx.lang, "files.d.text"), tr(ctx.lang, textLabel.key));
+        if (extraction?.failureCode) {
+          note(
+            body,
+            tr(ctx.lang, "files.d.textFail", {
+              code: extraction.failureCode,
+              message: extraction.failureMessage ?? "-",
+            }),
+          );
+        }
+      }
       if (file.sensitivity === "sensitive") {
         note(body, tr(ctx.lang, "files.sensitiveNote"));
       }
@@ -402,10 +576,18 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
         body.append(row);
         note(body, tr(ctx.lang, "files.purge.note"));
       }
-      if (file.state !== "purging" && file.size > 0 && maybeText(file.mime)) {
-        void preview(ctx, file, body);
-      } else if (file.state !== "purging" && file.size > 0) {
-        note(body, tr(ctx.lang, "files.pv.notText"));
+      if (file.state !== "purging" && file.size > 0) {
+        void (async () => {
+          // Extracted text first: it also reads files the raw preview cannot decode (a legacy GB18030 text file, HTML).
+          if (extraction?.state === "ready" && (await extractedPreview(ctx, file, body))) {
+            return;
+          }
+          if (maybeText(file.mime)) {
+            await preview(ctx, file, body);
+          } else {
+            note(body, tr(ctx.lang, "files.pv.notText"));
+          }
+        })();
       }
     },
   });

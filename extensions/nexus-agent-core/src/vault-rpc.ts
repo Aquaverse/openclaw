@@ -6,6 +6,7 @@ import path from "node:path";
 import type { GatewayRequestHandlerOptions } from "openclaw/plugin-sdk/gateway-runtime";
 import type { EventBridge, VaultChangedPayload } from "./events.js";
 import type { Principal } from "./store/types.js";
+import type { VaultExtractionStatus } from "./store/vault-text-types.js";
 import {
   VAULT_COLLECTIONS,
   VAULT_FILE_STATES,
@@ -14,6 +15,7 @@ import {
   type VaultEditOutcome,
   type VaultFileState,
 } from "./store/vault-types.js";
+import { createVaultTextRpcEntries } from "./vault-text-rpc.js";
 import { VAULT_UPLOAD_MAX_BYTES } from "./vault-ui.js";
 import type { VaultService, VaultStore } from "./vault/vault-service.js";
 
@@ -35,7 +37,7 @@ export function expandHome(input: string): string {
 
 export type VaultRpcDeps = {
   getStore: () => Promise<VaultStore>;
-  service: Pick<VaultService, "ingest" | "importPath" | "read" | "purge" | "maintain">;
+  service: Pick<VaultService, "ingest" | "importPath" | "read" | "purge" | "maintain" | "extract">;
   events: Pick<EventBridge, "vaultChanged">;
   resolvePrincipal: () => Principal | undefined;
   /** The configured single-file limit; an upload above min(this, VAULT_RPC_UPLOAD_MAX_BYTES) is refused before decoding. */
@@ -120,6 +122,29 @@ export function createVaultRpcHandlers(deps: VaultRpcDeps) {
 
   const emit = (principal: Principal, change: Omit<VaultChangedPayload, "ownerId">) => {
     deps.events.vaultChanged({ ownerId: principal.ownerId, ...change });
+  };
+
+  /** Extraction state per file id, for the console's badge. Sensitive files report `skipped` and nothing else. */
+  const extractionFor = async (
+    store: VaultStore,
+    principal: Principal,
+    files: { id: string; objectId: string }[],
+  ): Promise<Record<string, VaultExtractionStatus>> => {
+    if (files.length === 0) {
+      return {};
+    }
+    const { byObject } = await store.vaultExtractionStatus({
+      principal,
+      objectIds: [...new Set(files.map((file) => file.objectId))],
+    });
+    const out: Record<string, VaultExtractionStatus> = {};
+    for (const file of files) {
+      const status = byObject[file.objectId];
+      if (status) {
+        out[file.id] = status;
+      }
+    }
+    return out;
   };
 
   const needFileId = (params: Record<string, unknown>, respond: Respond): string | undefined => {
@@ -221,7 +246,11 @@ export function createVaultRpcHandlers(deps: VaultRpcDeps) {
           limit: Math.min(Math.max(Number(params.limit ?? 50) || 50, 1), 200),
           offset: Math.max(Number(params.offset ?? 0) || 0, 0),
         });
-        respond(true, { ownerId: principal.ownerId, ...result });
+        respond(true, {
+          ownerId: principal.ownerId,
+          ...result,
+          extraction: await extractionFor(store, principal, result.items),
+        });
       }),
       "operator.read",
     ],
@@ -237,17 +266,35 @@ export function createVaultRpcHandlers(deps: VaultRpcDeps) {
           reject(respond, "nexus_not_found", "file not found");
           return;
         }
-        respond(true, { ownerId: principal.ownerId, file: got.file });
+        respond(true, {
+          ownerId: principal.ownerId,
+          file: got.file,
+          extraction: (await extractionFor(store, principal, [got.file]))[got.file.id] ?? null,
+        });
       }),
       "operator.read",
     ],
     [
       "nexus.vault.stats",
       guarded(async ({ principal, store, respond }) => {
-        respond(true, { ownerId: principal.ownerId, ...(await store.vaultStats({ principal })) });
+        respond(true, {
+          ownerId: principal.ownerId,
+          ...(await store.vaultStats({ principal })),
+          text: await store.vaultTextStats({ principal }),
+        });
       }),
       "operator.read",
     ],
+    ...createVaultTextRpcEntries({
+      service: deps.service,
+      now,
+      guarded,
+      reject,
+      readCollection,
+      needFileId,
+      extractionFor,
+      emit,
+    }),
     [
       "nexus.vault.read",
       guarded(async ({ principal, params, respond }) => {

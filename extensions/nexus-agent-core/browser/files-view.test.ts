@@ -32,7 +32,14 @@ const file = (overrides: Record<string, unknown> = {}) => ({
 const STATS = { files: { "vault:active": 1 }, objectBytes: 5, reservedBytes: 0, objects: 1 };
 
 function fixture(
-  data: { files?: unknown[]; fail?: Record<string, string>; vault?: boolean },
+  data: {
+    files?: unknown[];
+    fail?: Record<string, string>;
+    vault?: boolean;
+    extraction?: Record<string, unknown>;
+    search?: unknown;
+    text?: unknown;
+  },
   props: Record<string, string>,
   canWrite = true,
 ) {
@@ -57,7 +64,22 @@ function fixture(
       case "nexus.vault.stats":
         return STATS;
       case "nexus.vault.list":
-        return { items: data.files ?? [file()], total: (data.files ?? [file()]).length };
+        return {
+          items: data.files ?? [file()],
+          total: (data.files ?? [file()]).length,
+          ...(data.extraction ? { extraction: data.extraction } : {}),
+        };
+      case "nexus.vault.search":
+        return (
+          data.search ?? {
+            items: [],
+            total: 0,
+            mode: "fts",
+            unindexed: { pending: 0, failed: 0, unsupported: 0 },
+          }
+        );
+      case "nexus.vault.text":
+        return data.text ?? { available: false, outcome: "no_text", state: "none" };
       case "nexus.vault.read":
         return { dataBase64: toBase64(new TextEncoder().encode("hello")), size: 5, eof: true };
       case "nexus.vault.upload":
@@ -92,7 +114,7 @@ function fixture(
     container,
     calls,
     dialog: () => container.querySelector(".nx-dialog") as HTMLElement,
-    writes: () => calls.filter((call) => !/\.(list|stats|read|get)$/.test(call.method)),
+    writes: () => calls.filter((call) => !/\.(list|stats|read|get|search|text)$/.test(call.method)),
   };
 }
 
@@ -244,6 +266,106 @@ describe("files tab", () => {
     expect(dialog.querySelector('input[type="checkbox"]')).toBeNull();
     expect(buttonByText(dialog, "移入回收站")).toBeUndefined();
     expect(dialog.textContent).toContain("sha256:abc");
+  });
+
+  it("shows the text state in the list and offers content search to a read-only connection too", async () => {
+    const ready = {
+      state: "ready",
+      failureCode: null,
+      failureMessage: null,
+      attempts: 1,
+      pages: 1,
+      chars: 5,
+      extractor: "text",
+      updatedAt: 1,
+    };
+    const f = fixture({ extraction: { F1ABC: ready } }, props, false);
+    await flush();
+    expect(f.container.querySelector("table")?.textContent).toContain("可搜索");
+    expect(f.container.querySelector('button[data-nx-act="file-search"]')).not.toBeNull();
+  });
+
+  it("searches by content, shows files only, and warns about files that could not be searched", async () => {
+    const f = fixture(
+      {
+        search: {
+          items: [file({ displayName: "report.md", folder: "Work" })],
+          total: 1,
+          mode: "fts",
+          unindexed: { pending: 1, failed: 0, unsupported: 2 },
+          extraction: {},
+        },
+      },
+      props,
+      false,
+    );
+    await flush();
+    click(f.container, 'button[data-nx-act="file-search"]');
+    const dialog = f.dialog();
+    const input = dialog.querySelector("input") as HTMLInputElement;
+    input.value = "  harbor contract ";
+    (buttonByText(dialog, "搜索") as HTMLButtonElement).click();
+    await flush();
+    expect(f.calls.find((call) => call.method === "nexus.vault.search")?.params).toEqual({
+      query: "harbor contract",
+      limit: 50,
+    });
+    expect(dialog.textContent).toContain("Work/report.md");
+    expect(dialog.textContent).toContain("找到 1 个文件");
+    expect(dialog.textContent).toContain("另有 3 个文件暂时不能按内容搜索");
+    expect(f.writes()).toEqual([]);
+  });
+
+  it("shows the extracted text for a ready file, falling back to the raw preview otherwise", async () => {
+    const ready = {
+      state: "ready",
+      failureCode: null,
+      failureMessage: null,
+      attempts: 1,
+      pages: 2,
+      chars: 9,
+      extractor: "text",
+      updatedAt: 1,
+    };
+    const f = fixture(
+      {
+        extraction: { F1ABC: ready },
+        text: { available: true, page: 0, pageCount: 2, text: "decoded 发票" },
+      },
+      props,
+    );
+    await flush();
+    click(f.container, 'button[data-nx-act="file-open"]');
+    await flush();
+    const dialog = f.dialog();
+    expect(dialog.querySelector("pre.nx-original")?.textContent).toBe("decoded 发票");
+    expect(dialog.textContent).toContain("第 1 / 2 页");
+    expect(f.calls.some((call) => call.method === "nexus.vault.read")).toBe(false);
+  });
+
+  it("explains a failed extraction and queues it again on request", async () => {
+    const failed = {
+      state: "failed",
+      failureCode: "extract_error",
+      failureMessage: "disk hiccup",
+      attempts: 3,
+      pages: 0,
+      chars: 0,
+      extractor: "text",
+      updatedAt: 1,
+    };
+    const f = fixture({ extraction: { F1ABC: failed } }, props);
+    await flush();
+    click(f.container, 'button[data-nx-act="file-open"]');
+    await flush();
+    const dialog = f.dialog();
+    expect(dialog.textContent).toContain("提取失败");
+    expect(dialog.textContent).toContain("extract_error");
+    (buttonByText(dialog, "重试提取") as HTMLButtonElement).click();
+    await flush();
+    expect(f.writes()).toEqual([
+      { method: "nexus.vault.retryExtract", params: { fileId: "F1ABC" } },
+    ]);
   });
 
   it("builds the upload dialog and refuses to send before a file is chosen", async () => {

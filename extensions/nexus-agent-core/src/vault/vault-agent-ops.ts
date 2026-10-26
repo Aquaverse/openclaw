@@ -16,6 +16,7 @@ import type { VaultReadOutcome, VaultStore } from "./vault-service.js";
 export const AGENT_SEARCH_DEFAULT_LIMIT = 10;
 export const AGENT_SEARCH_MAX_LIMIT = 25;
 const AGENT_NAME_QUERY_CHARS = 120;
+const AGENT_CONTENT_QUERY_CHARS = 120;
 /** Collections searched when the caller names none: the inbox holds unreviewed arrivals and is asked for explicitly. */
 const DEFAULT_SEARCH_COLLECTIONS: VaultCollection[] = ["vault", "deliverable"];
 const READ_CHUNK = 4 * 1024 * 1024;
@@ -68,6 +69,7 @@ const SENSITIVE_NOTE =
 
 export type AgentSearchParams = {
   name?: unknown;
+  contentContains?: unknown;
   collection?: unknown;
   folder?: unknown;
   limit?: unknown;
@@ -78,7 +80,7 @@ function isBlank(value: unknown): boolean {
 }
 
 export async function agentSearchFiles(
-  store: Pick<VaultStore, "vaultList">,
+  store: Pick<VaultStore, "vaultList" | "vaultTextSearch">,
   principal: Principal,
   params: AgentSearchParams,
 ): Promise<Record<string, unknown>> {
@@ -109,6 +111,19 @@ export async function agentSearchFiles(
     }
     nameContains = params.name.trim() === "" ? undefined : params.name.trim();
   }
+  let contentContains: string | undefined;
+  if (params.contentContains !== undefined && !isBlank(params.contentContains)) {
+    if (
+      typeof params.contentContains !== "string" ||
+      Array.from(params.contentContains).length > AGENT_CONTENT_QUERY_CHARS
+    ) {
+      return agentFail(
+        "invalid_content_query",
+        `contentContains must be text of at most ${AGENT_CONTENT_QUERY_CHARS} characters.`,
+      );
+    }
+    contentContains = params.contentContains.trim();
+  }
   let folder: string | undefined;
   if (params.folder !== undefined && !isBlank(params.folder)) {
     const normalized =
@@ -130,6 +145,16 @@ export async function agentSearchFiles(
       );
     }
     limit = Math.min(params.limit as number, AGENT_SEARCH_MAX_LIMIT);
+  }
+
+  if (contentContains !== undefined) {
+    return searchByContent(store, principal, {
+      query: contentContains,
+      collections,
+      limit,
+      ...(nameContains ? { nameContains } : {}),
+      ...(folder !== undefined ? { folder } : {}),
+    });
   }
 
   const found: VaultFileRecord[] = [];
@@ -157,7 +182,73 @@ export async function agentSearchFiles(
     total,
     complete: files.length === total,
     searched: collections,
-    note: `${SENSITIVE_NOTE} Only file names and metadata are searched; file contents are not indexed.`,
+    note: `${SENSITIVE_NOTE} This searched file names only. To find a file by what it says, pass contentContains.`,
+  };
+}
+
+/**
+ * Content search (F2). The index holds text; the answer holds files. Matched file text, snippets and positions never leave the
+ * store: the Agent learns WHICH files match and must say it cannot read them. Files that have no searchable text yet are
+ * counted, because "no match" would otherwise silently claim more than the index knows.
+ */
+async function searchByContent(
+  store: Pick<VaultStore, "vaultTextSearch">,
+  principal: Principal,
+  args: {
+    query: string;
+    collections: VaultCollection[];
+    limit: number;
+    nameContains?: string;
+    folder?: string;
+  },
+): Promise<Record<string, unknown>> {
+  const byId = new Map<string, VaultFileRecord>();
+  const notIndexed = { pending: 0, failed: 0, unsupported: 0 };
+  let mode: "fts" | "like" = "fts";
+  for (const collection of args.collections) {
+    const out = await store.vaultTextSearch({
+      principal,
+      query: args.query,
+      collection,
+      limit: args.limit,
+      ...(args.folder !== undefined ? { folder: args.folder } : {}),
+    });
+    if (out.mode === "like") {
+      mode = "like";
+    }
+    notIndexed.pending += out.unindexed.pending;
+    notIndexed.failed += out.unindexed.failed;
+    notIndexed.unsupported += out.unindexed.unsupported;
+    for (const file of out.items) {
+      byId.set(file.id, file);
+    }
+  }
+  let files = [...byId.values()];
+  const wanted = args.nameContains?.toLowerCase();
+  if (wanted) {
+    files = files.filter((file) => file.displayName.toLowerCase().includes(wanted));
+  }
+  files.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+  const shown = files.slice(0, args.limit);
+  const unsearched = notIndexed.pending + notIndexed.failed + notIndexed.unsupported;
+  return {
+    ok: true,
+    files: shown.map(agentFileView),
+    returned: shown.length,
+    total: files.length,
+    complete: shown.length === files.length,
+    searched: args.collections,
+    contentSearch: {
+      matchedByContent: true,
+      textAvailableToYou: false,
+      mode,
+      notSearchable: notIndexed,
+    },
+    note:
+      `${SENSITIVE_NOTE} These files matched by their content, but you cannot read that content: tell the user which files matched and let them open the files. ` +
+      (unsearched > 0
+        ? `${unsearched} file(s) in this scope have no searchable text (still being processed: ${notIndexed.pending}, extraction failed: ${notIndexed.failed}, type not supported such as images or PDFs: ${notIndexed.unsupported}), so a missing match does NOT prove the content is absent. Say so.`
+        : "Every file in this scope was searched."),
   };
 }
 
@@ -190,7 +281,7 @@ async function openable(
 }
 
 export async function agentGetFile(
-  store: Pick<VaultStore, "vaultGet">,
+  store: Pick<VaultStore, "vaultGet"> & Partial<Pick<VaultStore, "vaultExtractionStatus">>,
   principal: Principal,
   fileId: unknown,
 ): Promise<Record<string, unknown>> {
@@ -198,12 +289,22 @@ export async function agentGetFile(
   if (!opened.ok) {
     return opened;
   }
+  const status = store.vaultExtractionStatus
+    ? (
+        await store.vaultExtractionStatus({
+          principal,
+          objectIds: [opened.file.objectId],
+        })
+      ).byObject[opened.file.objectId]
+    : undefined;
+  const searchable = status?.state === "ready";
   return {
     ok: true,
     ...agentFileView(opened.file),
     versionCount: opened.file.versionCount,
-    contentExtracted: false,
-    note: "Only metadata is available. File contents are not extracted in this version; use nexus_file_attach to attach the file to a claim as evidence.",
+    contentSearchable: searchable,
+    textState: status?.state ?? "none",
+    note: "Only metadata is available to you; the file text is never given to you. contentSearchable says whether nexus_file_search can find this file by its content. Use nexus_file_attach to attach the file to a claim as evidence.",
   };
 }
 

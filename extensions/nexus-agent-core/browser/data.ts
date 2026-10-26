@@ -7,6 +7,7 @@ import type { DecisionRecord, ExecutionRecord } from "../src/store/decision-type
 import type { PreferenceReceiptRow, PreferenceRecord } from "../src/store/preference-types.js";
 import type { PurgeReceiptRow } from "../src/store/purge-types.js";
 import type { TaskDetail, TaskRecord } from "../src/store/types.js";
+import type { VaultExtractionStatus } from "../src/store/vault-text-types.js";
 import type {
   VaultFileRecord,
   VaultListResult,
@@ -162,17 +163,33 @@ export async function loadView(
     }
     case "files": {
       const [list, stats] = await Promise.all([
-        request<VaultListResult>("nexus.vault.list", fileListParams(route.tab)),
+        request<VaultListResult & { extraction?: Record<string, VaultExtractionStatus> }>(
+          "nexus.vault.list",
+          fileListParams(route.tab),
+        ),
         request<VaultStatsResult>("nexus.vault.stats"),
       ]);
       const files: VaultFileRecord[] = list.items;
       return {
         title: tr(lang, "title.files"),
         html: renderFiles(
-          { files, total: list.total, tab: route.tab, stats },
+          {
+            files,
+            total: list.total,
+            tab: route.tab,
+            stats,
+            ...(list.extraction ? { extraction: list.extraction } : {}),
+          },
           { actions, lang, basePath: NAV_BASE },
         ),
-        model: { decisions: [], watches: [], preferences: [], evidence: [], files },
+        model: {
+          decisions: [],
+          watches: [],
+          preferences: [],
+          evidence: [],
+          files,
+          ...(list.extraction ? { extraction: list.extraction } : {}),
+        },
       };
     }
     default: {

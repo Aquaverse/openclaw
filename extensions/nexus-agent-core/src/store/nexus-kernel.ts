@@ -1,5 +1,5 @@
 // The combined kernel the worker exposes: Task (Stage 1) + Decision / Grant / Execution (Stage 2) + Claim / Evidence and
-// Blob evidence and Purge (Stage 3) + Preference and Watch (Stage 4) + personal file Vault (Stage 5).
+// Blob evidence and Purge (Stage 3) + Preference and Watch (Stage 4) + personal file Vault (Stage 5, text extraction included).
 // Method names are disjoint by construction; the type below fails to compile if they ever collide.
 import type { DatabaseSync } from "node:sqlite";
 import { createBlobLedger } from "./blob-ledger.js";
@@ -11,6 +11,7 @@ import { createPurgeLedger } from "./purge-ledger.js";
 import { createVaultLedger } from "./vault-ledger.js";
 import { createVaultMaintenanceLedger } from "./vault-maintenance-ledger.js";
 import type { VaultPurgeHooks } from "./vault-maintenance-types.js";
+import { createVaultTextLedger } from "./vault-text-ledger.js";
 import { createWatchLedger } from "./watch-ledger.js";
 
 export function createNexusKernel(
@@ -43,6 +44,7 @@ export function createNexusKernel(
     ledger.internals,
     options.vaultPurgeHooks,
   );
+  const vaultText = createVaultTextLedger(db, transaction, ledger.internals);
   return {
     ...tasks,
     ...decisions,
@@ -53,6 +55,7 @@ export function createNexusKernel(
     ...watches.kernel,
     ...vault,
     ...vaultMaintenance,
+    ...vaultText,
   };
 }
 
@@ -66,6 +69,7 @@ type PreferenceKeys = keyof ReturnType<typeof createPreferenceLedger>["kernel"];
 type WatchKeys = keyof ReturnType<typeof createWatchLedger>["kernel"];
 type VaultKeys = keyof ReturnType<typeof createVaultLedger>;
 type VaultMaintenanceKeys = keyof ReturnType<typeof createVaultMaintenanceLedger>;
+type VaultTextKeys = keyof ReturnType<typeof createVaultTextLedger>;
 /** Method names that appear in more than one kernel part (a union of the repeats; `never` when every name is unique). */
 type Dup<K extends readonly unknown[], Seen = never> = K extends readonly [infer H, ...infer R]
   ? Extract<H, Seen> | Dup<R, Seen | H>
@@ -81,6 +85,7 @@ type Overlap = Dup<
     WatchKeys,
     VaultKeys,
     VaultMaintenanceKeys,
+    VaultTextKeys,
   ]
 >;
 export const NO_METHOD_OVERLAP: [Overlap] extends [never] ? true : never = true;

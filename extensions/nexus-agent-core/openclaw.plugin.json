@@ -216,6 +216,28 @@
         "maximum": 3650,
         "default": 90,
         "description": "Days a purge receipt keeps the content hashes of the purged file; afterwards only counts and times remain (default 90)."
+      },
+      "vaultExtractEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Extract searchable text from text-class files (txt, md, csv, json, html, code) and allow content search (default true under vaultEnabled). Sensitive files are never extracted. The text stays on this computer; the Agent only learns which files match, never what they say."
+      },
+      "vaultHttpUploadEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Offer the resumable chunked upload route /plugins/nexus-agent-core/vault-upload (gateway auth, operator.write scope; at most 4 open uploads, 24 h to finish) for large files and phones. Default true under vaultEnabled."
+      },
+      "vaultExtractMaxBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "default": 5242880,
+        "description": "Files larger than this many bytes are not extracted (default 5 MiB)."
+      },
+      "vaultExtractMaxChars": {
+        "type": "integer",
+        "minimum": 1000,
+        "default": 2000000,
+        "description": "Characters indexed per file; the rest is dropped and the file is marked truncated (default 2,000,000)."
       }
     }
   },
@@ -318,6 +340,6 @@
     }
   },
   "controlUi": {
-    "entry": "dist/control-ui/459e6ac1e894b45596f905e4d2d901c67b26c4548f137a814efaef72c088185a/index.js"
+    "entry": "dist/control-ui/c80c9ef71cbab6c42cb3c737ea85ff90ebf817d0181f5629ceb3d984b7aa4d49/index.js"
   }
 }

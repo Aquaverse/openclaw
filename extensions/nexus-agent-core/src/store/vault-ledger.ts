@@ -65,7 +65,7 @@ const str = (value: unknown): string | null => (typeof value === "string" ? valu
 const num = (value: unknown): number | null =>
   value === null || value === undefined ? null : Number(value);
 
-const FILE_SELECT =
+export const FILE_SELECT =
   "SELECT f.id, f.object_id, f.display_name, f.folder, f.collection, f.state, f.source, f.source_ref, f.sensitivity, " +
   "f.sensitivity_by, f.imported_by, f.created_at, f.updated_at, f.trashed_at, f.expires_at, o.size, o.mime, o.content_hash, " +
   "(SELECT COUNT(*) FROM vault_versions v WHERE v.owner_id = f.owner_id AND v.file_id = f.id) AS version_count, " +
@@ -716,6 +716,30 @@ export function createVaultLedger(
           owner,
           file.id,
         );
+        if (input.sensitivity === "sensitive") {
+          // Invariants 4 and 6: derived text of every object this file references goes away NOW (the index follows through its
+          // triggers), and queued / running / finished extraction is cancelled. A later "normal" lets the sweep queue it again.
+          const objects = all(
+            "SELECT ? AS id UNION SELECT object_id FROM vault_versions WHERE owner_id = ? AND file_id = ?",
+            file.objectId,
+            owner,
+            file.id,
+          );
+          for (const object of objects) {
+            run(
+              "DELETE FROM vault_text WHERE owner_id = ? AND object_id = ?",
+              owner,
+              String(object.id),
+            );
+            run(
+              "UPDATE vault_jobs SET state = 'cancelled', next_run_at = NULL, updated_at = ? " +
+                "WHERE owner_id = ? AND object_id = ? AND state <> 'cancelled'",
+              input.now,
+              owner,
+              String(object.id),
+            );
+          }
+        }
       },
     );
 

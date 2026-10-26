@@ -15,6 +15,7 @@ export type NexusAction =
   | { kind: "evidence-view"; id: string }
   | { kind: "file-new" }
   | { kind: "file-import" }
+  | { kind: "file-search" }
   | { kind: "file-open"; id: string };
 
 const ACTION_ID = /^[A-Za-z0-9_-]{1,40}$/;
@@ -26,6 +27,9 @@ export function actionFromMarker(act: string | null, id: string | null): NexusAc
   }
   if (act === "file-new") {
     return { kind: "file-new" };
+  }
+  if (act === "file-search") {
+    return { kind: "file-search" };
   }
   if (act === "file-import") {
     return { kind: "file-import" };

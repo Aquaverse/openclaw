@@ -26,6 +26,7 @@ import {
   type VaultSensitivity,
   type VaultSource,
 } from "../store/vault-types.js";
+import { createVaultExtractor, type VaultExtractConfig } from "./vault-extract.js";
 import type { VaultFileStore } from "./vault-file-store.js";
 import {
   ImportChangedError,
@@ -56,12 +57,14 @@ export type VaultConfig = {
   /** Objects younger than this are not reclaimed by maintenance (reclaim must not race a finishing reservation). */
   reclaimGraceMs: number;
   import: ImportGuardConfig;
+  /** Text extraction (F2). Absent or `enabled: false`: no jobs are queued or run and nothing is ever searchable by content. */
+  extract?: VaultExtractConfig;
 };
 
 export type VaultChangeEvent = {
   ownerId: string;
   fileId: string;
-  action: "imported" | "discarded" | "purged" | "damaged";
+  action: "imported" | "discarded" | "purged" | "damaged" | "extracted";
   collection?: VaultCollection;
 };
 
@@ -149,6 +152,8 @@ export type VaultMaintainReport = {
   tombstonesRetired: number;
   reservationsPruned: number;
   receiptsCompacted: number;
+  /** Files whose text was extracted during this pass. */
+  extracted: number;
   checked: number;
   damaged: number;
   errors: string[];
@@ -185,6 +190,16 @@ export function createVaultService(deps: VaultServiceDeps) {
     });
   const leaseMs = deps.workerLeaseMs ?? DEFAULT_PURGE_RUN_LEASE_MS;
   const warn = (message: string) => deps.logger?.warn(message);
+  const extractor = createVaultExtractor({
+    getStore: () => deps.getStore(),
+    files: deps.files,
+    config: () => deps.config().extract,
+    now,
+    warn,
+    onProgress: (principal) => {
+      deps.onChanged?.({ ownerId: principal.ownerId, fileId: "", action: "extracted" });
+    },
+  });
 
   /** A failed byte operation must not abort the whole pass: report "not confirmed" and let the next pass retry. */
   const confirmed = async (what: string, run: () => Promise<boolean>): Promise<boolean> => {
@@ -367,11 +382,16 @@ export function createVaultService(deps: VaultServiceDeps) {
     const reservation = reserved.reservation;
     inflight.add(reservation.id);
     try {
-      return await runWriteProtocol(principal, input, cfg, reservation, {
+      const outcome = await runWriteProtocol(principal, input, cfg, reservation, {
         displayName,
         folder,
         collection,
       });
+      if (outcome.outcome === "ok" && cfg.extract?.enabled) {
+        // Fire and forget: the caller never waits for parsing, and a failed pass is retried by the next maintenance tick.
+        void kickExtract(principal);
+      }
+      return outcome;
     } finally {
       inflight.delete(reservation.id);
     }
@@ -816,6 +836,7 @@ export function createVaultService(deps: VaultServiceDeps) {
       tombstonesRetired: 0,
       reservationsPruned: 0,
       receiptsCompacted: 0,
+      extracted: 0,
       checked: 0,
       damaged: 0,
       errors: [],
@@ -963,6 +984,10 @@ export function createVaultService(deps: VaultServiceDeps) {
       ).compacted;
     });
 
+    await step("extract", async () => {
+      report.extracted = (await extractTracked(principal)).ready;
+    });
+
     await step("integrity", async () => {
       const batch = await store.vaultVerifyBatch({
         principal,
@@ -1019,8 +1044,20 @@ export function createVaultService(deps: VaultServiceDeps) {
     return true;
   }
 
+  const extractTracked = tracked((principal: Principal) => extractor.pass(principal));
+  const kickExtract = async (principal: Principal): Promise<void> => {
+    try {
+      await extractTracked(principal);
+    } catch (error) {
+      warn(
+        `vault: extraction pass failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+
   return {
     ingest: tracked(ingest),
+    extract: extractTracked,
     importPath: tracked(importPath),
     read,
     purge: tracked(purge),

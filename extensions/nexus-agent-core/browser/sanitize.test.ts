@@ -153,6 +153,7 @@ describe("action markers", () => {
       [
         '<button data-nx-act="file-new" data-nx-id="new">u</button>',
         '<button data-nx-act="file-import" data-nx-id="new">i</button>',
+        '<button data-nx-act="file-search" data-nx-id="new">s</button>',
         '<button data-nx-act="file-open" data-nx-id="F1ABC">o</button>',
         '<button data-nx-act="file-open" data-nx-id="../x">bad</button>',
         '<button data-nx-act="file-open">bare</button>',
@@ -162,13 +163,14 @@ describe("action markers", () => {
       onAction,
     );
     const buttons = Array.from(container.querySelectorAll("button"));
-    expect(buttons).toHaveLength(3);
+    expect(buttons).toHaveLength(4);
     for (const button of buttons) {
       button.click();
     }
     expect(onAction.mock.calls.map((call) => call[0])).toEqual([
       { kind: "file-new" },
       { kind: "file-import" },
+      { kind: "file-search" },
       { kind: "file-open", id: "F1ABC" },
     ]);
   });

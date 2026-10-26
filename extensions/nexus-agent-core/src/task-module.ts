@@ -60,10 +60,17 @@ import { createTaskTools, TASK_TOOL_NAMES } from "./tools/task-tools.js";
 import { createWatchTools, WATCH_TOOL_NAMES } from "./tools/watch-tools.js";
 import { createNexusUiHttpHandler, NEXUS_UI_BASE_PATH } from "./ui-http.js";
 import { createVaultRpcHandlers } from "./vault-rpc.js";
+import { VAULT_EXTRACT_DEFAULTS } from "./vault/vault-extract.js";
 import { createFsVaultFileStore } from "./vault/vault-file-store.js";
 import { defaultForbiddenLocations } from "./vault/vault-import.js";
 import { NEXUS_VAULT_ATTACH_PROTOCOL, NEXUS_VAULT_PROTOCOL } from "./vault/vault-prompt.js";
+import { buildFileRefContext } from "./vault/vault-refs.js";
 import { createVaultService, type VaultConfig, type VaultService } from "./vault/vault-service.js";
+import {
+  createVaultUploadHandler,
+  VAULT_UPLOAD_BASE_PATH,
+  type VaultUploadHandler,
+} from "./vault/vault-upload.js";
 import { createWatchRpcHandlers } from "./watch-rpc.js";
 import {
   createWatchRuntime,
@@ -97,6 +104,14 @@ export type TaskModuleConfig = {
   vaultReservationRetentionDays?: number;
   vaultTombstoneRetentionDays?: number;
   vaultPurgeReceiptHashRetentionDays?: number;
+  /** F2: extract searchable text from text-class files and let the console and the Agent search by content (default true under vaultEnabled). */
+  vaultExtractEnabled?: boolean;
+  /** F3: gateway-authenticated resumable chunked upload under /plugins/nexus-agent-core/vault-upload (default true under vaultEnabled). */
+  vaultHttpUploadEnabled?: boolean;
+  /** Files larger than this are not extracted (default 5 MiB). */
+  vaultExtractMaxBytes?: number;
+  /** Characters indexed per file (default 2 000 000). */
+  vaultExtractMaxChars?: number;
   evidenceTaskQuotaBytes?: number;
   evidenceOwnerQuotaBytes?: number;
   evidenceMaxUploadBytes?: number;
@@ -152,6 +167,12 @@ function resolveVaultConfig(config: TaskModuleConfig, stateDir: string): VaultCo
     tombstoneRetentionMs: (config.vaultTombstoneRetentionDays ?? 7) * DAY_MS,
     receiptHashRetentionMs: (config.vaultPurgeReceiptHashRetentionDays ?? 90) * DAY_MS,
     reclaimGraceMs: 60_000,
+    extract: {
+      ...VAULT_EXTRACT_DEFAULTS,
+      enabled: config.vaultExtractEnabled !== false,
+      maxBytes: config.vaultExtractMaxBytes ?? VAULT_EXTRACT_DEFAULTS.maxBytes,
+      maxChars: config.vaultExtractMaxChars ?? VAULT_EXTRACT_DEFAULTS.maxChars,
+    },
     // The state directory and credential / system folders are never importable, even from inside a configured root.
     import: {
       roots,
@@ -500,6 +521,7 @@ export function registerTaskModule(
 
   // ---- Stage 5: the personal file vault (Vault design). Files stay on this computer, next to nexus.sqlite. ----
   let vault: VaultService | undefined;
+  let vaultUploads: VaultUploadHandler | undefined;
   if (vaultEnabled) {
     const stateDir = path.dirname(resolveNexusDatabasePath());
     const vaultConfig = resolveVaultConfig(config, stateDir);
@@ -513,6 +535,28 @@ export function registerTaskModule(
       logger: api.logger,
     });
     vault = created;
+    if (config.vaultHttpUploadEnabled !== false) {
+      const uploadFiles = createFsVaultFileStore(path.join(stateDir, "vault"));
+      vaultUploads = createVaultUploadHandler({
+        dir: path.join(stateDir, "vault", "uploads"),
+        ingest: (who, input) => created.ingest(who, input),
+        freeBytes: () => uploadFiles.freeBytes(),
+        resolvePrincipal: () => principalFor(),
+        readScopes: () => getPluginRuntimeGatewayRequestScope()?.client?.connect?.scopes ?? [],
+        maxFileBytes: () => vaultConfig.limits.maxFileBytes,
+        minFreeBytes: () => vaultConfig.minFreeBytes,
+      });
+      const uploadHandler = vaultUploads.handler;
+      api.registerHttpRoute({
+        path: VAULT_UPLOAD_BASE_PATH,
+        match: "prefix",
+        auth: "gateway",
+        handler: async (req, res) => {
+          await uploadHandler(req, res);
+          return true;
+        },
+      });
+    }
     api.registerTool(
       (ctx) =>
         createFileTools(
@@ -584,9 +628,27 @@ export function registerTaskModule(
             : NEXUS_VAULT_PROTOCOL,
         );
       }
+      // F3: a `#VF…` reference code in the user's message names a vault file; the Agent learns which file (metadata only).
+      let fileRefs: string | undefined;
+      if (vault) {
+        try {
+          fileRefs = await buildFileRefContext(
+            await getStore(),
+            principal,
+            (event as { prompt?: unknown }).prompt,
+          );
+        } catch (error) {
+          api.logger.warn(
+            `nexus-agent-core: could not resolve file references: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      const context = [open.length > 0 ? renderOpenTasks(open) : undefined, fileRefs].filter(
+        (part): part is string => part !== undefined,
+      );
       return {
         prependSystemContext: protocols.join("\n\n"),
-        ...(open.length > 0 ? { prependContext: renderOpenTasks(open) } : {}),
+        ...(context.length > 0 ? { prependContext: context.join("\n\n") } : {}),
       };
     } catch (error) {
       api.logger.warn(
@@ -689,15 +751,17 @@ export function registerTaskModule(
     vaultMaintaining = true;
     try {
       const report = await vault.maintain(principal);
+      await vaultUploads?.sweep().catch(() => 0);
       const changed =
         report.reclaimed +
         report.purgesResumed +
         report.inboxDiscarded +
         report.trashPurged +
+        report.extracted +
         report.damaged;
       if (changed > 0 || report.errors.length > 0) {
         api.logger.info(
-          `nexus-agent-core: vault maintain reclaimed=${report.reclaimed} purgesResumed=${report.purgesResumed} inboxDiscarded=${report.inboxDiscarded} trashPurged=${report.trashPurged} damaged=${report.damaged} errors=${report.errors.length}`,
+          `nexus-agent-core: vault maintain reclaimed=${report.reclaimed} purgesResumed=${report.purgesResumed} inboxDiscarded=${report.inboxDiscarded} trashPurged=${report.trashPurged} extracted=${report.extracted} damaged=${report.damaged} errors=${report.errors.length}`,
         );
       }
       for (const message of report.errors) {
