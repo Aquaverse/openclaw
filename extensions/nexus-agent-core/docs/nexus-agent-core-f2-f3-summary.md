@@ -177,3 +177,10 @@ curl -s -X POST $BASE/sessions/$ID/complete -H "Authorization: Bearer $TOKEN"
 3. Mac 上 Node 自带的 SQLite 是否带 FTS5（决定 `text.fts` 是 true 还是 false）。
 4. F1 遗留的手工验证项：挂证据（`nexus_file_attach`）已于 2026-10-26 验证通过；其余（挂不存在文件的反例、空白文件夹、文件名注入、敏感 / 收件搜索、控制台全流程、重启对账、权限域、打包应用回归、S8）见设计文档 13.4 的表。
 5. 如果希望安装器重新应用工具白名单，需要在构建脚本里提升 `NEXUS_PRESET_VERSION`（`nexus_file_search` 的参数变了，工具名没变，一般不必）。
+
+## 六、验证记录
+
+- 2026-10-26，开发网关 19001：第四节的 A（提取与内容搜索）、B（引用码）、C（分块上传）全部验证，符合预期；`nexus.vault.stats` 显示 `text.fts` 与 `secureDelete` 为 `true`。
+- 超过 5 MiB 的文本（约 12.6 MB 的 `big.txt`）按设计被标为“不支持”（`too_large`），图片 `阳光.jpg` 为 `unsupported_type`。要让更大的文本可搜，调高 `vaultExtractMaxBytes` 后对该文件 `nexus.vault.retryExtract`；字符数超过 `vaultExtractMaxChars` 时只可搜开头部分。
+- 验证中发现并已改进：文件详情很长时按钮栏被挤出视野；现在弹窗标题栏右上角有关闭按钮，标题栏和按钮栏固定。
+- 仍待验证：打包应用回归（合并 F1、F2、F3 做一轮）。

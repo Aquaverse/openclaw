@@ -850,7 +850,7 @@ F1 已按第 10 节范围实现。以下是实现时对设计文字的澄清；�
 5. **默认集合**：上传默认进入 `vault`，只有显式传 `collection:"inbox"` 才进收件箱；未审阅的收件文件不会出现在 Agent 默认搜索中。
 6. **活动文件允许直接硬清除**：不要求先进回收站；控制台仍要求勾选确认并重复文件 id。
 7. **导入路径**：`nexus.vault.importPath` 展开开头的 `~` / `~/`（网关用户主目录）；路径拒绝原因通过 `error.details.reason` 返回，控制台原样显示原因码。
-8. **预设脚本**：`scripts/mac-nexus-preset.sh` 的 `NEXUS_TOOLS` 已加入三个文件工具，但预设开关与 `PRESET_VERSION` 未改动——文件库保持**默认关闭**（需 `vaultEnabled`）。若希望安装器重新应用工具白名单，需要在构建脚本里提升版本号。
+8. **预设脚本**：`scripts/mac-nexus-preset.sh` 的 `NEXUS_TOOLS` 已加入三个文件工具。F1 当时没有改预设开关，文件库保持默认关闭；**2026-10-26 起**，安装器预设的默认开关列表加入了 `vaultEnabled` 与 `evidenceBlobsEnabled`（`scripts/build-mac-installer.sh`、`scripts/mac-nexus-preset.sh`、`installer.env.example` 同步），`NEXUS_PRESET_VERSION` 提升为 2，已装过版本 1 的机器会补开这两项。仍可用 `OPENCLAW_INSTALLER_NEXUS_SWITCHES` 覆盖（不含它们即不带）。插件自身的默认值不变：不经预设时 `vaultEnabled` 仍是关闭。
 
 ### 13.3 控制台“文件”页的限制
 
@@ -878,7 +878,7 @@ G() { node openclaw.mjs --dev gateway call "$@" 2>/dev/null | awk '/^\{/{f=1} f'
 | 6   | 限制与拒绝                                                  | **已验证（2026-10-26，用户确认符合预期）**                                                | 上传超过 16 MiB 的文件应被拒绝；`G nexus.vault.importPath --params '{"path":"/etc/hosts"}'`、`~/.ssh/...`、`..` 逃逸都应被拒绝并带 `reason`。补充（2026-10-26 实测，均符合设计）：控制台“上传”超过 16 MiB 被拒，而“从本机路径导入”可以导入更大的文件（上限是 `vaultMaxFileBytes`）；路径导入拒绝 `/etc/hosts`，但在“上传”里用文件选择器选 `/etc/hosts` 可以成功——路径白名单约束的是网关代为读取本机路径的 `importPath`，而上传是用户在自己的浏览器里主动选文件，字节经 RPC 送来，不涉及网关读路径 |
 | 7   | 重启对账                                                    | **已验证（2026-10-26，用户确认符合预期）**                                                | 上传较大文件时 `kill -9` 网关，重启后 `G nexus.vault.maintain --params '{}'`，再看 `G nexus.vault.stats --params '{}'`：没有悬挂预留或孤儿对象，已提交的文件完好                                                                                                                                                                                                                                                                                                                                  |
 | 8   | 真实网关的权限域                                            | **HTTP 部分已验证（2026-10-26）；WebSocket 只读拒绝未做实验，按宿主文档与登记表测试接受** | 分块上传入口：带网关令牌 `POST …/vault-upload/sessions` 返回会话；不带令牌和令牌错误都返回 401；`DELETE` 放弃会话成功。只读 WebSocket 客户端难以在本机构造，可选实验见 13.5 第 1 节                                                                                                                                                                                                                                                                                                               |
-| 9   | 打包应用回归（S7）                                          | 待验证（步骤见 13.5）                                                                     | `ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer`，并带 `OPENCLAW_INSTALLER_NEXUS_SWITCHES=tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,evidenceBlobsEnabled`；安装后重复 1、5 的核心步骤（上传、预览、清除、挂证据）                                                                                                                                                                                                             |
+| 9   | 打包应用回归（S7）                                          | 待验证（步骤见 13.5）                                                                     | 用 13.5 第 2 节的构建命令打包（文件柜与证据原文已默认随包打开）；安装后重复 1、5 的核心步骤（上传、预览、清除、挂证据）                                                                                                                                                                                                                                                                                                                                                                           |
 | 10  | S8：宿主通用文件工具能否读到库目录                          | **已验证（2026-10-26）：读得到，无法靠配置挡住**                                          | 实测：把 `tools.fs.workspaceOnly` 设为 `true` 后，Agent 仍通过命令行工具（`file`、`wc`、`sed`）读到了库目录里敏感文件的字节（`S8-MARKER-7f3a`）。`workspaceOnly` 只限制 `read` / `write` / `edit` / `apply_patch`，不限制 shell。结论：**不得宣称敏感文件对 Agent 不可见**，只能说对 `nexus_file_*` 工具不可见。已记为已知限制，暂无插件层面的解决办法                                                                                                                                            |
 
 已知的 F1 限制见 13.3。F2、F3 的待验证项见 14.8。
@@ -896,14 +896,16 @@ G() { node openclaw.mjs --dev gateway call "$@" 2>/dev/null | awk '/^\{/{f=1} f'
 **2. 打包应用回归（13.4 第 9 项）**
 
 1. 先提交 F2、F3 的改动（让安装版的 git 版本号和仓库 HEAD 对得上），并确认 `controlUi` 哈希已用 `node extensions/nexus-agent-core/scripts/build-dist.mjs` 重建。
-2. 构建：
+2. 构建（文件柜与证据原文已默认随包打开，不再需要写 `OPENCLAW_INSTALLER_NEXUS_SWITCHES`）：
 
    ```bash
    cd /Users/apple/workSpace/abcIM/ai/openclaw
    OPENCLAW_INSTALLER_NEXUS_PRESET=1 \
-   OPENCLAW_INSTALLER_NEXUS_SWITCHES=tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,evidenceBlobsEnabled \
+   OPENCLAW_INSTALLER_DEFAULT_MODEL=0 OPENCLAW_INSTALLER_LLAMA=0 OPENCLAW_INSTALLER_LITELLM=0 \
    ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer
    ```
+
+   构建日志里应出现 `==> Baking the Nexus preset (switches: …vaultEnabled,evidenceBlobsEnabled)`。
 
 3. 安装后确认装的是新包（记录进 `docs/nexus-agent-core-pkg-regression.md`）：
 
@@ -1012,12 +1014,28 @@ F2 与 F3 按第 9 节和第 10 节的范围实现，并按用户确认的取舍
 - S8 仍然成立：宿主通用文件工具可以读到库目录，所以“Agent 看不到文字”只对 `nexus_file_*` 工具成立。
 - 不支持 PDF、图片、Office；没有语义检索，没有分类（classify）与衍生（derive）阶段。
 
-### 14.8 仍待验证
+### 14.8 验证状态（2026-10-26）
 
-- 真实网关上带令牌的分块上传：创建会话、401 拒绝已于 2026-10-26 验证；完整的分块上传 + complete 流程按 f2-f3-summary 的 C 节验证。
-- 宿主真实 Node 构建上的 FTS5 可用性与 `secure-delete`。
-- 浏览器侧单元测试（`browser/*.test.ts`）在 Mac 上运行；`controlUi` 哈希需用 `scripts/build-dist.mjs` 重建。
-- F1 遗留的手工验证项（见 13.4 表，第 1 项已于 2026-10-26 验证）。
+**已验证（开发网关 19001，用户确认符合预期）**
+
+- F2 提取与检索、F3 引用码、F3 分块上传：按 `nexus-agent-core-f2-f3-summary.md` 第四节的 A、B、C 全部走通。
+- Mac 上的 SQLite 支持 FTS5：`nexus.vault.stats` 的 `text.fts` 与 `text.secureDelete` 均为 `true`，内容搜索走全文索引。
+- 分块上传入口的认证：带网关令牌建会话成功，不带令牌和令牌错误均为 401，`DELETE` 放弃成功。
+- 大小上限的行为：约 12.6 MB 的 `big.txt` 提取作业为 `rejected`，`failureCode` 为 `too_large`（“larger than the 5242880 byte extraction limit”）；`阳光.jpg` 为 `unsupported_type`（“no extractor for image/jpeg”）。详情页会显示这两个原因；调高上限用 `vaultExtractMaxBytes`，之后对文件调用 `nexus.vault.retryExtract` 重新提取。超过 `vaultExtractMaxChars`（默认 200 万字符）的文本只提取开头并标“可搜索（仅开头）”。
+- Mac 上 `oxfmt`、`pnpm lint:extensions`（0 个错误，余下 2 条警告在 `slack`、`memory-core`，与本插件无关）、`tsgo`、`pnpm test:extension nexus-agent-core` 通过，包含此前云端无法运行的浏览器侧单元测试。
+- 控制台弹窗：标题栏右上角增加关闭按钮（×），标题栏和按钮栏固定，只有中间内容区滚动（`browser/dialog.ts`、`browser/style.ts`；所有弹窗共用）。
+
+**仍待验证 / 待办**
+
+- 打包应用回归（S7）：F1、F2、F3 合并做一轮，步骤见 13.5 第 2 节。
+- 重建 `controlUi` 哈希（`scripts/build-dist.mjs`）并随浏览器模块的改动一起提交。
+- WebSocket 只读客户端的权限拒绝：可选实验（13.5 第 1 节），不做则按宿主文档与登记表测试接受。
+- F1 手工验证清单（13.4）只剩第 8 项的 WebSocket 部分和第 9 项（打包）。
+
+**可改进的小项（未做）**
+
+- 失败原因目前直接显示错误码和英文说明；可以按错误码映射成中文说明。
+- 独立 HTTP 页面没有“文件”标签（13.3）。
 
 ---
 

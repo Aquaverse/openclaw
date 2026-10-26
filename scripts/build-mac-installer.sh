@@ -842,13 +842,14 @@ fi
 # feature switches, pins the fake provider and appends Nexus' tools to tools.alsoAllow, once per preset version.
 # Without the flag nothing is baked and the plugin stays as shipped: off. Unlike the file above this carries no
 # secrets. NEXUS_PRESET_VERSION: bump to make already-installed machines apply the preset again.
-# OPENCLAW_INSTALLER_NEXUS_SWITCHES overrides the switch list (comma separated, letters only).
+# OPENCLAW_INSTALLER_NEXUS_SWITCHES overrides the switch list (comma separated, letters only); unset = every switch below,
+# including the personal file vault (vaultEnabled) and evidence bytes (evidenceBlobsEnabled). Version 2 added those two.
 # ---------------------------------------------------------------------
 NEXUS_PRESET_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_PRESET:-$(read_env_var OPENCLAW_INSTALLER_NEXUS_PRESET)}"
 rm -f "$APP/Contents/Resources/nexus-preset.env"
 if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]; then
   NEXUS_SWITCHES_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_SWITCHES:-$(read_env_var OPENCLAW_INSTALLER_NEXUS_SWITCHES)}"
-  NEXUS_SWITCHES_FOR_BUNDLE="${NEXUS_SWITCHES_FOR_BUNDLE:-tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled}"
+  NEXUS_SWITCHES_FOR_BUNDLE="${NEXUS_SWITCHES_FOR_BUNDLE:-tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,evidenceBlobsEnabled}"
   if [[ ! "$NEXUS_SWITCHES_FOR_BUNDLE" =~ ^[A-Za-z]+(,[A-Za-z]+)*$ ]]; then
     echo "ERROR: OPENCLAW_INSTALLER_NEXUS_SWITCHES must be comma-separated switch names (letters only), got '${NEXUS_SWITCHES_FOR_BUNDLE}'" >&2
     exit 1
@@ -856,7 +857,7 @@ if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]; then
   echo "==> Baking the Nexus preset (switches: $NEXUS_SWITCHES_FOR_BUNDLE)"
   {
     echo "NEXUS_PRESET=1"
-    echo "NEXUS_PRESET_VERSION=1"
+    echo "NEXUS_PRESET_VERSION=2"
     echo "NEXUS_PRESET_SWITCHES=$NEXUS_SWITCHES_FOR_BUNDLE"
   } > "$APP/Contents/Resources/nexus-preset.env"
 else

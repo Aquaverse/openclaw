@@ -4,7 +4,7 @@
 #
 # It does exactly four things, all through the `openclaw` CLI the installer put in <prefix>/bin:
 #   1. `plugins enable nexus-agent-core`
-#   2. turns on the feature switches named by the build (default: tasks, decisions, claims, preferences, watchers)
+#   2. turns on the feature switches named by the build (default: tasks, decisions, claims, preferences, watchers, vault, evidence bytes)
 #   3. makes sure the demo provider is the fake one (`fakeProviderMode` = "ok": no real external effect, ever)
 #   4. appends Nexus' tools to `tools.alsoAllow`, keeping every entry already there and never duplicating
 # then restarts the gateway once, only when it actually wrote something: every value is read first and left alone when
@@ -57,7 +57,7 @@ read_key() {
 PRESET_VERSION="$(read_key NEXUS_PRESET_VERSION)"
 PRESET_VERSION="${PRESET_VERSION:-1}"
 SWITCHES="$(read_key NEXUS_PRESET_SWITCHES)"
-SWITCHES="${SWITCHES:-tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled}"
+SWITCHES="${SWITCHES:-tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,evidenceBlobsEnabled}"
 
 MARKER="$PREFIX/.nexus-preset-applied"
 if [[ -f "$MARKER" && "$(/bin/cat "$MARKER" 2>/dev/null)" == "$PRESET_VERSION" ]]; then

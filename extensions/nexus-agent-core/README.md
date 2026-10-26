@@ -75,14 +75,14 @@ Nexus Agent Core 是 OpenClaw 的一个内置插件，给 Agent 增加一套「�
    # 让安装后的应用直接带着 Nexus（只能是 1；其他值或不写 = Nexus 保持关闭）
    OPENCLAW_INSTALLER_NEXUS_PRESET=1
 
-   # 要打开的功能开关，逗号分隔、只能写字母。不写时的默认值如下：
-   OPENCLAW_INSTALLER_NEXUS_SWITCHES=tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled
+   # 要打开的功能开关，逗号分隔、只能写字母。不写时的默认值如下（含文件柜和证据原文）：
+   OPENCLAW_INSTALLER_NEXUS_SWITCHES=tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,evidenceBlobsEnabled
    ```
 
-   想一并启用文件柜，把 `vaultEnabled` 加进去；想保存证据原文，再加 `evidenceBlobsEnabled`：
+   文件柜（`vaultEnabled`）和证据原文（`evidenceBlobsEnabled`）**默认随包打开**。不想带哪个，就把变量写成不含它的列表，例如不带文件柜：
 
    ```bash
-   OPENCLAW_INSTALLER_NEXUS_SWITCHES=tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,evidenceBlobsEnabled
+   OPENCLAW_INSTALLER_NEXUS_SWITCHES=tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,evidenceBlobsEnabled
    ```
 
    > 开关之间有依赖：`decisionsEnabled` 需要 `tasksEnabled`；`claimsEnabled` 需要 `decisionsEnabled`；`evidenceBlobsEnabled`、`watchersEnabled` 需要 `claimsEnabled`；`preferencesEnabled`、`vaultEnabled` 需要 `tasksEnabled`。
@@ -125,7 +125,7 @@ ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer
 
 三个 `0/1` 开关的规则一致：`1` = 必须带、缺配置就构建失败；`0` = 强制关闭；不设 = 按 `installer.env` 里有没有填对应配置来决定（不等于“开”）。这三个开关都不会影响网关的 LaunchAgent 和非交互式 onboarding，那两步始终执行。
 
-需要 Nexus 之外的功能时，按需把对应开关改成 `1` 并在 `installer.env` 里填好配置，例如带默认在线模型：`OPENCLAW_INSTALLER_DEFAULT_MODEL=1` 加上 `OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL` / `OPENCLAW_INSTALLER_DEFAULT_AI_MODEL`。启用文件柜和证据原文时，在命令前再加一行 `OPENCLAW_INSTALLER_NEXUS_SWITCHES=tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,evidenceBlobsEnabled`。
+需要 Nexus 之外的功能时，按需把对应开关改成 `1` 并在 `installer.env` 里填好配置，例如带默认在线模型：`OPENCLAW_INSTALLER_DEFAULT_MODEL=1` 加上 `OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL` / `OPENCLAW_INSTALLER_DEFAULT_AI_MODEL`。文件柜和证据原文默认已随包启用，不需要再写 `OPENCLAW_INSTALLER_NEXUS_SWITCHES`；要关掉其中一个，才在命令前写上不含它的开关列表（见上文）。
 
 **预设（preset）做了什么**
 
@@ -140,7 +140,7 @@ ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer
 
 **要注意的几点**
 
-- **每个预设版本只应用一次**。标记文件是 `~/.openclaw/.nexus-preset-applied`，用户之后自己关掉某个开关或删掉某个工具，不会被下次启动改回去。所以：已经安装过的机器，只改 `installer.env` 重新打包**不会**生效，要么手动执行 `openclaw config set`（见 1.2 的命令），要么把 `scripts/build-mac-installer.sh` 里的 `NEXUS_PRESET_VERSION`（目前写死为 1）加一再打包。
+- **每个预设版本只应用一次**（当前预设版本是 2：版本 2 起默认多打开文件柜和证据原文，已装过版本 1 的机器重新安装后会补上这两项，只增不改）。标记文件是 `~/.openclaw/.nexus-preset-applied`，用户之后自己关掉某个开关或删掉某个工具，不会被下次启动改回去。所以：已经安装过的机器，只改 `installer.env` 重新打包**不会**生效，要么手动执行 `openclaw config set`（见 1.2 的命令），要么把 `scripts/build-mac-installer.sh` 里的 `NEXUS_PRESET_VERSION`（目前写死为 1）加一再打包。
 - 预设日志：`~/Library/Logs/OpenClaw/nexus-preset.log`；安装后的命令行在 `~/.openclaw/bin/openclaw`。
 - `installer.env` 里的模型地址和 API Key 会**明文**打进安装包，只放可以共享给所有拿到安装包的人的后端，不要放个人密钥。
 - 在 Mac 应用里没有出现 Nexus 页面时，先看 `~/.openclaw/bin/openclaw plugins list` 里 `nexus-agent-core` 是否已启用；第三方方式安装的插件还需要 `gateway.controlUi.experimental.customPlugins=true`（内置版本一般不需要）。
@@ -374,7 +374,7 @@ Nexus 页面是一个 Control UI 模块（源码在 `browser/`），标签包括
 
 ### 2.5 个人文件柜
 
-默认关闭，`vaultEnabled=true`（并启用 `tasksEnabled`）后可用。
+插件本身默认关闭，`vaultEnabled=true`（并启用 `tasksEnabled`）后可用；用安装器带预设打包时，文件柜和证据原文**默认已打开**（见 1.1）。
 
 **能做什么**
 
