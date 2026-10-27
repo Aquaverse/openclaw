@@ -14,6 +14,9 @@ import {
   type GoalLifecycle,
   type GoalLinkKind,
   type GoalLinkRecord,
+  type GoalMetricDirection,
+  type GoalMetricRecord,
+  type GoalMetricSource,
   type GoalNotifyPolicy,
   type GoalOrigin,
   type GoalRecord,
@@ -87,6 +90,39 @@ export function toEntry(row: Row): GoalEntryRecord {
     claimId: optionalText(row.claim_id),
     retractedAt: optionalNumber(row.retracted_at),
   };
+}
+
+export function toMetric(row: Row): GoalMetricRecord {
+  return {
+    id: String(row.id),
+    goalId: String(row.goal_id),
+    name: String(row.name),
+    unit: String(row.unit),
+    direction: String(row.direction) as GoalMetricDirection,
+    target: optionalNumber(row.target),
+    current: optionalNumber(row.current),
+    asOf: optionalNumber(row.as_of),
+    source: String(row.source) as GoalMetricSource,
+    taskId: optionalText(row.task_id),
+    claimId: optionalText(row.claim_id),
+    reachedAt: optionalNumber(row.reached_at),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+/** Is the target met? `up`: current at or above it; `down`: at or below. No target or no figure: never. */
+export function metricReached(metric: {
+  direction: GoalMetricDirection;
+  target: number | null;
+  current: number | null;
+}): boolean {
+  if (metric.target === null || metric.current === null) {
+    return false;
+  }
+  return metric.direction === "up"
+    ? metric.current >= metric.target
+    : metric.current <= metric.target;
 }
 
 export function toLink(row: Row, targetGone: boolean): GoalLinkRecord {

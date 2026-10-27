@@ -1128,6 +1128,32 @@ CREATE UNIQUE INDEX goal_grants_open ON goal_creation_grants(owner_id, session_k
   WHERE consumed_at IS NULL AND revoked_at IS NULL;
 `;
 
+// Stage 6 (second migration): Goals G2, Goals design section 6.2. Metrics hang off a goal and cascade with it. They point at a
+// Task claim WITHOUT foreign keys (the write path validates the pointer; a goal outlives the Task it points at). `direction`
+// ('up' = reach at least the target, 'down' = reach at most) and `reached_at` (the last time the target was reached, so the system
+// entry is written once per crossing) are G2 additions to the design's DDL. Periodic reviews (G3) arrive later.
+export const STAGE6_GOAL_METRICS_SQL = `
+CREATE TABLE goal_metrics (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL, goal_id TEXT NOT NULL,
+  name TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '',
+  direction TEXT NOT NULL DEFAULT 'up',
+  target REAL, current REAL, as_of INTEGER,
+  source TEXT NOT NULL,
+  task_id TEXT, claim_id TEXT,
+  reached_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id),
+  UNIQUE (owner_id, goal_id, name),
+  CHECK (source IN ('manual','claim')),
+  CHECK (direction IN ('up','down')),
+  CHECK ((source = 'claim') = (task_id IS NOT NULL AND claim_id IS NOT NULL)),
+  CHECK (claim_id IS NULL OR task_id IS NOT NULL),
+  CHECK (source = 'manual' OR current IS NULL),
+  FOREIGN KEY (owner_id, goal_id) REFERENCES goals(owner_id, id) ON DELETE CASCADE
+) STRICT;
+CREATE INDEX goal_metrics_goal ON goal_metrics(owner_id, goal_id);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { id: "stage1-0001-task-core", sql: STAGE1_TASK_CORE_SQL },
   { id: "stage2-0001-decision-grant-execution", sql: STAGE2_DECISION_SQL },
@@ -1138,4 +1164,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: "stage4-0002-watches", sql: STAGE4_WATCHES_SQL },
   { id: "stage5-0001-vault", sql: STAGE5_VAULT_SQL },
   { id: "stage6-0001-goals", sql: STAGE6_GOALS_SQL },
+  { id: "stage6-0002-goal-metrics", sql: STAGE6_GOAL_METRICS_SQL },
 ];

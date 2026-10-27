@@ -205,6 +205,31 @@ describe("goal tools", () => {
     );
   });
 
+  it("get shows the user's metrics read-only, with the claim state of a claim-backed one", async () => {
+    const { call, service } = world();
+    await service.startCreation(A, { sessionKey: "sess-m", category: "interests", issuedBy: "op" });
+    const made = await call("sess-m", "nexus_goal_create", { title: "Learn the cello" });
+    const goalId = String(made.goalId);
+    const set = await service.setMetric(A, {
+      goalId,
+      name: "Practice",
+      unit: "h",
+      target: 50,
+      current: 50,
+    });
+    assert.equal(set.outcome, "created");
+    const detail = await call("s", "nexus_goal_get", { goalId });
+    const metrics = detail.metrics as Record<string, unknown>[];
+    assert.equal(metrics.length, 1);
+    assert.equal(metrics[0]?.source, "self_reported");
+    assert.equal(metrics[0]?.current, 50);
+    assert.equal(metrics[0]?.targetReached, true);
+    // no tool name can write a metric
+    for (const name of GOAL_TOOL_NAMES) {
+      assert.doesNotMatch(name, /metric/u);
+    }
+  });
+
   it("search shows a sensitive goal by title only; get marks it sensitive", async () => {
     const { call, service } = world();
     await service.startCreation(A, { sessionKey: "sess-5", category: "finance", issuedBy: "op" });

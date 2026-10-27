@@ -1,5 +1,6 @@
 import type { GoalCommon } from "./goal-ledger-common.js";
 // Goals kernel, reads: the list (with counts) and the detail of one goal.
+import { createGoalLive } from "./goal-live-ledger.js";
 import { GOAL_COLUMNS, likeEscape, toEntry, toGoal, type Row } from "./goal-rows.js";
 import type {
   GoalDetailRecord,
@@ -11,6 +12,7 @@ import type {
 
 export function createGoalReads(c: GoalCommon) {
   const { one, all, goalRow, linksOf } = c;
+  const live = createGoalLive(c);
 
   // ------------------------------------------------------------------ reads
 
@@ -108,9 +110,10 @@ export function createGoalReads(c: GoalCommon) {
         owner,
         input.goalId,
       ).map(toGoal),
-      entries: entryRows.slice(0, limit).map(toEntry),
+      entries: live.withEntryPointers(owner, entryRows.slice(0, limit).map(toEntry)),
       entriesTruncated: entryRows.length > limit,
-      links: linksOf(owner, input.goalId),
+      links: live.withLinkTasks(owner, linksOf(owner, input.goalId)),
+      metrics: live.metricsOf(owner, input.goalId),
     };
   };
 

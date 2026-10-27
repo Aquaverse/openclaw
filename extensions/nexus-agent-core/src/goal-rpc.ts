@@ -1,13 +1,14 @@
+import { createGoalMetricHandlers } from "./goal-metric-rpc.js";
 import {
   answerRefusal,
+  makeGuarded,
   MAX_LIST,
+  needGoalId,
   readId,
   reject,
   SESSION_KEY,
   USER_ENTRY_KINDS,
   USER_LINK_KINDS,
-  type GatewayRequestHandler,
-  type Respond,
 } from "./goal-rpc-support.js";
 // Gateway RPC for Goals (Goals design 9.2). Reads are operator.read, edits and the creation click operator.write, the hard
 // purge is operator.admin and needs the goal id typed twice. The user's words, the confirmation of an Agent's proposal and the
@@ -42,6 +43,8 @@ export type GoalRpcDeps = {
     | "retractEntry"
     | "addLink"
     | "removeLink"
+    | "setMetric"
+    | "removeMetric"
     | "purge"
     | "purgeStatus"
     | "purgeReceipts"
@@ -51,38 +54,7 @@ export type GoalRpcDeps = {
 };
 
 export function createGoalRpcHandlers(deps: GoalRpcDeps) {
-  const guarded =
-    (
-      run: (args: {
-        principal: Principal;
-        params: Record<string, unknown>;
-        respond: Respond;
-      }) => Promise<void>,
-    ): GatewayRequestHandler =>
-    async ({ params, respond }) => {
-      const principal = deps.resolvePrincipal();
-      if (!principal) {
-        reject(respond, "nexus_no_principal", "cannot resolve the owner");
-        return;
-      }
-      try {
-        await run({ principal, params: params ?? {}, respond });
-      } catch (error) {
-        reject(
-          respond,
-          "nexus_store_error",
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-    };
-
-  const needGoalId = (params: Record<string, unknown>, respond: Respond): string | undefined => {
-    const goalId = readId(params.goalId);
-    if (!goalId) {
-      reject(respond, "nexus_invalid_params", "goalId is required");
-    }
-    return goalId;
-  };
+  const guarded = makeGuarded(deps.resolvePrincipal);
 
   const readCategory = (raw: unknown): GoalCategory | undefined | "invalid" => {
     if (raw === undefined) {
@@ -93,7 +65,7 @@ export function createGoalRpcHandlers(deps: GoalRpcDeps) {
       : "invalid";
   };
 
-  return [
+  const own = [
     [
       "nexus.goal.list",
       guarded(async ({ principal, params, respond }) => {
@@ -469,6 +441,11 @@ export function createGoalRpcHandlers(deps: GoalRpcDeps) {
           reject(respond, "nexus_invalid_params", "taskId is not valid");
           return;
         }
+        const claimId = params.claimId === undefined ? undefined : readId(params.claimId);
+        if (params.claimId !== undefined && !claimId) {
+          reject(respond, "nexus_invalid_params", "claimId is not valid");
+          return;
+        }
         if (params.effectiveAt !== undefined && !Number.isFinite(params.effectiveAt)) {
           reject(respond, "nexus_invalid_params", "effectiveAt must be a time in milliseconds");
           return;
@@ -479,6 +456,7 @@ export function createGoalRpcHandlers(deps: GoalRpcDeps) {
           text: params.text,
           author: "user",
           ...(taskId ? { taskId } : {}),
+          ...(claimId ? { claimId } : {}),
           ...(params.effectiveAt !== undefined
             ? { effectiveAt: params.effectiveAt as number }
             : {}),
@@ -650,4 +628,5 @@ export function createGoalRpcHandlers(deps: GoalRpcDeps) {
       "operator.admin",
     ],
   ] as const;
+  return [...own, ...createGoalMetricHandlers(deps)] as const;
 }

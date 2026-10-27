@@ -109,6 +109,13 @@ export const NEXUS_CSS = `
 .nexus-page .gl-entry-sub{opacity:.7}
 .nexus-page .gl-retracted .gl-entry-text{text-decoration:line-through;opacity:.6}
 .nexus-page .gl-done .gl-title{font-weight:500}
+.nexus-page .gl-metric{margin:8px 0;padding:6px 0;border-bottom:1px solid color-mix(in srgb,currentColor 12%,transparent)}
+.nexus-page .gl-metric-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.nexus-page .gl-metric-head .nx-btn{margin-left:auto}
+.nexus-page .gl-metric-fig{margin-top:2px;font-variant-numeric:tabular-nums}
+.nexus-page .gl-bar{height:6px;border-radius:3px;background:color-mix(in srgb,currentColor 14%,transparent);margin-top:4px;overflow:hidden}
+.nexus-page .gl-bar i{display:block;height:100%;background:#2fa56b}
+.nexus-page .gl-linkrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .nexus-page .gl-link{font:inherit;color:#4f7cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
 .nexus-page .nx-dialog textarea,.nexus-page .nx-dialog input:not([type=checkbox]){width:100%;box-sizing:border-box;font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:4px 8px;margin:4px 0}
 `;

@@ -2,6 +2,7 @@
 // turns every refusal a goal write can return into an RPC error). The handlers are in goal-rpc.ts.
 import type { GatewayRequestHandlerOptions } from "openclaw/plugin-sdk/gateway-runtime";
 import type { GoalEntryKind, GoalLinkKind } from "./store/goal-types.js";
+import type { Principal } from "./store/types.js";
 
 export type GatewayRequestHandler = (opts: GatewayRequestHandlerOptions) => Promise<void> | void;
 export type Respond = GatewayRequestHandlerOptions["respond"];
@@ -36,6 +37,7 @@ export function answerRefusal(
   switch (out.outcome) {
     case "not_found":
     case "entry_not_found":
+    case "metric_not_found":
     case "link_not_found":
       reject(respond, "nexus_not_found", `${out.outcome.replace("_", " ")}`);
       return true;
@@ -116,4 +118,35 @@ export function answerRefusal(
     default:
       return false;
   }
+}
+
+/** Wraps a handler body: resolves the owner first and turns a thrown store error into one RPC error. */
+export const makeGuarded =
+  (resolvePrincipal: () => Principal | undefined) =>
+  (
+    run: (args: {
+      principal: Principal;
+      params: Record<string, unknown>;
+      respond: Respond;
+    }) => Promise<void>,
+  ): GatewayRequestHandler =>
+  async ({ params, respond }) => {
+    const principal = resolvePrincipal();
+    if (!principal) {
+      reject(respond, "nexus_no_principal", "cannot resolve the owner");
+      return;
+    }
+    try {
+      await run({ principal, params: params ?? {}, respond });
+    } catch (error) {
+      reject(respond, "nexus_store_error", error instanceof Error ? error.message : String(error));
+    }
+  };
+
+export function needGoalId(params: Record<string, unknown>, respond: Respond): string | undefined {
+  const goalId = readId(params.goalId);
+  if (!goalId) {
+    reject(respond, "nexus_invalid_params", "goalId is required");
+  }
+  return goalId;
 }

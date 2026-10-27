@@ -4,7 +4,7 @@
 //
 // Purge, G1 scope: a goal moves to `purging` (children too) in ONE transaction that also writes `goal_purge_runs` with a stable
 // purge_id and the ORIGINAL requester. Finalising a goal (children first) is one transaction: holder check, counts, receipt,
-// run row, goal row (entries and links cascade). Reviews and metrics do not exist yet (G2/G3), so their counts are 0 and there is
+// run row, goal row (entries and links cascade). Metrics cascade with the goal and are counted in the receipt; reviews do not exist yet (G3), so their count is 0 and there is
 // no review gate; the run row and the lease protocol are the ones the later phases extend.
 import { sha256Hex } from "../canonical.js";
 import type { ClaimLedger } from "./claim-ledger.js";
@@ -326,7 +326,7 @@ export function createGoalLifecycleLedger(
       const receiptId = newId("GR");
       run(
         "INSERT INTO goal_purge_receipts (owner_id, id, purge_id, goal_id_hash, title_hash, entry_count, link_count, metric_count, " +
-          "review_count, requested_by, executed_at) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)",
+          "review_count, requested_by, executed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
         owner,
         receiptId,
         String(runRow.purge_id),
@@ -334,6 +334,7 @@ export function createGoalLifecycleLedger(
         sha256Hex(String(row.title)),
         count("goal_entries"),
         count("goal_links"),
+        count("goal_metrics"),
         String(runRow.requested_by),
         input.now,
       );

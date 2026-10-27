@@ -110,6 +110,8 @@ describe("nexus.goal.* rpc", () => {
       "entry.retract",
       "link.add",
       "link.remove",
+      "metric.set",
+      "metric.remove",
     ]) {
       assert.equal(handlers.get(`nexus.goal.${m}`)?.scope, "operator.write", m);
     }
@@ -278,5 +280,82 @@ describe("nexus.goal.* rpc", () => {
       (await call("nexus.goal.purge", { goalId: parent, confirmGoalId: parent })).error?.code,
       "nexus_not_found",
     );
+  });
+
+  it("metrics: set, update, reach the target once, refuse bad input, remove; events carry ids only", async () => {
+    const { call, makeGoal, events } = setup();
+    const id = await makeGoal("Run a 10k");
+    const made = await call("nexus.goal.metric.set", {
+      goalId: id,
+      name: "Distance",
+      unit: "km",
+      target: 10,
+      current: 4,
+      lang: "en",
+    });
+    assert.equal(made.ok, true, JSON.stringify(made));
+    assert.equal(made.payload?.created, true);
+    const metricId = made.payload?.metric.id as string;
+    const hit = await call("nexus.goal.metric.set", {
+      goalId: id,
+      metricId,
+      current: 10,
+      lang: "en",
+    });
+    assert.equal(hit.payload?.reachedNow, true);
+    const detail = await call("nexus.goal.get", { goalId: id });
+    assert.equal(detail.payload?.metrics.length, 1);
+    const entries = (detail.payload?.entries ?? []) as { kind: string; text: string }[];
+    const sys = entries.find((e) => e.text.startsWith("Target reached"));
+    assert.equal(sys?.text, "Target reached: Distance (10 km)");
+    assert.equal(detail.payload?.goal.status, "active");
+    for (const bad of [
+      { name: 5 },
+      { target: "ten" },
+      { current: Number.POSITIVE_INFINITY },
+      { direction: "sideways" },
+      { source: "model" },
+      { taskId: "bad id" },
+    ]) {
+      const out = await call("nexus.goal.metric.set", { goalId: id, name: "X", ...bad });
+      assert.equal(out.error?.code, "nexus_invalid_params", JSON.stringify(bad));
+    }
+    const clash = await call("nexus.goal.metric.set", { goalId: id, name: "Distance" });
+    assert.equal(clash.error?.code, "nexus_conflict");
+    const numbers = await call("nexus.goal.metric.set", {
+      goalId: id,
+      name: "Card 4111 1111 1111 1111",
+    });
+    assert.equal(numbers.error?.code, "nexus_sensitive_value");
+    const refused = await call("nexus.goal.metric.set", {
+      goalId: id,
+      name: "From a claim",
+      source: "claim",
+      taskId: "T-none",
+      claimId: "C-none",
+    });
+    assert.equal(refused.error?.code, "nexus_not_found");
+    assert.equal(
+      (await call("nexus.goal.metric.remove", { goalId: id, metricId: "GM-none" })).error?.code,
+      "nexus_not_found",
+    );
+    assert.equal((await call("nexus.goal.metric.remove", { goalId: id, metricId })).ok, true);
+    const actions = new Set(events.filter((e) => e.goalId === id).map((e) => e.action));
+    assert.ok(actions.has("metric_set") && actions.has("metric_removed"));
+    assert.ok(!JSON.stringify(events).includes("Distance"));
+  });
+
+  it("a finance goal refuses a claim-backed metric through the console too", async () => {
+    const { call, makeGoal } = setup();
+    const id = await makeGoal("Pay off the card", "finance");
+    const out = await call("nexus.goal.metric.set", {
+      goalId: id,
+      name: "Debt",
+      source: "claim",
+      taskId: "T1",
+      claimId: "C1",
+    });
+    assert.equal(out.error?.code, "nexus_conflict");
+    assert.equal(out.error?.details.reason, "finance_manual_only");
   });
 });

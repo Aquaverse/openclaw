@@ -6,6 +6,7 @@
 //   * no text of a goal leaves in an event: ids, the action and the status only;
 //   * a purge is a repeatable protocol: begin takes the lease, finalize deletes children first, a failure releases the lease.
 import { createHash, randomBytes } from "node:crypto";
+import { tr, type Lang } from "../i18n.js";
 import { DEFAULT_PURGE_RUN_LEASE_MS } from "../purge/purge-lease.js";
 import type { StoreOperationName, StoreOperations } from "../store/contract.js";
 import {
@@ -25,6 +26,10 @@ import {
   type GoalLinkKind,
   type GoalLinkRemoveOutcome,
   type GoalListInput,
+  type GoalMetricDirection,
+  type GoalMetricRemoveOutcome,
+  type GoalMetricSetOutcome,
+  type GoalMetricSource,
   type GoalProposeOutcome,
   type GoalPurgeReceiptRow,
   type GoalPurgeRunRecord,
@@ -61,6 +66,8 @@ export type GoalChangeAction =
   | "entry_retracted"
   | "link_added"
   | "link_removed"
+  | "metric_set"
+  | "metric_removed"
   | "deleted"
   | "restored"
   | "purged";
@@ -440,6 +447,56 @@ export function createGoalService(deps: GoalServiceDeps) {
     return out;
   }
 
+  /**
+   * Metrics are a console entrance only (design 6.2, 9.1): there is no Agent tool that calls this. The words of a metric are
+   * scanned like any goal text; the figures are the user's own and are not.
+   */
+  async function setMetric(
+    principal: Principal,
+    input: {
+      goalId: string;
+      metricId?: string;
+      name?: string;
+      unit?: string;
+      direction?: GoalMetricDirection;
+      target?: number | null;
+      current?: number | null;
+      source?: GoalMetricSource;
+      taskId?: string;
+      claimId?: string;
+      lang?: Lang;
+    },
+  ): Promise<GoalMetricSetOutcome | SensitiveRefusal> {
+    const hit = scanAll(input.name, input.unit);
+    if (hit) {
+      return { outcome: "sensitive_value", kind: hit };
+    }
+    const store = await deps.getStore();
+    const { lang, ...rest } = input;
+    const out = await store.goalMetricSet({
+      principal,
+      ...rest,
+      reachedText: tr(lang ?? "zh", "goal.metric.reached", { name: "{name}", value: "{value}" }),
+      now: now(),
+    });
+    if (out.outcome === "created" || out.outcome === "updated") {
+      emit(principal, input.goalId, "metric_set");
+    }
+    return out;
+  }
+
+  async function removeMetric(
+    principal: Principal,
+    input: { goalId: string; metricId: string },
+  ): Promise<GoalMetricRemoveOutcome> {
+    const store = await deps.getStore();
+    const out = await store.goalMetricRemove({ principal, ...input, now: now() });
+    if (out.outcome === "removed") {
+      emit(principal, input.goalId, "metric_removed");
+    }
+    return out;
+  }
+
   // ------------------------------------------------------------------ reads
 
   async function list(principal: Principal, input: Omit<GoalListInput, "principal">) {
@@ -564,6 +621,8 @@ export function createGoalService(deps: GoalServiceDeps) {
     retractEntry,
     addLink,
     removeLink,
+    setMetric,
+    removeMetric,
     list,
     get,
     purge,

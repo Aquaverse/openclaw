@@ -1,4 +1,5 @@
 // Goals plain-data types (Goals design section 5). Everything here crosses the SQLite worker boundary.
+import type { ClaimState } from "./claim-types.js";
 import type { Principal } from "./types.js";
 
 /** The seven category values (Muse's names; `money` is `finance`). v1 only opens three of them (design section 0, row 2). */
@@ -48,6 +49,11 @@ export const GOAL_LIMITS = {
   maxProposed: 20,
   entriesPerGoal: 1000,
   linksPerGoal: 200,
+  metricsPerGoal: 10,
+  metricName: 60,
+  metricUnit: 20,
+  /** Largest magnitude a metric figure may have; keeps REAL arithmetic exact enough and refuses pasted ids. */
+  metricValue: 1e12,
   /** User replies kept on a creation grant, and the size of the string that becomes `user_words`. */
   grantReplies: 12,
   grantTtlMs: 2 * 60 * 60 * 1000,
@@ -79,6 +85,17 @@ export type GoalRecord = {
   updatedAt: number;
 };
 
+/** What a pointer's Task / claim looks like right now (read at get time, never stored; design 6.1). */
+export type GoalPointerState = {
+  /** The Task is purged or missing. Its status is then unknown. */
+  taskGone: boolean;
+  taskStatus: string | null;
+  taskTitle: string | null;
+  /** Only when the entry or metric carries a claim. */
+  claimState: ClaimState | null;
+  claimGone: boolean;
+};
+
 export type GoalEntryRecord = {
   id: string;
   goalId: string;
@@ -90,6 +107,8 @@ export type GoalEntryRecord = {
   taskId: string | null;
   claimId: string | null;
   retractedAt: number | null;
+  /** Live state of the pointed-at Task / claim; set by goalGet only. */
+  pointer?: GoalPointerState;
 };
 
 export type GoalLinkRecord = {
@@ -100,6 +119,31 @@ export type GoalLinkRecord = {
   createdAt: number;
   /** Computed at read time: the pointed-at Task / file / preference / watch no longer exists. */
   targetGone: boolean;
+  /** Live Task status and title for `task` links; set by goalGet only. */
+  task?: { status: string; title: string };
+};
+
+export type GoalMetricSource = "manual" | "claim";
+export type GoalMetricDirection = "up" | "down";
+
+export type GoalMetricRecord = {
+  id: string;
+  goalId: string;
+  name: string;
+  unit: string;
+  direction: GoalMetricDirection;
+  target: number | null;
+  /** `manual`: what the user typed. `claim`: read from the claim's value at get time (null when it is not a number). */
+  current: number | null;
+  asOf: number | null;
+  source: GoalMetricSource;
+  taskId: string | null;
+  claimId: string | null;
+  reachedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+  /** Live state of the claim behind a `claim` metric; set by goalGet only. */
+  pointer?: GoalPointerState;
 };
 
 export type GoalCreationGrantRecord = {
@@ -127,6 +171,7 @@ export type GoalDetailRecord = {
   entries: GoalEntryRecord[];
   entriesTruncated: boolean;
   links: GoalLinkRecord[];
+  metrics: GoalMetricRecord[];
 };
 
 // ---------------------------------------------------------------- inputs and outcomes
@@ -236,6 +281,10 @@ export type GoalInvalidCode =
   | "bad_kind"
   | "bad_author"
   | "bad_ref"
+  | "bad_metric_name"
+  | "bad_metric_unit"
+  | "bad_metric_value"
+  | "bad_metric_source"
   | "bad_patch"
   | "bad_sort_order"
   | "bad_sensitivity";
@@ -370,6 +419,46 @@ export type GoalLinkRemoveInput = {
 export type GoalLinkRemoveOutcome =
   | { outcome: "removed" }
   | { outcome: "link_not_found" }
+  | GoalWriteRefusal;
+
+export type GoalMetricSetInput = {
+  principal: Principal;
+  goalId: string;
+  /** Present: update that metric (name, unit, direction, target, manual current; the source and claim never change). */
+  metricId?: string;
+  name?: string;
+  unit?: string;
+  direction?: GoalMetricDirection;
+  /** `undefined` keeps the stored value on update; `null` clears it. */
+  target?: number | null;
+  current?: number | null;
+  source?: GoalMetricSource;
+  taskId?: string;
+  claimId?: string;
+  /** The system-entry sentence for "target reached", with `{name}` and `{value}` placeholders (the service localises it). */
+  reachedText: string;
+  now: number;
+};
+export type GoalMetricSetOutcome =
+  | { outcome: "created" | "updated"; metric: GoalMetricRecord; reachedNow: boolean }
+  | { outcome: "invalid"; code: GoalInvalidCode }
+  | { outcome: "metric_not_found" }
+  | { outcome: "name_taken"; metricId: string }
+  | { outcome: "task_not_found" }
+  | { outcome: "claim_not_found" }
+  | { outcome: "refused"; reason: "finance_manual_only" }
+  | { outcome: "limit_reached"; max: number; kind: "metrics" }
+  | GoalWriteRefusal;
+
+export type GoalMetricRemoveInput = {
+  principal: Principal;
+  goalId: string;
+  metricId: string;
+  now: number;
+};
+export type GoalMetricRemoveOutcome =
+  | { outcome: "removed" }
+  | { outcome: "metric_not_found" }
   | GoalWriteRefusal;
 
 // ---------------------------------------------------------------- purge

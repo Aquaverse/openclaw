@@ -175,6 +175,8 @@ const STORE_OPERATIONS: Record<StoreOperationName, true> = {
   goalEntryRetract: true,
   goalLinkAdd: true,
   goalLinkRemove: true,
+  goalMetricSet: true,
+  goalMetricRemove: true,
   goalDelete: true,
   goalRestore: true,
   goalPurgeBegin: true,

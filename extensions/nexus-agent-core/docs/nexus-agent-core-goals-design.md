@@ -1,6 +1,6 @@
 # Nexus Goals（长期目标）设计方案
 
-> 状态：设计草案 v0.3，2026-10-27（v0.1 为 2026-10-22；v0.2、v0.3 同日，按用户的 Muse 截图修订）。2026-10-27 用户已就第 0 节的七项决定拍板，并与 Muse 快照做了核对（2.5）。**G1 已实现并通过真实界面验收（2026-10-27，见第 13 节）**；G2 起的表、工具、RPC、配置名仍是提案，不是契约。
+> 状态：设计草案 v0.3，2026-10-27（v0.1 为 2026-10-22；v0.2、v0.3 同日，按用户的 Muse 截图修订）。2026-10-27 用户已就第 0 节的七项决定拍板，并与 Muse 快照做了核对（2.5）。**G1 已实现并通过真实界面验收（2026-10-27，见第 13 节），G2 已实现并通过 Mac 验收（“被反驳”标签界面无入口，未实机验证，见第 14 节）**；G3 起的表、工具、RPC、配置名仍是提案，不是契约。
 > 任务表里**没有对应行**。本文参考 Muse 的 Goals（`https://muse.ai/goals`），按 Nexus 的架构重新设计，并建议在任务表补行（见第 11 节）。
 > 相邻文档：`extensions/nexus-agent-core/nexus-agent-core-design.md`（Task、Watcher、偏好库）、`extensions/nexus-agent-core/docs/nexus-agent-core-personal-file-vault-design.md`（文件库）、`extensions/nexus-agent-core/docs/nexus-agent-core-plugin-status-and-remaining-work.md`。
 
@@ -746,7 +746,52 @@ G-S2 小验证通过（见 9.6 四点），随后实现了 G1：表与迁移 `st
 
 测试状态：云端 609 项通过，6 项失败均为 `src/spikes/` 的垫片噪声；类型检查干净；Mac 上 `oxfmt`、`oxlint`、`pnpm test:extension nexus-agent-core`、`build-dist.mjs` 均已通过。预设脚本现为 28 个工具。
 
-**G1 之后**：G2（条目指向事项 / 声明、度量）、G3（定期回看，需要通知出口与 G-S1）、G4（技能：`moneywise` 的 `references/goals.md` 与薄入口 `goals`）。真实提供商、个人 Wiki 仍按用户的决定后置。
+## 14. G2 落地记录（2026-10-27）
+
+G2（进展与度量）已实现：迁移 `stage6-0002-goal-metrics`、条目 / 关联的实时状态、手填与声明驱动两种度量、`nexus.goal.metric.set / remove`、控制台详情页的度量区与状态标签、添加条目时可选关联事项与声明。云端：全量测试 610 项通过（`src/spikes/` 的垫片噪声除外），类型检查干净；浏览器端用 Chromium 跑了 28 项页面测试和一次端到端流程；**Mac 上的 oxfmt、oxlint、vitest、打包与真实界面验收已完成，结果见 14.4**。
+
+### 14.1 做了什么
+
+- **表 `goal_metrics`**，与第 5 节 DDL 的差异（以代码为准）：多了 `direction`（`up` 至少达到 / `down` 降到以内）、`reached_at`（上一次达到目标的时间，保证每次“越过”目标只写一条系统条目）、`created_at`、`updated_at`；`(owner_id, goal_id, name)` 唯一；`source='claim'` 时 `current` 必须为空（数值不存，读取时从声明取）。`task_id` / `claim_id` 仍无外键，写入时校验声明属于该 Task。随目标级联删除，清除回执里的 `metric_count` 现在是真实计数。
+- **实时状态（只读，不存）**：`nexus.goal.get` 返回的条目带 `pointer`（事项是否已清除、事项状态与标题、声明状态、声明是否已清除），关联里的事项带状态与标题，`claim` 度量带当前数值与声明状态。声明被反驳、Task 被清除时，标签变化，条目文字不变。声明状态的中文标签：已声明 / 已被证据支持 / 已核验 / 被反驳 / 未知。
+- **度量规则**：每个目标至多 10 个；名称 ≤60 字、单位 ≤20 字、数值绝对值 ≤1e12；名称与单位过敏感值扫描，数字本身不扫；**理财类目标只能手填**（`finance_manual_only`，服务端拒绝）；来源和声明指针创建后不可改；`proposed` 目标不能加度量；已完成的目标仍可改度量（与条目一致，只有用户能写）。达到目标值**只写一条系统条目**（文字按页面语言，由服务端生成），不完成目标、不触发其他动作；声明驱动的度量在读取时判断“已达到”，且只有声明为“已被证据支持 / 已核验”才算，不写系统条目（声明变化发生在目标代码之外）。
+- **接口**：`nexus.goal.metric.set`（新建或按 `metricId` 更新；更新时没给的字段保持原值，`target` / `current` 给 `null` 表示清空）与 `nexus.goal.metric.remove`，都是 `operator.write`，代码在 `src/goal-metric-rpc.ts`；`nexus.goal.entry.add` 增加可选 `claimId`（必须同时带 `taskId`）；事件新增动作 `metric_set` / `metric_removed`（仍只带 id、动作、状态）。**Agent 没有任何写度量的工具**；`nexus_goal_get` 会读到度量（来源标为 `self_reported` 或 `claim`，附声明状态与 `targetReached`），以及条目 / 关联的实时状态。
+- **控制台**：详情页新增“度量”区（名称、数值 / 目标 / 单位、进度条（仅“至少达到”且目标 > 0）、“自述”或声明状态标签、“已达到”、更新时间；添加与编辑弹窗；声明驱动要先选事项再选声明；理财类目标只显示“我自己填”）；活动里的条目显示对应标签，没有指针的笔记显示“自述”；关联的事项显示标题与状态；“添加记录”可选关联事项与声明。代码拆到 `browser/goal-progress.ts`、`src/goal-label.ts`。
+
+### 14.2 已知限制
+
+- 详情弹窗是打开时读一次的快照：事项或声明在弹窗打开后变化，要关掉重开才看到新标签（页面本身在收到 `claim_changed` / `task_changed` 事件时会刷新，但不会重绘已经打开的弹窗）。
+- 声明的值要是数字（或 `{ "value": n }` / `{ "amount": n }`）才显示数值，否则显示“暂无数值”。
+- 条目 / 度量选择事项时只列最近 100 个事项（含已结束的），声明至多 100 条；更多时要先在事项页找到编号，现在没有搜索框。
+- “已达到”的系统条目只在手填度量被保存时写；回看、通知出口属于 G3。
+- 任务状态标签显示原始状态名（如 `executing`），与任务页一致，没有翻译。
+
+### 14.3 验证与顺手修的问题
+
+- 新增账本测试 11 项（`goal-metric-ledger.test.ts`）、RPC 测试 2 项、Agent 工具测试 1 项、页面测试 11 项（`goal-metrics-view.test.ts`）。
+- 在 Chromium 里跑页面测试时发现，G1 的 `goals-view.test.ts` 有两处写错，已改：写入断言没有排除页面首次加载时的 `nexus.vault.stats` 探测（`writes()` 的过滤加上 `stats`），以及页面菜单测试没关第一个菜单就开第二个。页面测试因此拆成 `goals-view-kit.ts`（共用夹具）、`goals-view.test.ts`、`goal-metrics-view.test.ts` 三个文件。
+- `goal-rpc.ts` 超过 700 行，度量的 RPC 拆到 `goal-metric-rpc.ts`，公共的 `makeGuarded` / `needGoalId` 放进 `goal-rpc-support.ts`。
+
+### 14.4 Mac 验收清单
+
+1. `pnpm exec oxfmt --write extensions/nexus-agent-core`、`pnpm exec oxlint extensions/nexus-agent-core`、`pnpm test:extension nexus-agent-core`（含 `browser/goal*.test.ts`，G1 的页面测试从未在 Mac 上跑过）、`node extensions/nexus-agent-core/scripts/build-dist.mjs`，然后重启网关（迁移 `stage6-0002-goal-metrics` 会在启动时自动应用）。
+2. 在“兴趣”目标的详情里添加一个手填度量（名称、单位、目标值、当前值）：列表里出现数值与进度条，标签是“自述”；把当前值改到目标值：出现“已达到”，活动里多一条“已达到目标：…”，目标仍是“进行中”。
+3. 先在任务页让 Agent 或你自己建一个带声明的事项，再给目标加“来自声明”的度量：显示声明的当前值与状态；在任务页把声明改成被反驳后重开目标详情，标签变为“被反驳”。
+4. 理财类目标：添加度量时没有“事项里的声明”这个选项，只能自己填。
+5. “添加记录”里选一个事项（可再选声明）：活动里这条记录带事项标题与声明状态；不选则显示“自述”。
+6. 让 Agent 打开这个目标（`nexus_goal_get`）：能看到度量与状态，但没有工具能改它。
+
+**验收结果（2026-10-27，开发网关）**：
+
+- 第 1 项通过（oxfmt、oxlint、`pnpm test:extension`、`build-dist` 全部通过，迁移随网关重启应用）。
+- 第 2、4 项：用户在兴趣类和理财类目标上都添加了度量，未报问题。
+- 第 3 项通过，用“本周练习时长 12 小时”的声明做的声明驱动度量。**其中“声明被反驳后标签变为被反驳”没有验**：声明状态由证据推导，用户不能手改，Agent 只能写 `ASSERTED` / `UNKNOWN`，自动核验目前只覆盖 `executed`；代码里对声明调用 `nexus.claim.retract`（`operator.write`，目前只有网关接口，没有控制台按钮）会使其变为 `REFUTED`，但未在真实环境运行过。该标签只在云端测试里通过直接改库验证过。
+- 第 5 项通过（记录关联事项与声明，显示事项标题与声明状态；不关联显示“自述”）。
+- 第 6 项用户未单独回报。
+
+小结文档：`nexus-agent-core-goals-g1-g2-summary.md`。
+
+**G2 之后**：G3（定期回看，需要通知出口与 G-S1）、G4（技能：`moneywise` 的 `references/goals.md` 与薄入口 `goals`）。真实提供商、个人 Wiki 仍按用户的决定后置。
 
 ---
 

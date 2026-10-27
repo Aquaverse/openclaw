@@ -5,6 +5,7 @@ import type { GoalRecord } from "../src/store/goal-types.js";
 import type { ActionContext } from "./actions.ts";
 import { openDialog } from "./dialog.ts";
 import { el, field, note } from "./goal-dom.ts";
+import { pointerPicker } from "./goal-progress.ts";
 
 export function renameDialog(ctx: ActionContext, goal: GoalRecord): void {
   let title = goal.title;
@@ -45,6 +46,7 @@ export function renameDialog(ctx: ActionContext, goal: GoalRecord): void {
 
 export function noteDialog(ctx: ActionContext, goal: GoalRecord): void {
   let text = "";
+  const pointer = { taskId: "", claimId: "" };
   openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
@@ -61,6 +63,8 @@ export function noteDialog(ctx: ActionContext, goal: GoalRecord): void {
             goalId: goal.id,
             kind: "note",
             text: text.trim(),
+            ...(pointer.taskId ? { taskId: pointer.taskId } : {}),
+            ...(pointer.taskId && pointer.claimId ? { claimId: pointer.claimId } : {}),
           });
           ctx.changed({ ok: true, text: tr(ctx.lang, "goal.notice.noted") });
         },
@@ -75,6 +79,12 @@ export function noteDialog(ctx: ActionContext, goal: GoalRecord): void {
         changed();
       });
       body.append(field(tr(ctx.lang, "goal.note.label"), input));
+      // Optional: point the note at a Task (and one of its claims); the detail then shows their live status.
+      pointerPicker(ctx, body, pointer, {
+        claimRequired: false,
+        taskLabel: "goal.note.task",
+        changed,
+      });
     },
   });
 }

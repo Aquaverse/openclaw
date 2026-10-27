@@ -1,3 +1,4 @@
+import { metricReached } from "../store/goal-rows.js";
 // What an Agent may do with goals (Goals design 9.1): search, read, create inside a creation grant, propose, record progress and
 // link a Task or file. Nothing here confirms, completes, renames, deletes or purges a goal, and nothing writes user words.
 // The tool layer (src/tools/goal-tools.ts) is a thin typed wrapper around these functions so they can be tested without the SDK.
@@ -143,18 +144,46 @@ function detailView(detail: GoalDetailRecord) {
     entries: detail.entries
       .filter((entry) => entry.retractedAt === null)
       .slice(0, AGENT_ENTRIES_SHOWN)
-      .map((entry) => ({
-        entryId: entry.id,
-        kind: entry.kind,
-        author: entry.author,
-        text: entry.text,
-        effectiveAt: entry.effectiveAt,
-        taskId: entry.taskId,
-      })),
+      .map((entry) => {
+        const view = {
+          entryId: entry.id,
+          kind: entry.kind,
+          author: entry.author,
+          text: entry.text,
+          effectiveAt: entry.effectiveAt,
+          taskId: entry.taskId,
+        };
+        return entry.pointer
+          ? Object.assign(view, {
+              taskStatus: entry.pointer.taskStatus,
+              claimState: entry.pointer.claimState,
+              pointerGone: entry.pointer.taskGone || entry.pointer.claimGone,
+            })
+          : view;
+      }),
     links: detail.links.map((link) => ({
       kind: link.kind,
       refId: link.refId,
       gone: link.targetGone,
+      ...(link.task ? { taskStatus: link.task.status } : {}),
+    })),
+    // Read-only for the Agent: the user fills the figures in the console, and a claim metric follows its claim.
+    metrics: detail.metrics.map((metric) => ({
+      metricId: metric.id,
+      name: metric.name,
+      unit: metric.unit,
+      direction: metric.direction,
+      target: metric.target,
+      current: metric.current,
+      asOf: metric.asOf,
+      source: metric.source === "manual" ? "self_reported" : "claim",
+      ...(metric.pointer ? { claimState: metric.pointer.claimState } : {}),
+      // A claim figure only counts toward the target once the claim is supported or verified.
+      targetReached:
+        metricReached(metric) &&
+        (metric.source === "manual" ||
+          metric.pointer?.claimState === "SUPPORTED" ||
+          metric.pointer?.claimState === "VERIFIED"),
     })),
   };
 }

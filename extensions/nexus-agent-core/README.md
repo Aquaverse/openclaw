@@ -346,7 +346,7 @@ node openclaw.mjs --dev gateway call nexus.vault.search --params '{"query":"hell
 | `nexus_file_get`                                                             | 读一个文件的元数据（不含内容，只告诉你“能否按内容搜索”和提取状态）                                                                 |
 | `nexus_file_attach`                                                          | 把文件柜里的文件挂到声明上作为证据（需要证据原文已开启）                                                                           |
 
-| `nexus_goal_search` / `nexus_goal_get` | 只读：按标题、类别、状态找目标，读一个目标（基本信息、最近条目、关联）。标成“敏感”的目标，搜索只返回标题 |
+| `nexus_goal_search` / `nexus_goal_get` | 只读：按标题、类别、状态找目标，读一个目标（基本信息、最近条目与关联，带它们指向的事项 / 声明的实时状态，以及用户记的度量，只读）。标成“敏感”的目标，搜索只返回标题 |
 | `nexus_goal_create` | 保存一个目标。**只有用户在控制台“目标”页点了类别、开启的那场创建对话里才有效**（一次性授权，绑定该会话、类别，2 小时过期）；其他任何会话调用都被拒绝（`no_creation_permission`）。用户的原话由服务端从对话里取，Agent 改不了 |
 | `nexus_goal_propose` | Agent 自发提出一个目标：只会进入控制台“待确认”，用户批准后才生效；至多附 3 个想问用户的问题 |
 | `nexus_goal_entry_add` / `nexus_goal_link` | 给进行中的目标记一条进展，或把它关联到事项、文件、偏好等；Agent 不能标完成、改原话或删除 |
@@ -357,16 +357,16 @@ node openclaw.mjs --dev gateway call nexus.vault.search --params '{"query":"hell
 
 控制台和探针脚本通过这些方法读写数据。读操作要求 `operator.read`，写操作 `operator.write`，危险操作（永久清除等）`operator.admin`。
 
-| 命名空间                                                   | 方法                                                                                                                                                                                                                         |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `nexus.task.*`                                             | `list` `get` `abort` `delete` `purge` `purgeStatus` `purgeReceipts`                                                                                                                                                          |
-| `nexus.decision.*` / `nexus.execution.*` / `nexus.grant.*` | `decision.list` `get` `resolve`；`execution.list` `resolve` `reconcile`；`grant.list` `revoke`                                                                                                                               |
-| `nexus.claim.*`                                            | `list` `get` `retract` `unlinkEvidence` `verifyChain`                                                                                                                                                                        |
-| `nexus.evidence.*`                                         | `list` `upload` `link` `handle` `read` `delete` `stats` `maintain` `reconcile`                                                                                                                                               |
-| `nexus.preference.*`                                       | `list` `get` `set` `delete` `history` `purge` `purgeReceipts`                                                                                                                                                                |
-| `nexus.watch.*`                                            | `list` `get` `cancel`                                                                                                                                                                                                        |
-| `nexus.goal.*`                                             | `list` `get` `forFile` `startCreation` `confirm` `update` `entry.add` `entry.retract` `link.add` `link.remove` `delete` `restore` `purge` `purgeStatus` `purgeReceipts`；`complete`、`reopen` 在同一命名空间（只有用户操作） |
-| `nexus.vault.*`                                            | `list` `get` `stats` `read` `upload` `importPath` `keep` `discard` `trash` `restore` `rename` `move` `pin` `setSensitivity` `purge` `purgeStatus` `purgeReceipts` `maintain` `search` `text` `jobs` `extract` `retryExtract` |
+| 命名空间                                                   | 方法                                                                                                                                                                                                                                                      |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nexus.task.*`                                             | `list` `get` `abort` `delete` `purge` `purgeStatus` `purgeReceipts`                                                                                                                                                                                       |
+| `nexus.decision.*` / `nexus.execution.*` / `nexus.grant.*` | `decision.list` `get` `resolve`；`execution.list` `resolve` `reconcile`；`grant.list` `revoke`                                                                                                                                                            |
+| `nexus.claim.*`                                            | `list` `get` `retract` `unlinkEvidence` `verifyChain`                                                                                                                                                                                                     |
+| `nexus.evidence.*`                                         | `list` `upload` `link` `handle` `read` `delete` `stats` `maintain` `reconcile`                                                                                                                                                                            |
+| `nexus.preference.*`                                       | `list` `get` `set` `delete` `history` `purge` `purgeReceipts`                                                                                                                                                                                             |
+| `nexus.watch.*`                                            | `list` `get` `cancel`                                                                                                                                                                                                                                     |
+| `nexus.goal.*`                                             | `list` `get` `forFile` `startCreation` `confirm` `update` `entry.add` `entry.retract` `link.add` `link.remove` `metric.set` `metric.remove` `delete` `restore` `purge` `purgeStatus` `purgeReceipts`；`complete`、`reopen` 在同一命名空间（只有用户操作） |
+| `nexus.vault.*`                                            | `list` `get` `stats` `read` `upload` `importPath` `keep` `discard` `trash` `restore` `rename` `move` `pin` `setSensitivity` `purge` `purgeStatus` `purgeReceipts` `maintain` `search` `text` `jobs` `extract` `retryExtract`                              |
 
 变化会以事件广播给控制台（`decision_changed`、`claim_changed`、`evidence_changed`、`preference_changed`、`watch_changed`、`vault_changed`、`task_purged` 等），事件只带 id 和摘要，不带文件名等内容，客户端收到后重新读取。
 
@@ -383,7 +383,7 @@ Nexus 页面是一个 Control UI 模块（源码在 `browser/`），标签包括
 
 - **事项**：列表（可按状态、关键字、时间筛选和分页）、详情（决策、执行、声明、证据、回检、步骤日志，时间都有显示）；待决策卡片上可以直接批准或拒绝，R2 以上要二次确认；
 - **偏好**：新增、编辑、删除；
-- **目标**：仅在 `goalsEnabled` 时出现。上面是“进行中”的目标（复选框、标题、一行现状；顶层目标下缩进显示子目标），Agent 提出的目标单列“待确认”，可直接批准或拒绝；下面是类别选择区（理财、兴趣、其他）。点类别会新开一场聊天，Agent 在聊天里一次问一个问题（选项用核心的 `ask_user` 卡片），问清后用 `nexus_goal_create` 保存。只有用户能勾选完成；页面右上 ⋯ 可关掉副标题、关掉自动排序（改成手动上下移）、查看已完成的目标。目标详情里有 ⋯ 菜单：重命名、加记录、加子目标、标记完成或未完成、删除（可恢复）、永久清除（要输入目标编号）；
+- **目标**：仅在 `goalsEnabled` 时出现。上面是“进行中”的目标（复选框、标题、一行现状；顶层目标下缩进显示子目标），Agent 提出的目标单列“待确认”，可直接批准或拒绝；下面是类别选择区（理财、兴趣、其他）。点类别会新开一场聊天，Agent 在聊天里一次问一个问题（选项用核心的 `ask_user` 卡片），问清后用 `nexus_goal_create` 保存。只有用户能勾选完成；页面右上 ⋯ 可关掉副标题、关掉自动排序（改成手动上下移）、查看已完成的目标。目标详情里有“度量”区（手填的数字，或取自某个事项里一条声明的值；理财类只能手填；达到目标值会在活动里记一条，不会自动完成目标）、带实时状态标签的活动与关联（事项状态、声明被证据支持 / 已核验 / 被反驳等），添加记录时可选关联事项与声明；还有 ⋯ 菜单：重命名、加记录、加子目标、标记完成或未完成、删除（可恢复）、永久清除（要输入目标编号）；
 - **文件**：仅在 `vaultEnabled` 时出现，见下一节；
 - **清除回执**：事项和偏好被永久清除后留下的回执。
 
@@ -489,6 +489,7 @@ node extensions/nexus-agent-core/scripts/build-dist.mjs
 8. **预设只在每个版本应用一次**，见 1.1；已安装机器上改开关要手动 `config set` 或升 `NEXUS_PRESET_VERSION`。
 9. **文件柜 F1 的限制**见 2.5。真实网关上的端到端验证（打包路径回归、第三方安装、重启对账）仍在进行。
 10. **目标创建对话里的选项卡片不保证出现。** 卡片靠宿主的 `ask_user` 工具，是否调用取决于模型；没有卡片时 Agent 会用文字给选项，用户直接回复即可。模型临时过载（“capacity”）时在同一对话重发；模型进入 exec / 代码模式时调不到目标工具（direct-only），也需重发。
+11. **目标详情是打开时读一次的快照。** 目标指向的事项或声明在弹窗打开后变化，要关掉重开才看到新标签；声明的值不是数字时，度量显示“暂无数值”。选择事项和声明的下拉只列最近 100 个事项、每个事项至多 100 条声明。
 
 ---
 

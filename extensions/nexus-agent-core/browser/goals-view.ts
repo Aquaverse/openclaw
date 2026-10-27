@@ -11,8 +11,6 @@ import { tr, type Lang, type MsgKey } from "../src/i18n.js";
 import type {
   GoalCategory,
   GoalDetailRecord,
-  GoalEntryRecord,
-  GoalRecord,
   GoalStatus,
   GoalSummaryRecord,
 } from "../src/store/goal-types.js";
@@ -20,6 +18,7 @@ import type { ActionContext } from "./actions.ts";
 import { openDialog } from "./dialog.ts";
 import { deleteDialog, noteDialog, purgeDialog, renameDialog } from "./goal-dialogs.ts";
 import { el, field, note } from "./goal-dom.ts";
+import { entryLine, linkRow, metricDialog, metricsBlock } from "./goal-progress.ts";
 
 /** What the page needs from the Control UI host to open a chat (a slice of `host.sessions`). */
 export type GoalSessions = {
@@ -268,35 +267,6 @@ function popupMenu(button: HTMLElement, items: MenuItem[]): HTMLElement {
 
 // ------------------------------------------------------------------ detail
 
-function entryLine(ctx: ActionContext, goal: GoalRecord, entry: GoalEntryRecord): HTMLElement {
-  const line = el("div", entry.retractedAt === null ? "gl-entry" : "gl-entry gl-retracted");
-  const head = el("div", "gl-entry-head");
-  head.append(
-    el("span", "pill", tr(ctx.lang, `goal.author.${entry.author}` as MsgKey)),
-    el(
-      "span",
-      "muted",
-      new Date(entry.effectiveAt).toLocaleTimeString(undefined, {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    ),
-  );
-  const text = el("div", "gl-entry-text");
-  if (entry.kind === "system") {
-    text.textContent = tr(ctx.lang, "goal.detail.added", { title: goal.title });
-    line.append(head, text);
-    if (entry.text) {
-      line.append(el("div", "gl-entry-sub", entry.text));
-    }
-    return line;
-  }
-  text.textContent =
-    entry.text + (entry.retractedAt === null ? "" : ` ${tr(ctx.lang, "goal.detail.retracted")}`);
-  line.append(head, text);
-  return line;
-}
-
 export async function goalDetail(ctx: ActionContext, id: string): Promise<void> {
   const detail = await get(ctx, id);
   if (!detail || detail.goal.lifecycle !== "live") {
@@ -435,19 +405,26 @@ export async function goalDetail(ctx: ActionContext, id: string): Promise<void> 
         }
         body.append(block);
       }
+      const reopen = () => void goalDetail(ctx, id);
+      body.append(
+        metricsBlock(ctx, goal, detail.metrics ?? [], {
+          edit: (metric) => {
+            close();
+            metricDialog(ctx, goal, metric, reopen);
+          },
+          add: () => {
+            close();
+            metricDialog(ctx, goal, undefined, reopen);
+          },
+        }),
+      );
       const links = el("div", "gl-block");
       links.append(el("div", "gl-block-label", tr(ctx.lang, "goal.detail.links")));
       if (detail.links.length === 0) {
         links.append(el("div", "muted", tr(ctx.lang, "goal.detail.noLinks")));
       }
       for (const link of detail.links) {
-        links.append(
-          el(
-            "div",
-            "gl-linkrow",
-            `${link.kind} ${link.refId}${link.targetGone ? ` (${tr(ctx.lang, "goal.detail.gone")})` : ""}`,
-          ),
-        );
+        links.append(linkRow(ctx, link));
       }
       body.append(links);
       const activity = el("div", "gl-block");
@@ -455,10 +432,13 @@ export async function goalDetail(ctx: ActionContext, id: string): Promise<void> 
       if (detail.entries.length === 0) {
         activity.append(el("div", "muted", tr(ctx.lang, "goal.detail.noActivity")));
       }
+      const startId = detail.entriesTruncated
+        ? undefined
+        : detail.entries.findLast((entry) => entry.kind === "system")?.id;
       for (const group of groupEntriesByDay(detail.entries)) {
         activity.append(el("div", "gl-day", group.day));
         for (const entry of group.entries) {
-          activity.append(entryLine(ctx, goal, entry));
+          activity.append(entryLine(ctx, goal, entry, entry.id === startId));
         }
       }
       body.append(activity);

@@ -104,7 +104,7 @@ export function createGoalTools(deps: GoalToolDeps, ctx: ToolContext): AnyAgentT
       name: "nexus_goal_get",
       label: "Nexus Goals: details",
       description:
-        "Read one goal by goalId (from nexus_goal_search): title, the user's words, description, current state, recent progress notes, sub-goals and linked Tasks or files.",
+        "Read one goal by goalId (from nexus_goal_search): title, the user's words, description, current state, recent progress notes (with the live status of the Task or claim a note points at), sub-goals, linked Tasks or files, and the metrics the user keeps (read-only; a self-reported figure is the user's word, a claim figure follows its claim).",
       parameters: Type.Object({ goalId: Type.String() }),
       async execute(_id: string, params: Record<string, unknown>) {
         return withPrincipal((principal) => agentGetGoal(deps.service, principal, params.goalId));
