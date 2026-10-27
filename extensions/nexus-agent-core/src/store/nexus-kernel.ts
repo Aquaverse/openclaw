@@ -1,10 +1,13 @@
 // The combined kernel the worker exposes: Task (Stage 1) + Decision / Grant / Execution (Stage 2) + Claim / Evidence and
-// Blob evidence and Purge (Stage 3) + Preference and Watch (Stage 4) + personal file Vault (Stage 5, text extraction included).
+// Blob evidence and Purge (Stage 3) + Preference and Watch (Stage 4) + personal file Vault (Stage 5, text extraction included) +
+// Goals (Stage 6).
 // Method names are disjoint by construction; the type below fails to compile if they ever collide.
 import type { DatabaseSync } from "node:sqlite";
 import { createBlobLedger } from "./blob-ledger.js";
 import { createClaimLedger } from "./claim-ledger.js";
 import { createDecisionKernel, type DecisionKernelOptions } from "./decision-kernel.js";
+import { createGoalLedger } from "./goal-ledger.js";
+import { createGoalLifecycleLedger } from "./goal-lifecycle-ledger.js";
 import { createTaskKernel, type TransactionRunner } from "./kernel.js";
 import { createPreferenceLedger } from "./preference-ledger.js";
 import { createPurgeLedger } from "./purge-ledger.js";
@@ -18,7 +21,7 @@ export function createNexusKernel(
   db: DatabaseSync,
   transaction: TransactionRunner,
   options: DecisionKernelOptions & {
-    /** Goal<->File detach / check hooks; registered by Goals storage presence, no-ops when absent. */
+    /** Overrides the Goal<->File detach / check hooks (tests only); by default the Goals kernel's own hooks, always registered. */
     vaultPurgeHooks?: VaultPurgeHooks;
   } = {},
 ) {
@@ -39,10 +42,12 @@ export function createNexusKernel(
   const purge = createPurgeLedger(transaction, ledger.internals);
   const watches = createWatchLedger(transaction, ledger.internals);
   const vault = createVaultLedger(transaction, ledger.internals);
+  const goals = createGoalLedger(transaction, ledger.internals);
+  const goalLifecycle = createGoalLifecycleLedger(transaction, ledger.internals);
   const vaultMaintenance = createVaultMaintenanceLedger(
     transaction,
     ledger.internals,
-    options.vaultPurgeHooks,
+    options.vaultPurgeHooks ?? goalLifecycle.hooks,
   );
   const vaultText = createVaultTextLedger(db, transaction, ledger.internals);
   return {
@@ -56,6 +61,8 @@ export function createNexusKernel(
     ...vault,
     ...vaultMaintenance,
     ...vaultText,
+    ...goals,
+    ...goalLifecycle.kernel,
   };
 }
 
@@ -70,6 +77,8 @@ type WatchKeys = keyof ReturnType<typeof createWatchLedger>["kernel"];
 type VaultKeys = keyof ReturnType<typeof createVaultLedger>;
 type VaultMaintenanceKeys = keyof ReturnType<typeof createVaultMaintenanceLedger>;
 type VaultTextKeys = keyof ReturnType<typeof createVaultTextLedger>;
+type GoalKeys = keyof ReturnType<typeof createGoalLedger>;
+type GoalLifecycleKeys = keyof ReturnType<typeof createGoalLifecycleLedger>["kernel"];
 /** Method names that appear in more than one kernel part (a union of the repeats; `never` when every name is unique). */
 type Dup<K extends readonly unknown[], Seen = never> = K extends readonly [infer H, ...infer R]
   ? Extract<H, Seen> | Dup<R, Seen | H>
@@ -86,6 +95,8 @@ type Overlap = Dup<
     VaultKeys,
     VaultMaintenanceKeys,
     VaultTextKeys,
+    GoalKeys,
+    GoalLifecycleKeys,
   ]
 >;
 export const NO_METHOD_OVERLAP: [Overlap] extends [never] ? true : never = true;

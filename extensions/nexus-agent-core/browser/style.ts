@@ -67,4 +67,48 @@ export const NEXUS_CSS = `
 .nexus-page .nx-tabs a.on{opacity:1;font-weight:600}
 .nexus-page .nx-footer{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;position:sticky;bottom:-16px;z-index:2;background:Canvas;margin:12px -20px -16px;padding:8px 20px 16px}
 .nexus-page .nx-footer .nx-btn{white-space:nowrap}
+.nexus-page .gl-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.nexus-page .gl-head h1{margin-bottom:4px}
+.nexus-page .gl-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.nexus-page .gl-more{font-size:18px;line-height:1;padding:2px 10px}
+.nexus-page .gl-list{display:flex;flex-direction:column}
+.nexus-page .gl-row{display:flex;gap:12px;align-items:flex-start;padding:10px 4px;border-bottom:1px solid color-mix(in srgb,currentColor 12%,transparent)}
+.nexus-page .gl-child{margin-left:32px}
+.nexus-page .gl-box{flex:0 0 20px;width:20px;height:20px;margin-top:2px;border:2px solid color-mix(in srgb,currentColor 45%,transparent);border-radius:50%;background:none;padding:0;cursor:pointer;position:relative;color:inherit}
+.nexus-page .gl-box:hover{border-color:#2fa56b}
+.nexus-page .gl-box.off{cursor:default;opacity:.5}
+.nexus-page .gl-box.on{background:#2fa56b;border-color:#2fa56b;cursor:default}
+.nexus-page .gl-box.on::after{content:"";position:absolute;left:5px;top:1px;width:5px;height:10px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.nexus-page .gl-main{flex:1;min-width:0}
+.nexus-page .gl-title{font:inherit;font-weight:600;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left;word-break:break-word}
+.nexus-page .gl-title:hover{text-decoration:underline}
+.nexus-page .gl-sub{opacity:.65;font-size:13px;margin-top:2px;word-break:break-word}
+.nexus-page .gl-pending{background:color-mix(in srgb,#d98a1f 8%,transparent);border-radius:6px;margin-bottom:4px}
+.nexus-page .gl-actions,.nexus-page .gl-order{display:flex;gap:6px;flex:0 0 auto}
+.nexus-page .gl-cats{display:flex;flex-wrap:wrap;gap:12px;margin:8px 0}
+.nexus-page .gl-cat{display:flex;flex-direction:column;gap:2px;text-align:left;font:inherit;color:inherit;background:none;border:1px solid color-mix(in srgb,currentColor 25%,transparent);border-radius:10px;padding:10px 16px;min-width:150px;cursor:pointer}
+.nexus-page .gl-cat:hover{border-color:#4f7cff}
+.nexus-page .gl-cat.off{opacity:.5;cursor:default}
+.nexus-page .gl-cat-name{font-weight:600}
+.nexus-page .gl-cat-desc{opacity:.65;font-size:12px}
+.nexus-page .gl-detail-bar{display:flex;justify-content:flex-end}
+.nexus-page .gl-menu-wrap{position:relative;display:inline-block}
+.nexus-page .gl-menu{position:absolute;right:0;top:100%;z-index:5;min-width:160px;background:Canvas;color:CanvasText;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.3);padding:4px;display:flex;flex-direction:column}
+.nexus-page .gl-menu-item{font:inherit;color:inherit;background:none;border:0;text-align:left;padding:6px 10px;border-radius:6px;cursor:pointer}
+.nexus-page .gl-menu-item:hover{background:color-mix(in srgb,currentColor 10%,transparent)}
+.nexus-page .gl-menu-item.nx-danger{color:#e5534b}
+.nexus-page .gl-meta{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 8px}
+.nexus-page .gl-block{margin:12px 0}
+.nexus-page .gl-block-label{opacity:.65;font-size:12px;margin-bottom:2px}
+.nexus-page .gl-block-text{white-space:pre-wrap;word-break:break-word}
+.nexus-page .gl-hint{font-size:12px}
+.nexus-page .gl-day{margin:12px 0 4px;font-weight:600;opacity:.75;font-size:13px}
+.nexus-page .gl-entry{border-left:2px solid color-mix(in srgb,currentColor 20%,transparent);padding:2px 0 2px 10px;margin:6px 0}
+.nexus-page .gl-entry-head{display:flex;gap:8px;align-items:center;font-size:12px}
+.nexus-page .gl-entry-text,.nexus-page .gl-entry-sub{white-space:pre-wrap;word-break:break-word}
+.nexus-page .gl-entry-sub{opacity:.7}
+.nexus-page .gl-retracted .gl-entry-text{text-decoration:line-through;opacity:.6}
+.nexus-page .gl-done .gl-title{font-weight:500}
+.nexus-page .gl-link{font:inherit;color:#4f7cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
+.nexus-page .nx-dialog textarea,.nexus-page .nx-dialog input:not([type=checkbox]){width:100%;box-sizing:border-box;font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:4px 8px;margin:4px 0}
 `;

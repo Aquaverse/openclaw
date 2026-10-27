@@ -17,6 +17,14 @@ import {
   DEFAULT_EVIDENCE_CONFIG,
   type EvidenceService,
 } from "./evidence/evidence-service.js";
+import { createGoalRpcHandlers } from "./goal-rpc.js";
+import { isCreationOpener, userTurnsFrom } from "./goal/goal-hook.js";
+import {
+  GOAL_CREATION_REMINDER,
+  goalCreationGuide,
+  NEXUS_GOAL_PROTOCOL,
+} from "./goal/goal-prompt.js";
+import { createGoalService, type GoalService } from "./goal/goal-service.js";
 import { createPreferenceRpcHandlers } from "./preference-rpc.js";
 import { resolvePrincipal } from "./principal.js";
 import { resolveProcessBootId } from "./process-boot.js";
@@ -55,6 +63,7 @@ import { createTokenLedger } from "./tokens.js";
 import { ACTION_TOOL_NAMES, createActionTools } from "./tools/action-tools.js";
 import { CLAIM_TOOL_NAMES, createClaimTools } from "./tools/claim-tools.js";
 import { createFileTools } from "./tools/file-tools.js";
+import { createGoalTools, GOAL_TOOL_NAMES } from "./tools/goal-tools.js";
 import { createPreferenceTools, PREFERENCE_TOOL_NAMES } from "./tools/preference-tools.js";
 import { createTaskTools, TASK_TOOL_NAMES } from "./tools/task-tools.js";
 import { createWatchTools, WATCH_TOOL_NAMES } from "./tools/watch-tools.js";
@@ -112,6 +121,10 @@ export type TaskModuleConfig = {
   vaultExtractMaxBytes?: number;
   /** Characters indexed per file (default 2 000 000). */
   vaultExtractMaxChars?: number;
+  /** Stage 6: Goals (tools nexus_goal_*, RPC nexus.goal.*, the console "Goals" page). Needs tasksEnabled. */
+  goalsEnabled?: boolean;
+  /** Active goals one owner may hold (default 20). */
+  goalMaxActivePerOwner?: number;
   evidenceTaskQuotaBytes?: number;
   evidenceOwnerQuotaBytes?: number;
   evidenceMaxUploadBytes?: number;
@@ -133,6 +146,8 @@ const TICK_MS = 15_000;
 const MAINTAIN_EVERY_TICKS = 4;
 
 const OPEN_TASKS_IN_PROMPT = 8;
+/** Goal purges a crash left half way are finished about once a minute (and at start). */
+const GOAL_MAINTAIN_MS = 60_000;
 /** The vault's maintenance pass (recovery, reclaim, retention, integrity check) runs about once a minute. */
 const VAULT_MAINTAIN_MS = 60_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -589,6 +604,37 @@ export function registerTaskModule(
     }
   }
 
+  // ---- Stage 6: Goals (Goals design). A goal is context for the Agent, never authority. ----
+  let goals: GoalService | undefined;
+  if (config.goalsEnabled === true) {
+    const created = createGoalService({
+      getStore,
+      config: () => ({
+        maxActive:
+          Number.isInteger(config.goalMaxActivePerOwner) && (config.goalMaxActivePerOwner ?? 0) > 0
+            ? (config.goalMaxActivePerOwner as number)
+            : 20,
+      }),
+      onChanged: (event) => events.goalChanged(event),
+      logger: api.logger,
+    });
+    goals = created;
+    api.registerTool(
+      (ctx) =>
+        createGoalTools(
+          { service: created, resolvePrincipal: principalFor, logger: api.logger },
+          ctx,
+        ),
+      { names: [...GOAL_TOOL_NAMES], optional: true },
+    );
+    for (const [method, handler, scope] of createGoalRpcHandlers({
+      service: created,
+      resolvePrincipal: () => principalFor(),
+    })) {
+      api.registerGatewayMethod(method, handler, { scope });
+    }
+  }
+
   // Stage 1 only handles user turns. The watcher branch for cron/heartbeat turns comes in front of this
   // check in Stage 4 (DESIGN section 7.1); Stage 2 adds `requiresToolAuthority` for per-session lockdown.
   api.on("before_prompt_build", async (event, ctx) => {
@@ -643,9 +689,43 @@ export function registerTaskModule(
           );
         }
       }
-      const context = [open.length > 0 ? renderOpenTasks(open) : undefined, fileRefs].filter(
-        (part): part is string => part !== undefined,
-      );
+      let creationReminder: string | undefined;
+      if (goals) {
+        protocols.push(NEXUS_GOAL_PROTOCOL);
+        // The Goals page opens a creation chat with a single-use grant bound to this session: the guide for its category is
+        // added to this turn, and what the user types is kept (server side) as the words of the goal.
+        const sessionKey = (ctx as { sessionKey?: string }).sessionKey;
+        if (sessionKey) {
+          try {
+            const grant = await goals.activeGrant(principal, sessionKey);
+            if (grant) {
+              for (const turn of userTurnsFrom(event)) {
+                if (!isCreationOpener(turn.text)) {
+                  await goals.captureReply(principal, {
+                    sessionKey,
+                    messageKey: turn.key,
+                    text: turn.text,
+                  });
+                }
+              }
+              const parent = grant.parentId
+                ? await goals.get(principal, grant.parentId, 1)
+                : undefined;
+              protocols.push(goalCreationGuide(grant.category, parent?.goal.title));
+              creationReminder = GOAL_CREATION_REMINDER;
+            }
+          } catch (error) {
+            api.logger.warn(
+              `nexus-agent-core: goal creation context skipped: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }
+      }
+      const context = [
+        open.length > 0 ? renderOpenTasks(open) : undefined,
+        fileRefs,
+        creationReminder,
+      ].filter((part): part is string => part !== undefined);
       return {
         prependSystemContext: protocols.join("\n\n"),
         ...(context.length > 0 ? { prependContext: context.join("\n\n") } : {}),
@@ -722,6 +802,27 @@ export function registerTaskModule(
   let incarnationRegistered = false;
   let vaultTimer: ReturnType<typeof setInterval> | undefined;
   let vaultMaintaining = false;
+  let goalTimer: ReturnType<typeof setInterval> | undefined;
+  let goalMaintaining = false;
+  const maintainGoals = async () => {
+    const principal = principalFor();
+    if (!goals || !principal || goalMaintaining) {
+      return;
+    }
+    goalMaintaining = true;
+    try {
+      const report = await goals.maintain(principal);
+      if (report.resumed > 0) {
+        api.logger.info(`nexus-agent-core: goal maintain resumed ${report.resumed} purge(s)`);
+      }
+    } catch (error) {
+      api.logger.warn(
+        `nexus-agent-core: goal maintain failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      goalMaintaining = false;
+    }
+  };
   let maintaining = false;
   let resuming = false;
   const resumePurges = async () => {
@@ -840,6 +941,11 @@ export function registerTaskModule(
             );
           }
         }
+        if (goals) {
+          await maintainGoals();
+          goalTimer = setInterval(() => void maintainGoals(), GOAL_MAINTAIN_MS);
+          goalTimer.unref?.();
+        }
         if (vault && incarnationRegistered) {
           // The vault has its own clock: it must run with or without the decision runtime.
           await maintainVault();
@@ -911,6 +1017,10 @@ export function registerTaskModule(
         if (vaultTimer) {
           clearInterval(vaultTimer);
           vaultTimer = undefined;
+        }
+        if (goalTimer) {
+          clearInterval(goalTimer);
+          goalTimer = undefined;
         }
         events.attach(undefined);
         // A clean shutdown may only be recorded after every in-flight writer's real Promise has settled (DESIGN 9.5.1);

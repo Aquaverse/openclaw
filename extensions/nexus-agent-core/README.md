@@ -169,6 +169,8 @@ done
 
 # 可选：文件柜、证据原文
 node openclaw.mjs --dev config set $C.vaultEnabled true
+# 可选：中长期目标（需要 tasksEnabled）
+node openclaw.mjs --dev config set $C.goalsEnabled true
 node openclaw.mjs --dev config set $C.evidenceBlobsEnabled true
 
 # 模拟提供商：只用于演示和验收，不产生任何外部效果
@@ -184,7 +186,8 @@ node openclaw.mjs --dev config set tools.alsoAllow '[
   "nexus_claim_add","nexus_evidence_add","nexus_claim_verify",
   "nexus_preference_get","nexus_preference_set","nexus_preference_confirm",
   "nexus_watch_create","nexus_watch_cancel","nexus_watch_report",
-  "nexus_file_search","nexus_file_get","nexus_file_attach"
+  "nexus_file_search","nexus_file_get","nexus_file_attach",
+  "nexus_goal_search","nexus_goal_get","nexus_goal_create","nexus_goal_propose","nexus_goal_entry_add","nexus_goal_link"
 ]' --strict-json
 ```
 
@@ -248,6 +251,7 @@ node openclaw.mjs --dev gateway call nexus.vault.search --params '{"query":"hell
 | `preferencesEnabled`   | 偏好库                                                                                       | `tasksEnabled`（确认为“用户明确表达”还需 `decisionsEnabled`） |
 | `watchersEnabled`      | 定时回检                                                                                     | `claimsEnabled`                                               |
 | `vaultEnabled`         | 个人文件柜                                                                                   | `tasksEnabled`（`nexus_file_attach` 还需要证据原文开启）      |
+| `goalsEnabled`         | 中长期目标：`nexus_goal_*` 工具、`nexus.goal.*` RPC、控制台“目标”页                          | `tasksEnabled`                                                |
 | `spikesEnabled`        | Stage 0 运行时探针，仅开发用                                                                 | —                                                             |
 
 **模拟提供商**
@@ -293,6 +297,12 @@ node openclaw.mjs --dev gateway call nexus.vault.search --params '{"query":"hell
 | `vaultExtractMaxChars`               | 2,000,000  | 提取出的文字上限，超出部分截断并在控制台标注                      |
 | `vaultHttpUploadEnabled`             | true       | 开放可续传的分块上传 HTTP 入口，给大文件和手机使用                |
 
+**目标**
+
+| 参数                    | 默认 | 说明                                                                    |
+| ----------------------- | ---- | ----------------------------------------------------------------------- |
+| `goalMaxActivePerOwner` | 20   | 每个 owner 同时“进行中”的目标上限（待确认和已完成的不计入），范围 1–200 |
+
 **其他**
 
 | 参数      | 默认    | 说明                                    |
@@ -336,6 +346,11 @@ node openclaw.mjs --dev gateway call nexus.vault.search --params '{"query":"hell
 | `nexus_file_get`                                                             | 读一个文件的元数据（不含内容，只告诉你“能否按内容搜索”和提取状态）                                                                 |
 | `nexus_file_attach`                                                          | 把文件柜里的文件挂到声明上作为证据（需要证据原文已开启）                                                                           |
 
+| `nexus_goal_search` / `nexus_goal_get` | 只读：按标题、类别、状态找目标，读一个目标（基本信息、最近条目、关联）。标成“敏感”的目标，搜索只返回标题 |
+| `nexus_goal_create` | 保存一个目标。**只有用户在控制台“目标”页点了类别、开启的那场创建对话里才有效**（一次性授权，绑定该会话、类别，2 小时过期）；其他任何会话调用都被拒绝（`no_creation_permission`）。用户的原话由服务端从对话里取，Agent 改不了 |
+| `nexus_goal_propose` | Agent 自发提出一个目标：只会进入控制台“待确认”，用户批准后才生效；至多附 3 个想问用户的问题 |
+| `nexus_goal_entry_add` / `nexus_goal_link` | 给进行中的目标记一条进展，或把它关联到事项、文件、偏好等；Agent 不能标完成、改原话或删除 |
+
 `nexus_spike_probe` 是 Stage 0 的探针工具，只在 `spikesEnabled` 时存在，不放进 `tools.alsoAllow`。
 
 ### 2.3 网关 RPC
@@ -350,6 +365,7 @@ node openclaw.mjs --dev gateway call nexus.vault.search --params '{"query":"hell
 | `nexus.evidence.*`                                         | `list` `upload` `link` `handle` `read` `delete` `stats` `maintain` `reconcile`                                                                                                                                               |
 | `nexus.preference.*`                                       | `list` `get` `set` `delete` `history` `purge` `purgeReceipts`                                                                                                                                                                |
 | `nexus.watch.*`                                            | `list` `get` `cancel`                                                                                                                                                                                                        |
+| `nexus.goal.*`                                             | `list` `get` `forFile` `startCreation` `confirm` `update` `entry.add` `entry.retract` `link.add` `link.remove` `delete` `restore` `purge` `purgeStatus` `purgeReceipts`；`complete`、`reopen` 在同一命名空间（只有用户操作） |
 | `nexus.vault.*`                                            | `list` `get` `stats` `read` `upload` `importPath` `keep` `discard` `trash` `restore` `rename` `move` `pin` `setSensitivity` `purge` `purgeStatus` `purgeReceipts` `maintain` `search` `text` `jobs` `extract` `retryExtract` |
 
 变化会以事件广播给控制台（`decision_changed`、`claim_changed`、`evidence_changed`、`preference_changed`、`watch_changed`、`vault_changed`、`task_purged` 等），事件只带 id 和摘要，不带文件名等内容，客户端收到后重新读取。
@@ -367,6 +383,7 @@ Nexus 页面是一个 Control UI 模块（源码在 `browser/`），标签包括
 
 - **事项**：列表（可按状态、关键字、时间筛选和分页）、详情（决策、执行、声明、证据、回检、步骤日志，时间都有显示）；待决策卡片上可以直接批准或拒绝，R2 以上要二次确认；
 - **偏好**：新增、编辑、删除；
+- **目标**：仅在 `goalsEnabled` 时出现。上面是“进行中”的目标（复选框、标题、一行现状；顶层目标下缩进显示子目标），Agent 提出的目标单列“待确认”，可直接批准或拒绝；下面是类别选择区（理财、兴趣、其他）。点类别会新开一场聊天，Agent 在聊天里一次问一个问题（选项用核心的 `ask_user` 卡片），问清后用 `nexus_goal_create` 保存。只有用户能勾选完成；页面右上 ⋯ 可关掉副标题、关掉自动排序（改成手动上下移）、查看已完成的目标。目标详情里有 ⋯ 菜单：重命名、加记录、加子目标、标记完成或未完成、删除（可恢复）、永久清除（要输入目标编号）；
 - **文件**：仅在 `vaultEnabled` 时出现，见下一节；
 - **清除回执**：事项和偏好被永久清除后留下的回执。
 
@@ -410,7 +427,7 @@ Nexus 页面是一个 Control UI 模块（源码在 `browser/`），标签包括
 - 宿主的命令行类工具仍可能读到文件库目录里的原始字节（已实测，`tools.fs.workspaceOnly=true` 也挡不住 shell），所以“敏感文件”只保证不经 `nexus_file_*` 工具提供，**不能**当作对 Agent 完全保密，详见设计文档 13.4；
 - 没有手机端界面和账号系统；手机目前只能直接调用分块上传的 HTTP 入口（手机和电脑在同一网络或 VPN）。“手机在任何网络都能传”需要 Relay 和账号系统，记为远期目标（OpenClaw 的设备配对机制可能可用，尚未核实）；
 - 测试基准 06（文件处理）第一版在 `src/vault/benchmark06/`，随 `pnpm test:extension nexus-agent-core` 运行：固定样本集上的提取正确率、内容搜索精确率与召回率、敏感文件跳过、注入防护，全部确定性（不调用模型），要求 100%；`NEXUS_BENCH_REPORT=1` 打印评分卡。带模型的注入测试和 PDF、图片、Office 的提取评测是后续版本；
-- 控制台文件页的详情有“收藏 / 取消收藏”、“下载”（列表每行也有）、“关联”（把它挂成证据的任务、证据和论断）和版本区（默认显示最新版本，多于一个版本时有“更多版本”，可看历史列表、详情并下载旧版本）。下载经网关连接分块读取（每块 1 MiB），上限 256 MiB，能算 SHA-256 时先校验再保存；还没有“在访达中显示”。详情里的“替换内容”（仅 `active` 文件、可写连接）选一个新文件，新内容成为最新版本，旧内容留作历史版本，名称、文件夹、收藏、置顶和敏感标记不变；版本列表里每个旧版本有“恢复为此版本”（把它的内容作为新的最新版本放回来，不丢任何东西）。每个文件最多保留 5 个版本，更早的在下次整理时回收；内容与当前相同时不产生新版本。目前替换走 Base64（≤ 16 MiB），更大的内容的分块替换还没做；对应 RPC 是 `nexus.vault.replace`、`nexus.vault.restoreVersion`（都是 write 权限）；
+- 控制台文件页的详情有“收藏 / 取消收藏”、“下载”（列表每行也有）、“关联”（把它挂成证据的任务、证据和论断）和版本区（默认显示最新版本，多于一个版本时有“更多版本”，可看历史列表、详情并下载旧版本）。下载经网关连接分块读取（每块 1 MiB），上限 256 MiB，能算 SHA-256 时先校验再保存（不做“在访达中显示”：库里的物理文件名是随机 ID，下载已能按原名另存）。详情里的“替换内容”（仅 `active` 文件、可写连接）选一个新文件，新内容成为最新版本，旧内容留作历史版本，名称、文件夹、收藏、置顶和敏感标记不变；版本列表里每个旧版本有“恢复为此版本”（把它的内容作为新的最新版本放回来，不丢任何东西）。每个文件最多保留 5 个版本，更早的在下次整理时回收；内容与当前相同时不产生新版本。目前替换走 Base64（≤ 16 MiB），更大的内容的分块替换还没做；对应 RPC 是 `nexus.vault.replace`、`nexus.vault.restoreVersion`（都是 write 权限）；
 
 设计细节见 `docs/nexus-agent-core-personal-file-vault-design.md`，第 13 节记录 F1 的澄清，第 14 节记录 F2、F3。
 
@@ -471,6 +488,7 @@ node extensions/nexus-agent-core/scripts/build-dist.mjs
 7. **回检需要可用的模型**，没有模型时回检不会到点执行，探针脚本里的 `watch-flow.mts` 同理。
 8. **预设只在每个版本应用一次**，见 1.1；已安装机器上改开关要手动 `config set` 或升 `NEXUS_PRESET_VERSION`。
 9. **文件柜 F1 的限制**见 2.5。真实网关上的端到端验证（打包路径回归、第三方安装、重启对账）仍在进行。
+10. **目标创建对话里的选项卡片不保证出现。** 卡片靠宿主的 `ask_user` 工具，是否调用取决于模型；没有卡片时 Agent 会用文字给选项，用户直接回复即可。模型临时过载（“capacity”）时在同一对话重发；模型进入 exec / 代码模式时调不到目标工具（direct-only），也需重发。
 
 ---
 

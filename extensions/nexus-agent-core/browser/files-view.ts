@@ -26,6 +26,7 @@ import {
   versionsSection,
 } from "./file-parts.ts";
 import { fileReplaceDialog } from "./file-replace.ts";
+import { goalsSection } from "./goals-view.ts";
 
 function field<T extends HTMLInputElement | HTMLTextAreaElement>(
   body: HTMLElement,
@@ -556,6 +557,9 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
       const linksBox = document.createElement("div");
       body.append(linksBox);
       void linksSection(ctx, file, linksBox);
+      const goalsBox = document.createElement("div");
+      body.append(goalsBox);
+      void goalsSection(ctx, file, goalsBox);
       const textLabel = extractionLabel(extraction);
       if (textLabel) {
         line(body, tr(ctx.lang, "files.d.text"), tr(ctx.lang, textLabel.key));

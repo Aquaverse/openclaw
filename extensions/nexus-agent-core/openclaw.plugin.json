@@ -1,7 +1,7 @@
 {
   "id": "nexus-agent-core",
   "name": "Nexus Agent Core",
-  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). Stage 4: a Preference Store (tools nexus_preference_*, RPC nexus.preference.*), a read-only Control UI tab, and a Watcher for scheduled re-checks (tools nexus_watch_*, RPC nexus.watch.*). Stage 5: a personal file vault (tools nexus_file_*, RPC nexus.vault.*). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see nexus-agent-core-design.md section 13).",
+  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). Stage 4: a Preference Store (tools nexus_preference_*, RPC nexus.preference.*), a read-only Control UI tab, and a Watcher for scheduled re-checks (tools nexus_watch_*, RPC nexus.watch.*). Stage 5: a personal file vault (tools nexus_file_*, RPC nexus.vault.*). Stage 6: Goals (tools nexus_goal_*, RPC nexus.goal.*, console Goals page). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see nexus-agent-core-design.md section 13).",
   "categories": [
     "agent-orchestration"
   ],
@@ -238,6 +238,18 @@
         "minimum": 1000,
         "default": 2000000,
         "description": "Characters indexed per file; the rest is dropped and the file is marked truncated (default 2,000,000)."
+      },
+      "goalsEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable Stage 6 Goals (needs tasksEnabled): nexus_goal_search / nexus_goal_get / nexus_goal_create / nexus_goal_propose / nexus_goal_entry_add / nexus_goal_link (optional tools, allow them via tools.alsoAllow), nexus.goal.* gateway methods and the console Goals page. A goal is context for the Agent, never authority; only the user completes, confirms or deletes one. Off by default."
+      },
+      "goalMaxActivePerOwner": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200,
+        "default": 20,
+        "description": "Active goals one owner may hold (default 20). Proposed (pending) and completed goals do not count."
       }
     }
   },
@@ -265,6 +277,12 @@
       "nexus_file_search",
       "nexus_file_get",
       "nexus_file_attach",
+      "nexus_goal_search",
+      "nexus_goal_get",
+      "nexus_goal_create",
+      "nexus_goal_propose",
+      "nexus_goal_entry_add",
+      "nexus_goal_link",
       "nexus_spike_probe"
     ]
   },
@@ -337,9 +355,27 @@
     },
     "nexus_file_attach": {
       "optional": true
+    },
+    "nexus_goal_search": {
+      "optional": true
+    },
+    "nexus_goal_get": {
+      "optional": true
+    },
+    "nexus_goal_create": {
+      "optional": true
+    },
+    "nexus_goal_propose": {
+      "optional": true
+    },
+    "nexus_goal_entry_add": {
+      "optional": true
+    },
+    "nexus_goal_link": {
+      "optional": true
     }
   },
   "controlUi": {
-    "entry": "dist/control-ui/b8442b45812d68cc2efad09fa40bbdb0492117419d832a7ec9be626fa67bde04/index.js"
+    "entry": "dist/control-ui/e5934715e21ceaac32fb39b09957aef2063baf77ce53ccac82d62e37ca84af79/index.js"
   }
 }

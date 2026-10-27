@@ -18,6 +18,7 @@ export type NexusRoute =
   | { view: "tasks"; filter: TaskFilter }
   | { view: "task"; taskId: string }
   | { view: "preferences" }
+  | { view: "goals" }
   | { view: "receipts" }
   | ({ view: "files" } & FileQuery);
 
@@ -44,6 +45,9 @@ export function parseRoute(props: Readonly<Record<string, string>>): NexusRoute 
   }
   if (props.view === "receipts") {
     return { view: "receipts" };
+  }
+  if (props.view === "goals") {
+    return { view: "goals" };
   }
   if (props.view === "files") {
     return { view: "files", ...parseFileQuery((name) => props[name]) };
@@ -82,7 +86,10 @@ export function routeFromHref(href: string): NexusRoute | undefined {
   if (first === "tasks" && second !== undefined && segments.length === 2) {
     return TASK_ID.test(second) ? { view: "task", taskId: second } : undefined;
   }
-  if (segments.length === 1 && (first === "preferences" || first === "receipts")) {
+  if (
+    segments.length === 1 &&
+    (first === "preferences" || first === "receipts" || first === "goals")
+  ) {
     return { view: first };
   }
   if (segments.length === 1 && first === "files") {

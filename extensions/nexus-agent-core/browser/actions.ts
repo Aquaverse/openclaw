@@ -5,6 +5,7 @@
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
 import type { EvidenceBlobView } from "../src/store/blob-types.js";
 import type { DecisionRecord } from "../src/store/decision-types.js";
+import type { GoalSummaryRecord } from "../src/store/goal-types.js";
 import type { PreferenceRecord } from "../src/store/preference-types.js";
 import {
   isValidPreferenceKey,
@@ -25,6 +26,17 @@ import {
   fileSearchDialog,
   fileUploadDialog,
 } from "./files-view.ts";
+import type { GoalPrefs } from "./goal-prefs.ts";
+import {
+  goalCheckAsk,
+  goalCreate,
+  goalDetail,
+  goalMenu,
+  goalMove,
+  goalPending,
+  goalReject,
+  type GoalSessions,
+} from "./goals-view.ts";
 import type { NexusAction } from "./sanitize.ts";
 
 export type NexusModel = {
@@ -36,6 +48,8 @@ export type NexusModel = {
   files?: readonly VaultFileRecord[];
   /** Text extraction state per file id, as the same RPC reply reported it. */
   extraction?: Readonly<Record<string, VaultExtractionStatus>>;
+  /** The active goals the Goals tab rendered (for moving a goal among its siblings). */
+  goals?: readonly GoalSummaryRecord[];
 };
 
 export const EMPTY_MODEL: NexusModel = {
@@ -61,6 +75,10 @@ export type ActionContext = {
   changed: (notice: ActionNotice) => void;
   /** Show a notice without reloading (a download changes nothing). Falls back to `changed`. */
   notify?: (notice: ActionNotice) => void;
+  /** The host's chat sessions: the Goals tab opens a creation chat through them. */
+  sessions?: GoalSessions;
+  /** The Goals page-menu switches, kept per viewer by the page. */
+  goalPrefs?: { read: () => GoalPrefs; write: (prefs: GoalPrefs) => void };
 };
 
 function row(body: HTMLElement, label: string, text: string, mono = false): void {
@@ -451,6 +469,25 @@ function preferenceFormDialog(ctx: ActionContext, existing: PreferenceRecord | u
 
 export function runAction(ctx: ActionContext, action: NexusAction): void {
   switch (action.kind) {
+    case "goal-menu":
+      return goalMenu(ctx);
+    case "goal-create":
+      return void goalCreate(ctx, action.id);
+    case "goal-open":
+      return void goalDetail(ctx, action.id);
+    case "goal-pending":
+      return void goalPending(ctx, action.id);
+    case "goal-check":
+      return goalCheckAsk(ctx, action.id);
+    case "goal-approve":
+      // The row's button opens the proposal card (title, the questions, approve / reject): never an approval in one click.
+      return void goalPending(ctx, action.id);
+    case "goal-reject":
+      return void goalReject(ctx, action.id);
+    case "goal-up":
+      return void goalMove(ctx, action.id, -1);
+    case "goal-down":
+      return void goalMove(ctx, action.id, 1);
     case "evidence-view":
       return evidenceViewDialog(ctx, action.id);
     case "file-new":

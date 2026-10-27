@@ -16,6 +16,8 @@ describe("nexus route", () => {
     expect(parseRoute({ view: "task" })).toEqual(TASKS_HOME);
     expect(parseRoute({ view: "task", task: "../x/y" })).toEqual(TASKS_HOME);
     expect(parseRoute({ view: "files", tab: "nope" })).toEqual(FILES_HOME);
+    expect(parseRoute({ view: "goals" })).toEqual({ view: "goals" });
+    expect(routeParams({ view: "goals" })).toEqual({ view: "goals" });
     expect(routeParams(FILES_HOME)).toEqual({ view: "files" });
     expect(routeParams({ ...FILES_HOME, tab: "trash" })).toEqual({ view: "files", tab: "trash" });
     expect(parseRoute({ view: "files", qname: "  发票\n", page: "0", size: "7" })).toEqual({
@@ -38,6 +40,7 @@ describe("nexus route", () => {
       { view: "task", taskId: "T1ABC" },
       { view: "preferences" },
       { view: "receipts" },
+      { view: "goals" },
       FILES_HOME,
       { ...FILES_HOME, tab: "trash" },
       {

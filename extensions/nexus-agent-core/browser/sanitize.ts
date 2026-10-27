@@ -17,7 +17,16 @@ export type NexusAction =
   | { kind: "file-import" }
   | { kind: "file-search" }
   | { kind: "file-open"; id: string }
-  | { kind: "file-download"; id: string };
+  | { kind: "file-download"; id: string }
+  | { kind: "goal-menu" }
+  | { kind: "goal-create"; id: string }
+  | { kind: "goal-open"; id: string }
+  | { kind: "goal-pending"; id: string }
+  | { kind: "goal-check"; id: string }
+  | { kind: "goal-approve"; id: string }
+  | { kind: "goal-reject"; id: string }
+  | { kind: "goal-up"; id: string }
+  | { kind: "goal-down"; id: string };
 
 const ACTION_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
@@ -35,6 +44,9 @@ export function actionFromMarker(act: string | null, id: string | null): NexusAc
   if (act === "file-import") {
     return { kind: "file-import" };
   }
+  if (act === "goal-menu") {
+    return { kind: "goal-menu" };
+  }
   if (!id || !ACTION_ID.test(id)) {
     return undefined;
   }
@@ -45,7 +57,15 @@ export function actionFromMarker(act: string | null, id: string | null): NexusAc
     act === "pref-delete" ||
     act === "evidence-view" ||
     act === "file-open" ||
-    act === "file-download"
+    act === "file-download" ||
+    act === "goal-create" ||
+    act === "goal-open" ||
+    act === "goal-pending" ||
+    act === "goal-check" ||
+    act === "goal-approve" ||
+    act === "goal-reject" ||
+    act === "goal-up" ||
+    act === "goal-down"
   ) {
     return { kind: act, id };
   }

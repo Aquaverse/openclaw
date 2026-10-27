@@ -182,21 +182,22 @@ Agent 可以决定"做什么"，但不能决定"给人看什么事实"、"这次
 
 ---
 
-## 4. 概念模型：三层，以及"task"这个词的纪律
+## 4. 概念模型：分层，以及"task"这个词的纪律
 
 | 层        | 本文怎么称呼                 | 生命周期                    | 归属              | 代码里的名字                                       |
 | --------- | ---------------------------- | --------------------------- | ----------------- | -------------------------------------------------- |
-| L3 目标   | **Task**                     | 天～周，**跨 session**      | Nexus 自有 SQLite | `nexus_tasks`、`nexus.task.*`、`nexus_task_create` |
+| L4 目标   | **Goal（中长期目标）**       | 月～年，**跨 Task**         | Nexus 自有 SQLite | `goals`、`nexus.goal.*`（设计见 goals-design）     |
+| L3 事项   | **事项（Task）**             | 天～周，**跨 session**      | Nexus 自有 SQLite | `nexus_tasks`、`nexus.task.*`、`nexus_task_create` |
 | L2 执行腿 | **core flow**（绝不叫 task） | 分钟～小时，绑 `sessionKey` | core              | `flow_id`、`api.runtime.tasks.async.managedFlows`  |
 | L1 对话   | agent session                | 一次对话                    | core              | `sessionKey`                                       |
 
-Task 独占；跑长执行腿时镜像一个 core flow，复用内置任务中心与取消。
+事项（Task）独占；跑长执行腿时镜像一个 core flow，复用内置任务中心与取消。
 **不要反过来**把 Task 建在 core flow 上——`TaskFlowRecord.ownerKey` 就是 sessionKey，
 天然不跨会话。
 
 ### 4.1 命名纪律（v0.11，必须遵守）
 
-我们和产品统一用 **Task** 指 L3，这省掉了产品词与代码词之间的翻译层。
+我们和产品统一用 **Task**（产品界面叫"事项"）指 L3；"目标"专指 L4 的中长期 Goal（2026-10-27 起，见 goals-design §0），这省掉了产品词与代码词之间的翻译层。
 代价是 OpenClaw 自己也有 `task`（task run、task flow、`tasks.list` RPC），
 两者在三个地方会接壤：镜像代码、日志、口头交流。靠三条纪律把它们分开：
 

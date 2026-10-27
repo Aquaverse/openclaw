@@ -4,7 +4,7 @@
 #
 # It does exactly four things, all through the `openclaw` CLI the installer put in <prefix>/bin:
 #   1. `plugins enable nexus-agent-core`
-#   2. turns on the feature switches named by the build (default: tasks, decisions, claims, preferences, watchers, vault, evidence bytes)
+#   2. turns on the feature switches named by the build (default: tasks, decisions, claims, preferences, watchers, vault, goals, evidence bytes)
 #   3. makes sure the demo provider is the fake one (`fakeProviderMode` = "ok": no real external effect, ever)
 #   4. appends Nexus' tools to `tools.alsoAllow`, keeping every entry already there and never duplicating
 # then restarts the gateway once, only when it actually wrote something: every value is read first and left alone when
@@ -57,7 +57,7 @@ read_key() {
 PRESET_VERSION="$(read_key NEXUS_PRESET_VERSION)"
 PRESET_VERSION="${PRESET_VERSION:-1}"
 SWITCHES="$(read_key NEXUS_PRESET_SWITCHES)"
-SWITCHES="${SWITCHES:-tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,evidenceBlobsEnabled}"
+SWITCHES="${SWITCHES:-tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,goalsEnabled,evidenceBlobsEnabled}"
 
 MARKER="$PREFIX/.nexus-preset-applied"
 if [[ -f "$MARKER" && "$(/bin/cat "$MARKER" 2>/dev/null)" == "$PRESET_VERSION" ]]; then
@@ -71,7 +71,7 @@ NODE_BIN="${NODE_BIN_OVERRIDE:-$PREFIX/tools/node/bin/node}"
 
 # The tools Nexus registers (extensions/nexus-agent-core: *_TOOL_NAMES). The extension's manifest test keeps this
 # list in step with the plugin; `nexus_spike_probe` is a Stage 0 probe and is deliberately not listed.
-NEXUS_TOOLS="nexus_task_reserve nexus_task_create nexus_task_get nexus_task_update nexus_task_note nexus_task_search nexus_action_prepare nexus_action_authorize nexus_decision_request nexus_action_commit nexus_claim_add nexus_evidence_add nexus_claim_verify nexus_preference_get nexus_preference_set nexus_preference_confirm nexus_watch_create nexus_watch_cancel nexus_watch_report nexus_file_search nexus_file_get nexus_file_attach"
+NEXUS_TOOLS="nexus_task_reserve nexus_task_create nexus_task_get nexus_task_update nexus_task_note nexus_task_search nexus_action_prepare nexus_action_authorize nexus_decision_request nexus_action_commit nexus_claim_add nexus_evidence_add nexus_claim_verify nexus_preference_get nexus_preference_set nexus_preference_confirm nexus_watch_create nexus_watch_cancel nexus_watch_report nexus_file_search nexus_file_get nexus_file_attach nexus_goal_search nexus_goal_get nexus_goal_create nexus_goal_propose nexus_goal_entry_add nexus_goal_link"
 
 log "=================================================="
 log "Nexus preset v$PRESET_VERSION starting (switches: $SWITCHES)"

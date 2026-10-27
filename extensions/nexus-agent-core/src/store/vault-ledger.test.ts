@@ -113,7 +113,7 @@ describe("vault kernel: write protocol, dedup and lifecycle", () => {
   };
 
   it("registers the vault migration after the watches migration", () => {
-    assert.equal(applied[applied.length - 1], "stage5-0001-vault");
+    assert.equal(applied[applied.length - 2], "stage5-0001-vault");
     assert.ok(applied.indexOf("stage5-0001-vault") > applied.indexOf("stage4-0002-watches"));
     for (const table of [
       "vault_reservations",

@@ -8,6 +8,7 @@ import { EMPTY_MODEL, runAction, type ActionNotice, type NexusModel } from "./ac
 import { loadView, probeFeatures, type NexusFeatures } from "./data.ts";
 import { createFileBar } from "./file-bar.ts";
 import { createFilterBar } from "./filters.ts";
+import { readGoalPrefs, writeGoalPrefs } from "./goal-prefs.ts";
 import { FILES_HOME, parseRoute, routeParams, TASKS_HOME, type NexusRoute } from "./route.ts";
 import { mountSanitized } from "./sanitize.ts";
 import { NEXUS_CSS } from "./style.ts";
@@ -24,6 +25,7 @@ const CHANGE_EVENTS = [
   "preference_changed",
   "watch_changed",
   "vault_changed",
+  "goal_changed",
 ];
 const REFRESH_DEBOUNCE_MS = 400;
 
@@ -42,7 +44,7 @@ export function createNexusPage(): ControlUiView {
   let rememberedFiles: FilesRoute = FILES_HOME;
   return (container, initial) => {
     let context = initial;
-    let features: NexusFeatures = { preferences: false, files: false };
+    let features: NexusFeatures = { preferences: false, files: false, goals: false };
     let probed = false;
     let sequence = 0;
     let unbindClicks: (() => void) | undefined;
@@ -132,6 +134,15 @@ export function createNexusPage(): ControlUiView {
       const lang = currentLang();
       const items: Array<[string, NexusRoute, boolean]> = [
         [tr(lang, "nav.tasks"), TASKS_HOME, route.view === "tasks" || route.view === "task"],
+        ...(features.goals === true
+          ? [
+              [tr(lang, "nav.goals"), { view: "goals" }, route.view === "goals"] as [
+                string,
+                NexusRoute,
+                boolean,
+              ],
+            ]
+          : []),
         ...(features.preferences
           ? [
               [
@@ -258,6 +269,7 @@ export function createNexusPage(): ControlUiView {
         const view = await loadView(context.host.request, route, features, {
           actions: context.host.connection.canWrite,
           lang,
+          goalPrefs: readGoalPrefs(),
         });
         if (mine !== sequence || context.signal.aborted) {
           return;
@@ -275,10 +287,12 @@ export function createNexusPage(): ControlUiView {
               canWrite: context.host.connection.canWrite,
               model: () => model,
               changed: (result) => {
-                showNotice(result);
+                showNotice(result.text === "" ? undefined : result);
                 void load(true);
               },
               notify: showNotice,
+              sessions: context.host.sessions,
+              goalPrefs: { read: readGoalPrefs, write: writeGoalPrefs },
             },
             action,
           ),

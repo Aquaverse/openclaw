@@ -1,9 +1,11 @@
+import { renderGoalPage } from "../src/goal-ui.js";
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
 import type { EvidenceBlobView } from "../src/store/blob-types.js";
 import type { ClaimRecord } from "../src/store/claim-types.js";
 // Reads for the Nexus Control UI module. Everything goes through the plugin's existing read-only gateway methods
 // (operator.read); the store is never reached directly, so the page sees exactly what any RPC client would.
 import type { DecisionRecord, ExecutionRecord } from "../src/store/decision-types.js";
+import type { GoalSummaryRecord } from "../src/store/goal-types.js";
 import type { PreferenceReceiptRow, PreferenceRecord } from "../src/store/preference-types.js";
 import type { PurgeReceiptRow } from "../src/store/purge-types.js";
 import type { TaskDetail, TaskRecord } from "../src/store/types.js";
@@ -24,6 +26,7 @@ import {
 } from "../src/ui-render.js";
 import { fileListParams, type FileQuery } from "../src/vault-ui.js";
 import { EMPTY_MODEL, type NexusModel } from "./actions.ts";
+import { DEFAULT_GOAL_PREFS, type GoalPrefs } from "./goal-prefs.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
 
 export type NexusRequest = <T = unknown>(
@@ -31,7 +34,7 @@ export type NexusRequest = <T = unknown>(
   params?: Record<string, unknown>,
 ) => Promise<T>;
 
-export type NexusFeatures = { preferences: boolean; files?: boolean };
+export type NexusFeatures = { preferences: boolean; files?: boolean; goals?: boolean };
 
 /** A method the gateway does not serve (feature switched off) or any read failure reads as "not available". */
 async function optional<T>(read: () => Promise<T>): Promise<T | undefined> {
@@ -43,11 +46,16 @@ async function optional<T>(read: () => Promise<T>): Promise<T | undefined> {
 }
 
 export async function probeFeatures(request: NexusRequest): Promise<NexusFeatures> {
-  const [listed, vault] = await Promise.all([
+  const [listed, vault, goals] = await Promise.all([
     optional(() => request("nexus.preference.list", { limit: 1 })),
     optional(() => request("nexus.vault.stats")),
+    optional(() => request("nexus.goal.list", { limit: 1 })),
   ]);
-  return { preferences: listed !== undefined, files: vault !== undefined };
+  return {
+    preferences: listed !== undefined,
+    files: vault !== undefined,
+    goals: goals !== undefined,
+  };
 }
 
 /** `model` keeps the records the page rendered; action dialogs are built from it, never from the markup. */
@@ -58,6 +66,8 @@ export type LoadOptions = {
   actions?: boolean;
   /** Page text language; follows the host's locale. */
   lang?: Lang;
+  /** The Goals page-menu switches. */
+  goalPrefs?: GoalPrefs;
 };
 
 export async function loadView(
@@ -159,6 +169,28 @@ export async function loadView(
         title: tr(lang, "title.preferences"),
         html: renderPreferences(out.preferences, { actions, lang }),
         model: { decisions: [], watches: [], preferences: out.preferences, evidence: [] },
+      };
+    }
+    case "goals": {
+      const prefs = options.goalPrefs ?? DEFAULT_GOAL_PREFS;
+      const [active, proposed] = await Promise.all([
+        request<{ goals: GoalSummaryRecord[] }>("nexus.goal.list", {
+          status: "active",
+          limit: 200,
+          orderBy: prefs.autoSort ? "recent" : "manual",
+        }),
+        request<{ goals: GoalSummaryRecord[] }>("nexus.goal.list", {
+          status: "proposed",
+          limit: 50,
+        }),
+      ]);
+      return {
+        title: tr(lang, "title.goals"),
+        html: renderGoalPage(
+          { active: active.goals, proposed: proposed.goals },
+          { actions, lang, showSubtitle: prefs.showSubtitle, manualSort: !prefs.autoSort },
+        ),
+        model: { ...EMPTY_MODEL, goals: active.goals },
       };
     }
     case "files": {

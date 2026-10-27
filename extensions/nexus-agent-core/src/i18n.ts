@@ -2,6 +2,8 @@
 // know falls back to English, and "no locale at all" to Chinese (the plugin's home language). Identifiers the system
 // itself defines (task statuses, risk tiers, RPC names, ids) are never translated: they are what the model and the logs
 // say. Plain functions, no node or DOM imports, so the HTTP page and the browser module share it.
+import { GOAL_MESSAGES } from "./i18n-goals.js";
+
 export type Lang = "zh" | "en";
 export const DEFAULT_LANG: Lang = "zh";
 
@@ -589,6 +591,8 @@ const CATALOG = {
     "值太长（{bytes} 字节，上限 {max}）。",
     "The value is too long ({bytes} bytes, limit {max}).",
   ],
+  // Goals page (i18n-goals.ts)
+  ...GOAL_MESSAGES,
 } as const satisfies Record<string, readonly [string, string]>;
 
 export type MsgKey = keyof typeof CATALOG;

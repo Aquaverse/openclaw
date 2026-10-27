@@ -31,6 +31,15 @@ export const TASK_PURGED_EVENT = "task_purged";
 export const PREFERENCE_CHANGED_EVENT = "preference_changed";
 export const WATCH_CHANGED_EVENT = "watch_changed";
 export const VAULT_CHANGED_EVENT = "vault_changed";
+export const GOAL_CHANGED_EVENT = "goal_changed";
+
+/** Ids, an action and a status. Never a title or any goal text: clients re-read through nexus.goal.get / nexus.goal.list. */
+export type GoalChangedPayload = {
+  ownerId: string;
+  goalId: string;
+  action: string;
+  status?: string;
+};
 
 /** Ids, a collection and what happened. Never a file name or content: clients re-read through nexus.vault.get. */
 export type VaultChangedPayload = {
@@ -189,6 +198,17 @@ export function createEventBridge(onError: (error: unknown) => void = () => {}) 
       }
       try {
         emitter(VAULT_CHANGED_EVENT, payload, { scope: "operator.read" });
+      } catch (error) {
+        onError(error);
+      }
+    },
+    /** goal_changed: a goal was created, confirmed, edited, completed, reopened, deleted or purged. Best effort after the commit. */
+    goalChanged(payload: GoalChangedPayload) {
+      if (!emitter) {
+        return;
+      }
+      try {
+        emitter(GOAL_CHANGED_EVENT, payload, { scope: "operator.read" });
       } catch (error) {
         onError(error);
       }

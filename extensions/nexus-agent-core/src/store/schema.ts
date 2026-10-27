@@ -1002,6 +1002,132 @@ CREATE TABLE vault_purge_receipts (
 ) STRICT;
 `;
 
+// Stage 6 (first migration): Goals G1, Goals design section 5.1. Medium and long term goals (L4); independent of every earlier
+// migration except that `goal_links` points at Tasks, files, preferences and watches WITHOUT foreign keys (the write path
+// validates the pointer in the same transaction; a goal outlives the things it points at). Metrics (G2) and periodic reviews
+// (G3) arrive in later migrations. `goal_creation_grants` is the single-use authorisation the console issues when the user starts
+// a creation chat (design 5.2 / 9.6): without one the Agent can only propose.
+export const STAGE6_GOALS_SQL = `
+CREATE TABLE goals (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  parent_id TEXT,
+  category TEXT NOT NULL,
+  title TEXT NOT NULL,
+  user_words TEXT,
+  summary TEXT,
+  current_state TEXT,
+  status TEXT NOT NULL,
+  lifecycle TEXT NOT NULL DEFAULT 'live',
+  origin TEXT NOT NULL,
+  created_via TEXT NOT NULL DEFAULT 'console',
+  confirmed_at INTEGER, confirmed_by TEXT,
+  sensitivity TEXT NOT NULL DEFAULT 'normal',
+  notify_policy TEXT NOT NULL DEFAULT 'off',
+  sort_order REAL NOT NULL DEFAULT 0,
+  idempotency_key TEXT,
+  questions_json TEXT,
+  revision INTEGER NOT NULL,
+  completed_at INTEGER, deleted_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id),
+  CHECK (category IN ('health','relationships','finance','career','interests','productivity','something_else')),
+  CHECK (status IN ('proposed','active','completed')),
+  CHECK (lifecycle IN ('live','deleted','purging')),
+  CHECK (origin IN ('user','agent')),
+  CHECK (created_via IN ('console','creation_chat','agent_proposal')),
+  CHECK ((origin = 'agent') = (created_via = 'agent_proposal')),
+  CHECK (sensitivity IN ('normal','sensitive')),
+  CHECK (notify_policy IN ('off','digest','on')),
+  CHECK (parent_id IS NULL OR parent_id <> id),
+  CHECK (status <> 'proposed' OR origin = 'agent'),
+  CHECK (status <> 'proposed' OR (confirmed_at IS NULL AND notify_policy = 'off')),
+  CHECK (origin = 'user' OR status = 'proposed' OR (confirmed_at IS NOT NULL AND confirmed_by IS NOT NULL)),
+  CHECK ((status = 'completed') = (completed_at IS NOT NULL)),
+  CHECK ((lifecycle = 'live') = (deleted_at IS NULL)),
+  FOREIGN KEY (owner_id, parent_id) REFERENCES goals(owner_id, id)
+) STRICT;
+CREATE UNIQUE INDEX goals_idem ON goals(owner_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX goals_list ON goals(owner_id, lifecycle, status, sort_order);
+CREATE INDEX goals_parent ON goals(owner_id, parent_id) WHERE parent_id IS NOT NULL;
+
+-- Append-only progress entries. A retraction only sets retracted_at; the text is never rewritten.
+CREATE TABLE goal_entries (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL, goal_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  text TEXT NOT NULL,
+  author TEXT NOT NULL,
+  effective_at INTEGER NOT NULL, created_at INTEGER NOT NULL,
+  task_id TEXT, claim_id TEXT,
+  retracted_at INTEGER,
+  PRIMARY KEY (owner_id, id),
+  CHECK (kind IN ('note','milestone','review','break','system')),
+  CHECK (author IN ('user','agent','system')),
+  CHECK (claim_id IS NULL OR task_id IS NOT NULL),
+  FOREIGN KEY (owner_id, goal_id) REFERENCES goals(owner_id, id) ON DELETE CASCADE
+) STRICT;
+CREATE INDEX goal_entries_goal ON goal_entries(owner_id, goal_id, effective_at);
+
+-- Server-validated restricted polymorphic pointers (no foreign keys, see the header). A Task belongs to at most one goal.
+CREATE TABLE goal_links (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL, goal_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  ref_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+  target_gone_at INTEGER,
+  PRIMARY KEY (owner_id, id),
+  UNIQUE (owner_id, goal_id, kind, ref_id),
+  CHECK (kind IN ('task','vault_file','preference','watch')),
+  FOREIGN KEY (owner_id, goal_id) REFERENCES goals(owner_id, id) ON DELETE CASCADE
+) STRICT;
+CREATE UNIQUE INDEX goal_links_task_once ON goal_links(owner_id, ref_id) WHERE kind = 'task';
+CREATE INDEX goal_links_ref ON goal_links(owner_id, kind, ref_id);
+
+-- Purge run: written in the same transaction that moves the goal to 'purging'; keeps the stable purge_id and the original requester.
+CREATE TABLE goal_purge_runs (
+  owner_id TEXT NOT NULL, goal_id TEXT NOT NULL,
+  purge_id TEXT NOT NULL,
+  requested_by TEXT NOT NULL, requested_at INTEGER NOT NULL,
+  worker_attempt_id TEXT, worker_lease_until INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, goal_id),
+  UNIQUE (owner_id, purge_id),
+  CHECK ((worker_attempt_id IS NULL) = (worker_lease_until IS NULL)),
+  FOREIGN KEY (owner_id, goal_id) REFERENCES goals(owner_id, id)
+) STRICT;
+
+-- Permanent, tiny receipt: ids, audit fields, hashes and counts only; never raw text.
+CREATE TABLE goal_purge_receipts (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  purge_id TEXT NOT NULL,
+  goal_id_hash TEXT NOT NULL, title_hash TEXT NOT NULL,
+  entry_count INTEGER NOT NULL, link_count INTEGER NOT NULL, metric_count INTEGER NOT NULL, review_count INTEGER NOT NULL,
+  requested_by TEXT NOT NULL, executed_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id),
+  UNIQUE (owner_id, purge_id),
+  CHECK (entry_count >= 0 AND link_count >= 0 AND metric_count >= 0 AND review_count >= 0)
+) STRICT;
+
+-- Creation grant: issued by nexus.goal.startCreation (operator.write), bound to one session and one category, single use.
+-- user_replies_json holds the user's own typed replies captured from that session; it is emptied on consumption.
+CREATE TABLE goal_creation_grants (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  session_key TEXT NOT NULL,
+  category TEXT NOT NULL,
+  parent_id TEXT,
+  issued_by TEXT NOT NULL,
+  user_replies_json TEXT NOT NULL DEFAULT '[]',
+  reply_keys_json TEXT NOT NULL DEFAULT '[]',
+  expires_at INTEGER NOT NULL,
+  consumed_at INTEGER, goal_id TEXT,
+  revoked_at INTEGER,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id),
+  CHECK (category IN ('health','relationships','finance','career','interests','productivity','something_else')),
+  CHECK ((consumed_at IS NULL) = (goal_id IS NULL))
+) STRICT;
+CREATE UNIQUE INDEX goal_grants_open ON goal_creation_grants(owner_id, session_key)
+  WHERE consumed_at IS NULL AND revoked_at IS NULL;
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { id: "stage1-0001-task-core", sql: STAGE1_TASK_CORE_SQL },
   { id: "stage2-0001-decision-grant-execution", sql: STAGE2_DECISION_SQL },
@@ -1011,4 +1137,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: "stage4-0001-preferences", sql: STAGE4_PREFERENCE_SQL },
   { id: "stage4-0002-watches", sql: STAGE4_WATCHES_SQL },
   { id: "stage5-0001-vault", sql: STAGE5_VAULT_SQL },
+  { id: "stage6-0001-goals", sql: STAGE6_GOALS_SQL },
 ];

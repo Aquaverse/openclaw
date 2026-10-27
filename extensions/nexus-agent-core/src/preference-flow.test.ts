@@ -261,8 +261,11 @@ describe("a preference is not authority (11.1)", () => {
     walk(root);
     assert.deepEqual([...hits.keys()].toSorted(), [
       "store/decision-kernel.ts",
+      "store/goal-ledger-common.ts",
       "store/preference-ledger.ts",
     ]);
+    // The goal ledger only checks that a linked preference id exists (an existence probe; it never reads a value).
+    assert.equal(hits.get("store/goal-ledger-common.ts"), 1);
     // The decision kernel's single read is the "current value" shown on a set_preference card.
     assert.equal(hits.get("store/decision-kernel.ts"), 1);
     const kernel = fs.readFileSync(path.join(root, "store/decision-kernel.ts"), "utf8");

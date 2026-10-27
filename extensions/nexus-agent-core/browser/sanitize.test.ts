@@ -179,3 +179,40 @@ describe("action markers", () => {
     ]);
   });
 });
+
+describe("goal action markers", () => {
+  it("reports every goal marker with its id, and the menu marker without one", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const onAction = vi.fn();
+    const acts = [
+      "goal-create",
+      "goal-open",
+      "goal-pending",
+      "goal-check",
+      "goal-approve",
+      "goal-reject",
+      "goal-up",
+      "goal-down",
+    ];
+    mountSanitized(
+      container,
+      acts.map((act) => `<button data-nx-act="${act}" data-nx-id="G1ABC">x</button>`).join("") +
+        '<button data-nx-act="goal-menu">m</button>' +
+        '<button data-nx-act="goal-open" data-nx-id="../etc">bad</button>',
+      hrefOf,
+      vi.fn(),
+      onAction,
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons).toHaveLength(acts.length + 1);
+    for (const button of buttons) {
+      button.click();
+    }
+    expect(onAction.mock.calls.map(([action]) => action)).toEqual([
+      ...acts.map((act) => ({ kind: act, id: "G1ABC" })),
+      { kind: "goal-menu" },
+    ]);
+    expect(container.textContent).toContain("bad");
+  });
+});

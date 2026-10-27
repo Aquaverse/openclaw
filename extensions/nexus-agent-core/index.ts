@@ -1,6 +1,6 @@
 // Nexus Agent Core plugin entry.
 // Stage 1: the Task module behind `tasksEnabled`; Stage 2: decisions/grants/executions behind `decisionsEnabled`;
-// Stage 3: the Claim / Evidence ledger behind `claimsEnabled`, evidence bytes behind `evidenceBlobsEnabled` (DESIGN section 13). Stage 0 runtime spikes stay behind `spikesEnabled`. Stage 4: the Preference Store behind `preferencesEnabled` (DESIGN section 11) and the Watcher behind `watchersEnabled` (section 10). Stage 5: the personal file vault behind `vaultEnabled`.
+// Stage 3: the Claim / Evidence ledger behind `claimsEnabled`, evidence bytes behind `evidenceBlobsEnabled` (DESIGN section 13). Stage 0 runtime spikes stay behind `spikesEnabled`. Stage 4: the Preference Store behind `preferencesEnabled` (DESIGN section 11) and the Watcher behind `watchersEnabled` (section 10). Stage 5: the personal file vault behind `vaultEnabled`. Stage 6: Goals behind `goalsEnabled`.
 import path from "node:path";
 import { definePluginEntry } from "./api.js";
 import { createCrashWindowHook } from "./src/spikes/crash-window.js";
@@ -30,6 +30,8 @@ type NexusPluginConfig = {
   vaultReservationRetentionDays?: number;
   vaultTombstoneRetentionDays?: number;
   vaultPurgeReceiptHashRetentionDays?: number;
+  goalsEnabled?: boolean;
+  goalMaxActivePerOwner?: number;
   evidenceTaskQuotaBytes?: number;
   evidenceOwnerQuotaBytes?: number;
   evidenceMaxUploadBytes?: number;
@@ -81,6 +83,9 @@ export default definePluginEntry({
         "nexus-agent-core: vaultEnabled needs tasksEnabled; the file vault stays off",
       );
     }
+    if (config.goalsEnabled === true && config.tasksEnabled !== true) {
+      api.logger.warn("nexus-agent-core: goalsEnabled needs tasksEnabled; Goals stay off");
+    }
     if (config.claimsEnabled === true && config.decisionsEnabled !== true) {
       api.logger.warn(
         "nexus-agent-core: claimsEnabled needs decisionsEnabled; the claim ledger stays off",
@@ -110,6 +115,8 @@ export default definePluginEntry({
           vaultReservationRetentionDays: config.vaultReservationRetentionDays,
           vaultTombstoneRetentionDays: config.vaultTombstoneRetentionDays,
           vaultPurgeReceiptHashRetentionDays: config.vaultPurgeReceiptHashRetentionDays,
+          goalsEnabled: config.goalsEnabled === true,
+          goalMaxActivePerOwner: config.goalMaxActivePerOwner,
           evidenceTaskQuotaBytes: config.evidenceTaskQuotaBytes,
           evidenceOwnerQuotaBytes: config.evidenceOwnerQuotaBytes,
           evidenceMaxUploadBytes: config.evidenceMaxUploadBytes,
