@@ -9,6 +9,7 @@ import { loadView, probeFeatures, type NexusFeatures } from "./data.ts";
 import { createFileBar } from "./file-bar.ts";
 import { createFilterBar } from "./filters.ts";
 import { readGoalPrefs, writeGoalPrefs } from "./goal-prefs.ts";
+import { refreshOpenGoalDetail } from "./goals-view.ts";
 import { FILES_HOME, parseRoute, routeParams, TASKS_HOME, type NexusRoute } from "./route.ts";
 import { mountSanitized } from "./sanitize.ts";
 import { NEXUS_CSS } from "./style.ts";
@@ -27,6 +28,8 @@ const CHANGE_EVENTS = [
   "vault_changed",
   "goal_changed",
 ];
+/** Events that can change what an open goal-detail dialog shows (its own goal, or the tasks and claims it points at). */
+const DETAIL_EVENTS = new Set(["task_changed", "claim_changed", "goal_changed"]);
 const REFRESH_DEBOUNCE_MS = 400;
 
 type FilesRoute = Extract<NexusRoute, { view: "files" }>;
@@ -310,10 +313,18 @@ export function createNexusPage(): ControlUiView {
       }
     }
 
-    const scheduleRefresh = () => {
+    let detailStale = false;
+    const scheduleRefresh = (name?: string) => {
       clearTimeout(timer);
+      detailStale ||= name !== undefined && DETAIL_EVENTS.has(name);
       // Server events follow our own writes; they must not wipe the "done" notice the user is reading.
-      timer = setTimeout(() => void load(true), REFRESH_DEBOUNCE_MS);
+      timer = setTimeout(() => {
+        void load(true);
+        if (detailStale) {
+          detailStale = false;
+          refreshOpenGoalDetail(root);
+        }
+      }, REFRESH_DEBOUNCE_MS);
     };
 
     const disposers = [
@@ -325,7 +336,7 @@ export function createNexusPage(): ControlUiView {
         }
       }),
       ...CHANGE_EVENTS.map((name) =>
-        context.host.onEvent(`${EVENT_PREFIX}${name}`, scheduleRefresh),
+        context.host.onEvent(`${EVENT_PREFIX}${name}`, () => scheduleRefresh(name)),
       ),
     ];
     void load();

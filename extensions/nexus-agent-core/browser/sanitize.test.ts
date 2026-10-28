@@ -99,6 +99,23 @@ describe("action markers", () => {
     expect(onAction).toHaveBeenCalledWith({ kind: "decision", id: "DEC1" });
   });
 
+  it("reports a claim-retract marker with the claim id, and refuses one without an id", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const onAction = vi.fn();
+    mountSanitized(
+      container,
+      '<button data-nx-act="claim-retract" data-nx-id="CLM01ABC">r</button><button data-nx-act="claim-retract">x</button>',
+      hrefOf,
+      vi.fn(),
+      onAction,
+    );
+    const buttons = container.querySelectorAll("button");
+    expect(buttons).toHaveLength(1);
+    (buttons[0] as HTMLButtonElement).click();
+    expect(onAction).toHaveBeenCalledWith({ kind: "claim-retract", id: "CLM01ABC" });
+  });
+
   it("turns forged or malformed markers into plain text", () => {
     const container = document.createElement("div");
     document.body.append(container);

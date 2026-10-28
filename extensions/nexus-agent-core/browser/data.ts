@@ -158,6 +158,7 @@ export async function loadView(
           watches: watches?.watches ?? [],
           preferences: [],
           evidence: evidence?.evidence ?? [],
+          claims: claims?.claims ?? [],
         },
       };
     }

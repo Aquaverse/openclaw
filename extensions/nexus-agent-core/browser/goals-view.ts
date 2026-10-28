@@ -7,7 +7,7 @@ import {
 // The Goals page's actions and dialogs (Goals design 9.5, 9.6). Everything is built from DOM nodes and textContent. The page
 // markup only carries an id; each dialog reads the goal again through nexus.goal.get, and the RPCs stay the authority
 // (state, revision, cap and the sensitive-value scan are checked there), so a stale dialog can at worst be refused.
-import { tr, type Lang, type MsgKey } from "../src/i18n.js";
+import { tr, type MsgKey } from "../src/i18n.js";
 import type {
   GoalCategory,
   GoalDetailRecord,
@@ -18,7 +18,11 @@ import type { ActionContext } from "./actions.ts";
 import { openDialog } from "./dialog.ts";
 import { deleteDialog, noteDialog, purgeDialog, renameDialog } from "./goal-dialogs.ts";
 import { el, field, note } from "./goal-dom.ts";
-import { entryLine, linkRow, metricDialog, metricsBlock } from "./goal-progress.ts";
+import { describeGoalError, knownRefusal } from "./goal-errors.ts";
+import { linkAddDialog, linkRemoveDialog, linksBlock } from "./goal-links.ts";
+import { entryLine, metricDialog, metricsBlock } from "./goal-progress.ts";
+
+export { describeGoalError };
 
 /** What the page needs from the Control UI host to open a chat (a slice of `host.sessions`). */
 export type GoalSessions = {
@@ -26,35 +30,6 @@ export type GoalSessions = {
   normalizeKey: (sessionKey: string) => string;
   open: (session: { sessionKey: string }) => void;
 };
-
-type RpcError = Error & { code?: string; details?: { max?: number } };
-
-const failureText = (error: unknown): string => {
-  const failure = error as RpcError | undefined;
-  return `${failure?.code ?? ""} ${failure instanceof Error ? failure.message : String(error)}`;
-};
-
-/** The two refusals the page words itself; anything else is shown with the server's message. */
-function knownRefusal(lang: Lang, error: unknown): string | undefined {
-  const text = failureText(error);
-  if (text.includes("nexus_limit_reached")) {
-    return tr(lang, "goal.err.limit", { max: (error as RpcError).details?.max ?? 20 });
-  }
-  if (text.includes("nexus_sensitive_value")) {
-    return tr(lang, "goal.err.sensitive");
-  }
-  return undefined;
-}
-
-/** The sentence for a refused or failed call, in the page language. */
-export function describeGoalError(lang: Lang, error: unknown): string {
-  return (
-    knownRefusal(lang, error) ??
-    tr(lang, "goal.err.generic", {
-      message: error instanceof Error ? error.message : String(error),
-    })
-  );
-}
 
 async function get(ctx: ActionContext, goalId: string): Promise<GoalDetailRecord | undefined> {
   try {
@@ -267,6 +242,22 @@ function popupMenu(button: HTMLElement, items: MenuItem[]): HTMLElement {
 
 // ------------------------------------------------------------------ detail
 
+/** The goal-detail dialog that is open right now (at most one): the page redraws it when the data behind it changes. */
+let liveDetail: { id: string; ctx: ActionContext; close: () => void } | undefined;
+
+/**
+ * Redraws the open goal-detail dialog from fresh data. The dialog is a snapshot, so a claim that was retracted or a task
+ * that finished after it opened would otherwise keep its old label until the user closes and reopens it. Another dialog
+ * on top (a metric form, a note) is left alone: redrawing under it would lose what is being typed.
+ */
+export function refreshOpenGoalDetail(parent: HTMLElement): void {
+  const live = liveDetail;
+  if (!live || live.ctx.parent !== parent || parent.querySelectorAll(".nx-overlay").length !== 1) {
+    return;
+  }
+  void goalDetail(live.ctx, live.id);
+}
+
 export async function goalDetail(ctx: ActionContext, id: string): Promise<void> {
   const detail = await get(ctx, id);
   if (!detail || detail.goal.lifecycle !== "live") {
@@ -340,6 +331,9 @@ export async function goalDetail(ctx: ActionContext, id: string): Promise<void> 
       },
     );
   }
+  // Only one detail dialog at a time: a redraw or a second request replaces the one on screen instead of stacking.
+  liveDetail?.close();
+  const mine = { id, ctx, close: () => close() };
   close = openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
@@ -347,6 +341,11 @@ export async function goalDetail(ctx: ActionContext, id: string): Promise<void> 
     cancelLabel: tr(ctx.lang, "btn.cancel"),
     title: goal.title,
     actions: [],
+    onClose: () => {
+      if (liveDetail === mine) {
+        liveDetail = undefined;
+      }
+    },
     build: (body) => {
       if (items.length > 0) {
         const more = el("button", "nx-btn gl-more", "⋯");
@@ -418,15 +417,18 @@ export async function goalDetail(ctx: ActionContext, id: string): Promise<void> 
           },
         }),
       );
-      const links = el("div", "gl-block");
-      links.append(el("div", "gl-block-label", tr(ctx.lang, "goal.detail.links")));
-      if (detail.links.length === 0) {
-        links.append(el("div", "muted", tr(ctx.lang, "goal.detail.noLinks")));
-      }
-      for (const link of detail.links) {
-        links.append(linkRow(ctx, link));
-      }
-      body.append(links);
+      body.append(
+        linksBlock(ctx, goal, detail.links, {
+          add: () => {
+            close();
+            linkAddDialog(ctx, goal, reopen);
+          },
+          remove: (link) => {
+            close();
+            linkRemoveDialog(ctx, goal, link, reopen);
+          },
+        }),
+      );
       const activity = el("div", "gl-block");
       activity.append(el("div", "gl-block-label", tr(ctx.lang, "goal.detail.activity")));
       if (detail.entries.length === 0) {
@@ -444,6 +446,7 @@ export async function goalDetail(ctx: ActionContext, id: string): Promise<void> 
       body.append(activity);
     },
   });
+  liveDetail = mine;
 }
 
 const isOpenCategory = (category: GoalCategory): boolean =>

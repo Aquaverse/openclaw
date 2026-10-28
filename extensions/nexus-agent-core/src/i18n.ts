@@ -547,6 +547,25 @@ const CATALOG = {
     "Once cancelled it is no longer checked, and its scheduled job is removed.",
   ],
 
+  // Claim retract dialog
+  "claim.retract.btn": ["撤回", "Retract"],
+  "claim.retract.title": ["撤回声明 {id}", "Retract claim {id}"],
+  "claim.retract.confirm": ["确认撤回", "Retract claim"],
+  "claim.retract.done": [
+    "已撤回声明 {id}，它现在显示为被反驳。",
+    "Retracted claim {id}; it now shows as refuted.",
+  ],
+  "claim.retract.already": ["声明 {id} 之前已经撤回过。", "Claim {id} was already retracted."],
+  "claim.retract.gone": [
+    "{id} 已不在声明列表里，已刷新。",
+    "{id} is no longer in the claim list; the page was refreshed.",
+  ],
+  "claim.retract.reason": ["用户在控制台撤回", "Retracted by the user in the console"],
+  "claim.retract.note": [
+    "撤回不可恢复：声明会变为“被反驳”，引用它的目标度量不再计入“已达到”。证据和事项本身不受影响。",
+    "Retracting cannot be undone: the claim becomes refuted, and goal metrics that read it stop counting as reached. Evidence and the task itself are untouched.",
+  ],
+
   // Preference dialogs
   "pref.gone": [
     "{id} 已不在偏好列表里，已刷新。",

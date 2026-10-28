@@ -148,7 +148,7 @@ describe("goal progress and metrics (G2)", () => {
     expect(text).toContain("已核验");
     expect(text).toContain("事项：订琴房");
     expect(text).toContain("事项已清除");
-    expect(text).toContain("事项：succeeded");
+    expect(text).toContain("事项：已完成");
     expect(f.dialog().querySelectorAll(".gl-entry .pill.muted").length).toBe(1);
   });
 

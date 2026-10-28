@@ -72,8 +72,13 @@ export function fixture(
       throw new Error(`unknown method ${method}`);
     }
     switch (method) {
-      case "nexus.task.list":
-        return { tasks: data.tasks ?? [] };
+      case "nexus.task.list": {
+        const keyword = params?.keyword;
+        const all = (data.tasks ?? []) as Array<{ title: string }>;
+        return {
+          tasks: typeof keyword === "string" ? all.filter((t) => t.title.includes(keyword)) : all,
+        };
+      }
       case "nexus.claim.list":
         return { claims: data.claims ?? [] };
       case "nexus.goal.metric.set":
@@ -122,12 +127,16 @@ export function fixture(
       order.push("sessions.open");
     }),
   };
+  const handlers = new Map<string, Array<() => void>>();
   const host = {
     request,
     connection: { connected: true, canWrite } as ControlUiHost["connection"],
     redact: (text: string) => text,
     subscribe: () => () => {},
-    onEvent: () => () => {},
+    onEvent: (name: string, handler: () => void) => {
+      handlers.set(name, [...(handlers.get(name) ?? []), handler]);
+      return () => undefined;
+    },
     ...(locale ? { locale } : {}),
     ...(data.sessions === false ? {} : { sessions }),
     navigation: { pageHref: () => "/p", openPage: () => undefined },
@@ -147,6 +156,12 @@ export function fixture(
     calls,
     order,
     sessions,
+    /** Delivers a plugin event the way the host would (`claim_changed`, `goal_changed`, ...). */
+    emit: (name: string) => {
+      for (const handler of handlers.get(`plugin.nexus-agent-core.${name}`) ?? []) {
+        handler();
+      }
+    },
     dialog: () => container.querySelector(".nx-dialog") as HTMLElement,
     writes: () =>
       calls.filter(

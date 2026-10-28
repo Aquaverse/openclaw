@@ -45,6 +45,21 @@ const watch = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const claim = (overrides: Record<string, unknown> = {}) => ({
+  id: "CLM01ABC",
+  taskId: "T1ABC",
+  subject: "本周练习时长",
+  predicate: "reported",
+  value: 12,
+  state: "ASSERTED",
+  policy: null,
+  headEventId: "E1",
+  requiredForCompletion: null,
+  createdAt: 1_700_000_000_000,
+  updatedAt: 1_700_000_000_000,
+  ...overrides,
+});
+
 const preference = (overrides: Record<string, unknown> = {}) => ({
   id: "P1",
   scope: "global",
@@ -62,6 +77,7 @@ function fixture(
   data: {
     decisions?: unknown[];
     watches?: unknown[];
+    claims?: unknown[];
     preferences?: unknown[];
     evidence?: unknown[];
     readData?: Uint8Array;
@@ -90,6 +106,11 @@ function fixture(
         return { executions: [] };
       case "nexus.watch.list":
         return { watches: data.watches ?? [] };
+      case "nexus.claim.list":
+        return { claims: data.claims ?? [] };
+      case "nexus.claim.retract":
+        writes.push({ method, params });
+        return { outcome: data.fail?.["retract:already"] ? "already_retracted" : "retracted" };
       case "nexus.preference.list":
         return { preferences: data.preferences ?? [] };
       case "nexus.evidence.list":
@@ -323,6 +344,60 @@ describe("action buttons", () => {
     await flush();
     expect(f.writes).toEqual([{ method: "nexus.watch.cancel", params: { watchId: "W1" } }]);
     expect(f.container.querySelector(".nx-notice")?.textContent).toContain("已取消回检 W1");
+  });
+});
+
+describe("claim retract button (G2.1)", () => {
+  it("retracts a claim only after confirmation, and sends the task, claim and a reason", async () => {
+    const f = fixture({ claims: [claim()] }, detailProps);
+    await flush();
+    expect(f.container.querySelectorAll('button[data-nx-act="claim-retract"]')).toHaveLength(1);
+    click(f.container, 'button[data-nx-act="claim-retract"]');
+    expect(f.writes).toHaveLength(0);
+    const dialog = f.dialog() as HTMLElement;
+    expect(dialog.textContent).toContain("本周练习时长");
+    expect(dialog.textContent).toContain("撤回不可恢复");
+    (buttonByText(dialog, "确认撤回") as HTMLButtonElement).click();
+    await flush();
+    expect(f.writes).toEqual([
+      {
+        method: "nexus.claim.retract",
+        params: { taskId: "T1ABC", claimId: "CLM01ABC", reason: "用户在控制台撤回" },
+      },
+    ]);
+    expect(f.container.querySelector(".nx-notice")?.textContent).toContain("已撤回声明 CLM01ABC");
+  });
+
+  it("cancelling writes nothing, a refuted claim has no button, and a read-only page shows none", async () => {
+    const f = fixture({ claims: [claim(), claim({ id: "CLM02", state: "REFUTED" })] }, detailProps);
+    await flush();
+    expect(f.container.querySelectorAll('button[data-nx-act="claim-retract"]')).toHaveLength(1);
+    click(f.container, 'button[data-nx-act="claim-retract"]');
+    (buttonByText(f.dialog() as HTMLElement, "取消") as HTMLButtonElement).click();
+    await flush();
+    expect(f.writes).toHaveLength(0);
+    const readOnly = fixture({ claims: [claim()] }, detailProps, false);
+    await flush();
+    expect(readOnly.container.querySelector('button[data-nx-act="claim-retract"]')).toBeNull();
+  });
+
+  it("says so when the claim was already retracted, and shows a failed write in the dialog", async () => {
+    const f = fixture({ claims: [claim()], fail: { "retract:already": "1" } }, detailProps);
+    await flush();
+    click(f.container, 'button[data-nx-act="claim-retract"]');
+    (buttonByText(f.dialog() as HTMLElement, "确认撤回") as HTMLButtonElement).click();
+    await flush();
+    expect(f.container.querySelector(".nx-notice")?.textContent).toContain("之前已经撤回过");
+    const failing = fixture(
+      { claims: [claim()], fail: { "nexus.claim.retract": "missing scope: operator.write" } },
+      detailProps,
+    );
+    await flush();
+    click(failing.container, 'button[data-nx-act="claim-retract"]');
+    const dialog = failing.dialog() as HTMLElement;
+    (buttonByText(dialog, "确认撤回") as HTMLButtonElement).click();
+    await flush();
+    expect(dialog.querySelector(".error")?.textContent).toContain("missing scope");
   });
 });
 

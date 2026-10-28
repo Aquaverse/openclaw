@@ -5,6 +5,7 @@ import type { GoalRecord } from "../src/store/goal-types.js";
 import type { ActionContext } from "./actions.ts";
 import { openDialog } from "./dialog.ts";
 import { el, field, note } from "./goal-dom.ts";
+import { describeGoalError } from "./goal-errors.ts";
 import { pointerPicker } from "./goal-progress.ts";
 
 export function renameDialog(ctx: ActionContext, goal: GoalRecord): void {
@@ -47,6 +48,7 @@ export function renameDialog(ctx: ActionContext, goal: GoalRecord): void {
 export function noteDialog(ctx: ActionContext, goal: GoalRecord): void {
   let text = "";
   const pointer = { taskId: "", claimId: "" };
+  let alsoLink = false;
   openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
@@ -66,6 +68,26 @@ export function noteDialog(ctx: ActionContext, goal: GoalRecord): void {
             ...(pointer.taskId ? { taskId: pointer.taskId } : {}),
             ...(pointer.taskId && pointer.claimId ? { claimId: pointer.claimId } : {}),
           });
+          if (alsoLink && pointer.taskId) {
+            // The note is saved by now: a refused link must not keep this dialog open (a retry would add the note twice).
+            try {
+              await ctx.request("nexus.goal.link.add", {
+                goalId: goal.id,
+                kind: "task",
+                refId: pointer.taskId,
+              });
+            } catch (error) {
+              ctx.changed({
+                ok: false,
+                text: tr(ctx.lang, "goal.link.noteFailed", {
+                  message: describeGoalError(ctx.lang, error),
+                }),
+              });
+              return;
+            }
+            ctx.changed({ ok: true, text: tr(ctx.lang, "goal.link.notedAndLinked") });
+            return;
+          }
           ctx.changed({ ok: true, text: tr(ctx.lang, "goal.notice.noted") });
         },
       },
@@ -80,11 +102,28 @@ export function noteDialog(ctx: ActionContext, goal: GoalRecord): void {
       });
       body.append(field(tr(ctx.lang, "goal.note.label"), input));
       // Optional: point the note at a Task (and one of its claims); the detail then shows their live status.
+      const linkBox = el("input");
+      linkBox.type = "checkbox";
+      const linkRow = el("label", "nx-row");
+      linkRow.append(linkBox, el("span", "", tr(ctx.lang, "goal.link.alsoLink")));
+      linkRow.hidden = true;
+      linkBox.addEventListener("change", () => {
+        alsoLink = linkBox.checked;
+      });
       pointerPicker(ctx, body, pointer, {
         claimRequired: false,
         taskLabel: "goal.note.task",
-        changed,
+        changed: () => {
+          // Offered only once a Task is chosen, and off by default: a Task can belong to one goal only.
+          linkRow.hidden = pointer.taskId === "";
+          if (pointer.taskId === "") {
+            linkBox.checked = false;
+            alsoLink = false;
+          }
+          changed();
+        },
       });
+      body.append(linkRow);
     },
   });
 }

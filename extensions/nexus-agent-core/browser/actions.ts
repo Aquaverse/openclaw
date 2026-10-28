@@ -4,6 +4,7 @@
 // so a stale dialog can at worst be refused, never wrongly applied.
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
 import type { EvidenceBlobView } from "../src/store/blob-types.js";
+import type { ClaimRecord } from "../src/store/claim-types.js";
 import type { DecisionRecord } from "../src/store/decision-types.js";
 import type { GoalSummaryRecord } from "../src/store/goal-types.js";
 import type { PreferenceRecord } from "../src/store/preference-types.js";
@@ -44,6 +45,8 @@ export type NexusModel = {
   watches: readonly WatchRecord[];
   preferences: readonly PreferenceRecord[];
   evidence: readonly EvidenceBlobView[];
+  /** The claims the task page rendered; absent on every other tab. */
+  claims?: readonly ClaimRecord[];
   /** The files the Files tab rendered; absent on every other tab. */
   files?: readonly VaultFileRecord[];
   /** Text extraction state per file id, as the same RPC reply reported it. */
@@ -299,6 +302,48 @@ function watchDialog(ctx: ActionContext, id: string): void {
   });
 }
 
+function claimRetractDialog(ctx: ActionContext, id: string): void {
+  const claim = ctx.model().claims?.find((item) => item.id === id);
+  if (!claim) {
+    ctx.changed({ ok: false, text: tr(ctx.lang, "claim.retract.gone", { id }) });
+    return;
+  }
+  openDialog({
+    parent: ctx.parent,
+    signal: ctx.signal,
+    redact: ctx.redact,
+    cancelLabel: tr(ctx.lang, "btn.cancel"),
+    title: tr(ctx.lang, "claim.retract.title", { id: claim.id }),
+    actions: [
+      {
+        label: tr(ctx.lang, "claim.retract.confirm"),
+        tone: "danger",
+        run: async () => {
+          const out = await ctx.request<{ outcome?: string }>("nexus.claim.retract", {
+            taskId: claim.taskId,
+            claimId: claim.id,
+            reason: tr(ctx.lang, "claim.retract.reason"),
+          });
+          ctx.changed({
+            ok: true,
+            text: tr(
+              ctx.lang,
+              out?.outcome === "already_retracted" ? "claim.retract.already" : "claim.retract.done",
+              { id: claim.id },
+            ),
+          });
+        },
+      },
+    ],
+    build: (body) => {
+      row(body, tr(ctx.lang, "dlg.task"), claim.taskId);
+      row(body, tr(ctx.lang, "col.subject"), clip(claim.subject, 200));
+      row(body, tr(ctx.lang, "dlg.status"), claim.state);
+      note(body, tr(ctx.lang, "claim.retract.note"));
+    },
+  });
+}
+
 function preferenceDeleteDialog(ctx: ActionContext, id: string): void {
   const preference = ctx.model().preferences.find((item) => item.id === id);
   if (!preference) {
@@ -511,6 +556,8 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
       return decisionDialog(ctx, action.id);
     case "watch-cancel":
       return watchDialog(ctx, action.id);
+    case "claim-retract":
+      return claimRetractDialog(ctx, action.id);
     case "pref-delete":
       return preferenceDeleteDialog(ctx, action.id);
     case "pref-new":

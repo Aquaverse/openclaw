@@ -9,6 +9,7 @@ import { routeFromHref, type NexusRoute } from "./route.ts";
 export type NexusAction =
   | { kind: "decision"; id: string }
   | { kind: "watch-cancel"; id: string }
+  | { kind: "claim-retract"; id: string }
   | { kind: "pref-new" }
   | { kind: "pref-edit"; id: string }
   | { kind: "pref-delete"; id: string }
@@ -53,6 +54,7 @@ export function actionFromMarker(act: string | null, id: string | null): NexusAc
   if (
     act === "decision" ||
     act === "watch-cancel" ||
+    act === "claim-retract" ||
     act === "pref-edit" ||
     act === "pref-delete" ||
     act === "evidence-view" ||

@@ -2,11 +2,17 @@
 // point at, the metrics block, and the dialogs that add or edit a metric. Everything is built from DOM nodes and textContent.
 // The labels are read when the detail opens and never stored, so a refuted claim changes the label and leaves the text alone;
 // the RPCs stay the authority (state, finance rule, name clash, sensitive-value scan).
-import { metricFigure, metricMet, metricPercent, pointerLabel } from "../src/goal-label.js";
+import {
+  claimStateText,
+  metricFigure,
+  metricMet,
+  metricPercent,
+  pointerLabel,
+  taskStatusText,
+} from "../src/goal-label.js";
 import { tr, type MsgKey } from "../src/i18n.js";
 import type {
   GoalEntryRecord,
-  GoalLinkRecord,
   GoalMetricDirection,
   GoalMetricRecord,
   GoalRecord,
@@ -69,38 +75,17 @@ export function entryLine(
   return line;
 }
 
-export function linkRow(ctx: ActionContext, link: GoalLinkRecord): HTMLElement {
-  const row = el("div", "gl-linkrow");
-  if (link.kind === "task" && link.task && !link.targetGone) {
-    row.append(el("span", "", `${link.task.title} `));
-    const label = pointerLabel(
-      ctx.lang,
-      {
-        taskGone: false,
-        taskStatus: link.task.status,
-        taskTitle: link.task.title,
-        claimState: null,
-        claimGone: false,
-      },
-      false,
-    );
-    row.append(el("span", `pill ${label.tone}`.trim(), label.text));
-    return row;
-  }
-  row.textContent = `${link.kind} ${link.refId}${link.targetGone ? ` (${tr(ctx.lang, "goal.detail.gone")})` : ""}`;
-  return row;
-}
-
 // ------------------------------------------------------------------ choosing a Task and one of its claims
 
 type TaskOption = { id: string; title: string; status: string };
 type ClaimOption = { id: string; subject: string; predicate: string; state: string };
 
-async function loadTasks(ctx: ActionContext): Promise<TaskOption[]> {
+async function loadTasks(ctx: ActionContext, keyword: string): Promise<TaskOption[]> {
   try {
     const reply = await ctx.request<{ tasks: TaskOption[] }>("nexus.task.list", {
       limit: 100,
       includeClosed: true,
+      ...(keyword === "" ? {} : { keyword }),
     });
     return reply.tasks ?? [];
   } catch {
@@ -134,33 +119,59 @@ export function pointerPicker(
   ctx: ActionContext,
   body: HTMLElement,
   state: { taskId: string; claimId: string },
-  opts: { claimRequired: boolean; taskLabel: MsgKey; changed: () => void },
+  opts: { claimRequired: boolean; taskLabel: MsgKey; changed: () => void; taskOnly?: boolean },
 ): void {
   const taskSelect = el("select");
-  taskSelect.append(
-    option("", tr(ctx.lang, opts.claimRequired ? "goal.metric.pickTask" : "goal.note.noTask")),
-  );
+  const taskLine = (task: TaskOption) => `${task.title} · ${taskStatusText(ctx.lang, task.status)}`;
+  const emptyOption = () =>
+    option("", tr(ctx.lang, opts.claimRequired ? "goal.metric.pickTask" : "goal.note.noTask"));
+  taskSelect.append(emptyOption());
   const claimSelect = el("select");
   const claimRow = field(
     tr(ctx.lang, opts.claimRequired ? "goal.metric.claim" : "goal.note.claim"),
     claimSelect,
   );
   claimRow.hidden = true;
-  body.append(field(tr(ctx.lang, opts.taskLabel), taskSelect), claimRow);
-  void loadTasks(ctx).then((tasks) => {
-    for (const task of tasks) {
-      taskSelect.append(option(task.id, `${task.title} · ${task.status}`));
-    }
-  });
+  // Only the newest 100 tasks fit one list, so the search box asks the gateway for matches instead of filtering them.
+  const search = el("input");
+  search.type = "search";
+  search.placeholder = tr(ctx.lang, "goal.metric.searchTask");
+  body.append(field(tr(ctx.lang, opts.taskLabel), search), field("", taskSelect), claimRow);
+  const chosen = new Map<string, string>();
+  let asked = 0;
+  const fill = (keyword: string) => {
+    const mine = ++asked;
+    void loadTasks(ctx, keyword).then((tasks) => {
+      if (mine !== asked) {
+        return;
+      }
+      // The task already chosen stays selectable even when the new search no longer lists it.
+      const keep = state.taskId !== "" && !tasks.some((task) => task.id === state.taskId);
+      taskSelect.replaceChildren(emptyOption());
+      if (keep) {
+        taskSelect.append(option(state.taskId, chosen.get(state.taskId) ?? state.taskId));
+      }
+      for (const task of tasks) {
+        chosen.set(task.id, taskLine(task));
+        taskSelect.append(option(task.id, taskLine(task)));
+      }
+      if (tasks.length === 0 && keyword !== "" && !keep) {
+        taskSelect.append(option("", tr(ctx.lang, "goal.metric.noMatch")));
+      }
+      taskSelect.value = state.taskId;
+    });
+  };
+  fill("");
+  search.addEventListener("input", () => fill(search.value.trim()));
   taskSelect.addEventListener("change", () => {
     state.taskId = taskSelect.value;
     state.claimId = "";
     claimSelect.replaceChildren(
       option("", tr(ctx.lang, opts.claimRequired ? "goal.metric.pickClaim" : "goal.note.noClaim")),
     );
-    claimRow.hidden = state.taskId === "";
+    claimRow.hidden = state.taskId === "" || opts.taskOnly === true;
     opts.changed();
-    if (state.taskId === "") {
+    if (state.taskId === "" || opts.taskOnly === true) {
       return;
     }
     void loadClaims(ctx, state.taskId).then((claims) => {
@@ -172,7 +183,10 @@ export function pointerPicker(
       }
       for (const claim of claims) {
         claimSelect.append(
-          option(claim.id, `${claim.subject} · ${claim.predicate} (${claim.state})`),
+          option(
+            claim.id,
+            `${claim.subject} · ${claim.predicate} (${claimStateText(ctx.lang, claim.state)})`,
+          ),
         );
       }
     });

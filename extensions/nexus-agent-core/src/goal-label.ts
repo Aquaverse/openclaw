@@ -22,6 +22,30 @@ const TASK_TONE: Record<string, PointerTone> = {
   awaiting_decision: "pending",
 };
 
+const TASK_STATUS_KEYS = new Set([
+  "draft",
+  "clarifying",
+  "planning",
+  "awaiting_decision",
+  "executing",
+  "watching",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "deleted",
+  "purging",
+]);
+
+/** A Task status in the user's language; a status this build does not know is shown as the system wrote it. */
+export function taskStatusText(lang: Lang, status: string): string {
+  return TASK_STATUS_KEYS.has(status) ? tr(lang, `goal.taskStatus.${status}` as MsgKey) : status;
+}
+
+/** A claim state in the user's language, with the same fallback. */
+export function claimStateText(lang: Lang, state: string): string {
+  return state in CLAIM_TONE ? tr(lang, `goal.claim.${state}` as MsgKey) : state;
+}
+
 /** The pill for a pointer. A claim, when there is one, outranks the Task it belongs to. */
 export function pointerLabel(
   lang: Lang,
@@ -41,7 +65,10 @@ export function pointerLabel(
     };
   }
   const status = pointer.taskStatus ?? "";
-  return { text: tr(lang, "goal.ptr.task", { status }), tone: TASK_TONE[status] ?? "" };
+  return {
+    text: tr(lang, "goal.ptr.task", { status: taskStatusText(lang, status) }),
+    tone: TASK_TONE[status] ?? "",
+  };
 }
 
 const figure = (value: number): string =>

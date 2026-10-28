@@ -436,6 +436,7 @@ export function renderTaskDetail(
             "col.required",
             "col.createdAt",
             "col.updatedAt",
+            ...(withActions ? (["col.actions"] as const) : []),
           ],
           data.claims.map((claim) => [
             tdCode(claim.id),
@@ -448,6 +449,14 @@ export function renderTaskDetail(
             td(claim.requiredForCompletion ?? "-"),
             td(fmtTime(claim.createdAt)),
             td(fmtTime(claim.updatedAt)),
+            // A refuted claim has nothing left to retract; every other state may be withdrawn by the operator.
+            ...(withActions
+              ? [
+                  claim.state === "REFUTED"
+                    ? "<td></td>"
+                    : `<td>${button("claim-retract", claim.id, tr(lang, "claim.retract.btn"))}</td>`,
+                ]
+              : []),
           ]),
         ),
       ),
