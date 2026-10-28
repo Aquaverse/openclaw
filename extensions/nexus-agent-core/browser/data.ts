@@ -58,6 +58,12 @@ export async function probeFeatures(request: NexusRequest): Promise<NexusFeature
   };
 }
 
+/** How many goals are due for a look-back right now (the Goals tab badge). Any failure reads as "none". */
+export async function goalsDueCount(request: NexusRequest): Promise<number> {
+  const answer = await optional(() => request<{ count?: unknown }>("nexus.goal.review.due"));
+  return typeof answer?.count === "number" && answer.count > 0 ? Math.floor(answer.count) : 0;
+}
+
 /** `model` keeps the records the page rendered; action dialogs are built from it, never from the markup. */
 export type NexusView = { title: string; html: string; model: NexusModel };
 

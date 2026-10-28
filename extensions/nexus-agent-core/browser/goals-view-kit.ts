@@ -51,6 +51,10 @@ export type Data = {
   /** The page has a Control UI sessions slice (older hosts have none). */
   sessions?: boolean;
   createdKey?: string | null;
+  /** Goals due for a look-back (G3a): the Goals tab shows their count. */
+  due?: unknown[];
+  /** What a review write answers with. */
+  review?: unknown;
 };
 
 export function fixture(
@@ -106,6 +110,11 @@ export function fixture(
             links: [],
           }
         );
+      case "nexus.goal.review.due":
+        return { due: data.due ?? [], count: (data.due ?? []).length };
+      case "nexus.goal.review.set":
+      case "nexus.goal.review.act":
+        return { review: data.review ?? null };
       case "nexus.goal.startCreation":
         return { grantId: "GR1", expiresAt: 1_700_000_000_000 + 7_200_000 };
       case "chat.send":
@@ -165,7 +174,8 @@ export function fixture(
     dialog: () => container.querySelector(".nx-dialog") as HTMLElement,
     writes: () =>
       calls.filter(
-        (call) => !/\.(list|get|forFile|stats)$/.test(call.method) && call.method !== "chat.send",
+        (call) =>
+          !/\.(list|get|forFile|stats|due)$/.test(call.method) && call.method !== "chat.send",
       ),
     notice: () => container.querySelector(".nx-notice")?.textContent ?? "",
   };

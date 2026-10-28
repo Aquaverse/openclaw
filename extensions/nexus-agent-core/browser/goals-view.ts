@@ -21,6 +21,7 @@ import { el, field, note } from "./goal-dom.ts";
 import { describeGoalError, knownRefusal } from "./goal-errors.ts";
 import { linkAddDialog, linkRemoveDialog, linksBlock } from "./goal-links.ts";
 import { entryLine, metricDialog, metricsBlock } from "./goal-progress.ts";
+import { reviewBlock } from "./goal-review.ts";
 
 export { describeGoalError };
 
@@ -242,11 +243,20 @@ function popupMenu(button: HTMLElement, items: MenuItem[]): HTMLElement {
 
 // ------------------------------------------------------------------ detail
 
-/** The goal-detail dialog that is open right now (at most one): the page redraws it when the data behind it changes. */
-let liveDetail: { id: string; ctx: ActionContext; close: () => void } | undefined;
+/** The goal-detail dialog that is open right now (at most one): the page refills it when the data behind it changes. */
+type LiveDetail = {
+  id: string;
+  ctx: ActionContext;
+  close: () => void;
+  title: HTMLElement;
+  body: HTMLElement;
+};
+let liveDetail: LiveDetail | undefined;
+/** Only the newest detail request is drawn, so a slow answer cannot overwrite a newer one. */
+let detailSeq = 0;
 
 /**
- * Redraws the open goal-detail dialog from fresh data. The dialog is a snapshot, so a claim that was retracted or a task
+ * Refills the open goal-detail dialog from fresh data. The dialog is a snapshot, so a claim that was retracted or a task
  * that finished after it opened would otherwise keep its old label until the user closes and reopens it. Another dialog
  * on top (a metric form, a note) is left alone: redrawing under it would lose what is being typed.
  */
@@ -255,17 +265,44 @@ export function refreshOpenGoalDetail(parent: HTMLElement): void {
   if (!live || live.ctx.parent !== parent || parent.querySelectorAll(".nx-overlay").length !== 1) {
     return;
   }
-  void goalDetail(live.ctx, live.id);
+  void goalDetail(live.ctx, live.id, { onlyIfOpen: true });
 }
 
-export async function goalDetail(ctx: ActionContext, id: string): Promise<void> {
-  const detail = await get(ctx, id);
-  if (!detail || detail.goal.lifecycle !== "live") {
-    return gone(ctx, id);
+/** What has the keyboard focus inside `body`, in terms that survive a refill (the nodes themselves do not). */
+function rememberFocus(body: HTMLElement): { tag: string; label: string; nth: number } | undefined {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || !body.contains(active)) {
+    return undefined;
   }
+  const label = active.getAttribute("aria-label") ?? active.textContent ?? "";
+  return {
+    tag: active.tagName,
+    label,
+    nth: matchingNodes(body, active.tagName, label).indexOf(active),
+  };
+}
+
+const matchingNodes = (body: HTMLElement, tag: string, label: string): HTMLElement[] =>
+  Array.from(body.querySelectorAll<HTMLElement>(tag)).filter(
+    (node) => (node.getAttribute("aria-label") ?? node.textContent ?? "") === label,
+  );
+
+function restoreFocus(body: HTMLElement, focus: ReturnType<typeof rememberFocus>): void {
+  if (focus && focus.nth >= 0) {
+    matchingNodes(body, focus.tag, focus.label)[focus.nth]?.focus({ preventScroll: true });
+  }
+}
+
+/** Everything inside the detail dialog, built from one read of the goal. Called again, on the same body, to refresh it. */
+function fillDetail(
+  ctx: ActionContext,
+  detail: GoalDetailRecord,
+  body: HTMLElement,
+  close: () => void,
+): void {
+  const id = detail.goal.id;
   const { goal } = detail;
   const canWrite = ctx.canWrite !== false;
-  let close: () => void = () => undefined;
   const items: MenuItem[] = [];
   if (canWrite) {
     items.push(
@@ -331,15 +368,150 @@ export async function goalDetail(ctx: ActionContext, id: string): Promise<void> 
       },
     );
   }
-  // Only one detail dialog at a time: a redraw or a second request replaces the one on screen instead of stacking.
+  if (items.length > 0) {
+    const more = el("button", "nx-btn gl-more", "⋯");
+    more.type = "button";
+    more.setAttribute("aria-label", tr(ctx.lang, "goals.more"));
+    const bar = el("div", "gl-detail-bar");
+    bar.append(popupMenu(more, items));
+    body.append(bar);
+  }
+  const meta = el("div", "gl-meta");
+  meta.append(
+    el("span", "pill", categoryLabel(ctx.lang, goal.category)),
+    el("span", "pill", statusLabel(ctx.lang, goal.status)),
+    ...(goal.sensitivity === "sensitive"
+      ? [el("span", "pill", tr(ctx.lang, "goals.tag.sensitive"))]
+      : []),
+  );
+  body.append(meta);
+  if (detail.parent) {
+    body.append(el("p", "muted", `${tr(ctx.lang, "goal.detail.parent")}: ${detail.parent.title}`));
+  }
+  const section = (labelKey: MsgKey, text: string | null, hintKey?: MsgKey) => {
+    if (!text) {
+      return;
+    }
+    const block = el("div", "gl-block");
+    block.append(el("div", "gl-block-label", tr(ctx.lang, labelKey)));
+    block.append(el("div", "gl-block-text", text));
+    if (hintKey) {
+      block.append(el("div", "muted gl-hint", tr(ctx.lang, hintKey)));
+    }
+    body.append(block);
+  };
+  section("goal.detail.userWords", goal.userWords);
+  section(
+    "goal.detail.summary",
+    goal.summary,
+    goal.origin === "user" ? "goal.detail.assistantNote" : undefined,
+  );
+  section("goal.detail.currentState", goal.currentState);
+  if (detail.children.length > 0) {
+    const block = el("div", "gl-block");
+    block.append(el("div", "gl-block-label", tr(ctx.lang, "goal.detail.subGoals")));
+    for (const child of detail.children.filter((item) => item.lifecycle === "live")) {
+      const open = el("button", "gl-link", child.title);
+      open.type = "button";
+      open.addEventListener("click", () => {
+        close();
+        void goalDetail(ctx, child.id);
+      });
+      const row = el("div", "gl-subrow");
+      row.append(open, el("span", "muted", ` ${statusLabel(ctx.lang, child.status)}`));
+      block.append(row);
+    }
+    body.append(block);
+  }
+  const reopen = () => void goalDetail(ctx, id);
+  // "Reviewed" and "later" change the goal without leaving the detail: it is refilled in place.
+  const refill = () => void goalDetail(ctx, id, { onlyIfOpen: true });
+  body.append(
+    metricsBlock(ctx, goal, detail.metrics ?? [], {
+      edit: (metric) => {
+        close();
+        metricDialog(ctx, goal, metric, reopen);
+      },
+      add: () => {
+        close();
+        metricDialog(ctx, goal, undefined, reopen);
+      },
+    }),
+  );
+  body.append(
+    linksBlock(ctx, goal, detail.links, {
+      add: () => {
+        close();
+        linkAddDialog(ctx, goal, reopen);
+      },
+      remove: (link) => {
+        close();
+        linkRemoveDialog(ctx, goal, link, reopen);
+      },
+    }),
+  );
+  const review = reviewBlock(ctx, goal, detail.review, refill);
+  if (review) {
+    body.append(review);
+  }
+  const activity = el("div", "gl-block");
+  activity.append(el("div", "gl-block-label", tr(ctx.lang, "goal.detail.activity")));
+  if (detail.entries.length === 0) {
+    activity.append(el("div", "muted", tr(ctx.lang, "goal.detail.noActivity")));
+  }
+  const startId = detail.entriesTruncated
+    ? undefined
+    : detail.entries.findLast((entry) => entry.kind === "system")?.id;
+  for (const group of groupEntriesByDay(detail.entries)) {
+    activity.append(el("div", "gl-day", group.day));
+    for (const entry of group.entries) {
+      activity.append(entryLine(ctx, goal, entry, entry.id === startId));
+    }
+  }
+  body.append(activity);
+}
+
+/**
+ * Opens the goal's detail, or (when that goal's detail is already open) refills it where it stands: same window, same scroll
+ * position and focus. `onlyIfOpen` is for refreshes: they never open a window the user has closed in the meantime.
+ */
+export async function goalDetail(
+  ctx: ActionContext,
+  id: string,
+  options: { onlyIfOpen?: boolean } = {},
+): Promise<void> {
+  const seq = ++detailSeq;
+  const detail = await get(ctx, id);
+  if (seq !== detailSeq) {
+    return;
+  }
+  const live = liveDetail?.id === id && liveDetail.body.isConnected ? liveDetail : undefined;
+  if (options.onlyIfOpen && !live) {
+    return;
+  }
+  if (!detail || detail.goal.lifecycle !== "live") {
+    live?.close();
+    return gone(ctx, id);
+  }
+  if (live) {
+    live.ctx = ctx;
+    const focus = rememberFocus(live.body);
+    live.title.textContent = detail.goal.title;
+    live.body.replaceChildren();
+    fillDetail(ctx, detail, live.body, live.close);
+    restoreFocus(live.body, focus);
+    return;
+  }
+  // Only one detail dialog at a time: a second request replaces the one on screen instead of stacking.
   liveDetail?.close();
-  const mine = { id, ctx, close: () => close() };
+  let close: () => void = () => undefined;
+  let mine: LiveDetail | undefined;
   close = openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
     redact: ctx.redact,
     cancelLabel: tr(ctx.lang, "btn.cancel"),
-    title: goal.title,
+    title: detail.goal.title,
     actions: [],
     onClose: () => {
       if (liveDetail === mine) {
@@ -347,106 +519,14 @@ export async function goalDetail(ctx: ActionContext, id: string): Promise<void> 
       }
     },
     build: (body) => {
-      if (items.length > 0) {
-        const more = el("button", "nx-btn gl-more", "⋯");
-        more.type = "button";
-        more.setAttribute("aria-label", tr(ctx.lang, "goals.more"));
-        const bar = el("div", "gl-detail-bar");
-        bar.append(popupMenu(more, items));
-        body.append(bar);
+      const title = body.parentElement?.querySelector<HTMLElement>(".nx-title");
+      if (title) {
+        mine = { id, ctx, close: () => close(), title, body };
+        liveDetail = mine;
       }
-      const meta = el("div", "gl-meta");
-      meta.append(
-        el("span", "pill", categoryLabel(ctx.lang, goal.category)),
-        el("span", "pill", statusLabel(ctx.lang, goal.status)),
-        ...(goal.sensitivity === "sensitive"
-          ? [el("span", "pill", tr(ctx.lang, "goals.tag.sensitive"))]
-          : []),
-      );
-      body.append(meta);
-      if (detail.parent) {
-        body.append(
-          el("p", "muted", `${tr(ctx.lang, "goal.detail.parent")}: ${detail.parent.title}`),
-        );
-      }
-      const section = (labelKey: MsgKey, text: string | null, hintKey?: MsgKey) => {
-        if (!text) {
-          return;
-        }
-        const block = el("div", "gl-block");
-        block.append(el("div", "gl-block-label", tr(ctx.lang, labelKey)));
-        block.append(el("div", "gl-block-text", text));
-        if (hintKey) {
-          block.append(el("div", "muted gl-hint", tr(ctx.lang, hintKey)));
-        }
-        body.append(block);
-      };
-      section("goal.detail.userWords", goal.userWords);
-      section(
-        "goal.detail.summary",
-        goal.summary,
-        goal.origin === "user" ? "goal.detail.assistantNote" : undefined,
-      );
-      section("goal.detail.currentState", goal.currentState);
-      if (detail.children.length > 0) {
-        const block = el("div", "gl-block");
-        block.append(el("div", "gl-block-label", tr(ctx.lang, "goal.detail.subGoals")));
-        for (const child of detail.children.filter((item) => item.lifecycle === "live")) {
-          const open = el("button", "gl-link", child.title);
-          open.type = "button";
-          open.addEventListener("click", () => {
-            close();
-            void goalDetail(ctx, child.id);
-          });
-          const row = el("div", "gl-subrow");
-          row.append(open, el("span", "muted", ` ${statusLabel(ctx.lang, child.status)}`));
-          block.append(row);
-        }
-        body.append(block);
-      }
-      const reopen = () => void goalDetail(ctx, id);
-      body.append(
-        metricsBlock(ctx, goal, detail.metrics ?? [], {
-          edit: (metric) => {
-            close();
-            metricDialog(ctx, goal, metric, reopen);
-          },
-          add: () => {
-            close();
-            metricDialog(ctx, goal, undefined, reopen);
-          },
-        }),
-      );
-      body.append(
-        linksBlock(ctx, goal, detail.links, {
-          add: () => {
-            close();
-            linkAddDialog(ctx, goal, reopen);
-          },
-          remove: (link) => {
-            close();
-            linkRemoveDialog(ctx, goal, link, reopen);
-          },
-        }),
-      );
-      const activity = el("div", "gl-block");
-      activity.append(el("div", "gl-block-label", tr(ctx.lang, "goal.detail.activity")));
-      if (detail.entries.length === 0) {
-        activity.append(el("div", "muted", tr(ctx.lang, "goal.detail.noActivity")));
-      }
-      const startId = detail.entriesTruncated
-        ? undefined
-        : detail.entries.findLast((entry) => entry.kind === "system")?.id;
-      for (const group of groupEntriesByDay(detail.entries)) {
-        activity.append(el("div", "gl-day", group.day));
-        for (const entry of group.entries) {
-          activity.append(entryLine(ctx, goal, entry, entry.id === startId));
-        }
-      }
-      body.append(activity);
+      fillDetail(ctx, detail, body, () => close());
     },
   });
-  liveDetail = mine;
 }
 
 const isOpenCategory = (category: GoalCategory): boolean =>

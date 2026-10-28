@@ -114,6 +114,41 @@ describe("an open goal detail follows its data (G2.1)", () => {
     expect(gets()).toBe(before);
   });
 
+  it("refills the same window: the title and the menu follow the goal", async () => {
+    const data: Data = { detail: detailWith("ASSERTED") };
+    const f = await open(data);
+    const window = f.dialog();
+    const menuLabels = () =>
+      Array.from(f.dialog().querySelectorAll(".gl-menu-item")).map((item) => item.textContent);
+    expect(menuLabels()).toContain("标为完成");
+    expect(window.querySelector(".nx-title")?.textContent).toContain("攒首付");
+    data.detail = {
+      ...detailWith("ASSERTED"),
+      goal: goal({
+        category: "interests",
+        sensitivity: "normal",
+        status: "completed",
+        title: "新的标题",
+      }),
+    };
+    f.emit("goal_changed");
+    await settle();
+    expect(f.container.querySelectorAll(".nx-dialog")).toHaveLength(1);
+    expect(f.dialog()).toBe(window);
+    expect(window.querySelector(".nx-title")?.textContent).toBe("新的标题");
+    expect(menuLabels()).toContain("标为未完成");
+    expect(menuLabels()).not.toContain("标为完成");
+  });
+
+  it("closes the window when the goal is gone (deleted elsewhere)", async () => {
+    const data: Data = { detail: detailWith("ASSERTED") };
+    const f = await open(data);
+    data.detail = { ...detailWith("ASSERTED"), goal: goal({ lifecycle: "deleted" }) };
+    f.emit("goal_changed");
+    await settle();
+    expect(f.container.querySelector(".nx-dialog")).toBeNull();
+  });
+
   it("does not redraw over a form the user is typing in", async () => {
     const data: Data = { detail: detailWith("ASSERTED") };
     const f = await open(data);

@@ -1,5 +1,5 @@
 // Agent tools for Goals (Goals design 9.1): nexus_goal_search, nexus_goal_get, nexus_goal_create, nexus_goal_propose,
-// nexus_goal_entry_add, nexus_goal_link. There is no tool to confirm, complete, rename, delete or purge a goal, and none that
+// nexus_goal_entry_add, nexus_goal_link, nexus_goal_review. There is no tool to confirm, complete, rename, delete or purge a goal, and none that
 // writes the user's own words. nexus_goal_create works only inside the creation grant of the session it runs in. The logic
 // lives in src/goal/goal-agent-ops.ts (tested without the SDK); this file only describes the tools to the host.
 import { Type } from "typebox";
@@ -13,6 +13,7 @@ import {
   agentGetGoal,
   agentLinkGoal,
   agentProposeGoal,
+  agentReviewGoal,
   agentSearchGoals,
 } from "../goal/goal-agent-ops.js";
 import type { GoalService } from "../goal/goal-service.js";
@@ -27,6 +28,7 @@ export const GOAL_TOOL_NAMES = [
   "nexus_goal_propose",
   "nexus_goal_entry_add",
   "nexus_goal_link",
+  "nexus_goal_review",
 ] as const;
 
 const NO_SESSION = "(no-session)";
@@ -34,7 +36,7 @@ const NO_SESSION = "(no-session)";
 export type GoalToolDeps = {
   service: Pick<
     GoalService,
-    "list" | "get" | "create" | "propose" | "addEntry" | "addLink" | "activeGrant"
+    "list" | "get" | "create" | "propose" | "addEntry" | "addLink" | "activeGrant" | "actReview"
   >;
   resolvePrincipal: (ctx: { agentId?: string; sessionKey?: string }) => Principal | undefined;
   /** Receives the stack of an unexpected store error, which the model only sees as a one-line message. */
@@ -200,6 +202,19 @@ export function createGoalTools(deps: GoalToolDeps, ctx: ToolContext): AnyAgentT
       }),
       async execute(_id: string, params: Record<string, unknown>) {
         return withPrincipal((principal) => agentLinkGoal(deps.service, principal, params));
+      },
+    },
+    {
+      name: "nexus_goal_review",
+      label: "Nexus Goals: mark a review",
+      description:
+        'Move the review reminder of a goal AFTER the user has agreed to look back at it with you: action "done" once you have gone over how it is going (record what you learned with nexus_goal_entry_add first), or "snooze" when the user says later. It adds no progress and never completes the goal. Do not call it on your own, and you cannot set the review cadence.',
+      parameters: Type.Object({
+        goalId: Type.String(),
+        action: Type.Union([Type.Literal("done"), Type.Literal("snooze")]),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        return withPrincipal((principal) => agentReviewGoal(deps.service, principal, params));
       },
     },
   ];

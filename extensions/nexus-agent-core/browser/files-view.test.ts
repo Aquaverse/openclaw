@@ -151,7 +151,7 @@ function fixture(
     dialog: () => container.querySelector(".nx-dialog") as HTMLElement,
     writes: () =>
       calls.filter(
-        (call) => !/\.(list|stats|read|get|search|text|versions|links)$/.test(call.method),
+        (call) => !/\.(list|stats|read|get|search|text|versions|links|due)$/.test(call.method),
       ),
   };
 }

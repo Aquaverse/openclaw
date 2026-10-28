@@ -187,7 +187,7 @@ node openclaw.mjs --dev config set tools.alsoAllow '[
   "nexus_preference_get","nexus_preference_set","nexus_preference_confirm",
   "nexus_watch_create","nexus_watch_cancel","nexus_watch_report",
   "nexus_file_search","nexus_file_get","nexus_file_attach",
-  "nexus_goal_search","nexus_goal_get","nexus_goal_create","nexus_goal_propose","nexus_goal_entry_add","nexus_goal_link"
+  "nexus_goal_search","nexus_goal_get","nexus_goal_create","nexus_goal_propose","nexus_goal_entry_add","nexus_goal_link","nexus_goal_review"
 ]' --strict-json
 ```
 
@@ -350,6 +350,7 @@ node openclaw.mjs --dev gateway call nexus.vault.search --params '{"query":"hell
 | `nexus_goal_create` | 保存一个目标。**只有用户在控制台“目标”页点了类别、开启的那场创建对话里才有效**（一次性授权，绑定该会话、类别，2 小时过期）；其他任何会话调用都被拒绝（`no_creation_permission`）。用户的原话由服务端从对话里取，Agent 改不了 |
 | `nexus_goal_propose` | Agent 自发提出一个目标：只会进入控制台“待确认”，用户批准后才生效；至多附 3 个想问用户的问题 |
 | `nexus_goal_entry_add` / `nexus_goal_link` | 给进行中的目标记一条进展，或把它关联到事项、文件、偏好等；Agent 不能标完成、改原话或删除 |
+| `nexus_goal_review` | 用户同意回看某个目标之后，把它的回看提醒标成“已回看”或“稍后”；Agent 不能设回看周期（周期由用户在控制台选） |
 
 `nexus_spike_probe` 是 Stage 0 的探针工具，只在 `spikesEnabled` 时存在，不放进 `tools.alsoAllow`。
 

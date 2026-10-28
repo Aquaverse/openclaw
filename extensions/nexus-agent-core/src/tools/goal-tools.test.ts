@@ -66,7 +66,7 @@ function world() {
 }
 
 describe("goal tools", () => {
-  it("offers exactly the six tools, all model-visible, with no way to confirm, complete, rename, delete or purge", () => {
+  it("offers exactly the seven tools, all model-visible, with no way to confirm, complete, rename, delete or purge", () => {
     const { toolsFor } = world();
     const tools = toolsFor("s");
     assert.deepEqual(

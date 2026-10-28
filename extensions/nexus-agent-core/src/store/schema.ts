@@ -1154,6 +1154,26 @@ CREATE TABLE goal_metrics (
 CREATE INDEX goal_metrics_goal ON goal_metrics(owner_id, goal_id);
 `;
 
+// Stage 6 (third migration): Goals G3a, the review reminder layer. One optional plan per goal: how often the user wants to look
+// back at it, when that is next due, and the two quiet-down marks (`snoozed_until`: the user said "later"; `nudged_at`: the chat
+// has already mentioned this due date once). No cron job and no model turn hangs off this table; it is only read when the user
+// opens the console or starts a chat. The plan cascades with its goal.
+export const STAGE6_GOAL_REVIEW_PLANS_SQL = `
+CREATE TABLE goal_review_plans (
+  owner_id TEXT NOT NULL, goal_id TEXT NOT NULL,
+  cadence TEXT NOT NULL,
+  next_due_at INTEGER NOT NULL,
+  last_reviewed_at INTEGER,
+  snoozed_until INTEGER,
+  nudged_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, goal_id),
+  CHECK (cadence IN ('weekly','biweekly','monthly')),
+  FOREIGN KEY (owner_id, goal_id) REFERENCES goals(owner_id, id) ON DELETE CASCADE
+) STRICT;
+CREATE INDEX goal_review_due ON goal_review_plans(owner_id, next_due_at);
+`;
+
 export const MIGRATIONS: readonly Migration[] = [
   { id: "stage1-0001-task-core", sql: STAGE1_TASK_CORE_SQL },
   { id: "stage2-0001-decision-grant-execution", sql: STAGE2_DECISION_SQL },
@@ -1165,4 +1185,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: "stage5-0001-vault", sql: STAGE5_VAULT_SQL },
   { id: "stage6-0001-goals", sql: STAGE6_GOALS_SQL },
   { id: "stage6-0002-goal-metrics", sql: STAGE6_GOAL_METRICS_SQL },
+  { id: "stage6-0003-goal-review-plans", sql: STAGE6_GOAL_REVIEW_PLANS_SQL },
 ];

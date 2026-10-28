@@ -68,6 +68,7 @@ describe("task store kernel", () => {
       "stage5-0001-vault",
       "stage6-0001-goals",
       "stage6-0002-goal-metrics",
+      "stage6-0003-goal-review-plans",
     ]);
     assert.deepEqual(applyMigrations(db, tx), []);
   });

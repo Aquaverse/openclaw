@@ -161,6 +161,17 @@ function detailView(detail: GoalDetailRecord) {
             })
           : view;
       }),
+    // Read-only: the user picks the cadence in the console. `due` means the user is waiting to be asked how it is going.
+    ...(detail.review
+      ? {
+          review: {
+            cadence: detail.review.cadence,
+            due: detail.review.due,
+            nextDueAt: detail.review.nextDueAt,
+            lastReviewedAt: detail.review.lastReviewedAt,
+          },
+        }
+      : {}),
     links: detail.links.map((link) => ({
       kind: link.kind,
       refId: link.refId,
@@ -477,4 +488,38 @@ export async function agentLinkGoal(
   }
   const failure = writeFailure(out as { outcome: string });
   return failure ?? agentFail("failed", `Not linked (${out.outcome}).`);
+}
+
+/**
+ * The user and the Agent just looked back at a goal together ("done"), or the user asked to be asked later ("snooze"). It only
+ * moves the reminder: it adds no progress, and the cadence itself is the user's to set in the console.
+ */
+export async function agentReviewGoal(
+  service: Pick<GoalService, "actReview">,
+  principal: Principal,
+  params: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (typeof params.goalId !== "string" || !ID.test(params.goalId)) {
+    return agentFail("invalid_goal_id", "goalId is malformed; take it from nexus_goal_search.");
+  }
+  if (params.action !== "done" && params.action !== "snooze") {
+    return agentFail("invalid_action", "action is done or snooze.");
+  }
+  const out = await service.actReview(principal, params.goalId, params.action);
+  if (out.outcome === "done" || out.outcome === "snoozed") {
+    return {
+      ok: true,
+      action: params.action,
+      nextDueAt: out.plan.nextDueAt,
+      snoozedUntil: out.plan.snoozedUntil,
+    };
+  }
+  if (out.outcome === "no_plan") {
+    return agentFail(
+      "no_review_plan",
+      "This goal has no review cadence, so there is nothing to mark. Do not set one for the user; they can choose it on the Goals page.",
+    );
+  }
+  const failure = writeFailure(out as { outcome: string });
+  return failure ?? agentFail("failed", `Not recorded (${out.outcome}).`);
 }

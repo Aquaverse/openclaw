@@ -86,6 +86,11 @@ export function renderGoalPage(data: GoalPageData, options: GoalPageOptions = {}
       ? ` <span class="pill">${esc(tr(lang, "goals.tag.sensitive"))}</span>`
       : "";
 
+  const dueTag = (goal: GoalSummaryRecord) =>
+    goal.review?.due === true
+      ? ` <span class="pill pending">${esc(tr(lang, "goal.review.due"))}</span>`
+      : "";
+
   const activeRows = nestGoals(data.active).map(({ goal, child }) => {
     const box = withActions
       ? marker(
@@ -103,7 +108,7 @@ export function renderGoalPage(data: GoalPageData, options: GoalPageOptions = {}
         : "";
     return (
       `<div class="gl-row${child ? " gl-child" : ""}">${box}` +
-      `<div class="gl-main">${marker("goal-open", goal.id, "gl-title", esc(goal.title))}${sensitiveTag(goal)}${state}</div>${order}</div>`
+      `<div class="gl-main">${marker("goal-open", goal.id, "gl-title", esc(goal.title))}${sensitiveTag(goal)}${dueTag(goal)}${state}</div>${order}</div>`
     );
   });
 

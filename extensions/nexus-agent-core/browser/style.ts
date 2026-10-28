@@ -115,6 +115,8 @@ export const NEXUS_CSS = `
 .nexus-page .gl-metric-fig{margin-top:2px;font-variant-numeric:tabular-nums}
 .nexus-page .gl-bar{height:6px;border-radius:3px;background:color-mix(in srgb,currentColor 14%,transparent);margin-top:4px;overflow:hidden}
 .nexus-page .gl-bar i{display:block;height:100%;background:#2fa56b}
+.nexus-page .gl-review-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.nexus-page .gl-review-buttons{display:flex;gap:8px;margin:6px 0}
 .nexus-page .gl-linkrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .nexus-page .gl-link{font:inherit;color:#4f7cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
 .nexus-page .nx-dialog textarea,.nexus-page .nx-dialog input:not([type=checkbox]){width:100%;box-sizing:border-box;font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:4px 8px;margin:4px 0}

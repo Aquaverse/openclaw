@@ -242,7 +242,7 @@
       "goalsEnabled": {
         "type": "boolean",
         "default": false,
-        "description": "Enable Stage 6 Goals (needs tasksEnabled): nexus_goal_search / nexus_goal_get / nexus_goal_create / nexus_goal_propose / nexus_goal_entry_add / nexus_goal_link (optional tools, allow them via tools.alsoAllow), nexus.goal.* gateway methods and the console Goals page. A goal is context for the Agent, never authority; only the user completes, confirms or deletes one. Off by default."
+        "description": "Enable Stage 6 Goals (needs tasksEnabled): nexus_goal_search / nexus_goal_get / nexus_goal_create / nexus_goal_propose / nexus_goal_entry_add / nexus_goal_link / nexus_goal_review (optional tools, allow them via tools.alsoAllow), nexus.goal.* gateway methods and the console Goals page. A goal is context for the Agent, never authority; only the user completes, confirms or deletes one. Off by default."
       },
       "goalMaxActivePerOwner": {
         "type": "integer",
@@ -283,6 +283,7 @@
       "nexus_goal_propose",
       "nexus_goal_entry_add",
       "nexus_goal_link",
+      "nexus_goal_review",
       "nexus_spike_probe"
     ]
   },
@@ -373,9 +374,12 @@
     },
     "nexus_goal_link": {
       "optional": true
+    },
+    "nexus_goal_review": {
+      "optional": true
     }
   },
   "controlUi": {
-    "entry": "dist/control-ui/d7a9cc55c2dad328c0304c3cc0a3e1269c9472f3e4b1f1f59021199bc747a059/index.js"
+    "entry": "dist/control-ui/91e5ffd0dc813e342e159df04ddc7a2bf80fc0c035ff2bfaab893ce15b7ba306/index.js"
   }
 }

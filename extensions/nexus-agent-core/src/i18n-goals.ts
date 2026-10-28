@@ -1,6 +1,32 @@
 // Page text of the Goals page and its dialogs (zh first, en second). Merged into the catalog in i18n.ts.
 export const GOAL_MESSAGES = {
   "goal.metric.reached": ["已达到目标：{name}（{value}）", "Target reached: {name} ({value})"],
+  "goal.review.doneEntry": ["已回看这个目标", "Reviewed this goal"],
+  "goal.review.title": ["定期回看", "Periodic review"],
+  "goal.review.cadence": ["回看周期", "Review cadence"],
+  "goal.review.off": ["不提醒", "No reminder"],
+  "goal.review.weekly": ["每周", "Weekly"],
+  "goal.review.biweekly": ["每两周", "Every two weeks"],
+  "goal.review.monthly": ["每月", "Monthly"],
+  "goal.review.next": ["下次回看：{date}", "Next review: {date}"],
+  "goal.review.last": ["上次回看：{date}", "Last reviewed: {date}"],
+  "goal.review.snoozedTo": ["已推迟，{date} 之后再提醒", "Postponed; reminds again after {date}"],
+  "goal.review.due": ["该回看了", "Time to review"],
+  "goal.review.done": ["已回看", "Reviewed"],
+  "goal.review.later": ["稍后（2 天）", "Later (2 days)"],
+  "goal.review.hint": [
+    "只在你打开控制台，或开始和助手聊天时提醒；不会在后台自己运行。",
+    "Reminds you only when you open the console or start a chat; nothing runs in the background.",
+  ],
+  "goal.review.setNotice": [
+    "已设为{cadence}回看，第一次在 {date}",
+    "Review cadence set to {cadence}; first on {date}",
+  ],
+  "goal.review.clearedNotice": ["已关闭回看提醒", "Review reminders are off"],
+  "goal.review.doneNotice": ["已记为回看，下次：{date}", "Marked as reviewed; next on {date}"],
+  "goal.review.laterNotice": ["好，{date} 之后再提醒", "Okay, I will remind you after {date}"],
+  "goal.review.noPlan": ["这个目标还没有设回看周期", "This goal has no review cadence yet"],
+  "goal.review.notActive": ["只有进行中的目标可以设回看", "Only goals in progress can be reviewed"],
   "nav.goals": ["目标", "Goals"],
   "title.goals": ["目标", "Goals"],
   "goals.intro": [

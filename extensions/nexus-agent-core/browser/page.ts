@@ -5,7 +5,7 @@ import type { ControlUiView } from "openclaw/plugin-sdk/control-ui";
 import { resolveLang, tr, type Lang } from "../src/i18n.js";
 import { EMPTY_FILTER, filterToParams, type TaskFilter } from "../src/task-query.js";
 import { EMPTY_MODEL, runAction, type ActionNotice, type NexusModel } from "./actions.ts";
-import { loadView, probeFeatures, type NexusFeatures } from "./data.ts";
+import { goalsDueCount, loadView, probeFeatures, type NexusFeatures } from "./data.ts";
 import { createFileBar } from "./file-bar.ts";
 import { createFilterBar } from "./filters.ts";
 import { readGoalPrefs, writeGoalPrefs } from "./goal-prefs.ts";
@@ -49,6 +49,8 @@ export function createNexusPage(): ControlUiView {
     let context = initial;
     let features: NexusFeatures = { preferences: false, files: false, goals: false };
     let probed = false;
+    // Goals due for a look-back; shown as a count on the Goals tab. Read again on every load.
+    let goalsDue = 0;
     let sequence = 0;
     let unbindClicks: (() => void) | undefined;
     let model: NexusModel = EMPTY_MODEL;
@@ -139,11 +141,11 @@ export function createNexusPage(): ControlUiView {
         [tr(lang, "nav.tasks"), TASKS_HOME, route.view === "tasks" || route.view === "task"],
         ...(features.goals === true
           ? [
-              [tr(lang, "nav.goals"), { view: "goals" }, route.view === "goals"] as [
-                string,
-                NexusRoute,
-                boolean,
-              ],
+              [
+                goalsDue > 0 ? `${tr(lang, "nav.goals")} (${goalsDue})` : tr(lang, "nav.goals"),
+                { view: "goals" },
+                route.view === "goals",
+              ] as [string, NexusRoute, boolean],
             ]
           : []),
         ...(features.preferences
@@ -269,13 +271,20 @@ export function createNexusPage(): ControlUiView {
           }
           renderNav(route);
         }
+        // Asked alongside the page data (never waited for first): it only feeds the count on the Goals tab.
+        const dueRead = features.goals === true ? goalsDueCount(context.host.request) : undefined;
         const view = await loadView(context.host.request, route, features, {
           actions: context.host.connection.canWrite,
           lang,
           goalPrefs: readGoalPrefs(),
         });
+        const due = dueRead ? await dueRead : 0;
         if (mine !== sequence || context.signal.aborted) {
           return;
+        }
+        if (due !== goalsDue) {
+          goalsDue = due;
+          renderNav(route);
         }
         model = view.model;
         unbindClicks?.();

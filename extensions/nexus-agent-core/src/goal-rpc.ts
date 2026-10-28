@@ -1,4 +1,5 @@
 import { createGoalMetricHandlers } from "./goal-metric-rpc.js";
+import { createGoalReviewHandlers } from "./goal-review-rpc.js";
 import {
   answerRefusal,
   makeGuarded,
@@ -45,6 +46,9 @@ export type GoalRpcDeps = {
     | "removeLink"
     | "setMetric"
     | "removeMetric"
+    | "setReview"
+    | "actReview"
+    | "dueReviews"
     | "purge"
     | "purgeStatus"
     | "purgeReceipts"
@@ -628,5 +632,5 @@ export function createGoalRpcHandlers(deps: GoalRpcDeps) {
       "operator.admin",
     ],
   ] as const;
-  return [...own, ...createGoalMetricHandlers(deps)] as const;
+  return [...own, ...createGoalMetricHandlers(deps), ...createGoalReviewHandlers(deps)] as const;
 }

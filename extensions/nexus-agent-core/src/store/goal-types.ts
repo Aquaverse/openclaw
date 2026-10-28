@@ -156,8 +156,34 @@ export type GoalCreationGrantRecord = {
   createdAt: number;
 };
 
+/** How often the user wants to look back at a goal (G3a). The reminder layer only; nothing runs by itself. */
+export const GOAL_REVIEW_CADENCES = ["weekly", "biweekly", "monthly"] as const;
+export type GoalReviewCadence = (typeof GOAL_REVIEW_CADENCES)[number];
+export const GOAL_REVIEW_PERIOD_MS: Record<GoalReviewCadence, number> = {
+  weekly: 7 * 24 * 60 * 60 * 1000,
+  biweekly: 14 * 24 * 60 * 60 * 1000,
+  monthly: 30 * 24 * 60 * 60 * 1000,
+};
+/** "Later" pushes the reminder back by this much. */
+export const GOAL_REVIEW_SNOOZE_MS = 2 * 24 * 60 * 60 * 1000;
+/** Most goals one chat reminder names. */
+export const GOAL_REVIEW_NUDGE_MAX = 3;
+
+export type GoalReviewPlan = {
+  goalId: string;
+  cadence: GoalReviewCadence;
+  nextDueAt: number;
+  lastReviewedAt: number | null;
+  snoozedUntil: number | null;
+  nudgedAt: number | null;
+  /** Computed at read time: due now, not snoozed, and the goal is live and active. */
+  due: boolean;
+};
+
 /** What a goal's list row carries on top of the record. */
 export type GoalSummaryRecord = GoalRecord & {
+  /** Set by the service (not the list query) when the goal has a review plan. */
+  review?: GoalReviewPlan;
   childCount: number;
   linkCount: number;
   entryCount: number;
@@ -172,6 +198,8 @@ export type GoalDetailRecord = {
   entriesTruncated: boolean;
   links: GoalLinkRecord[];
   metrics: GoalMetricRecord[];
+  /** Set by the service when the goal has a review plan. */
+  review?: GoalReviewPlan;
 };
 
 // ---------------------------------------------------------------- inputs and outcomes
@@ -460,6 +488,44 @@ export type GoalMetricRemoveOutcome =
   | { outcome: "removed" }
   | { outcome: "metric_not_found" }
   | GoalWriteRefusal;
+
+// ---------------------------------------------------------------- review reminders (G3a)
+
+export type GoalReviewSetInput = {
+  principal: Principal;
+  goalId: string;
+  /** `null` switches the reminder off. */
+  cadence: GoalReviewCadence | null;
+  now: number;
+};
+export type GoalReviewSetOutcome =
+  | { outcome: "set"; plan: GoalReviewPlan }
+  | { outcome: "cleared" }
+  | GoalWriteRefusal;
+
+export type GoalReviewActInput = {
+  principal: Principal;
+  goalId: string;
+  action: "done" | "snooze";
+  /** Written as a system entry on `done` (the service localises it). */
+  entryText?: string;
+  now: number;
+};
+export type GoalReviewActOutcome =
+  | { outcome: "done"; plan: GoalReviewPlan }
+  | { outcome: "snoozed"; plan: GoalReviewPlan }
+  | { outcome: "no_plan" }
+  | GoalWriteRefusal;
+
+export type GoalReviewListInput = {
+  principal: Principal;
+  goalIds?: readonly string[];
+  dueOnly?: boolean;
+  now: number;
+};
+
+export type GoalReviewNudgeInput = { principal: Principal; limit: number; now: number };
+export type GoalReviewNudgeRow = { goalId: string; title: string; category: GoalCategory };
 
 // ---------------------------------------------------------------- purge
 

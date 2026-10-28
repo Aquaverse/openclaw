@@ -11,6 +11,7 @@ import { DEFAULT_PURGE_RUN_LEASE_MS } from "../purge/purge-lease.js";
 import type { StoreOperationName, StoreOperations } from "../store/contract.js";
 import {
   GOAL_LIMITS,
+  GOAL_REVIEW_NUDGE_MAX,
   isOpenGoalCategory,
   type GoalCategory,
   type GoalConfirmOutcome,
@@ -34,6 +35,11 @@ import {
   type GoalPurgeReceiptRow,
   type GoalPurgeRunRecord,
   type GoalRestoreOutcome,
+  type GoalReviewActOutcome,
+  type GoalReviewCadence,
+  type GoalReviewNudgeRow,
+  type GoalReviewPlan,
+  type GoalReviewSetOutcome,
   type GoalSensitivity,
   type GoalTransitionOutcome,
   type GoalUpdateInput,
@@ -68,6 +74,9 @@ export type GoalChangeAction =
   | "link_removed"
   | "metric_set"
   | "metric_removed"
+  | "review_set"
+  | "review_done"
+  | "review_snoozed"
   | "deleted"
   | "restored"
   | "purged";
@@ -500,14 +509,98 @@ export function createGoalService(deps: GoalServiceDeps) {
   // ------------------------------------------------------------------ reads
 
   async function list(principal: Principal, input: Omit<GoalListInput, "principal">) {
-    return (await deps.getStore()).goalList({ ...input, principal });
+    const store = await deps.getStore();
+    const out = await store.goalList({ ...input, principal });
+    if (out.goals.length === 0) {
+      return out;
+    }
+    const plans = new Map(
+      (
+        await store.goalReviewList({
+          principal,
+          goalIds: out.goals.map((goal) => goal.id),
+          now: now(),
+        })
+      ).map((plan) => [plan.goalId, plan]),
+    );
+    return {
+      ...out,
+      goals: out.goals.map((goal) => {
+        const review = plans.get(goal.id);
+        return review ? Object.assign(goal, { review }) : goal;
+      }),
+    };
   }
 
   async function get(principal: Principal, goalId: string, entryLimit?: number) {
-    return (await deps.getStore()).goalGet({
+    const store = await deps.getStore();
+    const detail = await store.goalGet({
       principal,
       goalId,
       ...(entryLimit !== undefined ? { entryLimit } : {}),
+    });
+    if (!detail) {
+      return detail;
+    }
+    const [review] = await store.goalReviewList({ principal, goalIds: [goalId], now: now() });
+    return review ? { ...detail, review } : detail;
+  }
+
+  // ------------------------------------------------------------------ review reminders (G3a)
+
+  /**
+   * The reminder layer only (console entrance): it records how often the user wants to look back, and when. It starts no
+   * background work. The Agent can read the plan and say "reviewed" / "later" for the user, but never sets the cadence.
+   */
+  async function setReview(
+    principal: Principal,
+    goalId: string,
+    cadence: GoalReviewCadence | null,
+  ): Promise<GoalReviewSetOutcome> {
+    const store = await deps.getStore();
+    const out = await store.goalReviewSet({ principal, goalId, cadence, now: now() });
+    if (out.outcome === "set" || out.outcome === "cleared") {
+      emit(principal, goalId, "review_set");
+    }
+    return out;
+  }
+
+  async function actReview(
+    principal: Principal,
+    goalId: string,
+    action: "done" | "snooze",
+    lang: Lang = "zh",
+  ): Promise<GoalReviewActOutcome> {
+    const store = await deps.getStore();
+    const out = await store.goalReviewAct({
+      principal,
+      goalId,
+      action,
+      ...(action === "done" ? { entryText: tr(lang, "goal.review.doneEntry") } : {}),
+      now: now(),
+    });
+    if (out.outcome === "done") {
+      emit(principal, goalId, "review_done");
+    } else if (out.outcome === "snoozed") {
+      emit(principal, goalId, "review_snoozed");
+    }
+    return out;
+  }
+
+  /** Plans that are due right now (the console badge). */
+  async function dueReviews(principal: Principal): Promise<GoalReviewPlan[]> {
+    return (await deps.getStore()).goalReviewList({ principal, dueOnly: true, now: now() });
+  }
+
+  /**
+   * The goals a chat may mention once at its start. Reading them marks them as mentioned, so each due date is named once
+   * (and again only after "later" runs out).
+   */
+  async function reviewNudge(principal: Principal): Promise<GoalReviewNudgeRow[]> {
+    return (await deps.getStore()).goalReviewNudge({
+      principal,
+      limit: GOAL_REVIEW_NUDGE_MAX,
+      now: now(),
     });
   }
 
@@ -623,6 +716,10 @@ export function createGoalService(deps: GoalServiceDeps) {
     removeLink,
     setMetric,
     removeMetric,
+    setReview,
+    actReview,
+    dueReviews,
+    reviewNudge,
     list,
     get,
     purge,

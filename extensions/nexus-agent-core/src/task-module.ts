@@ -22,6 +22,7 @@ import { isCreationOpener, userTurnsFrom } from "./goal/goal-hook.js";
 import {
   GOAL_CREATION_REMINDER,
   goalCreationGuide,
+  goalReviewNudge,
   NEXUS_GOAL_PROTOCOL,
 } from "./goal/goal-prompt.js";
 import { createGoalService, type GoalService } from "./goal/goal-service.js";
@@ -690,6 +691,7 @@ export function registerTaskModule(
         }
       }
       let creationReminder: string | undefined;
+      let reviewNudge: string | undefined;
       if (goals) {
         protocols.push(NEXUS_GOAL_PROTOCOL);
         // The Goals page opens a creation chat with a single-use grant bound to this session: the guide for its category is
@@ -713,6 +715,9 @@ export function registerTaskModule(
                 : undefined;
               protocols.push(goalCreationGuide(grant.category, parent?.goal.title));
               creationReminder = GOAL_CREATION_REMINDER;
+            } else {
+              // G3a: goals the user asked to look back on are named once, beside the user's message.
+              reviewNudge = goalReviewNudge(await goals.reviewNudge(principal));
             }
           } catch (error) {
             api.logger.warn(
@@ -725,6 +730,7 @@ export function registerTaskModule(
         open.length > 0 ? renderOpenTasks(open) : undefined,
         fileRefs,
         creationReminder,
+        reviewNudge,
       ].filter((part): part is string => part !== undefined);
       return {
         prependSystemContext: protocols.join("\n\n"),
