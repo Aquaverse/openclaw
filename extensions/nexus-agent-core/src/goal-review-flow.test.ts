@@ -4,7 +4,12 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it } from "vitest";
 import { createGoalReviewHandlers } from "./goal-review-rpc.js";
-import { goalReviewNudge } from "./goal/goal-prompt.js";
+import { goalTurnContext } from "./goal/goal-hook.js";
+import {
+  GOAL_CREATION_REMINDER,
+  goalReviewNudge,
+  NEXUS_GOAL_PROTOCOL,
+} from "./goal/goal-prompt.js";
 import { createGoalService, type GoalChangeEvent, type GoalStore } from "./goal/goal-service.js";
 import { tr } from "./i18n.js";
 import { applyMigrations } from "./store/kernel.js";
@@ -293,5 +298,86 @@ describe("the Agent side", () => {
     const out = await w.tool("nexus_goal_review", { goalId: id, action: "done" });
     assert.equal(out.ok, false);
     assert.equal(out.code, "goal_not_active");
+  });
+});
+
+describe("what a turn gets from the goals module (the before_prompt_build hook)", () => {
+  const turn = (prompt: string) => ({ prompt, messages: [] });
+
+  it("a plain chat gets the protocol only, until a goal is due; then the reminder once", async () => {
+    const w = world();
+    const id = await w.makeGoal("Learn the cello");
+    await w.service.setReview(A, id, "weekly");
+    const quiet = await goalTurnContext(w.service, A, "agent:main:chat", turn("hello"));
+    assert.deepEqual(quiet, { protocols: [NEXUS_GOAL_PROTOCOL], context: [] });
+    w.advance(8 * DAY);
+    const due = await goalTurnContext(w.service, A, "agent:main:chat", turn("hello"));
+    assert.equal(due.context.length, 1);
+    assert.match(due.context[0] as string, /\[Nexus goal review\]/u);
+    assert.match(due.context[0] as string, new RegExp(id, "u"));
+    assert.deepEqual(due.protocols, [NEXUS_GOAL_PROTOCOL]);
+    const again = await goalTurnContext(w.service, A, "agent:main:other-chat", turn("hello"));
+    assert.deepEqual(again.context, []);
+  });
+
+  it("with no session key nothing is looked up and nothing is marked as mentioned", async () => {
+    const w = world();
+    const id = await w.makeGoal("Learn the cello");
+    await w.service.setReview(A, id, "weekly");
+    w.advance(8 * DAY);
+    const out = await goalTurnContext(w.service, A, undefined, turn("hello"));
+    assert.deepEqual(out, { protocols: [NEXUS_GOAL_PROTOCOL], context: [] });
+    const later = await goalTurnContext(w.service, A, "agent:main:chat", turn("hello"));
+    assert.equal(later.context.length, 1);
+  });
+
+  it("another owner's chat is never told about my goals", async () => {
+    const w = world();
+    const id = await w.makeGoal("Learn the cello");
+    await w.service.setReview(A, id, "weekly");
+    w.advance(8 * DAY);
+    const out = await goalTurnContext(w.service, B, "agent:main:chat", turn("hello"));
+    assert.deepEqual(out.context, []);
+  });
+
+  it("a creation chat gets the guide and its own reminder, and no review reminder (which stays for a later chat)", async () => {
+    const w = world();
+    const id = await w.makeGoal("Learn the cello");
+    await w.service.setReview(A, id, "weekly");
+    w.advance(8 * DAY);
+    const session = "agent:main:creation-chat";
+    await w.service.startCreation(A, {
+      sessionKey: session,
+      category: "interests",
+      issuedBy: "operator",
+    });
+    const out = await goalTurnContext(w.service, A, session, turn("I want to learn to paint"));
+    assert.equal(out.protocols.length, 2);
+    assert.match(out.protocols[1] as string, /creating a goal/u);
+    assert.deepEqual(out.context, [GOAL_CREATION_REMINDER]);
+    // What the user typed was kept as the words of the goal.
+    const created = await w.service.create(A, {
+      sessionKey: session,
+      fields: { title: "Learn to paint" },
+    });
+    assert.equal(created.outcome, "created");
+    assert.match((created as { goal: { userWords: string } }).goal.userWords, /learn to paint/u);
+    const next = await goalTurnContext(w.service, A, "agent:main:chat", turn("hello"));
+    assert.equal(next.context.length, 1);
+  });
+
+  it("a store failure costs the extras, not the turn", async () => {
+    const warnings: string[] = [];
+    const broken = {
+      activeGrant: async () => {
+        throw new Error("store unavailable");
+      },
+    } as never;
+    const out = await goalTurnContext(broken, A, "agent:main:chat", turn("hello"), {
+      warn: (message) => warnings.push(message),
+    });
+    assert.deepEqual(out, { protocols: [NEXUS_GOAL_PROTOCOL], context: [] });
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] as string, /store unavailable/u);
   });
 });

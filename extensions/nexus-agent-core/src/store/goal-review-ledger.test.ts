@@ -193,6 +193,40 @@ describe("goal review plans", () => {
     assert.equal(k.goalReviewNudge({ principal: A, limit: 3, now: when + 2000 }).length, 0);
   });
 
+  it("reopening a completed goal restarts its count instead of making it due at once", () => {
+    const g = mustGoal(createViaGrant(A, "Grow tomatoes on the balcony").created);
+    const at = now();
+    set(g.id, "biweekly", at);
+    assert.equal(
+      k.goalComplete({ principal: A, goalId: g.id, maxActive: 20, now: at + DAY }).outcome,
+      "done",
+    );
+    const back = at + 90 * DAY;
+    assert.equal(
+      k.goalReopen({ principal: A, goalId: g.id, maxActive: 20, now: back }).outcome,
+      "done",
+    );
+    const plan = plans(back).find((p) => p.goalId === g.id);
+    assert.equal(plan?.nextDueAt, back + GOAL_REVIEW_PERIOD_MS.biweekly);
+    assert.equal(plan?.due, false);
+    assert.equal(
+      k.goalReviewNudge({ principal: A, limit: 9, now: back }).some((r) => r.goalId === g.id),
+      false,
+    );
+    assert.equal(
+      plans(back + 15 * DAY, true).some((p) => p.goalId === g.id),
+      true,
+    );
+    // A goal with no plan is untouched.
+    const bare = mustGoal(createViaGrant(A, "Learn to juggle").created);
+    k.goalComplete({ principal: A, goalId: bare.id, maxActive: 20, now: at + DAY });
+    k.goalReopen({ principal: A, goalId: bare.id, maxActive: 20, now: back });
+    assert.equal(
+      plans(back).some((p) => p.goalId === bare.id),
+      false,
+    );
+  });
+
   it("a plan goes with its goal when the goal is purged", () => {
     const g = mustGoal(createViaGrant(A, "Temporary goal for purge").created);
     set(g.id, "weekly");

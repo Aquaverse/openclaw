@@ -2,9 +2,11 @@ import type { GoalCommon } from "./goal-ledger-common.js";
 // Goals kernel, user-side writes: confirm a proposal, edit fields, complete and reopen. Only the operator reaches these.
 import { cleanBlock, checkFields, foldText, isGoalCategory, toGoal } from "./goal-rows.js";
 import {
+  GOAL_REVIEW_PERIOD_MS,
   isOpenGoalCategory,
   type GoalConfirmInput,
   type GoalConfirmOutcome,
+  type GoalReviewCadence,
   type GoalTransitionInput,
   type GoalTransitionOutcome,
   type GoalUpdateInput,
@@ -12,7 +14,16 @@ import {
 } from "./goal-types.js";
 
 export function createGoalEdits(c: GoalCommon) {
-  const { transaction, run, goalRow, mustGoal, activeCount, parentProblem, insertSystemEntry } = c;
+  const {
+    transaction,
+    one,
+    run,
+    goalRow,
+    mustGoal,
+    activeCount,
+    parentProblem,
+    insertSystemEntry,
+  } = c;
 
   // ------------------------------------------------------------------ user-side writes
 
@@ -213,6 +224,22 @@ export function createGoalEdits(c: GoalCommon) {
         owner,
         input.goalId,
       );
+      // A review reminder starts counting again: a goal brought back after months is not due the moment it returns.
+      const plan = one(
+        "SELECT cadence FROM goal_review_plans WHERE owner_id = ? AND goal_id = ?",
+        owner,
+        input.goalId,
+      );
+      if (plan) {
+        run(
+          "UPDATE goal_review_plans SET next_due_at = ?, snoozed_until = NULL, nudged_at = NULL, updated_at = ? " +
+            "WHERE owner_id = ? AND goal_id = ?",
+          input.now + GOAL_REVIEW_PERIOD_MS[String(plan.cadence) as GoalReviewCadence],
+          input.now,
+          owner,
+          input.goalId,
+        );
+      }
       return { outcome: "done", goal: mustGoal(owner, input.goalId) };
     });
 

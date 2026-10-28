@@ -2,6 +2,14 @@
 // the page's opener. Pure functions (no store, no SDK) so they can be tested with plain objects.
 import { createHash } from "node:crypto";
 import { tr, type Lang, type MsgKey } from "../i18n.js";
+import type { Principal } from "../store/types.js";
+import {
+  GOAL_CREATION_REMINDER,
+  goalCreationGuide,
+  goalReviewNudge,
+  NEXUS_GOAL_PROTOCOL,
+} from "./goal-prompt.js";
+import type { GoalService } from "./goal-service.js";
 
 export type UserTurn = { key: string; text: string };
 
@@ -85,4 +93,57 @@ export function isCreationOpener(text: string): boolean {
     return true;
   }
   return SUB_OPENERS.some((pattern) => pattern.test(trimmed));
+}
+
+export type GoalTurnContext = {
+  /** System text for this turn: always the goals protocol, plus the creation guide in a creation chat. */
+  protocols: string[];
+  /** Short notes placed beside the user's message (the creation reminder, or the review reminder; never both). */
+  context: string[];
+};
+
+/**
+ * What the goals module adds to one user turn (the `before_prompt_build` hook). In a chat the Goals page opened (it holds a
+ * single-use creation grant for this session) the guide for the category is added and what the user types is kept as the
+ * words of the goal; in any other chat, goals the user asked to look back on that have come due are named once. A store
+ * failure costs the extras, never the turn: the protocol text is returned regardless.
+ */
+export async function goalTurnContext(
+  goals: Pick<GoalService, "activeGrant" | "captureReply" | "get" | "reviewNudge">,
+  principal: Principal,
+  sessionKey: string | undefined,
+  event: unknown,
+  logger?: { warn: (message: string) => void },
+): Promise<GoalTurnContext> {
+  const out: GoalTurnContext = { protocols: [NEXUS_GOAL_PROTOCOL], context: [] };
+  if (!sessionKey) {
+    return out;
+  }
+  try {
+    const grant = await goals.activeGrant(principal, sessionKey);
+    if (grant) {
+      for (const turn of userTurnsFrom(event)) {
+        if (!isCreationOpener(turn.text)) {
+          await goals.captureReply(principal, {
+            sessionKey,
+            messageKey: turn.key,
+            text: turn.text,
+          });
+        }
+      }
+      const parent = grant.parentId ? await goals.get(principal, grant.parentId, 1) : undefined;
+      out.protocols.push(goalCreationGuide(grant.category, parent?.goal.title));
+      out.context.push(GOAL_CREATION_REMINDER);
+    } else {
+      const nudge = goalReviewNudge(await goals.reviewNudge(principal));
+      if (nudge) {
+        out.context.push(nudge);
+      }
+    }
+  } catch (error) {
+    logger?.warn(
+      `nexus-agent-core: goal turn context skipped: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return out;
 }

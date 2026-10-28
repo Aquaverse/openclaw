@@ -18,13 +18,7 @@ import {
   type EvidenceService,
 } from "./evidence/evidence-service.js";
 import { createGoalRpcHandlers } from "./goal-rpc.js";
-import { isCreationOpener, userTurnsFrom } from "./goal/goal-hook.js";
-import {
-  GOAL_CREATION_REMINDER,
-  goalCreationGuide,
-  goalReviewNudge,
-  NEXUS_GOAL_PROTOCOL,
-} from "./goal/goal-prompt.js";
+import { goalTurnContext } from "./goal/goal-hook.js";
 import { createGoalService, type GoalService } from "./goal/goal-service.js";
 import { createPreferenceRpcHandlers } from "./preference-rpc.js";
 import { resolvePrincipal } from "./principal.js";
@@ -690,47 +684,22 @@ export function registerTaskModule(
           );
         }
       }
-      let creationReminder: string | undefined;
-      let reviewNudge: string | undefined;
-      if (goals) {
-        protocols.push(NEXUS_GOAL_PROTOCOL);
-        // The Goals page opens a creation chat with a single-use grant bound to this session: the guide for its category is
-        // added to this turn, and what the user types is kept (server side) as the words of the goal.
-        const sessionKey = (ctx as { sessionKey?: string }).sessionKey;
-        if (sessionKey) {
-          try {
-            const grant = await goals.activeGrant(principal, sessionKey);
-            if (grant) {
-              for (const turn of userTurnsFrom(event)) {
-                if (!isCreationOpener(turn.text)) {
-                  await goals.captureReply(principal, {
-                    sessionKey,
-                    messageKey: turn.key,
-                    text: turn.text,
-                  });
-                }
-              }
-              const parent = grant.parentId
-                ? await goals.get(principal, grant.parentId, 1)
-                : undefined;
-              protocols.push(goalCreationGuide(grant.category, parent?.goal.title));
-              creationReminder = GOAL_CREATION_REMINDER;
-            } else {
-              // G3a: goals the user asked to look back on are named once, beside the user's message.
-              reviewNudge = goalReviewNudge(await goals.reviewNudge(principal));
-            }
-          } catch (error) {
-            api.logger.warn(
-              `nexus-agent-core: goal creation context skipped: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        }
+      const goalTurn = goals
+        ? await goalTurnContext(
+            goals,
+            principal,
+            (ctx as { sessionKey?: string }).sessionKey,
+            event,
+            api.logger,
+          )
+        : undefined;
+      if (goalTurn) {
+        protocols.push(...goalTurn.protocols);
       }
       const context = [
         open.length > 0 ? renderOpenTasks(open) : undefined,
         fileRefs,
-        creationReminder,
-        reviewNudge,
+        ...(goalTurn?.context ?? []),
       ].filter((part): part is string => part !== undefined);
       return {
         prependSystemContext: protocols.join("\n\n"),
