@@ -6,6 +6,9 @@
     "agent-orchestration"
   ],
   "enabledByDefault": false,
+  "skills": [
+    "./skills"
+  ],
   "activation": {
     "onStartup": true
   },

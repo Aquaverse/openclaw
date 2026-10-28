@@ -352,6 +352,8 @@ node openclaw.mjs --dev gateway call nexus.vault.search --params '{"query":"hell
 | `nexus_goal_entry_add` / `nexus_goal_link` | 给进行中的目标记一条进展，或把它关联到事项、文件、偏好等；Agent 不能标完成、改原话或删除 |
 | `nexus_goal_review` | 用户同意回看某个目标之后，把它的回看提醒标成“已回看”或“稍后”；Agent 不能设回看周期（周期由用户在控制台选） |
 
+**技能**：插件自带两个技能 `goals`（创建对话之外的目标提议、陪伴和回看；兴趣类、其他类指南）和 `moneywise`（目前只含理财目标指南），放在 `skills/`，由 manifest 的 `skills` 声明。技能只写领域判断，规则仍在协议和服务端；助手按需读取。评测场景见 `docs/nexus-agent-core-goals-eval-scenarios.md`。
+
 `nexus_spike_probe` 是 Stage 0 的探针工具，只在 `spikesEnabled` 时存在，不放进 `tools.alsoAllow`。
 
 ### 2.3 网关 RPC
@@ -502,4 +504,4 @@ node extensions/nexus-agent-core/scripts/build-dist.mjs
 - 安装与演示：`docs/nexus-agent-core-install-and-demo.md`（第三方安装的命令与验收）、`docs/nexus-agent-core-delivery-and-ui-demo.md`（面向观众的演示）、`docs/nexus-agent-core-pkg-regression.md`（打包安装回归）
 - 阶段总结：`docs/nexus-agent-core-stage0-1-summary.md`、`stage2`、`stage3-*`、`stage4`
 - 个人文件柜：`docs/nexus-agent-core-personal-file-vault-design.md`
-- 目标与规划：`docs/nexus-agent-core-goals-design.md`、`docs/nexus-agent-core-plugin-status-and-remaining-work.md`
+- 目标与规划：`docs/nexus-agent-core-goals-design.md`、`docs/nexus-agent-core-plugin-status-and-remaining-work.md`、`docs/nexus-agent-core-goals-eval-scenarios.md`

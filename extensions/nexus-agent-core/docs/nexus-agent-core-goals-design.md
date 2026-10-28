@@ -924,8 +924,78 @@ G2（进展与度量）已实现：迁移 `stage6-0002-goal-metrics`、条目 / 
 
 ---
 
+## 17. G4：技能与评测场景
+
+### 17.1 范围与决定
+
+2026-10-28 对照 Muse 的 `goals` 技能（`SKILL.md`、`creation/*.md`、`guides/*/scaffold.md`）评估后，用户确认 **G4 只做增量**：
+
+- **不改**目标创建对话的提示（`goalCreationGuide`、`GOAL_CREATION_REMINDER`）。创建那一刻需要强约束，系统提示常驻比"按需读技能"可靠；Muse 自己也把"创建对话"和"已有目标"分开，并明确"已有目标不要再读创建指南，否则会重启访谈"。
+- **新增**创建对话**之外**的两件事：在普通聊天里留意到长期愿望时怎么提议，以及已有目标的持续陪伴（含回看时的口吻）。这是现有提示完全没有的一层。
+- **评测场景**和技能一起交付，作为验收。
+
+### 17.2 文件
+
+| 路径                                   | 内容                                                                                      |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `skills/goals/SKILL.md`                | 薄入口：何时用 / 不用；按类别路由；陪伴已有目标的通用做法；顺口提到的愿望；回看；不做的事 |
+| `skills/goals/references/interests.md` | 兴趣类：保护好奇心、不预设要量化、偏好以普通句子记在记录里、热情退去只问一次              |
+| `skills/goals/references/other.md`     | 其他类：先判断更接近哪一种；强领域声明遵守该领域谨慎；轻量实用                            |
+| `skills/moneywise/SKILL.md`            | 目前只覆盖"理财目标"；明说还不做账单诊断、对账、取消订阅、退款                            |
+| `skills/moneywise/references/goals.md` | 理财目标：区分结果与活动；先估算；主动给一个下一步；不接账户；回看口吻；安全底线          |
+
+与设计 §10.1 一致：不新增第四个主入口，理财放进 `moneywise`；技能只写领域判断，不写持久契约（授权、上限、谁能完成目标都在服务端和协议里）。`moneywise` 主入口目前只是为承载 `references/goals.md` 建的最小壳，等 Moneywise 立项（G5a / G5b）时再扩。
+
+### 17.3 与 Muse 的取舍
+
+借鉴：创建与持续陪伴分开；先估算、只在会改变下一步时才要精确数字；主动提出一个下一步而不是开放追问；财务数据敏感；安全段落点名不推荐具体证券、加密交易、税务策略、保证回报。
+
+不照搬：`muse.create_options`、`~/MEMORY.md`、`workspace/goals/<slug>/GOAL.md`、Plaid、`user_goal.*` 全部换成 Nexus 的 `ask_user`、`nexus_goal_*`；"设置笔记"在 Nexus 是目标的结构化字段和记录，不是 Agent 随意读写的目录；"创建恰好一次并核对"由服务端保证，不写进技能；"Goals 页创建回合不要读文件"的分支不需要，因为我们的创建指南本来就是注入的。
+
+### 17.4 接线
+
+- 打包：`openclaw.plugin.json` 加 `"skills": ["./skills"]`（内置 App 构建会按它把技能目录拷进去）；`package.json` 的 `files` 加 `skills/**`（npm 包放行）。
+- `NEXUS_GOAL_PROTOCOL` 加一行：创建对话之外，帮已有目标、留意到长期愿望、做回看时，先读 `goals` 技能（如果清单里有）；理财目标由它引到 `moneywise`。每轮都在，但只有一行。
+- `goalReviewNudge`：只在"用户同意回看"那一支里要求先读 `goals` 技能，再读目标。用户没同意前不读技能、不读目标，和原来一致。
+- 创建指南和创建提醒**明确禁止**读这两个技能，两个技能的描述也写了"不用于目标页发起的创建对话"。原因：首次 Mac 试用（评测 S13）里，助手在创建对话里先读了 `goals` 和 `moneywise`，再问第一个问题。宿主的技能规则是"有明确匹配就先读"，而 `moneywise` 的描述里有"理财目标"，正好匹配；协议里那一行"创建对话之外"不足以压住它。读了之后行为本身没错（问了一个问题、建了一条），但多花一轮读取，也违反"创建对话不受技能干扰"。
+
+### 17.5 兜底
+
+技能是按需读取，Agent 可能不读。所以每个底线都另有来源：目标不是授权、不能自称用户确认、不存号码，在 `NEXUS_GOAL_PROTOCOL` 和服务端；理财安全底线在创建指南；回看的同意流程在回看提醒里。技能提高的是"问得好、陪得好"，不是"不出事"。
+
+### 17.6 验证
+
+- 云端：`src/goal-skills.test.ts` 12 条结构测试（打包与声明、frontmatter、引用文件、工具真实存在、无中文 / 无 Muse 与 Plaid 字样 / 不定义持久契约、财务安全底线与创建指南一致、协议与回看提醒的接线、创建指南不指向技能）。全量 648 条通过，`tsc` 无新增错误。
+- 行为：`docs/nexus-agent-core-goals-eval-scenarios.md`，13 个场景，★ 项为底线。**需要在 Mac 上用真实模型跑**。
+
+### 17.7 Mac 验收清单
+
+1. 在 Mac 上跑 `pnpm exec oxfmt extensions/nexus-agent-core`、`pnpm exec oxlint extensions/nexus-agent-core`、`pnpm test:extension nexus-agent-core`（含新测试）和一次构建。
+2. 构建后确认内置 App 里有 `dist/extensions/nexus-agent-core/skills/{goals,moneywise}`，并且打包后的 `openclaw.plugin.json` 的 `skills` 指向它们。
+3. 重启网关，问 Agent 有哪些技能，确认 `goals`、`moneywise` 在清单里。
+4. 按评测场景文档跑 S1–S13，各 2–3 次，结果填表。
+5. 已安装的机器不需要改预设版本：技能随插件目录出现，不经过 `tools.alsoAllow`。
+
+### 17.8 刻意没做
+
+- 另外四个类别（健康 / 人际 / 职业 / 效率）的指南：v1 只有三个类别。
+- 脚本化评测：先文档化，等场景稳定、确定要常跑再脚本化。
+- 技能按 `goalsEnabled` 条件出现：宿主的技能清单是否支持按配置过滤尚未核实；目前关闭目标功能时技能仍会出现，Agent 读了无害。
+- 把创建指南迁移成技能。
+
+### 17.9 第二次试用：创建对话里说"没有加载保存目标的工具"（2026-10-28）
+
+现象：理财创建对话里，助手问完第一个问题（用户选了"控制支出"）后，回复"当前会话没有加载保存目标的 Nexus 工具"，目标没有保存。
+
+原因（读 Codex 会话记录得到）：工具其实都在。这个助手跑在 Codex 运行时上，宿主把工具分成两个入口：`openclaw`（可在 exec 代码沙箱里用 `tools.openclaw__…` 调）和 `openclaw_direct`（只能当普通工具调用）。`nexus_goal_*` 因为标了 `direct-only`，只在 `openclaw_direct` 里（那里有 23 个 nexus 工具，含 `nexus_goal_create`）。助手却把所有事都放进 exec：用 `tools.openclaw__ask_user` 提问，然后在 exec 的工具列表（`ALL_TOOLS`）里搜 `nexus_goal_create`，搜不到（里面只有偏好和 Watcher 的 6 个 nexus 工具），再试 `tools.nexus_goal_create` 报 "is not a function"，就断言"没有加载"。这就是 G1 记下的已知限制"exec / 代码模式下调不到 direct-only 的目标工具"，只是这次表现为助手放弃，而不是报错。
+
+处理：创建指南、创建提醒和每轮协议里明确写：目标工具是直接工具，不会出现在 exec / 代码模式的工具列表里，这是正常的；不能因为在 exec 里搜不到就断言缺失，更不能告诉用户"工具没加载"，应当直接发起普通工具调用，不要用 exec 去找。仍是提示层的缓解，依赖模型听从。若仍复发，下一步候选：去掉目标工具的 `direct-only`，让它们也出现在 exec 入口（需先确认"目录桥接无法保留结果契约"这条限制对目标工具是否成立）。
+
+---
+
 ## 附：资料索引
 
 - Muse（概念参考，转述，非拷贝）：`MuseAI-Skills/home/hatch/docs/goals.md`、`MuseAI-Skills/opt/hatch/skills/goals/SKILL.md`、`MuseAI-Skills/opt/hatch/skills/goals/creation/{career,health,interests,money,productivity,relationships,something_else}.md`、`MuseAI-Skills/opt/hatch/skills/goals/guides/<category>/scaffold.md`、`MuseAI-Skills/opt/hatch/skills/muse_db/references/schema.md`（`goals` 表组）、`MuseAI-Skills/home/hatch/docs/client-surfaces.md`（Goals 标签页的描述）
 - Nexus：`extensions/nexus-agent-core/nexus-agent-core-design.md`（§4 概念模型与命名纪律、§6.1 关系完整性、§10 Watcher、§11 偏好、§14 已知缺口）、`extensions/nexus-agent-core/docs/nexus-agent-core-museai-skills-assessment.md`（技能包结构与 G 系列缺口）、`extensions/nexus-agent-core/docs/nexus-agent-core-plugin-status-and-remaining-work.md`（通知、审计、收口项）、`extensions/nexus-agent-core/docs/nexus-agent-core-personal-file-vault-design.md`
+- G4 评测：`docs/nexus-agent-core-goals-eval-scenarios.md`；技能文件：`skills/goals/`、`skills/moneywise/`
 - 项目：`docs/nexus/nexus-architecture-design-2026-10-02.md`（ADR-03）、`docs/nexus/nexus-development-roadmap-2026-10-02.md`
