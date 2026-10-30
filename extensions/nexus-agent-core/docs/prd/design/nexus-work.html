@@ -68,6 +68,7 @@ svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke
 .s-ended{--c:var(--gray);--cs:var(--gray-soft)}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--cs);color:var(--c);font-size:12.5px;font-weight:600}
 .chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--c)}
+.chip.fix{--c:var(--rose);--cs:var(--rose-soft)}
 
 /* ---------- 详情（统一模板） ---------- */
 .detail{overflow:auto}
@@ -133,6 +134,7 @@ h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3;margin:1
 .follow .k{font-size:12px;color:var(--mute)}
 .follow .v{font-weight:550;margin-top:2px}
 .follow .d{font-size:12.5px;color:var(--sub)}
+.follow-limit{padding:12px 20px;border-top:1px dashed var(--line);font-size:12.5px;color:var(--sub)}
 
 .ev{display:grid;grid-template-columns:92px 1fr;gap:12px;padding:7px 0;font-size:13.5px}
 .ev .tm{color:var(--mute);font-size:12.5px}
@@ -191,7 +193,7 @@ h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3;margin:1
   <section class="list">
     <div class="lh">
       <h1>工作</h1>
-      <div class="hello">你离开期间：<b>1 件完成</b>，<b>3 件</b>需要你处理</div>
+      <div class="hello" id="hello"></div>
       <label class="search"><svg><use href="#i-search"/></svg><input id="q" placeholder="搜索工作、客户或项目"></label>
     </div>
     <div class="seg" id="seg"></div>
@@ -212,11 +214,11 @@ h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3;margin:1
 
    WorkView {
      id, title, context, updatedAt,
-     state: action | blocked | running | done | ended   // 主状态（WK-02）
+     state: action | blocked | running | done | ended   // 主状态（WK-02）；推进结果的 attention 才是 action。已完成工作上的补救决定不改主状态
      summary,                 // 状态旁的一句话
      result,                  // 我要的结果
      progress,                // 现在进展
-     attention?: {            // 需要用户做的一件事（决定 / 补充 / 处理），最多一张
+     attention?: {            // 需要用户做的一件事（决定 / 补充 / 处理 / 事故补救），最多一张
        label, title, desc?,
        facts?: [[键, 值]],     // 准确条款：账号、收件人、金额、时间……
        preview?: {text?, files?: []},
@@ -224,7 +226,7 @@ h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3;margin:1
      },
      notice?: {tone: info|warn, text},   // 无需用户操作的说明
      criteria: [{state: ok|wait|todo|miss, title, detail?, right?}],  // 完成标准，进度环由此计算
-     followups?: [{what, whatNote, how, howNote, next, nextNote}],    // 持续跟进
+     followups?: [{what, whatNote, how, howNote, next, nextNote, limit?}],  // 检查档位、下次、覆盖/不会做什么
      events: [[时间, 文本, 是否离开期间]]
    }
    ================================================================ */
@@ -247,7 +249,10 @@ const works = [
       {state:'todo', title:'王总确认交付时间表', detail:'等你批准上面的邮件', right:'待开始'},
       {state:'todo', title:'合成材料包 PDF', detail:'报价表和时间表到齐后自动开始', right:'待开始'},
     ],
-    followups:[{ what:'李明 · 报价表', whatNote:'10-29 接手自「跟进李明报价表」', how:'工作日 09:00', howNote:'指定邮件线程，不会自动催办', next:'今天 17:00', nextNote:'收到或逾期都会通知你' }],
+    followups:[{ what:'李明 · 报价表', whatNote:'指定邮件线程 · 10-29 接手自「跟进李明报价表」',
+      how:'工作日 09:00，截止当天再查一次', howNote:'只按这两个已审时间点读取该线程，不是新邮件订阅',
+      next:'今天 17:00', nextNote:'今天 09:00 已查过，未收到。17:00 是截止检查，不是实时推送',
+      limit:'收到或逾期时通知你。中间来信要等到下一次检查才会发现；不会自动催办，也不会在 17:00 之后继续盯。' }],
     events:[['今天 09:00','检查报价表，暂未收到',1],['10-29 16:02','你确认了议程 v2',1],['10-29 15:10','接手李明报价表的跟进',1],['10-27 14:20','李明接受新期限：10-30 17:00'],['10-26 20:30','从对话中创建这件工作']] },
 
   { id:'w5', state:'action', title:'深圳出差机票与酒店', context:'个人', updatedAt:'08:47',
@@ -276,18 +281,22 @@ const works = [
     ],
     events:[['10-29 20:15','检查邮箱与相册中的票据'],['10-29 20:10','从对话中创建这件工作']] },
 
-  { id:'w7', state:'blocked', title:'客户会前准备', context:'团队', updatedAt:'07:15',
-    summary:'只有你能处理',
+  { id:'w7', state:'action', title:'客户会前准备', context:'团队', updatedAt:'07:15',
+    summary:'重新连接日历后自动继续',
     result:'每场客户会议前 1 小时备好资料，持续到 11-20',
     progress:'已准备 4 场；今天 14:00 B 客户会议尚未准备',
-    attention:{ label:'需要你处理', title:'重新连接 Google 日历', desc:'连接已过期，07:15 起看不到新的会议。重新连接后会自动补上。',
+    attention:{ label:'需要你处理', title:'重新连接 Google 日历',
+      desc:'连接已过期，07:15 起看不到新的会议。恢复后按原方案继续：每 15 分钟看未来 7 天，开会前 60 分钟准备。今天 14:00 这场只要在 13:00 前连上就会补做；已经过了准备窗口的场次不会事后补上。断开期间有没有新会议，无法证明。',
       actions:['重新连接'] },
     criteria:[
       {state:'ok',   title:'10-27 至 10-29 的 4 场会议', right:'已完成'},
       {state:'wait', title:'今天 14:00 B 客户会议', detail:'需要日历恢复连接', right:'13:00 前'},
       {state:'todo', title:'11-20 前其余会议', right:'待开始'},
     ],
-    followups:[{ what:'客户会议', whatNote:'所选工作日历', how:'每 15 分钟', howNote:'查看未来 7 天的会议', next:'连接恢复后', nextNote:'目前已暂停检查' }],
+    followups:[{ what:'客户会议', whatNote:'所选工作日历 · 筛选客户会议',
+      how:'每 15 分钟看未来 7 天', howNote:'开会前 60 分钟准备私有资料 · 到 11-20',
+      next:'连接恢复后的下一次 15 分钟检查', nextNote:'现在已暂停，不会在断开期间继续轮询',
+      limit:'恢复后只检查仍在窗口内、且距开会至少 60 分钟的场次。不会回放断开后的每一分钟，间隙保持未知；不是日历事件订阅。' }],
     events:[['07:15','日历连接过期，检查暂停',1],['10-29 13:00','B 客户会前资料已准备',1],['10-21 10:00','开始每场会前准备']] },
 
   { id:'w8', state:'blocked', title:'周会改期通知', context:'团队', updatedAt:'09:20',
@@ -318,10 +327,20 @@ const works = [
     events:[['10-26 19:12','纪要已交付'],['10-26 18:30','上传会议录音']] },
 
   { id:'w10', state:'done', title:'B 客户本周周报', context:'B 客户', updatedAt:'昨天',
-    summary:'10-29 18:40 完成',
-    result:'生成本周进展周报 DOCX', progress:'周报已交付；修正一处数据错误后重新核验通过',
-    criteria:[{state:'ok', title:'数据与项目系统一致', right:'已完成'},{state:'ok', title:'周报已交付', right:'已完成'}],
-    events:[['10-29 18:40','修正后重新核验完成'],['10-29 14:00','发现数据错误，撤回完成'],['10-29 10:20','周报已交付']] },
+    summary:'v2 已重新核验完成，更正邮件还没发给周敏、陈洁',
+    result:'生成本周进展周报 DOCX',
+    progress:'v2 已重新核验，数据与项目系统一致。昨天 10:20 发给周敏、陈洁的是 v1，数据有误；v2 更正还等你批准。',
+    attention:{ label:'事故补救 · 需要你决定', title:'把更正邮件和周报 v2 发给周敏、陈洁',
+      desc:'成果已经完成。发给周敏、陈洁的仍是 v1；这封更正是把 v2 补发给她们，不会改写“已完成”，也不会撤回 v1 已发出去的事实。',
+      facts:[['发件','zhang@nexus-consult.com'],['收件','周敏 · zhou.min@b-client.com；陈洁 · chen.jie@b-client.com'],['附件','B客户周报_第43周.docx · v2'],['已停止','后续外发已暂停；v1 公开链接已撤销'],['局限','周敏、陈洁可能已阅读或转发 v1，已下载的副本无法收回']],
+      preview:{ text:'周敏、陈洁您好，昨天发出的第 43 周周报 v1 中「本周完成模块数」有误，现附上已核验的 v2，请以这份为准。给二位添麻烦了。', files:['B客户周报_第43周.docx'] },
+      actions:['批准发送更正','修改','暂不'], note:'IR-1029-02 · 不继承 v1 的批准' },
+    notice:{ tone:'warn', text:'周报成果已完成：v2 于 10-29 18:40 重新核验。发给周敏、陈洁的仍是 v1；v2 更正邮件未发送。结案补救不等于损害已消除。' },
+    criteria:[
+      {state:'ok', title:'数据与项目系统一致', detail:'当前有效的是 v2 · 10-29 18:40 重新核验', right:'已完成'},
+      {state:'ok', title:'周报已交付给周敏、陈洁', detail:'10-29 10:20 送达的是 v1，不是 v2。v2 更正邮件还没发给她们', right:'已完成'},
+    ],
+    events:[['昨天 18:40','v2 重新核验通过，起草更正邮件',1],['昨天 17:56','暂停后续外发，撤销 v1 公开链接',1],['昨天 17:55','你报告：v1 数据有误',1],['10-29 10:20','v1 发给周敏、陈洁（你批准）']] },
 
   { id:'w11', state:'done', title:'牙医复诊预约', context:'个人', updatedAt:'昨天',
     summary:'10-29 11:05 完成',
@@ -351,12 +370,25 @@ const chip = s => `<span class="chip s-${s}">${STATE[s]}</span>`;
 const isActive = w => w.state!=='done' && w.state!=='ended';
 
 /* ---------- 列表 ---------- */
+function visibleWorks(){
+  const q = document.getElementById('q').value.trim();
+  return works.filter(w => (!q || (w.title+w.context+w.summary+(w.attention?w.attention.title:'')).includes(q)) && (filter==='all'||w.state===filter));
+}
+function ensureSel(ids, empty){
+  if(sel && ids.includes(sel)) return;
+  if(!ids.length){ sel=''; document.getElementById('detail').innerHTML = `<div class="dw" style="color:var(--mute);padding-top:80px">${empty}</div>`; return; }
+  sel = ids[0];
+  if(location.hash!=='#'+sel) history.replaceState(null,'','#'+sel);
+  renderDetail();
+}
 function renderList(){
   const q = document.getElementById('q').value.trim();
-  const base = works.filter(w => !q || (w.title+w.context+w.summary).includes(q));
+  document.getElementById('hello').innerHTML = `你离开期间：<b>1 件完成</b>，<b>${works.filter(w=>w.state==='action').length} 件</b>需要你处理`;
+  const base = works.filter(w => !q || (w.title+w.context+w.summary+(w.attention?w.attention.title:'')).includes(q));
   document.getElementById('seg').innerHTML =
     `<button class="${filter==='all'?'on':''}" onclick="setF('all')">全部<span>${base.length}</span></button>` +
     ORDER.map(s=>`<button class="${filter===s?'on':''}" onclick="setF('${s}')">${STATE[s]}<span>${base.filter(w=>w.state===s).length}</span></button>`).join('');
+  ensureSel(visibleWorks().map(w=>w.id), '当前筛选下没有工作');
   let h='';
   ORDER.forEach(s=>{
     const g = base.filter(w=>w.state===s && (filter==='all'||filter===s));
@@ -373,11 +405,12 @@ function renderList(){
   document.getElementById('rows').innerHTML = h || `<div class="gl" style="text-align:center;padding:48px 0">没有匹配的工作</div>`;
 }
 function setF(f){ filter=f; renderList(); }
-function pick(id){ sel=id; renderList(); renderDetail(); document.getElementById('detail').scrollTop=0; }
+function pick(id){ sel=id; if(location.hash!=='#'+id) history.replaceState(null,'','#'+id); renderList(); renderDetail(); document.getElementById('detail').scrollTop=0; }
 
 /* ---------- 详情：唯一模板 ---------- */
 function renderDetail(){
   const w = works.find(x=>x.id===sel);
+  if(!w) return;
   const met = w.criteria.filter(c=>c.state==='ok').length, total = w.criteria.length;
   const a = w.attention;
 
@@ -387,7 +420,7 @@ function renderDetail(){
       ${isActive(w) ? `<button class="ib">暂停</button><button class="ib" onclick="openStop()">停止</button>` : ''}
     </div>
     <h2>${w.title}</h2>
-    <div class="why">${chip(w.state)}<span>${w.summary}</span></div>`;
+    <div class="why">${chip(w.state)}${w.attention&&w.state==='done'?`<span class="chip fix">补救未完成</span>`:''}<span>${w.summary}</span></div>`;
 
   const hero = `
     <div class="hero s-${w.state}">
@@ -421,10 +454,13 @@ function renderDetail(){
 
   const follow = !w.followups ? '' : `
     <div class="sec"><h4>持续跟进</h4><div class="box">
-      ${w.followups.map(f=>`<div class="follow">
-        <div><div class="k">跟进什么</div><div class="v">${f.what}</div><div class="d">${f.whatNote}</div></div>
-        <div><div class="k">怎么检查</div><div class="v">${f.how}</div><div class="d">${f.howNote}</div></div>
-        <div><div class="k">下次检查</div><div class="v">${f.next}</div><div class="d">${f.nextNote}</div></div>
+      ${w.followups.map(f=>`<div>
+        <div class="follow">
+          <div><div class="k">跟进什么</div><div class="v">${f.what}</div><div class="d">${f.whatNote}</div></div>
+          <div><div class="k">怎么检查</div><div class="v">${f.how}</div><div class="d">${f.howNote}</div></div>
+          <div><div class="k">下次检查</div><div class="v">${f.next}</div><div class="d">${f.nextNote}</div></div>
+        </div>
+        ${f.limit?`<div class="follow-limit">${f.limit}</div>`:''}
       </div>`).join('')}
     </div></div>`;
 
@@ -434,7 +470,7 @@ function renderDetail(){
     </div>`;
 
   document.getElementById('detail').innerHTML =
-    `<div class="dw">${header}${hero}${attention}${notice}${criteria}${follow}${events}</div>`;
+    `<div class="dw">${header}${hero}${notice}${attention}${criteria}${follow}${events}</div>`;
 }
 
 /* ---------- 停止确认：由同一数据生成影响预览 ---------- */
@@ -460,6 +496,8 @@ function openStop(){
 function closeStop(){ document.getElementById('mask').classList.remove('open'); }
 
 document.getElementById('q').addEventListener('input', renderList);
+const boot = location.hash.slice(1);
+if(works.some(w=>w.id===boot)) sel = boot;
 renderList(); renderDetail();
 </script>
 </body>

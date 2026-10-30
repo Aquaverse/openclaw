@@ -160,6 +160,8 @@ h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3}
 .mask{position:fixed;inset:0;background:rgba(24,24,27,.32);backdrop-filter:blur(3px);display:none;place-items:center;z-index:20}
 .mask.open{display:grid}
 .modal{width:480px;background:#fff;border-radius:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,.18)}
+.modal.wide{width:560px;max-height:88vh;overflow:auto}
+.acts .note{margin-right:auto;font-size:12px;color:var(--mute)}
 .modal h3{font-size:18px;font-weight:650}
 .modal .ms{color:var(--sub);font-size:13.5px;margin-top:6px}
 .opts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
@@ -219,7 +221,7 @@ h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3}
     <div class="lh">
       <div class="hr"><h1>目标</h1><button class="newb">在聊天中新建</button></div>
       <div class="hello">你想长期坚持和达成的个人事情</div>
-      <label class="search"><svg><use href="#i-search"/></svg><input id="q" placeholder="搜索目标名称或内容"></label>
+      <label class="search"><svg><use href="#i-search"/></svg><input id="q" placeholder="搜索目标、子目标或进展"></label>
     </div>
     <div class="seg" id="seg"></div>
     <div class="rows" id="rows"></div>
@@ -244,8 +246,10 @@ h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3}
      now,                                     // 现在情况
      muted?: {since, note},                   // 已关闭主动提示（休息中）
      letter?: {date, title, body},            // 已有的系统目标信，只展示，不可当场生成
-     progress: [{date, text, source: user | fact | rest, from?}],  // 按日期的真实进展
-     works?: [{title, state, next}]           // 可选关联的个人工作，状态各自独立
+     briefing?: {enabled, next?},             // 目标信生成策略，与是否已有信件无关
+     schedules?: [{title, host, stopOnComplete, next, checking?}],  // 业务归属为本目标的计划
+     progress: [{date, text, source: user | fact | rest, from?}],
+     works?: [{title, state, next, host?}]    // host=某条 Goal 计划的执行主工作
    }
    ================================================================ */
 
@@ -261,6 +265,8 @@ const goals = [
     now:'每周 2 次外教课；能流畅完成项目汇报，自由问答时还会卡顿',
     letter:{ date:'10-27', title:'这个月，你开口得更从容了',
       body:'过去四周你记录了 7 次练习，比上个月多 3 次。10-24 第一次在外教课上完整做完 10 分钟汇报，这是一个很实在的进步。问答环节仍是难点，你之前提到想多练“追问与澄清”的表达，下个月可以从这里入手。' },
+    briefing:{enabled:true, next:'每周日'},
+    schedules:[{title:'每周日回顾口语进展', host:'英语口语 · 周期回顾', stopOnComplete:true, next:'11-02 09:00', checking:'正在汇总本周 2 条进展'}],
     progress:[
       {date:'10-28', text:'外教课：模拟客户问答 20 分钟，能接住大部分追问', source:'user'},
       {date:'10-24', text:'第一次完整完成 10 分钟英文项目汇报', source:'user'},
@@ -269,6 +275,7 @@ const goals = [
       {date:'09-02', text:'开始这个目标：目前只能做简单自我介绍', source:'user'},
     ],
     works:[
+      {title:'英语口语 · 周期回顾', state:'running', next:'下次检查 11-02 09:00', host:true},
       {title:'预约 11 月外教课程', state:'action', next:'确认 8 节课套餐 ¥2,400'},
       {title:'整理客户会议常用英文表达', state:'done', next:'表达清单已保存到资料库'},
     ] },
@@ -284,6 +291,8 @@ const goals = [
 
   { id:'g2', title:'年底前存够 10 万应急金', category:'money', status:'active', createdAt:'07-01',
     aim:'12-31 前，应急账户余额达到 10 万元', now:'目前约 7.2 万，每月固定转入 5,000',
+    briefing:{enabled:true, next:'每周日'},
+    schedules:[{title:'每月 25 日提醒转入应急金', host:'应急金转入提醒', stopOnComplete:true, next:'11-25 09:00'}],
     progress:[
       {date:'10-25', text:'本月转入 5,000，余额约 7.2 万', source:'user'},
       {date:'09-25', text:'本月转入 5,000，余额约 6.7 万', source:'user'},
@@ -293,6 +302,8 @@ const goals = [
   { id:'g3', title:'每周跑步 3 次', category:'health', status:'active', createdAt:'05-10',
     aim:'保持每周 3 次、每次 5 公里的跑步习惯', now:'膝盖不适，暂停两周',
     muted:{ since:'10-20', note:'休息中，已关闭这个目标的主动提示' },
+    briefing:{enabled:true, next:'每周日'},
+    schedules:[{title:'每周一检查跑步记录', host:'跑步习惯 · 每周检查', stopOnComplete:false, next:'计划仍在，检查未因静音暂停'}],
     progress:[
       {date:'10-20', text:'膝盖不适，休息两周再恢复', source:'rest'},
       {date:'10-15', text:'本周跑了 3 次，共 16 公里', source:'user'},
@@ -307,6 +318,8 @@ const goals = [
 
   { id:'g5', title:'每月陪父母吃一次饭', category:'family', status:'active', createdAt:'06-01',
     aim:'每个月至少回家吃一顿饭', now:'10 月还没有安排',
+    briefing:{enabled:false},
+    schedules:[{title:'每月提醒回家吃饭', host:'陪父母吃饭 · 提醒', stopOnComplete:false, next:'11-01 10:00'}],
     progress:[{date:'09-21', text:'中秋回家吃饭', source:'user'},{date:'08-17', text:'带爸妈去吃了粤菜', source:'user'}] },
 
   { id:'g6', title:'今年读完 12 本书', category:'study', status:'completed', reason:'achieved', createdAt:'01-03', completedAt:'10-02',
@@ -325,24 +338,59 @@ const stText = g => g.status==='active' ? '进行中' : g.reason==='achieved' ? 
 const chip = g => `<span class="chip st-${stKey(g)}">${stText(g)}</span>`;
 const tile = (g,lg) => `<span class="tile cat-${g.category} ${lg?'lg':''}">${CAT[g.category].g}</span>`;
 
-/* ---------- 列表：只列一级目标，子目标在详情中 ---------- */
+/* ---------- 列表：只列一级目标；搜索也匹配子目标与进展 ---------- */
+function blob(g){ return g.title+g.aim+g.now+(g.progress||[]).map(p=>p.text).join(''); }
+function hit(g,q){ return !q || blob(g).includes(q); }
+function titleHit(g,q){ return !q || g.title.includes(q); }
+function preferChild(parent, q){
+  if(!q) return null;
+  const titleKids = kids(parent).filter(s=>titleHit(s,q));
+  if(titleKids.length && !titleHit(parent,q)) return titleKids[0];
+  const textKids = kids(parent).filter(s=>hit(s,q));
+  if(textKids.length && !hit(parent,q)) return textKids[0];
+  return null;
+}
+function visibleTops(){
+  const q = document.getElementById('q').value.trim();
+  return goals.filter(g => !g.parentId && g.status===filter && (hit(g,q) || kids(g).some(s=>hit(s,q))));
+}
+function ensureGoalSel(tops){
+  const q = document.getElementById('q').value.trim();
+  const cur = goals.find(x=>x.id===sel);
+  const curTop = cur && (cur.parentId || cur.id);
+  const inList = cur && tops.some(t=>t.id===curTop);
+  if(inList){
+    const parent = goals.find(g=>g.id===curTop);
+    const child = preferChild(parent, q);
+    if(child && sel!==child.id && (sel===curTop || !hit(cur,q))){ sel = child.id; renderDetail(); }
+    return;
+  }
+  if(!tops.length){ sel=''; document.getElementById('detail').innerHTML = `<div class="dw" style="color:var(--mute);padding-top:80px">当前筛选下没有目标</div>`; return; }
+  const first = tops[0];
+  const child = preferChild(first, q);
+  sel = child ? child.id : first.id;
+  renderDetail();
+}
 function renderList(){
   const q = document.getElementById('q').value.trim();
-  const tops = goals.filter(g=>!g.parentId && (!q || (g.title+g.aim+g.now).includes(q)));
-  const n = s => tops.filter(g=>g.status===s).length;
+  const matched = goals.filter(g=>!g.parentId && (hit(g,q) || kids(g).some(s=>hit(s,q))));
+  const n = s => matched.filter(g=>g.status===s).length;
   document.getElementById('seg').innerHTML =
     `<button class="${filter==='active'?'on':''}" onclick="setF('active')">进行中<span>${n('active')}</span></button>
      <button class="${filter==='completed'?'on':''}" onclick="setF('completed')">已完成<span>${n('completed')}</span></button>`;
-  const rows = tops.filter(g=>g.status===filter);
+  const rows = visibleTops();
+  ensureGoalSel(rows);
   const selTop = (goals.find(x=>x.id===sel)||{}).parentId || sel;
   document.getElementById('rows').innerHTML = rows.map(g=>{
     const last = g.progress[0];
     const sub = kids(g);
-    return `<div class="row ${g.id===selTop?'sel':''}" onclick="pick('${g.id}')">
+    const child = preferChild(g, q);
+    const nx = child ? `子目标「${child.title}」` : `${g.muted ? '休息中 · ' : ''}${last?last.text:'还没有进展记录'}`;
+    return `<div class="row ${g.id===selTop?'sel':''}" onclick="pick('${child ? child.id : g.id}')">
       ${tile(g)}
       <div class="m">
         <div class="t"><span class="tt">${g.title}</span><span class="tm">${last?last.date:''}</span></div>
-        <div class="nx">${g.muted ? '休息中 · ' : ''}${last?last.text:'还没有进展记录'}</div>
+        <div class="nx">${nx}</div>
         <div class="meta"><span>${CAT[g.category].l}</span>${sub.length?`<span>${sub.length} 个子目标</span>`:''}${g.status==='completed'?`<span>${stText(g)} · ${g.completedAt}</span>`:''}</div>
       </div></div>`;
   }).join('') || `<div class="gl" style="text-align:center;padding:48px 0">没有匹配的目标</div>`;
@@ -353,6 +401,7 @@ function pick(id){ sel=id; renderList(); renderDetail(); document.getElementById
 /* ---------- 详情：唯一模板 ---------- */
 function renderDetail(){
   const g = goals.find(x=>x.id===sel);
+  if(!g) return;
   const parent = g.parentId && goals.find(x=>x.id===g.parentId);
   const sub = kids(g);
   const active = g.status==='active';
@@ -427,44 +476,85 @@ function renderDetail(){
     `<div class="dw">${header}${hero}${muted}${letter}${subs}${progress}${works}</div>`;
 }
 
-/* ---------- 完成目标：由同一数据生成 ---------- */
+/* ---------- 完成 / 删除：展示计划、检查与目标信策略 ---------- */
+const li = (c,t) => `<li><i style="color:var(--${c})">${c==='green'?'✓':c==='rose'?'✕':'!'}</i>${t}</li>`;
+function showModal(html, wide){
+  const m = document.getElementById('modal');
+  m.innerHTML = html; m.classList.toggle('wide', !!wide);
+  const more = document.getElementById('more'); if(more) more.classList.remove('open');
+  document.getElementById('mask').classList.add('open');
+}
+
 function openComplete(){
   const g = goals.find(x=>x.id===sel);
   const actSubs = kids(g).filter(s=>s.status==='active');
-  document.getElementById('modal').innerHTML = `
-    <h3>完成「${g.title}」</h3>
-    <div class="ms">完成后仍可随时重新打开，所有进展都会保留。</div>
+  const plans = g.schedules||[];
+  const ending = plans.filter(s=>s.stopOnComplete);
+  const optional = plans.filter(s=>!s.stopOnComplete);
+  const works = g.works||[];
+  const workLine = w => {
+    if(w.state==='done') return `${w.title}：已完成，保持`;
+    if(w.host && ending.some(s=>s.host===w.title)) return `${w.title}：执行工作留下，专用计划按停止条件结束后这里会显示覆盖缺口`;
+    return `${w.title}：独立工作，继续进行；它自己的计划不因本目标完成而取消`;
+  };
+  showModal(`<h3>完成「${g.title}」</h3>
+    <div class="ms">完成后仍可重新打开。关联工作不会自动结束；只有停止条件包含本目标的计划会按约结束。</div>
     <div class="opts">
       <div class="opt on" onclick="pickOpt(this)"><b>已达成</b><span>我做到了</span></div>
       <div class="opt" onclick="pickOpt(this)"><b>不再追求</b><span>先放下，不算达成</span></div>
     </div>
     ${actSubs.length ? `<div class="mlab">还在进行的子目标，选择要一起完成的</div>
       ${actSubs.map(s=>`<label class="chk"><input type="checkbox">${s.title}</label>`).join('')}` : ''}
-    ${(g.works||[]).length ? `<div class="mlab">关联工作</div><ul class="imp">
-      ${g.works.map(w=>`<li><i>·</i>${w.title}：${w.state==='done'?'已完成':'继续进行，不受影响'}</li>`).join('')}</ul>` : ''}
-    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb" onclick="closeModal()">完成目标</button></div>`;
-  document.getElementById('mask').classList.add('open');
+    ${ending.length ? `<div class="mlab">将按约结束</div><ul class="imp">
+      ${ending.map(s=>li('rose', `「${s.title}」· 由「${s.host}」执行 · ${s.next}${s.checking?' · '+s.checking:''}`)).join('')}</ul>` : ''}
+    ${optional.length ? `<div class="mlab">这些计划的停止条件不含本目标，默认继续</div>
+      ${optional.map(s=>`<label class="chk"><input type="checkbox">停止「${s.title}」（${s.host} · ${s.next}）</label>`).join('')}` : ''}
+    ${works.length ? `<div class="mlab">关联工作</div><ul class="imp">${works.map(w=>li('amber', workLine(w))).join('')}</ul>` : ''}
+    <div class="mlab">目标信</div>
+    <ul class="imp">
+      ${g.letter ? li('green', `已有目标信「${g.letter.title}」保留`) : li('green', '目前没有目标信，不会补写')}
+      ${g.briefing?.enabled ? li('amber', `目标信策略仍启用（${g.briefing.next||'按策略触发'}），完成不会自动关闭；可在目标信设置中关闭`) : li('green', '没有启用的目标信生成策略')}
+    </ul>
+    <div class="acts"><span class="note">重新打开不会恢复已结束的计划</span><button class="gb" onclick="closeModal()">取消</button><button class="pb" onclick="closeModal()">完成目标</button></div>`, true);
 }
 function openDelete(){
   const g = goals.find(x=>x.id===sel);
   const sub = kids(g);
-  document.getElementById('modal').innerHTML = `
-    <h3>删除「${g.title}」？</h3>
+  const plans = g.schedules||[];
+  const inflight = plans.filter(s=>s.checking);
+  const hosts = (g.works||[]).filter(w=>w.host);
+  showModal(`<h3>删除「${g.title}」？</h3>
     <div class="ms">如果只是不再追求，建议选择“完成目标 › 不再追求”，可以保留历史。</div>
     <div class="mlab">将删除</div>
     <ul class="imp">
-      <li><i style="color:var(--rose)">✕</i>目标本身和 ${g.progress.length} 条进展</li>
-      ${sub.length?`<li><i style="color:var(--rose)">✕</i>${sub.length} 个子目标及其进展</li>`:''}
-      ${g.letter?`<li><i style="color:var(--rose)">✕</i>已有的目标信，并停止后续生成</li>`:''}
+      ${li('rose', `目标本身和 ${g.progress.length} 条进展`)}
+      ${sub.length?li('rose', `${sub.length} 个子目标及其进展`):''}
+      ${g.letter?li('rose', `已有目标信「${g.letter.title}」`):''}
     </ul>
-    ${(g.works||[]).length?`<div class="mlab">会保留</div><ul class="imp">
-      ${g.works.map(w=>`<li><i style="color:var(--green)">✓</i>${w.title}（只解除关联）</li>`).join('')}</ul>`:''}
-    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb danger" onclick="closeModal()">删除</button></div>`;
-  document.getElementById('more').classList.remove('open');
-  document.getElementById('mask').classList.add('open');
+    <div class="mlab">将停止的后台处理</div>
+    <ul class="imp">
+      ${g.briefing?.enabled
+        ? li('rose', `已启用的目标信策略${g.briefing.next?'（'+g.briefing.next+'）':''}：取消后续生成，隔离尚未送达的信件`)
+        : li('rose', '目标信策略：即使还没有信件，也不会再为这个目标生成')}
+      ${plans.length
+        ? plans.map(s=>li('rose', `目标专属计划「${s.title}」· 由「${s.host}」执行 · ${s.next}`)).join('')
+        : li('green', '没有业务归属为本目标的计划')}
+      ${inflight.length
+        ? inflight.map(s=>li('rose', `在途检查：${s.checking}，停止后不会留下可检索的半成品`)).join('')
+        : li('amber', '当前没有仅服务本目标的在途检查')}
+    </ul>
+    <div class="mlab">会保留，只解除关联</div>
+    <ul class="imp">
+      ${(g.works||[]).length
+        ? (g.works||[]).map(w=>li('green', `${w.title}${w.host?'（执行工作留下，覆盖会显示缺口）':'（独立工作，其计划不因本目标删除而取消）'}`)).join('')
+        : li('green', '没有关联工作')}
+      ${li('green', '独立的事项、文件和外部效果不撤销')}
+      ${hosts.length?li('amber', '不会把已删目标的计划偷偷挂到其他工作上'):''}
+    </ul>
+    <div class="acts"><span class="note">确认后按这个范围清理</span><button class="gb" onclick="closeModal()">取消</button><button class="pb danger" onclick="closeModal()">删除目标</button></div>`, true);
 }
 function pickOpt(el){ el.parentNode.querySelectorAll('.opt').forEach(o=>o.classList.remove('on')); el.classList.add('on'); }
-function closeModal(){ document.getElementById('mask').classList.remove('open'); }
+function closeModal(){ document.getElementById('mask').classList.remove('open'); document.getElementById('modal').classList.remove('wide'); }
 document.addEventListener('click',e=>{ const m=document.getElementById('more'); if(m && !m.contains(e.target)) m.classList.remove('open'); });
 document.getElementById('q').addEventListener('input', renderList);
 renderList(); renderDetail();

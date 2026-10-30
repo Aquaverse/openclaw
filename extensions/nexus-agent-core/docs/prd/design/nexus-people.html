@@ -179,6 +179,29 @@ h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3}
 .imp li{display:flex;gap:10px;padding:5px 0;color:var(--sub)}
 .imp i{font-style:normal;width:18px;flex-shrink:0;text-align:center}
 .field{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 12px;outline:none}
+.field:focus{border-color:var(--text)}
+
+/* ---------- 统一审阅面板 ---------- */
+.modal.wide{width:600px;max-height:88vh;overflow:auto}
+.rk{font-size:12px;font-weight:600;color:var(--mute);letter-spacing:.04em}
+.rb{border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-top:12px}
+.rb .lab{font-size:12px;color:var(--mute);margin-bottom:6px}
+.rb.amber{border-color:#f6e3bd;background:#fffbf3}
+.rb .t{font-weight:600}
+.rb .d{font-size:12.5px;color:var(--sub);margin-top:2px}
+.rkv{display:grid;grid-template-columns:76px 1fr;gap:6px 12px;font-size:13.5px}
+.rkv dt{color:var(--mute)}
+.rkv dd{margin:0}
+.ok{color:var(--green);font-size:12px;font-weight:600;margin-left:6px}
+.mail{background:#fafafb;border-radius:10px;padding:12px 14px;font-size:13.5px;color:#3f3f46;margin-top:8px;line-height:1.7}
+.wopt{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid var(--line);border-radius:12px;cursor:pointer;margin-top:8px;font-size:13.5px}
+.wopt .d{margin:0}
+.wopt.on{border-color:var(--text);background:#fafafa}
+.wopt i{width:14px;height:14px;border-radius:50%;border:1.5px solid #d4d4d8;flex-shrink:0}
+.wopt.on i{border:4.5px solid var(--text)}
+.wopt .b{flex:1}
+.chg{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--accent);cursor:pointer;margin-top:8px}
+.modal .acts .note{margin-right:auto;font-size:12px;color:var(--mute)}
 .acts{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:22px}
 
 @media (max-width:1200px){
@@ -216,7 +239,7 @@ h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3}
 
   <section class="list">
     <div class="lh">
-      <div class="hr"><h1>人员</h1><button class="newb">委派新工作</button></div>
+      <div class="hr"><h1>人员</h1><button class="newb" onclick="openFlow('delegate')">委派新工作</button></div>
       <div class="hello">谁在为你负责什么，进展到哪了</div>
       <label class="search"><svg><use href="#i-search"/></svg><input id="q" placeholder="搜索姓名、别名、客户或项目"></label>
     </div>
@@ -239,15 +262,23 @@ h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3}
      id, name, kind: self | colleague | client | vendor | unknown,
      org, relation, aliases?, endpoints?: [{label, verified}],
      identity?: {source, candidates: [{name, org, kind}]},   // 待确认人员
+     rules?: [{name, note}],                                 // 收件人名单含此人的自动批准规则
      commitments: [{
        role: responsible | related,          // 由其负责 / 与其相关
        status: open | resolved | cancelled,
        phase: notsent | waiting | checking | you | late | resolved | cancelled,
-       title, req, due, accept, comm, verify, gap?,
+       title, req, ver, due, accept, comm, verify, gap?,
        next, actions: [主操作, ...次操作],
+       plan?: {work, state: active | paused, how, next?, pausedAt?},   // 当前跟进方案，同一事项最多一份
+       mail?, sentToday?,                    // 催办草稿 / 已发同类动作
        works: [{title, old?}], source
      }]
    }
+
+   催办、继续跟进、委派新工作共用同一审阅面板（openFlow）。
+   承载工作按附录 D.4 由 carrier() 推导：已有方案 → 打开 / 恢复；无方案 → 唯一关联复用、
+   多个关联当场选择、零关联提议新建。审阅前不创建任何工作、方案或检查。
+   委派若同时包含“盯到交付”，跟进方案在同一面板审阅并一次确认；发送不自动开始跟进。
    ================================================================ */
 
 const KIND = {self:'我', colleague:'同事与下属', client:'客户', vendor:'供应商', unknown:'待确认是谁'};
@@ -268,15 +299,20 @@ const people = [
 
   { id:'liming', name:'李明', kind:'colleague', org:'Nexus 咨询 · 项目经理', relation:'同事',
     aliases:['Li Ming','明哥'], endpoints:[{label:'liming@nexus-consult.com', verified:true},{label:'企业微信', verified:true}],
+    rules:[{name:'向小团队指定协作方发送待办提醒', note:'收件人名单含 liming@nexus-consult.com · 新地址不会继承这条规则'}],
     commitments:[
-      { role:'responsible', status:'open', phase:'checking', title:'交付 A 客户报价表', req:'XLSX，含单价、数量、税额及总额',
+      { role:'responsible', status:'open', phase:'checking', title:'交付 A 客户报价表', req:'XLSX，含单价、数量、税额及总额', ver:'v2',
         due:'今天 17:00', accept:'已接受新期限', comm:'已送达', verify:'未核验',
-        next:'今天 09:00 检查暂未收到，17:00 截止时再检查', actions:['催办','手动结案'],
+        next:'今天 09:00 检查暂未收到，17:00 截止时再检查', actions:['催办','查看跟进','手动结案'],
+        plan:{ work:'A 客户评审材料包', state:'active', how:'工作日 09:00 检查邮件线程', next:'今天 17:00' },
+        sentToday:'今天 09:00 已按规则自动发过一次提醒',
+        mail:'李明你好，提醒一下 A 客户报价表今天 17:00 截止（你 10-27 确认过），需要包含单价、数量、税额和总额。谢谢！',
         works:[{title:'A 客户评审材料包'},{title:'跟进李明报价表（已结束）', old:true}],
         source:'来自 10-26 A 客户会议纪要；10-27 期限由 10-28 改为 10-30，李明回复“周五前交”' },
-      { role:'responsible', status:'open', phase:'waiting', title:'整理客户访谈纪要', req:'3 场访谈的要点汇总，PDF',
+      { role:'responsible', status:'open', phase:'waiting', title:'整理客户访谈纪要', req:'3 场访谈的要点汇总，PDF', ver:'v1',
         due:'11-01 18:00', accept:'待确认', comm:'已送达', verify:'—',
         next:'委派邮件 10-29 已送达，李明尚未回复是否接受', actions:['催办','继续跟进'],
+        mail:'李明你好，10-29 请你整理 3 场客户访谈的要点（PDF，11-01 18:00 前），想确认一下你是否方便接这件事？',
         works:[{title:'A 客户评审材料包'}], source:'你于 10-29 在聊天中委派' },
       { role:'related', status:'open', phase:'checking', title:'王总确认交付时间表', req:'李明是这封邮件的抄送人',
         due:'未知', accept:'—', comm:'—', verify:'—', next:'由王总负责，李明仅为参与人', actions:[],
@@ -289,10 +325,15 @@ const people = [
   { id:'chenfang', name:'陈芳', kind:'colleague', org:'Nexus 咨询 · 分析师', relation:'下属',
     endpoints:[{label:'chenfang@nexus-consult.com', verified:true}],
     commitments:[
-      { role:'responsible', status:'open', phase:'late', title:'供应商合同复核意见', req:'对 2 份付款期限不一致的合同给出处理建议',
+      { role:'responsible', status:'open', phase:'late', title:'供应商合同复核意见', req:'对 2 份付款期限不一致的合同给出处理建议', ver:'v1',
         due:'10-28 18:00', accept:'待确认', comm:'已送达', verify:'未收到',
-        next:'要求的截止时间已过，接受情况待确认', actions:['催办','更改期限'],
-        works:[{title:'Q3 供应商合同核对'}], source:'你于 10-27 在聊天中委派' },
+        next:'要求的截止时间已过，接受情况待确认', actions:['催办','继续跟进','更改期限'],
+        mail:'陈芳你好，10-27 请你在 10-28 18:00 前给出 2 份合同付款期限的处理建议，想确认一下你是否能接这件事，以及预计什么时候可以给到？',
+        works:[{title:'Q3 供应商合同核对'},{title:'B 客户本周周报'}], source:'你于 10-27 在聊天中委派；周报引用了这项结论' },
+      { role:'responsible', status:'open', phase:'waiting', title:'提交 11 月差旅预算', req:'按部门模板，含 3 次出差', ver:'v1',
+        due:'11-03 18:00', accept:'已接受', comm:'当面沟通', verify:'—',
+        next:'没有工作在跟进，到期前不会有人检查', actions:['继续跟进'],
+        works:[], source:'你于 10-29 在人员页手动记录：“陈芳说周一前交”' },
     ] },
 
   { id:'wang', name:'王总', kind:'client', org:'A 客户 · 采购总监', relation:'客户',
@@ -310,8 +351,10 @@ const people = [
   { id:'sf', name:'顺丰速运', kind:'vendor', org:'供应商 · 深圳分部', relation:'供应商',
     endpoints:[{label:'客服邮箱 · 已验证', verified:true}],
     commitments:[
-      { role:'responsible', status:'open', phase:'checking', title:'样品寄达 A 客户', req:'运单 SF1234 送达并签收',
-        due:'10-31', accept:'已揽收', comm:'—', verify:'运输中', next:'每天 10:00 查询物流状态', actions:['继续跟进'],
+      { role:'responsible', status:'open', phase:'checking', title:'样品寄达 A 客户', req:'运单 SF1234 送达并签收', ver:'v1',
+        due:'10-31', accept:'已揽收', comm:'—', verify:'运输中', next:'物流检查已暂停，期间状态未知', actions:['继续跟进'],
+        gap:'你于 10-29 20:10 暂停了物流检查',
+        plan:{ work:'A 客户评审材料包', state:'paused', how:'每天 10:00 查询物流状态', pausedAt:'10-29 20:10' },
         works:[{title:'A 客户评审材料包'}], source:'来自 10-29 寄件确认邮件' },
     ] },
 
@@ -333,12 +376,23 @@ const av = (p,lg) => `<span class="av k-${p.kind} ${lg?'lg':''}">${p.kind==='sel
 const open = p => p.commitments.filter(c=>c.role==='responsible' && c.status==='open');
 
 /* ---------- 列表 ---------- */
+function visiblePeople(){
+  const q = document.getElementById('q').value.trim();
+  return people.filter(p => (kindF==='all'||p.kind===kindF) &&
+    (!q || (p.name+p.org+(p.aliases||[]).join('')+p.commitments.map(c=>c.title).join('')).includes(q)));
+}
+function ensurePersonSel(ids){
+  if(sel && ids.includes(sel)) return;
+  if(!ids.length){ sel=''; document.getElementById('detail').innerHTML = `<div class="dw" style="color:var(--mute);padding-top:80px">当前筛选下没有人员</div>`; return; }
+  sel = ids[0]; tab='responsible';
+  renderDetail();
+}
 function renderList(){
   const q = document.getElementById('q').value.trim();
   const F = [['all','全部'],['colleague','同事'],['client','客户'],['vendor','供应商'],['unknown','待确认']];
   document.getElementById('seg').innerHTML = F.map(([k,l])=>`<button class="${kindF===k?'on':''}" onclick="setK('${k}')">${l}</button>`).join('');
-  const base = people.filter(p => (kindF==='all'||p.kind===kindF) &&
-    (!q || (p.name+p.org+(p.aliases||[]).join('')).includes(q)));
+  const base = visiblePeople();
+  ensurePersonSel(base.map(p=>p.id));
   let h='';
   KORDER.forEach(k=>{
     const g = base.filter(p=>p.kind===k);
@@ -365,6 +419,7 @@ function setTab(t){ tab=t; renderDetail(); }
 /* ---------- 详情：唯一模板 ---------- */
 function renderDetail(){
   const p = people.find(x=>x.id===sel);
+  if(!p) return;
   const self = p.kind==='self', unknown = p.kind==='unknown';
   const o = open(p);
   const late = o.filter(c=>c.phase==='late').length;
@@ -373,7 +428,7 @@ function renderDetail(){
   const header = `
     <div class="top"><span>${KIND[p.kind]}${p.relation&&p.relation!==KIND[p.kind]?' · '+p.relation:''}</span><span class="sp"></span>
       <button class="ib">在聊天中讨论</button>
-      ${self||unknown ? '' : `<button class="ib dark">委派新工作</button>`}
+      ${self||unknown ? '' : `<button class="ib dark" onclick="openFlow('delegate')">委派新工作</button>`}
       <div class="menu" id="more"><button class="ib" onclick="this.parentNode.classList.toggle('open')">···</button>
         <div class="dd">
           ${unknown ? `<button>这不是一个人</button>` : `<button>更正身份</button>${self?'':'<button>合并重复人员</button>'}`}
@@ -431,7 +486,7 @@ function renderDetail(){
       ${c.gap ? `<div class="gap">${c.gap}</div>` : ''}
       <div class="foot">
         <div class="next">${c.status==='open'?'下一步：':''}<b>${c.next}</b></div>
-        ${c.actions.map((a,j)=>`<button class="${j?'gb':'pb'}" ${a==='手动结案'?'onclick="openClose()"':''}>${a}</button>`).join('')}
+        ${c.actions.map((a,j)=>`<button class="${j?'gb':'pb'}" onclick="${ACT[a]?ACT[a](p.commitments.indexOf(c)):"location.href='nexus-work.html'"}">${a}</button>`).join('')}
       </div>
       <div class="wlinks">关联工作
         ${c.works.map(w=>`<span class="wl ${w.old?'old':''}" onclick="location.href='nexus-work.html'">${ic('work-s')}${w.title}</span>`).join('')}
@@ -443,6 +498,155 @@ function renderDetail(){
 
   document.getElementById('detail').innerHTML = `<div class="dw">${header}${hero}${identity}${tabs}${cards}</div>`;
 }
+
+/* ---------- 统一审阅面板：催办 / 继续跟进 / 委派新工作 ---------- */
+const ACT = {
+  '催办':     i => `openFlow('nudge',${i})`,
+  '继续跟进': i => `openFlow('follow',${i})`,
+  '查看跟进': i => `openFlow('follow',${i})`,
+  '手动结案': () => 'openClose()',
+};
+const ME = 'zhang@nexus-consult.com';
+let delegateFollow = true;
+
+function carrier(c,p){
+  if(c.plan) return {k:c.plan.state, work:c.plan.work};
+  const ws = c.works.filter(w=>!w.old);
+  if(!ws.length) return {k:'none', work:`跟进${p.name}：${c.title}`};
+  if(ws.length===1) return {k:'unique', work:ws[0].title};
+  return {k:'multi', options:ws.map(w=>w.title)};
+}
+const wopt = (t,d,on) => `<div class="wopt ${on?'on':''}" onclick="pickW(this)"><i></i><div class="b">${t}${d?`<div class="d">${d}</div>`:''}</div></div>`;
+function pickW(el){ el.parentNode.querySelectorAll('.wopt').forEach(o=>o.classList.remove('on')); el.classList.add('on'); }
+function pickFollow(el, on){
+  pickW(el); delegateFollow = on;
+  const box = document.getElementById('followbox');
+  const note = document.getElementById('dnote');
+  const go = document.getElementById('dgo');
+  if(box) box.style.display = on ? '' : 'none';
+  if(note) note.textContent = on ? '同一确认：发送委派，并开始跟进' : '只发送这一封，不开始持续跟进';
+  if(go) go.textContent = on ? '批准发送并开始跟进' : '只批准发送';
+  const line = document.getElementById('dfollow');
+  if(line) line.innerHTML = `<i style="color:var(--green)">✓</i>${on?'同一工作开始持续跟进，不另建第二份方案':'你选择了只发送；跟进不会在这次开始'}`;
+}
+
+function carrierBlock(r, verb){
+  const lab = `<div class="lab">由哪件工作${verb}</div>`;
+  if(r.k==='multi') return `<div class="rb">${lab}<div class="d">这件事关联了 ${r.options.length} 件工作，请选一件。其他工作只引用结果，不会重复跟进或重复发送。</div>
+    ${r.options.map((w,i)=>wopt(w,'',i===0)).join('')}${wopt('新建一件工作','',false)}</div>`;
+  if(r.k==='none') return `<div class="rb">${lab}<div class="d" style="margin-bottom:8px">还没有工作关联这件事，确认时会新建：</div>
+    <input class="field" value="${r.work}"><div class="d" style="margin-top:6px">取消不会留下任何工作或检查</div></div>`;
+  return `<div class="rb">${lab}<div class="t">${r.work}</div>
+    <div class="d">${r.k==='unique'?'这件事只关联了这一件工作，直接复用':'这件事的跟进方案在这件工作里'}</div></div>`;
+}
+
+function openFlow(kind, ci, keep){
+  const p = people.find(x=>x.id===sel), c = p.commitments[ci];
+  let h = '';
+  if(kind==='delegate' && !keep) delegateFollow = true;
+
+  if(kind==='nudge'){
+    const r = carrier(c,p), ep = p.endpoints[0].label;
+    const acc = c.accept==='待确认'
+      ? ['!', `${c.phase==='late'?`要求的截止 ${c.due} 已过`:`截止 ${c.due}`}，但${p.name}尚未确认接受，邮件不会写成“逾期”`]
+      : ['✓', `截止 ${c.due}，${p.name}${c.accept}`];
+    const checks = [
+      ['✓', `负责人仍是${p.name}（事项 ${c.ver}）`],
+      ['✓', '收件地址已验证，属于这件事所在的项目'],
+      acc,
+      c.sentToday ? ['!', `${c.sentToday}，这会是新的一封`] : ['✓','没有相同的待发或已发提醒'],
+    ];
+    h = `<div class="rk">催办 · 需要你批准</div><h3 style="margin-top:4px">催办${p.name}</h3><div class="ms">关于「${c.title}」</div>
+      <div class="rb"><dl class="rkv"><dt>发件</dt><dd>${ME}</dd><dt>收件</dt><dd>${p.name} · ${ep}<span class="ok">已验证</span></dd></dl>
+        <div class="mail" contenteditable>${c.mail}</div></div>
+      ${carrierBlock(r,'记录这次催办')}
+      <div class="mlab">发送前已重新核对</div>
+      <ul class="imp">${checks.map(([s,t])=>`<li><i style="color:var(--${s==='✓'?'green':'amber'})">${s}</i>${t}</li>`).join('')}</ul>
+      <div class="acts"><span class="note">只发这一封，不会开始持续跟进</span><button class="gb" onclick="closeModal()">暂不</button><button class="pb" onclick="closeModal()">批准发送 1 封</button></div>`;
+  }
+
+  if(kind==='follow'){
+    const r = carrier(c,p);
+    if(r.k==='active'){
+      h = `<div class="rk">继续跟进</div><h3 style="margin-top:4px">「${c.title}」已在跟进</h3>
+        <div class="ms">同一件事只保留一份跟进方案，不会新建第二份。</div>
+        <div class="rb"><dl class="rkv"><dt>由</dt><dd>${r.work}</dd><dt>方式</dt><dd>${c.plan.how}</dd><dt>下次</dt><dd>${c.plan.next}</dd></dl></div>
+        <div class="acts"><button class="gb" onclick="closeModal()">关闭</button><button class="gb" onclick="location.href='nexus-work.html'">修改方案</button><button class="pb" onclick="location.href='nexus-work.html'">打开工作</button></div>`;
+    } else if(r.k==='paused'){
+      h = `<div class="rk">继续跟进</div><h3 style="margin-top:4px">恢复跟进「${c.title}」？</h3>
+        <div class="rb amber"><div class="t">跟进方案已暂停</div><div class="d">你于 ${c.plan.pausedAt} 暂停，之后没有检查，这段时间的状态未知。</div></div>
+        ${carrierBlock(r,'负责跟进')}
+        <div class="rb"><div class="lab">原方案</div><dl class="rkv"><dt>方式</dt><dd>${c.plan.how}</dd><dt>结束</dt><dd>确认签收，或 ${c.due} 后复核</dd></dl></div>
+        <div class="mlab">恢复后</div>
+        <ul class="imp"><li><i style="color:var(--green)">✓</i>立即检查一次，不补跑暂停期间的每一次</li>
+          <li><i style="color:var(--green)">✓</i>沿用原方案，不新建第二份</li>
+          <li><i style="color:var(--amber)">!</i>暂停期间的空档仍显示为“未知”</li></ul>
+        <div class="acts"><button class="gb" onclick="closeModal()">保持暂停</button><button class="gb" onclick="closeModal()">修改后恢复</button><button class="pb" onclick="closeModal()">恢复跟进</button></div>`;
+    } else {
+      h = `<div class="rk">继续跟进 · 确认方案</div><h3 style="margin-top:4px">跟进「${c.title}」</h3>
+        <div class="ms">${p.name} · 事项 ${c.ver} · 截止 ${c.due}</div>
+        ${carrierBlock(r,'负责跟进')}
+        <div class="rb"><div class="lab">跟进方案 · 可直接修改</div><dl class="rkv">
+          <dt>看什么</dt><dd>${p.name}是否交付：${c.req}</dd>
+          <dt>在哪看</dt><dd>你的工作邮箱中与${p.name}的往来</dd>
+          <dt>多久看</dt><dd>工作日 09:00；截止前 24 小时内每 60 分钟</dd>
+          <dt>何时结束</dt><dd>交付核验通过，或截止后 7 天复核</dd>
+          <dt>通知你</dt><dd>收到交付、截止已过、或无法检查时</dd></dl></div>
+        <div class="mlab">不会做什么</div>
+        <ul class="imp"><li><i style="color:var(--rose)">✕</i>不会自动催办或对外发送，需要时单独请你批准</li>
+          <li><i style="color:var(--rose)">✕</i>不会把没有回复当成已接受或已交付</li></ul>
+        <div class="acts"><span class="note">开始后才显示“在跟进”</span><button class="gb" onclick="closeModal()">暂不</button><button class="pb" onclick="closeModal()">开始跟进</button></div>`;
+    }
+  }
+
+  if(kind==='delegate'){
+    const cands = people.filter(x=>!['self','unknown'].includes(x.kind));
+    const t = cands.includes(p) ? p : cands[0];
+    const on = delegateFollow;
+    h = `<div class="rk">委派新工作 · 需要你批准</div><h3 style="margin-top:4px">委派给${t.name}，并盯到交付</h3>
+      <div class="ms">完整意图一次审阅：发送委派是批准动作，跟进是接受方案，两者同屏确认，互不替代。</div>
+      <div class="rb"><dl class="rkv" style="grid-template-columns:76px 1fr;align-items:center">
+        <dt>交给</dt><dd><select class="field" onchange="delegateTo(this.value)">${cands.map(x=>`<option value="${x.id}" ${x===t?'selected':''}>${x.name} · ${x.org}</option>`).join('')}</select></dd>
+        <dt>要什么</dt><dd><input class="field" value="整理 B 客户需求变更清单"></dd>
+        <dt>何时前</dt><dd><input class="field" value="11-05 18:00"></dd>
+        <dt>标准</dt><dd><input class="field" value="XLSX，逐条列出变更内容、提出人和影响"></dd></dl></div>
+      <div class="rb"><div class="lab">发到 · 同一人在不同客户或项目的地址不能互相替代</div>
+        ${t.endpoints.map((e,i)=>wopt(e.label, e.verified?'已验证':'未验证，不能发送', i===0)).join('')}
+        <div class="mail" contenteditable>${t.name}你好，想请你在 11-05 18:00 前整理一份 B 客户需求变更清单（XLSX），逐条列出变更内容、提出人和影响。方便的话回复确认一下，谢谢！</div></div>
+      <div class="rb"><div class="lab">放在哪件工作里</div>
+        ${wopt('新建工作「B 客户需求变更清单」','没有找到做同一结果的工作',true)}${wopt('加到已有工作…','',false)}</div>
+      <div class="rb"><div class="lab">这次要不要跟进到交付</div>
+        <div class="wopt ${on?'on':''}" onclick="pickFollow(this,true)"><i></i><div class="b">发送并跟进到交付<div class="d">同一工作检查到核验通过，或截止后 7 天复核</div></div></div>
+        <div class="wopt ${on?'':'on'}" onclick="pickFollow(this,false)"><i></i><div class="b">只发送这一封<div class="d">不开始持续检查；需要时再打开这件事选继续跟进</div></div></div>
+        <div id="followbox" style="${on?'':'display:none'}">
+          <div class="lab" style="margin-top:12px">跟进方案 · 可直接修改 · 开始后才显示“在跟进”</div>
+          <dl class="rkv">
+            <dt>看什么</dt><dd>${t.name}是否交付：XLSX，逐条列出变更内容、提出人和影响</dd>
+            <dt>在哪看</dt><dd>你的工作邮箱中与${t.name}的往来</dd>
+            <dt>多久看</dt><dd>工作日 09:00；截止前 24 小时内每 60 分钟</dd>
+            <dt>何时结束</dt><dd>交付核验通过，或 11-05 18:00 后 7 天复核</dd>
+            <dt>通知你</dt><dd>收到交付、截止已过、或无法检查时</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="mlab">确认后</div>
+      <ul class="imp">
+        <li><i style="color:var(--green)">✓</i>发送这一封委派，记录为“等待${t.name}接受”，回复前不算已接受</li>
+        <li id="dfollow"><i style="color:var(--green)">✓</i>${on?'同一工作开始持续跟进，不另建第二份方案':'你选择了只发送；跟进不会在这次开始'}</li>
+        <li><i style="color:var(--rose)">✕</i>不会把没有回复当成已接受或已交付</li>
+        <li><i style="color:var(--rose)">✕</i>跟进检查不会自动催办；新委派不使用自动提醒规则</li>
+      </ul>
+      <div class="acts"><span class="note" id="dnote">${on?'同一确认：发送委派，并开始跟进':'只发送这一封，不开始持续跟进'}</span>
+        <button class="gb" onclick="closeModal()">取消</button>
+        <button class="pb" id="dgo" onclick="closeModal()">${on?'批准发送并开始跟进':'只批准发送'}</button></div>`;
+  }
+
+  const m = document.getElementById('modal');
+  m.innerHTML = h; m.classList.add('wide');
+  const more = document.getElementById('more'); if(more) more.classList.remove('open');
+  document.getElementById('mask').classList.add('open');
+}
+function delegateTo(id){ const s = sel; sel = id; openFlow('delegate', undefined, true); sel = s; }
 
 /* ---------- 弹窗 ---------- */
 function openClose(){
@@ -463,20 +667,38 @@ function openClose(){
 function openDelete(){
   const p = people.find(x=>x.id===sel);
   const o = open(p);
+  const pending = p.commitments.filter(c=>c.status==='open' && (c.comm==='未发送' || c.phase==='you'));
+  const checks = p.commitments.filter(c=>c.plan);
+  const verified = p.commitments.filter(c=>c.status==='resolved' && c.verify==='已核验完成');
+  const ends = (p.endpoints||[]).map(e=>e.label).join('、');
+  const li = (c,t) => `<li><i style="color:var(--${c})">${c==='green'?'✓':c==='rose'?'✕':'!'}</i>${t}</li>`;
   document.getElementById('modal').innerHTML = `
     <h3>删除「${p.name}」？</h3>
-    <div class="ms">只删除人员档案，不会删除任何事项或工作。</div>
-    <div class="mlab">影响</div>
+    <div class="ms">删除的是人员档案和身份关联，不是事项或工作。依赖这个人的未发消息、规则和核验会一起停下来。</div>
+    <div class="mlab">会停止</div>
     <ul class="imp">
-      ${o.length?`<li><i style="color:var(--amber)">!</i>${o.length} 项未解决事项将变为“待确认是谁”，不会被删除</li>`:''}
-      <li><i style="color:var(--rose)">✕</i>联系方式与别名</li>
-      <li><i style="color:var(--green)">✓</i>关联工作与历史记录保留</li>
+      ${li('rose', `联系方式与别名${ends?'（'+ends+'）':''}不再可用于发送`)}
+      ${pending.length ? pending.map(c=>li('rose', `待发「${c.title}」失效，不会发出去`)).join('') : ''}
+      ${(p.rules||[]).map(r=>li('rose', `规则「${r.name}」暂停 · ${r.note}`)).join('')}
+      ${checks.length ? li('rose', `${checks.length} 项依赖此人身份的检查与自动核验暂停`) : li('rose', '依赖此人身份的自动核验暂停')}
     </ul>
-    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb danger" onclick="closeModal()">删除</button></div>`;
-  document.getElementById('more').classList.remove('open');
+    <div class="mlab">会留下，但不再当作此人</div>
+    <ul class="imp">
+      ${o.length ? li('amber', `${o.length} 项未解决事项变为“待确认是谁”，不会被删除或改派`) : ''}
+      ${verified.length ? verified.map(c=>li('amber', `已核验的「${c.title}」会重新评估；归属依据不足时标缺口，必要时重开`)).join('') : ''}
+      ${li('amber', '已发出去或结果未知的消息只按原来的范围核对，不会自动重发')}
+    </ul>
+    <div class="mlab">不受影响</div>
+    <ul class="imp">
+      ${li('green', '关联工作、事项原文和来源历史保留')}
+      ${li('green', '其他人员的规则、检查和已交付内容不变')}
+    </ul>
+    <div class="acts"><span class="note">确认后按这个范围更新，不会静默扩大</span><button class="gb" onclick="closeModal()">取消</button><button class="pb danger" onclick="closeModal()">删除人员</button></div>`;
+  const m = document.getElementById('modal'); m.classList.add('wide');
+  const more = document.getElementById('more'); if(more) more.classList.remove('open');
   document.getElementById('mask').classList.add('open');
 }
-function closeModal(){ document.getElementById('mask').classList.remove('open'); }
+function closeModal(){ document.getElementById('mask').classList.remove('open'); document.getElementById('modal').classList.remove('wide'); }
 document.addEventListener('click',e=>{ const m=document.getElementById('more'); if(m && !m.contains(e.target)) m.classList.remove('open'); });
 document.getElementById('q').addEventListener('input', renderList);
 renderList(); renderDetail();

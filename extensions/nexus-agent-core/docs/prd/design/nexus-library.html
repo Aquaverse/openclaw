@@ -192,6 +192,27 @@ h2{font-size:26px;font-weight:650;letter-spacing:-.02em;line-height:1.3;word-bre
 .mask{position:fixed;inset:0;background:rgba(24,24,27,.32);backdrop-filter:blur(3px);display:none;place-items:center;z-index:20}
 .mask.open{display:grid}
 .modal{width:500px;background:#fff;border-radius:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,.18)}
+.modal.wide{width:560px;max-height:88vh;overflow:auto}
+.wopt{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid var(--line);border-radius:12px;cursor:pointer;margin-top:8px;font-size:13.5px}
+.wopt.on{border-color:var(--text);background:#fafafa}
+.wopt i{width:14px;height:14px;border-radius:50%;border:1.5px solid #d4d4d8;flex-shrink:0}
+.wopt.on i{border:4.5px solid var(--text)}
+.wopt .b{flex:1}
+.wopt .d{font-size:12.5px;color:var(--mute)}
+.ok{color:var(--green);font-size:12px;font-weight:600;margin-left:6px}
+.tag{font-size:12px;font-weight:600;margin-left:6px;white-space:nowrap}
+.tag.ok{color:var(--green)}
+.tag.amber{color:var(--amber)}
+.tag.mute{color:var(--mute)}
+.cands{display:grid;gap:8px;margin-top:8px}
+.cand{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.cand .b{flex:1;min-width:0}
+.cand .d{font-size:12.5px;color:var(--mute)}
+.field{width:100%;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:6px;background:#fff}
+.mail{background:#fafafb;border-radius:10px;padding:10px 14px;font-size:13.5px;color:#3f3f46;margin-top:8px;line-height:1.65}
+.file{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:3px 10px;border-radius:8px;background:#fff;border:1px solid var(--line);font-size:12.5px}
+.acts .note{margin-right:auto;font-size:12px;color:var(--mute)}
+.call{margin-top:14px;padding:12px 14px;border-radius:12px;background:var(--amber-soft);color:#7a4a06;font-size:13px}
 .modal h3{font-size:18px;font-weight:650}
 .modal .ms{color:var(--sub);font-size:13.5px;margin-top:6px}
 .opts{display:grid;gap:10px;margin-top:18px}
@@ -199,7 +220,7 @@ h2{font-size:26px;font-weight:650;letter-spacing:-.02em;line-height:1.3;word-bre
 .opt b{display:block;font-size:14.5px}
 .opt span{font-size:12.5px;color:var(--mute)}
 .opt.on{border-color:var(--text);background:#fafafa}
-.mlab{font-size:12px;color:var(--mute);margin:16px 0 6px}
+.mlab{font-size:12px;color:var(--mute);margin:12px 0 6px}
 .imp{margin:0;padding:0;list-style:none;font-size:13.5px}
 .imp li{display:flex;gap:10px;padding:5px 0;color:var(--sub)}
 .imp i{font-style:normal;width:18px;flex-shrink:0;text-align:center}
@@ -284,6 +305,8 @@ h2{font-size:26px;font-weight:650;letter-spacing:-.02em;line-height:1.3;word-bre
      preview,                              // 类型渲染器所需内容
      editable?,                            // 仅 Markdown / 受支持演示稿可在线编辑
      share?: {mode: private | public, version, expiresIn?},
+     // 分享面板「发给指定客户」：收件人由 context 解析（CONTACTS），发件账号由 MAILBOXES 按上下文默认。
+     // 身份确认与披露许可都在本次发送里完成；已验证 ≠ 来源允许披露，不退到人员页。
      versions: [{v, date, by, note, current?}],
      usedBy: [{work, role}],
      facts: [[键, 值]],                    // 来源、原件保留等
@@ -478,20 +501,193 @@ function renderDetail(){
 }
 
 /* ---------- 弹窗：均由同一数据生成 ---------- */
-function show(html){ document.getElementById('modal').innerHTML = html; const m=document.getElementById('more'); if(m) m.classList.remove('open'); document.getElementById('mask').classList.add('open'); }
-function closeModal(){ document.getElementById('mask').classList.remove('open'); }
+const CONTACTS = {
+  'A 客户':[
+    {name:'王总', email:'wang.zong@a-client.com', verified:true, disclose:'allowed', role:'采购总监'},
+    {name:'李明', email:'liming@nexus-consult.com', verified:true, disclose:'unknown', role:'项目经理 · 同事'},
+    {name:'小王', email:'', verified:false, disclose:'unknown', role:'纪要里的会场负责人',
+      identity:{ source:'10-26 纪要原文：“会场由小王负责订好”',
+        candidates:[
+          {name:'王磊', email:'wang.lei@a-client.com', org:'A 客户 · 行政助理', role:'行政助理', disclose:'allowed'},
+          {name:'王小雨', email:'wang.xiaoyu@nexus-consult.com', org:'Nexus 咨询 · 行政', role:'同事 · 行政', disclose:'unknown'}
+        ]}}
+  ],
+  'B 客户':[
+    {name:'周敏', email:'zhou.min@b-client.com', verified:true, disclose:'allowed', role:'项目对接'},
+    {name:'陈洁', email:'chen.jie@b-client.com', verified:false, disclose:'unknown', role:'周报收件名单上的商务对接',
+      identity:{ source:'第 43 周周报收件写的是「陈洁 / chen.jie@b-client.com」',
+        candidates:[{name:'陈洁', email:'chen.jie@b-client.com', org:'B 客户 · 商务对接', role:'商务对接', disclose:'allowed'}]}}
+  ],
+  '个人':[
+    {name:'尚未指定', email:'', verified:false, disclose:'unknown', role:'这次发送的收件人',
+      identity:{ source:'这份资料在个人上下文，还没有对齐到具体的人',
+        candidates:[{name:'张伟', email:'zhang.wei@gmail.com', org:'我 · 个人邮箱', role:'本人', disclose:'allowed'}]}}
+  ],
+};
+const MAILBOXES = [
+  {id:'consult', email:'zhang@nexus-consult.com', title:'咨询业务邮箱', who:'张伟 · Nexus 咨询',
+    ident:'顾问身份', fit: ctx => ctx!=='个人' && ctx!=='账号',
+    note:'以顾问名义发出，披露咨询业务往来'},
+  {id:'project', email:'', title:'客户项目邮箱', who:'',
+    ident:'项目组身份', fit: ctx => ctx==='A 客户' || ctx==='B 客户',
+    note:'只用于这个客户的项目往来，不混入其他客户或个人事务',
+    resolve(ctx){
+      if(ctx==='A 客户') return {email:'a-project@nexus-consult.com', who:'A 客户项目组', title:'A 客户项目邮箱'};
+      if(ctx==='B 客户') return {email:'b-project@nexus-consult.com', who:'B 客户项目组', title:'B 客户项目邮箱'};
+      return null;
+    }},
+  {id:'personal', email:'zhang.wei@gmail.com', title:'个人邮箱', who:'张伟（个人）',
+    ident:'个人身份', fit: ctx => ctx==='个人' || ctx==='账号',
+    note:'生活与个人事务；用作客户交付会把个人账号纳入这次披露'},
+];
+let shareMode = 'send', shareFrom = 'consult', shareTo = 0, shareDraft = '';
+
+function boxesFor(f){
+  return MAILBOXES.map(m=>{
+    const extra = m.resolve ? m.resolve(f.context) : null;
+    if(m.resolve && !extra) return null;
+    return {...m, ...(extra||{})};
+  }).filter(Boolean);
+}
+function defaultFrom(f){ return boxesFor(f).find(m=>m.fit(f.context))?.id || 'consult'; }
+function grabDraft(){ const el = document.querySelector('#modal .mail'); if(el) shareDraft = el.innerText; }
+
+function show(html, wide){
+  const m = document.getElementById('modal');
+  m.innerHTML = html; m.classList.toggle('wide', !!wide);
+  const more = document.getElementById('more'); if(more) more.classList.remove('open');
+  document.getElementById('mask').classList.add('open');
+}
+function closeModal(){ document.getElementById('mask').classList.remove('open'); document.getElementById('modal').classList.remove('wide'); }
 function pickOpt(el){ el.parentNode.querySelectorAll('.opt').forEach(o=>o.classList.remove('on')); el.classList.add('on'); }
+function pickW(el){ el.parentNode.querySelectorAll('.wopt').forEach(o=>o.classList.remove('on')); el.classList.add('on'); }
+function pickFrom(id){ grabDraft(); shareFrom = id; renderShare(); }
+function pickTo(i){ grabDraft(); shareTo = i; renderShare(); }
+function recipsOf(f){
+  if(!CONTACTS[f.context]){
+    CONTACTS[f.context] = [{name:'尚未指定', email:'', verified:false, disclose:'unknown', role:'这次发送的收件人',
+      identity:{ source:`「${f.context}」还没有对齐到具体的人`, candidates:[] }}];
+  }
+  return CONTACTS[f.context];
+}
+function sendable(r){ return r && r.verified && r.disclose==='allowed' && r.email; }
+function confirmId(ri, ci){
+  const f = files.find(x=>x.id===sel), list = recipsOf(f), r = list[ri];
+  if(!r) return;
+  if(ci==='new'){ r._new = true; renderShare(); return; }
+  const c = r.identity.candidates[ci];
+  Object.assign(r, {name:c.name, email:c.email, verified:true, role:c.role||r.role, disclose:c.disclose||'unknown', identity:null, _new:false});
+  shareTo = ri; renderShare();
+}
+function saveNew(ri){
+  const name = (document.getElementById('newn')||{value:''}).value.trim();
+  const email = (document.getElementById('newe')||{value:''}).value.trim();
+  if(!name || !email) return;
+  const r = recipsOf(files.find(x=>x.id===sel))[ri];
+  Object.assign(r, {name, email, verified:true, disclose:'unknown', identity:null, _new:false, role:r.role||'这次指定'});
+  shareTo = ri; renderShare();
+}
+function grantDisclose(ri){
+  recipsOf(files.find(x=>x.id===sel))[ri].disclose = 'allowed';
+  shareTo = ri; renderShare();
+}
 
 function openShare(){
+  const f = files.find(x=>x.id===sel);
+  const recips = recipsOf(f);
+  shareMode = (recips.length && f.origin==='deliverable') ? 'send' : (f.context!=='个人' && f.context!=='账号' ? 'send' : 'private');
+  shareFrom = defaultFrom(f);
+  shareTo = Math.max(0, recips.findIndex(sendable));
+  shareDraft = '';
+  renderShare();
+}
+function setShare(mode){ grabDraft(); shareMode = mode; renderShare(); }
+
+function renderShare(){
   const f = files.find(x=>x.id===sel), cur = f.versions.find(v=>v.current);
-  show(`<h3>分享「${f.name}」</h3><div class="ms">当前版本 ${cur.v} · ${cur.date}</div>
+  const recips = recipsOf(f);
+  const client = f.context!=='个人' && f.context!=='账号';
+  const hasReady = recips.some(sendable);
+  const opt = (k,t,s) => `<div class="opt ${shareMode===k?'on':''}" onclick="setShare('${k}')"><b>${t}</b><span>${s}</span></div>`;
+  let body = '', acts = '';
+
+  if(shareMode==='send'){
+    if(shareTo<0 || !recips[shareTo]) shareTo = Math.max(0, recips.findIndex(sendable));
+    const to = recips[shareTo] || recips[0];
+    const canSend = sendable(to);
+    const work = f.ownerWork || (f.usedBy[0]&&f.usedBy[0].work) || '新建交付工作';
+    const boxes = boxesFor(f);
+    if(!boxes.some(m=>m.id===shareFrom)) shareFrom = defaultFrom(f);
+    const from = boxes.find(m=>m.id===shareFrom) || boxes[0];
+    const fit = from && from.fit(f.context);
+    const draft = shareDraft || (to && to.email ? `${to.name}您好，附件为「${f.name}」${cur.v}，请查收。如需确认，直接回复这封邮件即可。` : '');
+    const idTag = r => r.verified ? `<span class="tag ok">身份已验证</span>` : `<span class="tag amber">身份待确认</span>`;
+    const dTag = r => r.disclose==='allowed' ? `<span class="tag ok">来源允许披露</span>`
+      : r.disclose==='denied' ? `<span class="tag mute">来源拒绝披露</span>`
+      : `<span class="tag amber">来源尚未允许披露</span>`;
+    const gate = !to ? ''
+      : !to.verified ? `<div class="call">「${to.name}」还没有对齐到具体的人。确认身份可以在这次发送里完成，不必先去人员页。身份确认也不等于可以把这份资料发给对方。</div>
+          ${to.identity?`<div class="mlab">${to.identity.source}</div><div class="cands">
+            ${(to.identity.candidates||[]).map((c,i)=>`<div class="cand"><div class="b"><div>${c.name}</div><div class="d">${c.org}${c.email?' · '+c.email:''}</div></div><button class="pb" onclick="confirmId(${shareTo},${i})">是此人</button></div>`).join('')}
+            <div class="cand"><div class="b"><div>都不是</div><div class="d">在这次发送里写下是谁，不离开当前文件</div></div><button class="gb" onclick="confirmId(${shareTo},'new')">指定</button></div>
+          </div>`:''}
+          ${to._new?`<input class="field" id="newn" placeholder="姓名"><input class="field" id="newe" placeholder="这个上下文里的邮箱"><button class="pb" style="margin-top:8px" onclick="saveNew(${shareTo})">记入并继续这次发送</button>`:''}`
+      : to.disclose!=='allowed' ? `<div class="call">「${to.name}」身份已验证（${to.email}），但来源尚未允许向其披露「${f.context}」的资料。已验证不是外发许可。</div>
+          <button class="ib" style="margin-top:8px" onclick="grantDisclose(${shareTo})">允许向${to.name}披露「${f.context}」这一次</button>`
+      : '';
+    body = `
+      <div class="mlab">从哪个邮箱发送 · 账号决定对方看到的身份和这次披露范围</div>
+      <div class="wset">${boxes.map(m=>`<div class="wopt ${m.id===shareFrom?'on':''}" onclick="pickFrom('${m.id}')"><i></i>
+        <div class="b">${m.title} · ${m.email}${m.id===defaultFrom(f)?'<span class="ok">与此上下文一致</span>':''}<div class="d">${m.who} · ${m.note}</div></div></div>`).join('')}</div>
+      ${fit?'':`<div class="call">「${from.title}」不是「${f.context}」的常用发件身份。发出去后，对方看到的是${from.ident}（${from.email}），这次披露会落到该账号的往来里。</div>`}
+      <div class="mlab">发给谁 · 身份确认和披露许可分开看，同一人在不同客户的地址不能互相替代</div>
+      <div class="wset">${recips.map((r,i)=>`<div class="wopt ${i===shareTo?'on':''}" onclick="pickTo(${i})"><i></i>
+        <div class="b">${r.name}${r.email?' · '+r.email:''}${idTag(r)}${dTag(r)}<div class="d">${r.role}</div></div></div>`).join('')}</div>
+      ${gate}
+      <div class="mlab">邮件 · 附上当前 ${cur.v}</div>
+      <div class="mail" contenteditable>${draft}</div>
+      <span class="file">${f.type.toUpperCase()} · ${f.name} · ${f.size}</span>
+      <div class="mlab">记在哪件工作里</div>
+      <div class="wset"><div class="wopt on"><i></i><div class="b">${work}<div class="d">发送这一封，不会生成公开链接</div></div></div></div>
+      ${f.origin!=='deliverable'?'<div class="call">这是你上传的输入资料，还不是成果。发出去的是原件。</div>':''}
+      ${/草稿|未完成/.test((f.usedBy[0]||{}).role||'')?'<div class="call">当前版本尚未核验完成，发出去会按草稿交付。</div>':''}
+      <div class="mlab">发送前</div>
+      <ul class="imp">
+        <li><i style="color:var(--green)">✓</i>从 ${from.email} 发出，对方看到的是${from.ident}</li>
+        <li><i style="color:var(--${canSend?'green':'amber'})">${canSend?'✓':'!'}</i>${canSend?`只发给 ${to.name} · ${to.email}，身份已验证且来源允许披露`:`还不能发送：${to&&!to.verified?'先在上面确认身份':'身份已验证，还需要来源允许披露'}`}</li>
+        <li><i style="color:var(--green)">✓</i>固定 ${cur.v}，之后的修改不会自动同步</li>
+        ${fit?'':`<li><i style="color:var(--rose)">✕</i>不会默认改回「${(boxes.find(m=>m.fit(f.context))||{}).title||'常用发件账号'}」，批准即按 ${from.email} 发送</li>`}
+        <li><i style="color:var(--amber)">!</i>对方已下载的副本无法收回</li>
+        <li><i style="color:var(--rose)">✕</i>不会顺带生成公开链接，也不会使用自动提醒规则</li>
+      </ul>`;
+    const why = !to ? '先选定收件人' : !to.verified ? `先确认「${to.name}」是谁` : to.disclose!=='allowed' ? `来源尚未允许向${to.name}披露` : `需要你批准这一封 · ${from.email}`;
+    acts = `<span class="note">${why}</span><button class="gb" onclick="closeModal()">取消</button>
+      <button class="pb" ${canSend?'':'disabled style="opacity:.4"'} onclick="closeModal()">批准发送 1 封</button>`;
+  }
+
+  if(shareMode==='private'){
+    body = `<div class="mlab">请注意</div><ul class="imp">
+      <li><i style="color:var(--green)">✓</i>只有你登录后可以打开 ${cur.v}</li>
+      <li><i style="color:var(--rose)">✕</i>不能当作发给客户的链接，对方打不开</li>
+      <li><i>·</i>适合发给自己，或在聊天中引用</li></ul>`;
+    acts = `<button class="gb" onclick="closeModal()">取消</button><button class="pb" onclick="closeModal()">生成私有链接</button>`;
+  }
+
+  if(shareMode==='public'){
+    body = `<div class="call">这不是发给指定客户。任何拿到链接的人都能查看 ${cur.v}，顾问交付请用「发给指定客户」。</div>
+      <div class="mlab">请注意</div><ul class="imp">
+        <li><i style="color:var(--amber)">!</i>最长 48 小时后自动失效，可随时撤销源站访问</li>
+        <li><i style="color:var(--amber)">!</i>公开的是现在的 ${cur.v}，之后的修改不会自动同步</li>
+        <li><i style="color:var(--rose)">✕</i>对方已下载的副本无法收回</li></ul>`;
+    acts = `<span class="note">公开链接需单独批准</span><button class="gb" onclick="closeModal()">取消</button><button class="pb" onclick="closeModal()">生成公开链接</button>`;
+  }
+
+  show(`<h3>分享「${f.name}」</h3><div class="ms">当前版本 ${cur.v} · ${cur.date}${f.context?' · '+f.context:''}</div>
     <div class="opts">
-      <div class="opt on" onclick="pickOpt(this)"><b>私有链接</b><span>只有你登录后可以打开</span></div>
-      <div class="opt" onclick="pickOpt(this)"><b>临时公开链接</b><span>任何拿到链接的人可查看这个版本，最长 48 小时后自动失效，可随时撤销</span></div>
-    </div>
-    <div class="mlab">请注意</div>
-    <ul class="imp"><li><i>·</i>公开的是你现在看到的 ${cur.v}，之后的修改不会自动同步</li><li><i>·</i>对方已下载的副本无法收回</li><li><i>·</i>发邮件给客户请在聊天中说明，会单独请你确认</li></ul>
-    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb" onclick="closeModal()">生成链接</button></div>`);
+      ${opt('send', client?'发给指定客户':'发给指定的人', hasReady?'选定收件人，邮件附上这个版本':'在这次发送里确认身份和披露')}
+      ${opt('private','私有链接','只有你登录后可以打开')}
+      ${opt('public','临时公开链接','任何拿到链接的人可查看，最长 48 小时')}
+    </div>${body}<div class="acts">${acts}</div>`, true);
 }
 function openDelete(){
   const f = files.find(x=>x.id===sel);

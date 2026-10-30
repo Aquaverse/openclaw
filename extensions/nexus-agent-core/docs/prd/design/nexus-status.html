@@ -283,14 +283,14 @@ const overview = {
 const records = [
   { id:'i1', kind:'incident', title:'周报 v1 数据有误，已发给 B 客户', work:'B 客户本周周报', context:'B 客户', time:'昨天 17:55 报告', group:'昨天',
     state:['处理中','rose'], tone:'rose',
-    summary:'<b>已停止后续外发，更正邮件等你确认。</b>',
-    story:{ happened:'10-29 10:25 周报 v1 发给了 B 客户 2 位联系人，其中交付数据有误。',
+    summary:'<b>周报 v2 已重新核验完成；发给周敏、陈洁的仍是 v1，更正邮件等你确认。</b>成果完成和事故补救可以同时存在。',
+    story:{ happened:'10-29 10:20 周报 v1 发给了周敏、陈洁，其中「本周完成模块数」有误。',
             stopped:'「B 客户本周周报」后续外发已暂停；v1 的公开链接已撤销。',
-            maybe:'对方可能已阅读或转发 v1，已下载的副本无法收回。',
-            next:'已起草更正邮件并附上 v2，确认后发送。' },
-    timeline:[['10:25','v1 发送给 2 位联系人（你批准）',''],['17:55','你报告：交付数据有误','rose'],['17:56','暂停后续外发，撤销 v1 公开链接','amber'],['18:40','v2 重新核验通过，起草更正邮件','blue']],
-    facts:[['问题编号','IR-1029-02'],['影响范围','1 封已发送邮件 · 1 个公开链接'],['已核实','v1 中「本周完成模块数」与项目系统不符']],
-    controls:[{label:'查看更正邮件',style:'dark',act:"location.href='nexus-work.html'"}] },
+            maybe:'周敏、陈洁可能已阅读或转发 v1，已下载的副本无法收回。',
+            next:'已起草更正邮件并附上 v2，确认后发给周敏、陈洁。' },
+    timeline:[['10:20','v1 发给周敏、陈洁（你批准）',''],['17:55','你报告：交付数据有误','rose'],['17:56','暂停后续外发，撤销 v1 公开链接','amber'],['18:40','v2 重新核验通过，起草更正邮件','blue']],
+    facts:[['问题编号','IR-1029-02'],['工作成果','已完成 · v2 于 10-29 18:40 重新核验'],['事故补救','v2 更正尚未发给周敏、陈洁'],['影响范围','1 封已发送邮件（周敏、陈洁） · 1 个公开链接'],['已核实','v1 中「本周完成模块数」与项目系统不符']],
+    controls:[{label:'查看更正邮件',style:'dark',act:"location.href='nexus-work.html#w10'"}] },
 
   { id:'r1', kind:'run', title:'核对 Q3 供应商合同', work:'Q3 供应商合同核对', context:'B 客户', time:'今天 08:05 开始', group:'今天',
     state:['正在执行','blue'],
@@ -385,6 +385,12 @@ const records = [
 ];
 
 const kinds = {run:'执行', approval:'批准', check:'检查', job:'系统处理', incident:'问题'};
+const WORK_HREF = {
+  'B 客户本周周报':'nexus-work.html#w10','A 客户评审材料包':'nexus-work.html#w2',
+  'Q3 供应商合同核对':'nexus-work.html#w9','11-02 上海出差机票':'nexus-work.html#w5',
+  '10 月报销整理':'nexus-work.html#w6','会前准备':'nexus-work.html#w7','改期通知':'nexus-work.html#w8',
+};
+const workHref = n => WORK_HREF[n]||'nexus-work.html';
 let sel='overview', filter='all';
 const ic = n => `<svg><use href="#i-${n}"/></svg>`;
 const ki = (k,lg) => `<span class="ki k-${k} ${lg?'lg':''}">${ic(k)}</span>`;
@@ -442,12 +448,12 @@ function renderDetail(){
   const ctl = (r.controls||[]).map(c=>`<button class="ib ${c.style}" onclick="${c.act}">${c.label}</button>`).join('');
   const header = `
     <div class="top"><span>${kinds[r.kind]}</span><span>·</span><span>${r.context}</span><span class="sp"></span>
-      ${r.work?`<button class="ib" onclick="location.href='nexus-work.html'">打开工作</button>`:''}${ctl}
+      ${r.work?`<button class="ib" onclick="location.href='${workHref(r.work)}'">打开工作</button>`:''}${ctl}
       <div class="menu" id="more"><button class="ib" onclick="this.parentNode.classList.toggle('open')">···</button>
         <div class="dd"><button>在聊天中讨论</button><button>复制记录编号</button>${r.report?'<button class="red" onclick="openReport()">出了问题</button>':''}</div></div>
     </div>
     <div class="title">${ki(r.kind,true)}<div><h2>${r.title}</h2>
-      <div class="why">${chip(r.state)}${r.work?`属于「<span class="link" onclick="location.href='nexus-work.html'">${r.work}</span>」`:'<span>系统处理，不属于任何工作</span>'}<span>· ${r.time}</span></div></div></div>`;
+      <div class="why">${chip(r.state)}${r.work?`属于「<span class="link" onclick="location.href='${workHref(r.work)}'">${r.work}</span>」`:'<span>系统处理，不属于任何工作</span>'}<span>· ${r.time}</span></div></div></div>`;
 
   const summary = `<div class="callout ${r.tone||''}"><div class="b">${r.summary}</div></div>`;
 
