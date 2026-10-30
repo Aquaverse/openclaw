@@ -172,7 +172,7 @@ OpenClaw 侧的真实顺序（已在仓库核对）：运行时准备 → 提示
   `acknowledge` 只改自身。
 - **隔断靠复合外键，不只是 CHECK**：`decisions` 的 `effect_kind` 进了唯一键，
   两张授权表用一条**七列**外键引用 `decisions(owner_id, task_id, id, effect_kind,
-status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 `decided`、
+  status, resolution, chosen_action_id)`——同时绑住 effect 对得上、已 `decided`、
   结果 `approved`、绑的正是用户选中那个 action；`decisions.chosen_action_id` 再复合
   引用 `decision_actions`，保证所选项是候选项。CHECK 只管得住 decision 自己那一行。
   见 nexus-agent-core-design.md §8.12。

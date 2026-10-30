@@ -46,5 +46,6 @@
     "test/fixtures/agents/prompt-snapshots/codex-model-catalog/*.instructions.md",
     "test/fixtures/agents/prompt-snapshots/happy-path/*.md",
     "vendor/",
+    "extensions/nexus-agent-core/docs/prd/design/",
   ],
 }

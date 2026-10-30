@@ -1581,7 +1581,7 @@ core 回调一个 `"cancelled"` → **直接 block 掉工具** → 返回 `plugi
    `cancelled` / timeout / 不可用只更新 `core_approval_state`。
 4. **两条路径竞争同一条 CAS**：
    `UPDATE decisions SET status='decided', resolution=…, resolution_source=…, resolved_by=…,
-resolved_at=… WHERE owner_id=:o AND task_id=:taskId AND id=:id AND status='pending' RETURNING id`。
+   resolved_at=… WHERE owner_id=:o AND task_id=:taskId AND id=:id AND status='pending' RETURNING id`。
    0 行说明已被另一路解决，后到者只读终态。
    条件带全复合键而不是只按 `(owner_id, id)`——decision id 虽然是服务端生成的 UUID、
    事实上不会跨 owner 冲突，但查询条件不该依赖"事实上"。
@@ -1640,7 +1640,7 @@ outbox 的投递契约：
 - **唯一事件键** `UNIQUE(owner_id, event_key)`，如 `decision_pending:<decisionId>`，
   重复 enqueue 是 no-op。
 - **认领 CAS**：`UPDATE outbox SET state='delivering', claimed_by=:worker, claimed_at=:now
-WHERE id=:id AND state='pending' AND next_attempt_at<=:now RETURNING …`，
+  WHERE id=:id AND state='pending' AND next_attempt_at<=:now RETURNING …`，
   只有赢家去发。
 - **重启恢复**：`gateway_start` 把 `state='delivering'` 且 `claimed_at` 超时的行退回
   `pending`（崩在投递中途），并重排 `next_attempt_at`。

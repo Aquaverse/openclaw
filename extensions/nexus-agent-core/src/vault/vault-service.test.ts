@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { listDirectoryTreeStrictSync } from "openclaw/plugin-sdk/file-access-runtime";
 import { describe, it } from "vitest";
 import { applyMigrations } from "../store/kernel.js";
 import { createNexusKernel } from "../store/nexus-kernel.js";
@@ -134,10 +135,9 @@ describe("vault service", () => {
     if (!fs.existsSync(base)) {
       return [];
     }
-    return fs
-      .readdirSync(base, { recursive: true, withFileTypes: true })
-      .filter((e) => e.isFile())
-      .map((e) => e.name);
+    return listDirectoryTreeStrictSync(base)
+      .filter((e) => e.dirent.isFile())
+      .map((e) => e.dirent.name);
   };
 
   // ------------------------------------------------------------------ rules
@@ -359,10 +359,10 @@ describe("vault service", () => {
     const onlyKnown = new Set(
       (db.prepare("SELECT id FROM vault_objects").all() as { id: string }[]).map((r) => r.id),
     );
-    for (const key of fs
-      .readdirSync(path.join(root, "objects"), { recursive: true, withFileTypes: true })
-      .filter((e) => e.isFile())) {
-      assert.ok(onlyKnown.has(key.name), `orphan object file ${key.name}`);
+    for (const key of listDirectoryTreeStrictSync(path.join(root, "objects")).filter((e) =>
+      e.dirent.isFile(),
+    )) {
+      assert.ok(onlyKnown.has(key.dirent.name), `orphan object file ${key.dirent.name}`);
     }
   });
 

@@ -592,11 +592,11 @@ describe("files tab", () => {
         },
         revokeObjectURL: () => {},
       });
-      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
-        function (this: HTMLAnchorElement) {
-          saved.push({ name: this.download, size: blobs.at(-1)?.size ?? -1 });
-        },
-      );
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+        this: HTMLAnchorElement,
+      ) {
+        saved.push({ name: this.download, size: blobs.at(-1)?.size ?? -1 });
+      });
     });
     afterEach(() => {
       vi.restoreAllMocks();
