@@ -318,6 +318,7 @@ export async function runPreparedEmbeddedLoop(
         provider,
         providerOwner: preparedRuntime.snapshot().providerRuntimeHandle.plugin,
         model: model.id,
+        modelSelectionChangedByHook: preparedRuntime.modelSelectionChangedByHook,
         activeErrorContext,
         authProfileStore: preparedRuntime.attemptAuthProfileStore,
         authProfileId: lastProfileId,

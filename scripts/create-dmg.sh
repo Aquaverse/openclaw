@@ -230,14 +230,6 @@ if [[ "${SKIP_DMG_STYLE:-0}" != "1" ]]; then
     echo "WARN: DMG background missing: $DMG_BACKGROUND_SMALL / $DMG_BACKGROUND_PATH" >&2
   fi
 
-  ICON_SRC="$ROOT_DIR/apps/macos/Sources/OpenClaw/Resources/OpenClaw.icns"
-  if [[ -f "$ICON_SRC" ]]; then
-    cp "$ICON_SRC" "$MOUNT_POINT/.VolumeIcon.icns"
-    if command -v SetFile >/dev/null 2>&1; then
-      SetFile -a C "$MOUNT_POINT" 2>/dev/null || true
-    fi
-  fi
-
   osascript <<EOF
 tell application "Finder"
   set dmgRoot to POSIX file "$MOUNT_POINT" as alias
@@ -269,7 +261,33 @@ tell application "Finder"
   end tell
 end tell
 EOF
+
+  # Volume icon: reuse the app icon if available. Applied *after* the Finder
+  # window styling above (background image, icon arrangement) rather than
+  # before it -- setting the "has custom icon" flag on the freshly-mounted
+  # volume while Finder is still opening/arranging that same window was a
+  # plausible race (intermittent, matching reports of the DMG occasionally
+  # showing a plain white background instead of the custom one only on some
+  # builds): Finder settling a custom-volume-icon change and the AppleScript's
+  # own background/arrangement calls landing on the same window at the same
+  # time. Doing this only once the window is already fully styled and closed
+  # removes that overlap entirely.
+  ICON_SRC="$ROOT_DIR/apps/macos/Sources/OpenClaw/Resources/OpenClaw.icns"
+  if [[ -f "$ICON_SRC" ]]; then
+    cp "$ICON_SRC" "$MOUNT_POINT/.VolumeIcon.icns"
+    if command -v SetFile >/dev/null 2>&1; then
+      SetFile -a C "$MOUNT_POINT" 2>/dev/null || true
+    fi
+  fi
 fi
+
+# Flush the just-written .DS_Store (background image reference, icon
+# positions, custom-icon flag) to the mounted RW image before detaching --
+# Finder's AppleScript automation writes that state asynchronously, and a
+# detach/convert that races ahead of it landing on disk is a known source of
+# a DMG occasionally coming out with the styling silently missing (plain
+# white background, unstyled icon layout) on some builds but not others.
+sync
 
 if ! detach_dmg; then
   echo "Error: Failed to detach DMG mount: $MOUNT_POINT" >&2

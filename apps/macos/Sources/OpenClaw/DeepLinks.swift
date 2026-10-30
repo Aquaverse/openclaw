@@ -68,7 +68,10 @@ final class DeepLinkHandler {
         }
         switch route {
         case .dashboard:
-            AppNavigationActions.openDashboard()
+            // An openclaw://dashboard link can arrive in the same early post-launch
+            // window as the Dock/status-item cases; use the shared fallback rather
+            // than risking a raced-open "Dashboard unavailable".
+            (NSApp.delegate as? AppDelegate)?.openDashboardOrResumeProvisioning()
             return
         case let .agent(link):
             guard !AppStateStore.shared.isPaused else {

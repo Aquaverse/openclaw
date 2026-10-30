@@ -35,6 +35,11 @@ export type EmbeddedAgentMeta = {
   };
   /** Runtime-owned selection, independent of the final response or credential source. */
   runtimeModelSelection?: ProviderModelRef;
+  /**
+   * A `before_model_resolve` plugin hook routed this run to another model. The
+   * session's own selection is unchanged, so this is not a fallback.
+   */
+  modelSelectionChangedByHook?: boolean;
   /** Redacted credential source selected for the terminal physical model attempt. */
   credentialSource?: AgentRuntimeCredentialSource;
   fallbackAttempts?: FallbackAttempt[];

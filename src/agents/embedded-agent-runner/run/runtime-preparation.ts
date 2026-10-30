@@ -461,6 +461,7 @@ export async function prepareEmbeddedRunTransport(input: {
       provider,
       modelId,
       requestedModelId,
+      modelSelectionChangedByHook,
       expectedHarnessArtifact,
       nativeModelOwned,
       nativeSessionRuntime,

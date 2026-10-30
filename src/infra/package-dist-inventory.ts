@@ -168,6 +168,16 @@ function isPackageFilesExcludedDistPath(
   );
 }
 
+// npm pack never includes Finder metadata (npm-packlist's built-in ignores:
+// .DS_Store and AppleDouble "._*" files). macOS recreates these in any dist/
+// folder open in Finder, so listing them would make the inventory reference
+// tar entries that can never exist.
+const NPM_ALWAYS_IGNORED_FILE_NAME_PATTERN = /^(?:\.DS_Store|\._.+)$/u;
+
+function isNpmAlwaysIgnoredFileName(relativePath: string): boolean {
+  return NPM_ALWAYS_IGNORED_FILE_NAME_PATTERN.test(path.posix.basename(relativePath));
+}
+
 function isPackagedDistPath(relativePath: string, rules: PackageDistExclusionRules): boolean {
   if (!relativePath.startsWith("dist/")) {
     return false;
@@ -180,6 +190,7 @@ function isPackagedDistPath(relativePath: string, rules: PackageDistExclusionRul
   }
   return !(
     isPackageFilesExcludedDistPath(relativePath, rules) ||
+    isNpmAlwaysIgnoredFileName(relativePath) ||
     isLegacyPluginDependencyDirPath(relativePath) ||
     relativePath === PACKAGE_DIST_INVENTORY_RELATIVE_PATH ||
     isLocalBuildMetadataDistPath(relativePath) ||

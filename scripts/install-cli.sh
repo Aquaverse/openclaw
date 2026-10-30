@@ -177,6 +177,17 @@ Environment variables:
   OPENCLAW_VERSION=latest|next|<semver>
   OPENCLAW_GIT_DIR=...
   OPENCLAW_GIT_UPDATE=0|1
+  OPENCLAW_NODE_TARBALL=<path>         Use this local Node tarball instead of downloading
+                                       one from nodejs.org (must match --node-version/OS/arch)
+  OPENCLAW_NODE_TARBALL_SHA256=<hex>   Optional sha256 to verify OPENCLAW_NODE_TARBALL against
+  OPENCLAW_PACKAGE_TGZ=<path>          npm installs only: install this local, prebuilt OpenClaw package
+                                       (.tgz) instead of resolving --version from the npm registry
+                                       (used by app bundles that ship their own CLI build)
+  OPENCLAW_PACKAGE_TGZ_SHA256=<hex>    Optional sha256 to verify OPENCLAW_PACKAGE_TGZ against
+  OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE=<path>  Dev/interim-only: after npm install, overwrite the
+                                       installed package's scripts/postinstall-bundled-plugins.mjs
+                                       with this local file and re-run it before checking whether
+                                       the install completed (see scripts/build-mac-installer.sh)
 EOF
 }
 
@@ -932,19 +943,36 @@ install_node() {
   tarball="node-v${NODE_VERSION}-${os}-${arch}.tar.gz"
   url="${base_url}/${tarball}"
 
-  detect_downloader
   require_bin tar
+  if [[ -n "${OPENCLAW_NODE_TARBALL:-}" && -f "${OPENCLAW_NODE_TARBALL}" ]]; then
+    # A packaged installer (e.g. the macOS one-click build) can bundle a
+    # pre-downloaded Node tarball alongside itself and point us at it here,
+    # instead of always fetching from nodejs.org -- same extraction path
+    # below either way, just no network use when this is set. Verifies the
+    # tarball's sha256 first when OPENCLAW_NODE_TARBALL_SHA256 was also
+    # given; falls through to a normal download if the file is missing.
+    log "Using bundled Node tarball: ${OPENCLAW_NODE_TARBALL}"
+    if [[ -n "${OPENCLAW_NODE_TARBALL_SHA256:-}" ]]; then
+      actual_sha="$(sha256_file "${OPENCLAW_NODE_TARBALL}")"
+      if [[ "$actual_sha" != "${OPENCLAW_NODE_TARBALL_SHA256}" ]]; then
+        fail "Bundled Node tarball sha256 mismatch for ${OPENCLAW_NODE_TARBALL} (expected ${OPENCLAW_NODE_TARBALL_SHA256}, got ${actual_sha})"
+      fi
+    fi
+    cp "${OPENCLAW_NODE_TARBALL}" "$tmp/node.tgz"
+  else
+    detect_downloader
 
-  download_file "${base_url}/SHASUMS256.txt" "$tmp/SHASUMS256.txt"
-  expected_sha="$(grep "  ${tarball}$" "$tmp/SHASUMS256.txt" | awk '{print $1}' | head -n 1 || true)"
-  if [[ -z "${expected_sha}" ]]; then
-    fail "Failed to resolve Node shasum for ${tarball}"
-  fi
+    download_file "${base_url}/SHASUMS256.txt" "$tmp/SHASUMS256.txt"
+    expected_sha="$(grep "  ${tarball}$" "$tmp/SHASUMS256.txt" | awk '{print $1}' | head -n 1 || true)"
+    if [[ -z "${expected_sha}" ]]; then
+      fail "Failed to resolve Node shasum for ${tarball}"
+    fi
 
-  download_file "$url" "$tmp/node.tgz"
-  actual_sha="$(sha256_file "$tmp/node.tgz")"
-  if [[ "$actual_sha" != "$expected_sha" ]]; then
-    fail "Node tarball sha256 mismatch for ${tarball} (expected ${expected_sha}, got ${actual_sha})"
+    download_file "$url" "$tmp/node.tgz"
+    actual_sha="$(sha256_file "$tmp/node.tgz")"
+    if [[ "$actual_sha" != "$expected_sha" ]]; then
+      fail "Node tarball sha256 mismatch for ${tarball} (expected ${expected_sha}, got ${actual_sha})"
+    fi
   fi
 
   rm -rf "$dir"
@@ -1063,8 +1091,58 @@ commit_wrapper_backup() {
   WRAPPER_BACKUP_PATH=""
 }
 
+# When OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE points at a local
+# scripts/postinstall-bundled-plugins.mjs, overwrite the just-installed
+# package's copy with it and re-run it (as a plain absolute-path
+# invocation, so isDirectPostinstallInvocation() always recognizes it)
+# before checking whether the install actually completed its lifecycle.
+# This lets a locally-built .pkg/.dmg (see scripts/build-mac-installer.sh,
+# which bundles Contents/Resources/postinstall-bundled-plugins-fixed.mjs)
+# ship a fix to this script ahead of an actual openclaw npm release,
+# without needing to publish a new version first. A no-op everywhere else
+# (CI, other platforms, a plain `openclaw@latest` install) since the env
+# var is unset there.
+apply_openclaw_postinstall_override() {
+  local override="${OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE:-}"
+  [[ -n "$override" && -f "$override" ]] || return 0
+  local installed_script
+  installed_script="$(node_dir)/lib/node_modules/openclaw/scripts/postinstall-bundled-plugins.mjs"
+  [[ -f "$installed_script" ]] || return 0
+  cp -f "$override" "$installed_script" 2>/dev/null || return 0
+  "$(node_bin)" "$installed_script" >/dev/null 2>&1 || true
+}
+
 install_openclaw() {
   local requested="${OPENCLAW_VERSION:-latest}"
+  # App bundles built by scripts/build-mac-installer.sh ship their own CLI
+  # build (Contents/Resources/openclaw-cli/*.tgz, packed from the same
+  # checkout as the app). Installing that exact package keeps the CLI in
+  # lockstep with the app instead of whatever the registry's --version tag
+  # resolves to today. Dependencies still come from the npm registry.
+  local bundled_package_version=""
+  if [[ -n "${OPENCLAW_PACKAGE_TGZ:-}" ]]; then
+    local bundled_package="${OPENCLAW_PACKAGE_TGZ}"
+    [[ -f "$bundled_package" ]] || fail "OPENCLAW_PACKAGE_TGZ does not exist: ${bundled_package}"
+    if [[ -n "${OPENCLAW_PACKAGE_TGZ_SHA256:-}" ]]; then
+      local bundled_package_sha=""
+      bundled_package_sha="$(sha256_file "$bundled_package")"
+      if [[ "$bundled_package_sha" != "${OPENCLAW_PACKAGE_TGZ_SHA256}" ]]; then
+        fail "Bundled OpenClaw package sha256 mismatch for ${bundled_package} (expected ${OPENCLAW_PACKAGE_TGZ_SHA256}, got ${bundled_package_sha})"
+      fi
+    fi
+    bundled_package_version="$(tar -xzOf "$bundled_package" package/package.json 2>/dev/null | "$(node_bin)" -e '
+      let raw = "";
+      process.stdin.on("data", (chunk) => { raw += chunk; });
+      process.stdin.on("end", () => {
+        const value = JSON.parse(raw).version;
+        if (typeof value !== "string" || value.trim() === "") process.exit(1);
+        process.stdout.write(value.trim());
+      });
+    ' 2>/dev/null || true)"
+    [[ -n "$bundled_package_version" ]] || fail "Could not read the OpenClaw version from ${bundled_package}"
+    log "Using bundled OpenClaw package ${bundled_package_version}: ${bundled_package}"
+    requested="$bundled_package"
+  fi
   if is_openclaw_source_package_install_spec "$requested"; then
     if [[ "$(os_detect)" == "freebsd" ]]; then
       fail_freebsd_source_install
@@ -1080,7 +1158,10 @@ install_openclaw() {
     "$freshness_flag"
   )
   local resolved_requested="$requested"
-  if [[ -n "${REQUIRED_COMPATIBLE_VERSION:-}" ]]; then
+  if [[ -n "$bundled_package_version" ]]; then
+    # A local package has no registry tag to resolve; check its own version.
+    require_openclaw_version_compatible "$bundled_package_version"
+  elif [[ -n "${REQUIRED_COMPATIBLE_VERSION:-}" ]]; then
     # || true: a failed npm view must reach the explicit fail below instead
     # of dying silently through set -e with no error event.
     resolved_requested="$(resolve_npm_openclaw_version "$requested" || true)"
@@ -1110,9 +1191,15 @@ install_openclaw() {
   local npm_install_args=(install -g --prefix "$(node_dir)" "${npm_args[@]}")
   [[ -z "$lifecycle_arg" ]] || npm_install_args+=("$lifecycle_arg")
   npm_install_args+=("$install_spec")
-  if ! env -u NPM_CONFIG_BEFORE -u npm_config_before -u NPM_CONFIG_MIN_RELEASE_AGE -u npm_config_min_release_age -u npm_config_min-release-age "$npm_cmd" "${npm_install_args[@]}" || [[ ! -f "$installed_entry" || -e "$lifecycle_pending" || -e "$legacy_install_guard" ]]; then
+  local npm_install_ok=1
+  env -u NPM_CONFIG_BEFORE -u npm_config_before -u NPM_CONFIG_MIN_RELEASE_AGE -u npm_config_min_release_age -u npm_config_min-release-age "$npm_cmd" "${npm_install_args[@]}" || npm_install_ok=0
+  apply_openclaw_postinstall_override
+  if [[ "$npm_install_ok" != "1" || ! -f "$installed_entry" || -e "$lifecycle_pending" || -e "$legacy_install_guard" ]]; then
     log "npm install openclaw@${resolved_requested} did not produce a usable package; retrying once"
-    if ! env -u NPM_CONFIG_BEFORE -u npm_config_before -u NPM_CONFIG_MIN_RELEASE_AGE -u npm_config_min_release_age -u npm_config_min-release-age "$npm_cmd" "${npm_install_args[@]}" || [[ ! -f "$installed_entry" || -e "$lifecycle_pending" || -e "$legacy_install_guard" ]]; then
+    npm_install_ok=1
+    env -u NPM_CONFIG_BEFORE -u npm_config_before -u NPM_CONFIG_MIN_RELEASE_AGE -u npm_config_min_release_age -u npm_config_min-release-age "$npm_cmd" "${npm_install_args[@]}" || npm_install_ok=0
+    apply_openclaw_postinstall_override
+    if [[ "$npm_install_ok" != "1" || ! -f "$installed_entry" || -e "$lifecycle_pending" || -e "$legacy_install_guard" ]]; then
       installer_error "npm install did not produce a usable OpenClaw package"
       return 1
     fi
@@ -1123,6 +1210,18 @@ install_openclaw() {
 set -euo pipefail
 exec "${PREFIX}/tools/node/bin/node" "$(node_dir)/lib/node_modules/openclaw/dist/entry.js" "\$@"
 EOF
+  # Record which bundled package is installed. An app bundle rebuilt from a
+  # newer checkout keeps the same version string (only the commit differs),
+  # so the app compares this sha256 -- not the version -- to decide whether an
+  # existing ~/.openclaw needs its CLI refreshed. Registry installs clear it.
+  local bundled_marker="${PREFIX}/.bundled-cli-package.sha256"
+  if [[ -n "$bundled_package_version" ]]; then
+    local bundled_marker_sha="${OPENCLAW_PACKAGE_TGZ_SHA256:-}"
+    [[ -n "$bundled_marker_sha" ]] || bundled_marker_sha="$(sha256_file "${OPENCLAW_PACKAGE_TGZ}")"
+    printf '%s\n' "$bundled_marker_sha" > "$bundled_marker"
+  else
+    rm -f "$bundled_marker"
+  fi
   emit_json step name openclaw status ok version "$requested"
 }
 

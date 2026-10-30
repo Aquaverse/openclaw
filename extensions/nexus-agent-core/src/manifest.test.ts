@@ -104,10 +104,13 @@ describe("Control UI browser module", () => {
   it("declares the browser entry and the generic build/copy asset hooks", () => {
     assert.equal(packageJson.openclaw.controlUi, "./browser/index.ts");
     assert.ok(fs.existsSync(path.join(root, "browser", "index.ts")));
-    assert.match(packageJson.openclaw.assetScripts?.build ?? "", /build-plugin-control-ui\.mts$/);
+    assert.match(
+      packageJson.openclaw.assetScripts?.build ?? "",
+      /build-plugin-control-ui\.mts extensions\/nexus-agent-core$/,
+    );
     assert.match(
       packageJson.openclaw.assetScripts?.copy ?? "",
-      /build-plugin-control-ui\.mts --copy$/,
+      /build-plugin-control-ui\.mts extensions\/nexus-agent-core --copy$/,
     );
     assert.deepEqual(packageJson.openclaw.assetScripts?.buildOutputs, ["openclaw.plugin.json"]);
   });

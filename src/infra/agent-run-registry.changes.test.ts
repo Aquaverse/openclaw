@@ -80,3 +80,32 @@ it("retains model request numbering across run metadata updates and resets fresh
   expect(runs.getAgentRunContext("retry")?.modelCallSequence).toEqual({ value: 0 });
   expect(runs.getAgentRunContext("retry")?.modelCallSequence).not.toBe(sequence);
 });
+
+it("keeps a pinned run reporting the selected model while a plugin routes the turn", () => {
+  const identity = { sessionKey: "agent:main:pinned", agentId: "main", sessionId: "pinned-1" };
+  runs.registerAgentRunContext("pinned", identity);
+  runs.pinAgentRunActiveModel("pinned", { provider: "litellm-router", model: "adaptive" });
+
+  runs.recordAgentRunModel("pinned", { provider: "llama-local-fallback", model: "openclaw-local" });
+  expect(runs.resolveProjectedAgentRunModel({ agentId: "main", sessionId: "pinned-1" })).toEqual({
+    provider: "litellm-router",
+    model: "adaptive",
+  });
+
+  // Clearing still passes through, so run start resets the reported model.
+  runs.recordAgentRunModel("pinned", undefined);
+  expect(runs.resolveProjectedAgentRunModel({ agentId: "main", sessionId: "pinned-1" })).toBeNull();
+});
+
+it("reports the real model when no pin is set", () => {
+  const identity = { sessionKey: "agent:main:unpinned", agentId: "main", sessionId: "unpinned-1" };
+  runs.registerAgentRunContext("unpinned", identity);
+  runs.recordAgentRunModel("unpinned", {
+    provider: "llama-local-fallback",
+    model: "openclaw-local",
+  });
+  expect(runs.resolveProjectedAgentRunModel({ agentId: "main", sessionId: "unpinned-1" })).toEqual({
+    provider: "llama-local-fallback",
+    model: "openclaw-local",
+  });
+});

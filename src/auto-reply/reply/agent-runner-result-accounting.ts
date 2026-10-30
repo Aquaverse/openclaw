@@ -170,6 +170,12 @@ export async function accountAgentTurn(context: AgentTurnAccountingContext) {
   const providerUsed =
     runResult.meta?.agentMeta?.provider ?? fallbackProvider ?? followupRun.run.provider;
   const runtimeModelSelection = runResult.meta?.agentMeta?.runtimeModelSelection;
+  // A before_model_resolve plugin routed this single turn elsewhere. The session
+  // keeps its own selection, so that is a route rather than a fallback from it.
+  // A real fallback on top of the routed model still deserves its notice.
+  const hookRoutedModelSelection =
+    runResult.meta?.agentMeta?.modelSelectionChangedByHook === true &&
+    fallbackAttempts.length === 0;
   // A tool-free finalizer owns its response usage, not the session's next model.
   const sessionModel = runtimeModelSelection ?? { provider: providerUsed, model: modelUsed };
 
@@ -232,8 +238,11 @@ export async function accountAgentTurn(context: AgentTurnAccountingContext) {
   const fallbackTransition = resolveFallbackTransition({
     selectedProvider,
     selectedModel,
-    activeProvider: sessionModel.provider,
-    activeModel: sessionModel.model,
+    // A hook-routed turn ran the session's own selection through a plugin
+    // router; reporting the routed model here would raise a fallback notice
+    // and swap the picker away from the model the user chose.
+    activeProvider: hookRoutedModelSelection ? selectedProvider : sessionModel.provider,
+    activeModel: hookRoutedModelSelection ? selectedModel : sessionModel.model,
     attempts: fallbackAttempts,
     state: fallbackStateEntry,
     cfg,
@@ -405,6 +414,7 @@ export async function accountAgentTurn(context: AgentTurnAccountingContext) {
     promptTokens,
     preserveRuntimeModel:
       fallbackExhausted ||
+      hookRoutedModelSelection ||
       (fallbackTransition.stateChanged
         ? fallbackTransition.nextState
         : fallbackTransition.previousState
@@ -447,8 +457,10 @@ export async function accountAgentTurn(context: AgentTurnAccountingContext) {
         cfg,
         sessionKey,
         agentId: followupRun.run.agentId,
-        providerUsed: sessionModel.provider,
-        modelUsed: sessionModel.model,
+        // The hook-routed turn did execute the persisted selection, so let the
+        // pending live switch settle on that model rather than the routed one.
+        providerUsed: hookRoutedModelSelection ? selectedProvider : sessionModel.provider,
+        modelUsed: hookRoutedModelSelection ? selectedModel : sessionModel.model,
         entry: completion.current(),
       });
       if (reducer) {

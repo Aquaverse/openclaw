@@ -6,6 +6,35 @@ import OpenClawKit
 import OSLog
 import SwiftUI
 
+// Temporary file-based diagnostic logging, added because os.Logger's
+// .notice() calls placed at these same call sites (see the comments on
+// AutoOnboardBootstrap.logger and AppDelegate.logger) have not shown up in
+// either `log stream` or `log show --last` output across several real test
+// launches, despite those call sites being confirmed reached (other
+// logging from later in the very same functions does show up) and the
+// string literals being confirmed present in the built binary. This
+// sidesteps whatever about the unified-logging path is swallowing them by
+// writing straight to a plain file instead, which has no comparable
+// ambiguity around log level, predicate, or store-persistence timing.
+// Safe to remove, along with its call sites, once the "Setting up
+// OpenClaw..." panel-timing question this exists to answer is resolved.
+func traceLog(_ message: String) {
+    let path = NSHomeDirectory() + "/Library/Logs/OpenClaw/launch-trace.log"
+    let dir = (path as NSString).deletingLastPathComponent
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let formatter = DateFormatter()
+    formatter.dateFormat = "HH:mm:ss.SSS"
+    let line = "\(formatter.string(from: Date())) [pid \(ProcessInfo.processInfo.processIdentifier)] \(message)\n"
+    guard let data = line.data(using: .utf8) else { return }
+    if let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(data)
+        try? handle.close()
+    } else {
+        try? data.write(to: URL(fileURLWithPath: path))
+    }
+}
+
 /// Routes private maintenance commands before SwiftUI constructs or activates the application.
 @main
 enum OpenClawProcessMain {
@@ -174,9 +203,11 @@ struct OpenClawApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    // Temporary instrumentation, see AutoOnboardBootstrap.logger's comment.
+    private static let logger = Logger(subsystem: "ai.openclaw", category: "app-launch")
     private var statusMenuController: StatusMenuController?
     private lazy var dockMenu = AppDockMenu(
-        openDashboard: { [weak self] in self?.openDashboardAction() },
+        openDashboard: { [weak self] in self?.openDashboardOrResumeProvisioning() },
         openGateway: { AppNavigationActions.openGateway($0) },
         openSettings: { AppNavigationActions.openSettings() })
     private var terminationCleanupTask: Task<Void, Never>?
@@ -307,8 +338,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.pendingDashboardOpen = true
             return false
         }
-        self.openDashboardAction()
+        self.openDashboardOrResumeProvisioning()
         return false
+    }
+
+    // Both a Dock-icon reopen click and the Dock right-click menu's "Open
+    // Dashboard" item ultimately want the same thing here: land the user
+    // somewhere useful, not necessarily literally the Dashboard window if
+    // this launch hasn't actually gotten there yet. Either can land in the
+    // brief window before applicationDidFinishLaunching's own scheduled
+    // provisioning Task has actually started running (connectionMode still
+    // .unconfigured), or while AutoOnboardBootstrap is actively mid-flight
+    // (isProvisioning) -- opening the Dashboard unconditionally in either
+    // case raced both of those into flashing up "Dashboard unavailable,
+    // could not connect" well before the bootstrap's own "Setting up
+    // OpenClaw..." progress panel ever got a chance to show, even though
+    // provisioning was already under way or about to be. Route through the
+    // same check applicationDidFinishLaunching itself uses instead of
+    // opening the Dashboard blind -- scheduleFirstRunOnboardingIfNeeded()
+    // is safe to call again here even if the launch-time Task already
+    // claimed it (AutoOnboardBootstrap's own hasRunThisLaunch guard makes a
+    // second call a no-op), and calling it from this explicit user gesture
+    // instead of only waiting on that Task is what gets the progress panel
+    // showing sooner rather than later.
+    /// Internal (not private): also called from StatusMenuController,
+    /// StatusMenuRenderer, and DeepLinks, whose menu-bar-icon click, dropdown
+    /// "Dashboard" item, and openclaw://dashboard link can each fire in the same
+    /// early post-launch window as the Dock-reopen case above, and want the same
+    /// fallback instead of a raced-open Dashboard.
+    func openDashboardOrResumeProvisioning() {
+        traceLog("openDashboardOrResumeProvisioning: called, isProvisioningOrUnconfigured=\(self.isProvisioningOrUnconfigured), isProvisioning=\(AutoOnboardBootstrap.shared.isProvisioning), isApplyingConnection=\(ConnectionModeCoordinator.shared.isApplying)")
+        guard self.isProvisioningOrUnconfigured else {
+            guard !ConnectionModeCoordinator.shared.isApplying else {
+                // A reopen landing while ConnectionModeCoordinator.apply() is still
+                // starting/reattaching the Gateway must not open the Dashboard yet --
+                // its WebView would hit a not-yet-ready endpoint ahead of apply()'s own
+                // health-probe/ControlChannel.configure() finishing, showing "Dashboard
+                // unavailable" for a Gateway that is genuinely still coming up rather
+                // than actually failed. Wait for the in-flight apply() to settle first.
+                traceLog("openDashboardOrResumeProvisioning: ConnectionModeCoordinator still applying; deferring dashboard open")
+                Task { @MainActor in
+                    await ConnectionModeCoordinator.shared.waitUntilIdle()
+                    guard !self.isProvisioningOrUnconfigured else { return }
+                    self.openDashboardAction()
+                }
+                return
+            }
+            self.openDashboardAction()
+            return
+        }
+        // A reopen landing while AutoOnboardBootstrap's own runIfEligible()
+        // is still actively running must not call
+        // scheduleFirstRunOnboardingIfNeeded() again -- its single-flight
+        // guard would make that second call fall through to the manual
+        // wizard instead of a no-op, popping "Welcome to OpenClaw" up on
+        // top of the still-in-flight "Setting up OpenClaw..." panel. Just
+        // bring that existing panel back into focus instead.
+        guard !AutoOnboardBootstrap.shared.isProvisioning else {
+            traceLog("openDashboardOrResumeProvisioning: bringing existing panel back via reactivatePanel()")
+            AutoOnboardBootstrap.shared.reactivatePanel()
+            return
+        }
+        Task { @MainActor in
+            await self.scheduleFirstRunOnboardingIfNeeded()
+        }
+    }
+
+    private var isProvisioningOrUnconfigured: Bool {
+        AutoOnboardBootstrap.shared.isProvisioning || AppStateStore.shared.connectionMode == .unconfigured
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool {
@@ -324,6 +421,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         #endif
+        // Temporary instrumentation, see AutoOnboardBootstrap.logger's comment --
+        // pins down whether a slow-to-appear "Setting up OpenClaw..." panel is
+        // waiting on this function's own synchronous work to finish, or on
+        // something after runIfEligible() actually starts. Safe to remove once
+        // that's confirmed.
+        Self.logger.notice("applicationDidFinishLaunching: entered")
+        traceLog("applicationDidFinishLaunching: entered")
         let launchPlan = AppLaunchRuntimePlan.current
         let startUpdater: Bool
         if !AppProfile.current.isActive, !launchPlan.isElevationHost {
@@ -382,6 +486,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.showCredentialStartupFailure()
             }
         }
+        traceLog("applicationDidFinishLaunching: relocator/updater done")
     }
 
     private func showCredentialStartupFailure() {
@@ -418,34 +523,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             controller.start()
             self.statusMenuController = controller
         }
+        traceLog("applicationDidFinishLaunching: status menu started")
         let shouldWaitForConnection = state.connectionMode != .unconfigured
         if !shouldWaitForConnection, launchPlan.allowsAutomaticPresentation {
+            Self.logger.notice("applicationDidFinishLaunching: creating auto-onboard Task")
+            traceLog("applicationDidFinishLaunching: creating auto-onboard Task")
             Task { @MainActor in
+                Self.logger.notice("applicationDidFinishLaunching: auto-onboard Task started running")
+                traceLog("applicationDidFinishLaunching: auto-onboard Task started running")
                 await self.scheduleFirstRunOnboardingIfNeeded()
             }
         }
         Task { @MainActor in
+            traceLog("applicationDidFinishLaunching: connection Task started running, shouldWaitForConnection=\(shouldWaitForConnection), connectionMode=\(state.connectionMode)")
             // Validate PATH selection before local startup. Existing installs may not
             // have the validation cache yet, and a stale external CLI must not win.
             if state.connectionMode == .local ||
                 (state.connectionMode == .remote && state.hostsLocalGatewayWithRemotePrimary)
             {
+                traceLog("applicationDidFinishLaunching: awaiting CLIInstaller.status()")
                 _ = await CLIInstaller.status()
+                traceLog("applicationDidFinishLaunching: CLIInstaller.status() returned")
             }
+            // Decide onboarding/reprovisioning *before* asking ConnectionModeCoordinator
+            // to stand up (or reattach to) a Gateway for this mode. connectionMode can read
+            // .local here (a prior run's persisted state, or a reinstall over preferences
+            // that still say so) while nothing is actually installed yet; apply() cannot
+            // tell "not installed yet" from "briefly not running" and would retry a Gateway
+            // nothing has tried to start for the whole first-run grace window, blocking the
+            // "Setting up OpenClaw..." panel. AutoOnboardBootstrap has its own faster path
+            // to install/start a Gateway, and scheduleFirstRunOnboardingIfNeeded() returns
+            // immediately when the launch is already genuinely ready.
+            if launchPlan.allowsAutomaticPresentation, shouldWaitForConnection {
+                traceLog("applicationDidFinishLaunching: shouldWaitForConnection path calling scheduleFirstRunOnboardingIfNeeded() (before ConnectionModeCoordinator.apply())")
+                await self.scheduleFirstRunOnboardingIfNeeded()
+            }
+            traceLog("applicationDidFinishLaunching: awaiting ConnectionModeCoordinator.apply()")
             await ConnectionModeCoordinator.shared.apply(
                 mode: state.connectionMode,
                 paused: state.isPaused)
+            traceLog("applicationDidFinishLaunching: ConnectionModeCoordinator.apply() returned")
             guard launchPlan.allowsAutomaticPresentation else { return }
-            if shouldWaitForConnection {
-                await self.scheduleFirstRunOnboardingIfNeeded()
+            // Bring the dashboard to the front on a normal, already-configured launch
+            // (was: DashboardManager.shared.preloadIfConfigured(), which loads in the
+            // background and never orders the window front, so an ordinary double-click
+            // launch opened silently into the menu bar). Open it here, right after
+            // apply() has actually finished, rather than on a flat delay that raced
+            // apply()'s own gateway-start/health-probe sequence and showed "Dashboard
+            // unavailable" for a Gateway that was still starting. Only for
+            // shouldWaitForConnection (already configured): a fresh/unconfigured launch
+            // is owned by the auto-onboard Task above, which opens chat itself.
+            if shouldWaitForConnection,
+               !AutoOnboardBootstrap.shared.isProvisioning,
+               AppStateStore.shared.onboardingSeen
+            {
+                traceLog("applicationDidFinishLaunching: connection Task opening dashboard after ConnectionModeCoordinator.apply() completed")
+                AppNavigationActions.openDashboard(userGesture: false)
             }
             // Attachment must settle before deciding whether this app needs to install a CLI.
-            if !PostUpdateController.shared.startIfNeeded() {
+            let postUpdateStarted = PostUpdateController.shared.startIfNeeded()
+            // Only when this launch was already configured (shouldWaitForConnection):
+            // a genuinely fresh/unconfigured launch is already owned end-to-end by the
+            // sibling Task above (scheduleFirstRunOnboardingIfNeeded() ->
+            // AutoOnboardBootstrap). Running this separate, older CLI-install-prompting
+            // path here too raced a second, independent install-cli.sh against
+            // AutoOnboardBootstrap's own on a fresh install (a stale onboardingSeen
+            // value could let the prompter's guards pass before AutoOnboardBootstrap
+            // reached its own onboardingSeen = true).
+            if shouldWaitForConnection, !postUpdateStarted {
                 CLIInstallPrompter.shared.checkAndPromptIfNeeded()
             }
         }
-        MacNodeModeCoordinator.shared.start()
-        if launchPlan.allowsInteractiveServices {
+        // Deferred (was synchronous, inline, right here) -- these are all
+        // independent background services with no ordering dependency on
+        // each other or on what follows, but each one starting synchronously
+        // delayed the run loop from dispatching the auto-onboard Task created
+        // above, so that Task (and its "Setting up OpenClaw..." panel) was
+        // queued behind all of this. Running them in their own Task lets the
+        // panel appear first.
+        Task { @MainActor in
+            traceLog("applicationDidFinishLaunching: deferred background-services Task started running")
+            MacNodeModeCoordinator.shared.start()
+            guard launchPlan.allowsInteractiveServices else { return }
             GatewayBrowserSignInCoordinator.shared.start()
             GatewaysMainMenu.shared.install()
             BackgroundSessionNotifications.shared.start()
@@ -461,12 +620,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await HealthStore.shared.refresh(onDemand: true) }
         Task { await PortGuardian.shared.reapOrphanedTunnels() }
         AppStateStore.shared.applyComputerControlHostState()
-        if launchPlan.allowsAutomaticPresentation {
-            Task {
-                try? await Task.sleep(for: .seconds(2))
-                DashboardManager.shared.preloadIfConfigured()
-            }
-        }
 
         #if DEBUG
         // Screenshot/demo helper: show the pairing panel with sample requests.
@@ -485,6 +638,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if launchPlan.shouldAutoOpenDashboard(arguments: CommandLine.arguments) {
             AppNavigationActions.openDashboard(userGesture: false)
         }
+        traceLog("applicationDidFinishLaunching: returning")
     }
 
     func applicationWillTerminate(_: Notification) {
@@ -566,10 +720,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let connectionMode = AppStateStore.shared.connectionMode
         let onboardingSeen = AppStateStore.shared.onboardingSeen
-        if connectionMode != .unconfigured, onboardingSeen {
+        // connectionMode/onboardingSeen live in UserDefaults keyed by bundle
+        // id, which survives deleting OpenClaw.app and reinstalling a fresh
+        // copy in its place (macOS does not clear a bundle id's preferences
+        // just because the .app was trashed) -- so these flags alone can
+        // say "already configured" on a machine that's actually back to a
+        // blank slate. Only trust them once the managed CLI install is
+        // confirmed still there; otherwise fall through exactly as if this
+        // were a genuinely fresh launch.
+        if connectionMode != .unconfigured, onboardingSeen,
+           case let .ready(_, installedVersion) = await CLIInstaller.managedStatus(),
+           !CLIInstaller.bundledCLIPackageNeedsInstall(installedVersion: installedVersion)
+        {
             OnboardingController.markComplete()
+            // Ordinary configured launches never reach AutoOnboardBootstrap, so
+            // start the (idempotent, backgrounded) llama.cpp fallback setup here
+            // too: it finishes an interrupted model download, (re)starts the
+            // local server after an app update or reboot-time failure, and
+            // returns within moments when everything is already in place.
+            AutoOnboardBootstrap.launchLlamaFallbackSetupInBackground()
             return
         }
+        // Onboarding hasn't completed, or the flags saying it did no longer
+        // match reality (see above): try the silent bootstrap first -- same
+        // CLI/Gateway/model steps a pkg install's postinstall script does,
+        // just run from inside the app so a plain dmg install (or a
+        // reinstall over stale preferences) gets them too, with no manual
+        // clicks. AutoOnboardBootstrap does its own reality check and
+        // idempotent re-run internally, and reverts all app state and
+        // returns false on any real failure, so falling through to the
+        // normal wizard below is exactly what would have happened without
+        // this existing.
+        if await AutoOnboardBootstrap.shared.runIfEligible() {
+            return
+        }
+        self.scheduleFirstRunOnboardingPresentation()
+    }
+
+    private func scheduleFirstRunOnboardingPresentation() {
         let seenVersion = AppDefaults.standard.integer(forKey: onboardingVersionKey)
         let shouldShow = seenVersion < currentOnboardingVersion || !AppStateStore.shared.onboardingSeen
         guard shouldShow else { return }

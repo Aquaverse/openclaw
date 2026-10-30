@@ -221,6 +221,14 @@ it.each([
   ]);
 });
 
+it("never inventories Finder metadata that npm pack ignores", async () => {
+  await writeFiles(["dist/index.js", "dist/.DS_Store", "dist/plugin-sdk/._provider-entry.d.ts"]);
+  await expect(inventory()).resolves.toEqual([
+    "dist/index.js",
+    "dist/postinstall-content-inventory.json",
+  ]);
+});
+
 it("matches install-stage paths case-insensitively across path segments", () => {
   const paths = words(`
     dist/extensions/brave/.openclaw-install-stage/node_modules/typebox/package.json

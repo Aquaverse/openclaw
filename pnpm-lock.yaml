@@ -1950,8 +1950,8 @@ importers:
   extensions/nexus-agent-core:
     dependencies:
       typebox:
-        specifier: 1.3.30
-        version: 1.3.30
+        specifier: 1.4.2
+        version: 1.4.2
     devDependencies:
       '@openclaw/gateway-protocol':
         specifier: workspace:*
