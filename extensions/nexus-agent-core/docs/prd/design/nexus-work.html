@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus · 工作</title>
+<style>
+:root{
+  --bg:#f7f7f8; --panel:#ffffff; --line:#ececef; --soft:#f3f3f5;
+  --text:#18181b; --sub:#63636e; --mute:#a1a1aa;
+  --accent:#5b5bd6; --accent-soft:#f0f0fd;
+  --amber:#d97706; --amber-soft:#fef6e7;
+  --rose:#e5484d;  --rose-soft:#fdeeee;
+  --blue:#3e63dd;  --blue-soft:#edf2fe;
+  --green:#30a46c; --green-soft:#e9f7ef;
+  --gray:#8b8d98;  --gray-soft:#f1f1f3;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden}
+body{font:14px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+.app{display:grid;grid-template-columns:72px 380px 1fr;height:100vh}
+.app>*{min-height:0}
+
+/* ---------- 导航 ---------- */
+.rail{display:flex;flex-direction:column;align-items:center;padding:20px 0;gap:6px;border-right:1px solid var(--line);background:var(--panel)}
+.logo{width:34px;height:34px;border-radius:10px;background:var(--text);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px;margin-bottom:18px}
+.nav{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:var(--mute);position:relative;transition:.15s}
+.nav svg{width:21px;height:21px}
+.nav:hover{background:var(--soft);color:var(--sub)}
+.nav.on{background:var(--accent-soft);color:var(--accent)}
+.nav .dot{position:absolute;top:9px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--rose);box-shadow:0 0 0 2px #fff}
+.nav[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:52px;background:var(--text);color:#fff;font-size:12px;padding:3px 8px;border-radius:6px;white-space:nowrap;z-index:9}
+.rail .grow{flex:1}
+
+/* ---------- 列表 ---------- */
+.list{display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line)}
+.lh{padding:26px 24px 14px}
+.lh h1{font-size:22px;font-weight:650;letter-spacing:-.01em}
+.lh .hello{color:var(--sub);font-size:13px;margin-top:4px}
+.lh .hello b{color:var(--text);font-weight:600}
+.search{margin-top:16px;display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:10px;padding:0 12px;color:var(--mute)}
+.search input{flex:1;border:0;background:none;outline:none;font:inherit;padding:9px 0;color:var(--text)}
+.seg{display:flex;flex-wrap:wrap;gap:4px;padding:4px 24px 12px}
+.seg button{padding:4px 10px;border-radius:999px;font-size:13px;color:var(--sub);white-space:nowrap;transition:.15s}
+.seg button:hover{background:var(--soft)}
+.seg button.on{background:var(--text);color:#fff}
+.seg button span{opacity:.55;margin-left:3px}
+.rows{flex:1;overflow:auto;padding:0 12px 24px}
+.gl{font-size:12px;color:var(--mute);padding:16px 12px 6px}
+.row{display:flex;gap:12px;padding:12px;border-radius:12px;cursor:pointer;transition:.15s}
+.row:hover{background:var(--soft)}
+.row.sel{background:var(--accent-soft)}
+.sd{width:8px;height:8px;border-radius:50%;margin-top:7px;flex-shrink:0;background:var(--c)}
+.row .m{flex:1;min-width:0}
+.row .t{display:flex;gap:8px}
+.row .tt{font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .tm{font-size:12px;color:var(--mute)}
+.row .nx{font-size:13px;color:var(--sub);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- 状态 ---------- */
+.s-action{--c:var(--amber);--cs:var(--amber-soft)}
+.s-blocked{--c:var(--rose);--cs:var(--rose-soft)}
+.s-running{--c:var(--blue);--cs:var(--blue-soft)}
+.s-done{--c:var(--green);--cs:var(--green-soft)}
+.s-ended{--c:var(--gray);--cs:var(--gray-soft)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--cs);color:var(--c);font-size:12.5px;font-weight:600}
+.chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--c)}
+
+/* ---------- 详情（统一模板） ---------- */
+.detail{overflow:auto}
+.dw{max-width:860px;margin:0 auto;padding:40px 48px 80px}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.top{display:flex;align-items:center;gap:10px;color:var(--mute);font-size:13px}
+.top .sp{flex:1}
+.ib{height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--sub);font-size:13px;transition:.15s}
+.ib:hover{border-color:#dcdce0;color:var(--text)}
+h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3;margin:14px 0 10px}
+.why{color:var(--sub);font-size:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+.hero{display:grid;grid-template-columns:auto 1fr;gap:28px;align-items:center;margin-top:28px;padding:28px;background:var(--panel);border:1px solid var(--line);border-radius:18px}
+.ring{width:88px;height:88px;border-radius:50%;background:conic-gradient(var(--c) calc(var(--p)*1%),var(--soft) 0);display:grid;place-items:center}
+.ring b{width:72px;height:72px;border-radius:50%;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:20px;font-weight:650;line-height:1.1}
+.ring b small{font-size:11px;color:var(--mute);font-weight:400;margin-top:3px}
+.hero .k{font-size:12px;color:var(--mute);letter-spacing:.04em}
+.hero .v{font-size:15px;margin:3px 0 14px}
+.hero .v:last-child{margin-bottom:0}
+
+.ask{margin-top:20px;padding:24px 28px;border-radius:18px;background:linear-gradient(180deg,#fffaf0,#fff);border:1px solid #f6e3bd}
+.ask .lab{font-size:12px;font-weight:600;color:var(--amber);letter-spacing:.04em}
+.ask h3{font-size:17px;font-weight:600;margin:6px 0 4px}
+.ask p{color:var(--sub);font-size:13.5px}
+.facts{margin-top:16px;display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:13.5px}
+.facts dt{color:var(--mute)}
+.facts dd{margin:0}
+.preview{margin-top:14px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13.5px;color:#3f3f46}
+.file{display:inline-flex;align-items:center;gap:6px;margin:10px 6px 0 0;padding:4px 10px;border-radius:8px;background:var(--soft);font-size:12.5px;color:var(--sub)}
+.file svg{width:14px;height:14px}
+.acts{display:flex;align-items:center;gap:10px;margin-top:18px}
+.pb{height:38px;padding:0 20px;border-radius:10px;background:var(--text);color:#fff;font-weight:600;transition:.15s}
+.pb:hover{background:#000}
+.gb{height:38px;padding:0 16px;border-radius:10px;color:var(--sub)}
+.gb:hover{background:var(--soft)}
+.acts .note{margin-left:auto;font-size:12px;color:var(--mute)}
+
+.callout{margin-top:20px;padding:16px 20px;border-radius:14px;background:var(--soft);color:var(--sub);font-size:13.5px}
+.callout.warn{background:var(--rose-soft);color:#8f2a2d}
+.link{color:var(--accent);cursor:pointer}
+.link:hover{text-decoration:underline}
+
+.sec{margin-top:36px}
+.sec h4{font-size:13px;font-weight:600;color:var(--sub);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.sec h4 span{font-weight:400;color:var(--mute)}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.li{display:flex;align-items:center;gap:14px;padding:14px 20px}
+.li+.li{border-top:1px solid var(--line)}
+.ck{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;flex-shrink:0}
+.ck svg{width:13px;height:13px;stroke-width:2.4}
+.ck.ok{background:var(--green);color:#fff}
+.ck.wait{border:1.5px solid var(--amber)}
+.ck.todo{border:1.5px dashed #d4d4d8}
+.ck.miss{background:var(--gray-soft);color:var(--gray)}
+.li .b{flex:1}
+.li .d{font-size:12.5px;color:var(--mute)}
+.li .r{font-size:12.5px;color:var(--mute);white-space:nowrap}
+
+.follow{display:grid;grid-template-columns:repeat(3,1fr)}
+.follow+.follow{border-top:1px solid var(--line)}
+.follow>div{padding:16px 20px}
+.follow>div+div{border-left:1px solid var(--line)}
+.follow .k{font-size:12px;color:var(--mute)}
+.follow .v{font-weight:550;margin-top:2px}
+.follow .d{font-size:12.5px;color:var(--sub)}
+
+.ev{display:grid;grid-template-columns:92px 1fr;gap:12px;padding:7px 0;font-size:13.5px}
+.ev .tm{color:var(--mute);font-size:12.5px}
+.ev .tx{color:var(--sub)}
+.ev.new .tx{color:var(--text)}
+
+/* ---------- 停止确认 ---------- */
+.mask{position:fixed;inset:0;background:rgba(24,24,27,.32);backdrop-filter:blur(3px);display:none;place-items:center;z-index:20}
+.mask.open{display:grid}
+.modal{width:460px;background:#fff;border-radius:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,.18)}
+.modal h3{font-size:18px;font-weight:650}
+.modal .ms{color:var(--sub);font-size:13.5px;margin-top:6px}
+.imp{margin:18px 0 0;padding:0;list-style:none;font-size:13.5px}
+.imp li{display:flex;gap:10px;padding:6px 0}
+.imp i{font-style:normal;width:18px;flex-shrink:0;text-align:center}
+.modal .acts{justify-content:flex-end;margin-top:22px}
+.danger{background:var(--rose)}
+.danger:hover{background:#cf3f44}
+
+@media (max-width:1200px){
+  .app{grid-template-columns:64px 320px 1fr}
+  .dw{padding:32px 28px 60px}
+  .follow{grid-template-columns:1fr}
+  .follow>div+div{border-left:0;border-top:1px solid var(--line)}
+}
+</style>
+</head>
+<body>
+<svg style="display:none">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-work" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/></symbol>
+  <symbol id="i-goal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.5"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M21 20c0-2.6-1.5-4.6-3.8-5.3"/></symbol>
+  <symbol id="i-lib" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10l2 2.5h6.5A1.5 1.5 0 0 1 20 8v10.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z"/></symbol>
+  <symbol id="i-status" viewBox="0 0 24 24"><path d="M4 13h4l2-6 4 12 2-6h4"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11h.1a2 2 0 1 1 0 4z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+</svg>
+
+<div class="app">
+  <nav class="rail">
+    <div class="logo">N</div>
+    <button class="nav" data-tip="Chat"><svg><use href="#i-chat"/></svg><span class="dot"></span></button>
+    <button class="nav on" data-tip="工作"><svg><use href="#i-work"/></svg></button>
+    <button class="nav" data-tip="目标" onclick="location.href='nexus-goals.html'"><svg><use href="#i-goal"/></svg></button>
+    <button class="nav" data-tip="人员" onclick="location.href='nexus-people.html'"><svg><use href="#i-people"/></svg></button>
+    <button class="nav" data-tip="资料库" onclick="location.href='nexus-library.html'"><svg><use href="#i-lib"/></svg></button>
+    <div class="grow"></div>
+    <button class="nav" data-tip="Status" onclick="location.href='nexus-status.html'"><svg><use href="#i-status"/></svg></button>
+    <button class="nav" data-tip="Settings"><svg><use href="#i-set"/></svg></button>
+  </nav>
+
+  <section class="list">
+    <div class="lh">
+      <h1>工作</h1>
+      <div class="hello">你离开期间：<b>1 件完成</b>，<b>3 件</b>需要你处理</div>
+      <label class="search"><svg><use href="#i-search"/></svg><input id="q" placeholder="搜索工作、客户或项目"></label>
+    </div>
+    <div class="seg" id="seg"></div>
+    <div class="rows" id="rows"></div>
+  </section>
+
+  <main class="detail" id="detail"></main>
+</div>
+
+<div class="mask" id="mask" onclick="if(event.target===this)closeStop()">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+/* ================================================================
+   统一的工作详情模型（WorkView）
+   所有工作使用同一结构与同一渲染函数；字段为空时对应区块自动隐藏。
+
+   WorkView {
+     id, title, context, updatedAt,
+     state: action | blocked | running | done | ended   // 主状态（WK-02）
+     summary,                 // 状态旁的一句话
+     result,                  // 我要的结果
+     progress,                // 现在进展
+     attention?: {            // 需要用户做的一件事（决定 / 补充 / 处理），最多一张
+       label, title, desc?,
+       facts?: [[键, 值]],     // 准确条款：账号、收件人、金额、时间……
+       preview?: {text?, files?: []},
+       actions: [主操作, ...次操作], note?
+     },
+     notice?: {tone: info|warn, text},   // 无需用户操作的说明
+     criteria: [{state: ok|wait|todo|miss, title, detail?, right?}],  // 完成标准，进度环由此计算
+     followups?: [{what, whatNote, how, howNote, next, nextNote}],    // 持续跟进
+     events: [[时间, 文本, 是否离开期间]]
+   }
+   ================================================================ */
+
+const STATE = {action:'待你处理', blocked:'受阻', running:'进行中', done:'已完成', ended:'已结束'};
+const ORDER = ['action','blocked','running','done','ended'];
+
+const works = [
+  { id:'w2', state:'action', title:'A 客户评审材料包', context:'A 客户', updatedAt:'09:02',
+    summary:'1 个决定等你，其他步骤仍在进行',
+    result:'11-03 评审前，交付一份包含议程、报价表和交付时间表的完整材料包',
+    progress:'议程已完成；李明已接受新期限，报价表今天 17:00 前交付',
+    attention:{ label:'需要你决定', title:'把议程 v2 发给王总，并请他确认交付时间表', desc:'只发送议程，不包含报价和内部纪要。',
+      facts:[['发件','zhang@nexus-consult.com'],['收件','王总 · wang.zong@a-client.com']],
+      preview:{ text:'王总您好，附件为 11-03 评审议程 v2，请帮忙确认第 3 页的交付时间表是否可行……', files:['A客户评审议程_v2.docx'] },
+      actions:['批准发送','修改','暂不'], note:'10-31 18:00 前有效' },
+    criteria:[
+      {state:'ok',   title:'议程经你确认', detail:'v2 · 10-29 16:02', right:'已完成'},
+      {state:'wait', title:'李明交付报价表', detail:'含单价、数量、税额、总额 · 今天 09:00 检查暂未收到', right:'今天 17:00 截止'},
+      {state:'todo', title:'王总确认交付时间表', detail:'等你批准上面的邮件', right:'待开始'},
+      {state:'todo', title:'合成材料包 PDF', detail:'报价表和时间表到齐后自动开始', right:'待开始'},
+    ],
+    followups:[{ what:'李明 · 报价表', whatNote:'10-29 接手自「跟进李明报价表」', how:'工作日 09:00', howNote:'指定邮件线程，不会自动催办', next:'今天 17:00', nextNote:'收到或逾期都会通知你' }],
+    events:[['今天 09:00','检查报价表，暂未收到',1],['10-29 16:02','你确认了议程 v2',1],['10-29 15:10','接手李明报价表的跟进',1],['10-27 14:20','李明接受新期限：10-30 17:00'],['10-26 20:30','从对话中创建这件工作']] },
+
+  { id:'w5', state:'action', title:'深圳出差机票与酒店', context:'个人', updatedAt:'08:47',
+    summary:'机票报价 11:00 前有效',
+    result:'11-03 上午抵达深圳，总预算 ¥3,000 内',
+    progress:'酒店已订好（可免费取消），机票待你确认',
+    attention:{ label:'需要你决定', title:'购买东航 MU5331 · ¥1,860',
+      facts:[['航班','11-03 08:30 虹桥 T2 → 10:55 宝安 T3 · 经济舱'],['乘机人','张伟'],['付款','招商银行信用卡 · 尾号 6620'],['退改','改期免费一次，起飞 24 小时前退票收 ¥186']],
+      actions:['确认购买','换一班'], note:'价格变化会重新询问你' },
+    criteria:[
+      {state:'ok',   title:'酒店已预订', detail:'全季酒店 · 11-03 至 11-04 · 可免费取消', right:'已完成'},
+      {state:'wait', title:'机票已出票', detail:'等你确认购买', right:'今天 11:00 前'},
+    ],
+    events:[['08:47','机票报价锁定，等你确认',1],['10-29 22:10','酒店已预订',1],['10-29 21:40','从对话中创建这件工作']] },
+
+  { id:'w6', state:'action', title:'10 月报销整理', context:'个人', updatedAt:'昨天',
+    summary:'补齐材料后开始',
+    result:'按公司模板生成 10 月报销单',
+    progress:'已收集 12 张票据，还差 2 张',
+    attention:{ label:'需要你补充', title:'2 张发票',
+      facts:[['滴滴出行','10-21 · ¥86'],['全季酒店','10-22 · ¥428']],
+      actions:['上传发票','没有，跳过'] },
+    criteria:[
+      {state:'wait', title:'收齐全部票据', detail:'12 / 14', right:'等你补充'},
+      {state:'todo', title:'生成报销单', right:'待开始'},
+    ],
+    events:[['10-29 20:15','检查邮箱与相册中的票据'],['10-29 20:10','从对话中创建这件工作']] },
+
+  { id:'w7', state:'blocked', title:'客户会前准备', context:'团队', updatedAt:'07:15',
+    summary:'只有你能处理',
+    result:'每场客户会议前 1 小时备好资料，持续到 11-20',
+    progress:'已准备 4 场；今天 14:00 B 客户会议尚未准备',
+    attention:{ label:'需要你处理', title:'重新连接 Google 日历', desc:'连接已过期，07:15 起看不到新的会议。重新连接后会自动补上。',
+      actions:['重新连接'] },
+    criteria:[
+      {state:'ok',   title:'10-27 至 10-29 的 4 场会议', right:'已完成'},
+      {state:'wait', title:'今天 14:00 B 客户会议', detail:'需要日历恢复连接', right:'13:00 前'},
+      {state:'todo', title:'11-20 前其余会议', right:'待开始'},
+    ],
+    followups:[{ what:'客户会议', whatNote:'所选工作日历', how:'每 15 分钟', howNote:'查看未来 7 天的会议', next:'连接恢复后', nextNote:'目前已暂停检查' }],
+    events:[['07:15','日历连接过期，检查暂停',1],['10-29 13:00','B 客户会前资料已准备',1],['10-21 10:00','开始每场会前准备']] },
+
+  { id:'w8', state:'blocked', title:'周会改期通知', context:'团队', updatedAt:'09:20',
+    summary:'正在核对，无需操作',
+    result:'团队 6 人知道周会改到周四 10:00',
+    progress:'日历已更新；通知邮件发送超时，正在确认是否送达',
+    notice:{ tone:'info', text:'确认之前不会重发，避免大家收到两封。如果确实没送达，会再请你确认一次。' },
+    criteria:[
+      {state:'ok',   title:'日历邀请已更新', right:'已完成'},
+      {state:'wait', title:'6 人收到通知邮件', detail:'发送结果待确认', right:'核对中'},
+    ],
+    events:[['09:20','邮件服务超时，开始核对',1],['09:18','你批准发送通知',1]] },
+
+  { id:'w9', state:'running', title:'Q3 供应商合同核对', context:'B 客户', updatedAt:'09:30',
+    summary:'预计 11:30 完成',
+    result:'逐份核对付款、违约金和续约日期，给出带原文出处的报告',
+    progress:'已核对 21 / 38 份，发现 2 份付款期限与采购系统不一致',
+    criteria:[
+      {state:'wait', title:'核对 38 份合同', detail:'21 / 38', right:'进行中'},
+      {state:'todo', title:'生成逐项报告', right:'待开始'},
+    ],
+    events:[['09:30','完成第 21 份',1],['08:05','开始核对',1]] },
+
+  { id:'w0', state:'done', title:'A 客户会议纪要', context:'A 客户', updatedAt:'10-26',
+    summary:'10-26 19:12 完成',
+    result:'整理 10-26 会议纪要，列出决策和行动项', progress:'纪要已交付至主聊，记录 3 项决策、5 项行动',
+    criteria:[{state:'ok', title:'纪要经你确认', detail:'10-26 19:12', right:'已完成'},{state:'ok', title:'决策与行动已记录', right:'已完成'}],
+    events:[['10-26 19:12','纪要已交付'],['10-26 18:30','上传会议录音']] },
+
+  { id:'w10', state:'done', title:'B 客户本周周报', context:'B 客户', updatedAt:'昨天',
+    summary:'10-29 18:40 完成',
+    result:'生成本周进展周报 DOCX', progress:'周报已交付；修正一处数据错误后重新核验通过',
+    criteria:[{state:'ok', title:'数据与项目系统一致', right:'已完成'},{state:'ok', title:'周报已交付', right:'已完成'}],
+    events:[['10-29 18:40','修正后重新核验完成'],['10-29 14:00','发现数据错误，撤回完成'],['10-29 10:20','周报已交付']] },
+
+  { id:'w11', state:'done', title:'牙医复诊预约', context:'个人', updatedAt:'昨天',
+    summary:'10-29 11:05 完成',
+    result:'预约 11-02 下午的复诊', progress:'诊所已确认 11-02 15:30',
+    criteria:[{state:'ok', title:'诊所确认预约', detail:'11-02 15:30', right:'已完成'}],
+    events:[['10-29 11:05','诊所确认'],['10-29 10:40','提交预约']] },
+
+  { id:'w1', state:'ended', title:'跟进李明报价表', context:'A 客户', updatedAt:'10-29',
+    summary:'10-29 停止，未完成',
+    result:'李明按期交付报价表',
+    progress:'报价表尚未交付；委派和改期通知都已送达，李明已接受新期限',
+    notice:{ tone:'info', text:'后续跟进已交给 <span class="link" onclick="pick(\'w2\')">A 客户评审材料包</span>。李明之后交付时会在那里完成，这件工作保持“已结束”。' },
+    criteria:[{state:'ok', title:'委派已送达', right:'已完成'},{state:'miss', title:'李明交付报价表', detail:'停止时尚未交付', right:'未完成'}],
+    events:[['10-29 15:10','你停止了这件工作，并交给材料包继续'],['10-27 14:20','李明接受新期限'],['10-26 21:05','委派邮件已发送']] },
+
+  { id:'w12', state:'ended', title:'周年晚餐订位', context:'个人', updatedAt:'10-28',
+    summary:'目标时段无法预订',
+    result:'11-01 19:00 Le Comptoir 两人位',
+    progress:'当晚已满；按你的要求没有改订其他餐厅，已整理 3 家备选',
+    criteria:[{state:'miss', title:'订到 11-01 19:00', detail:'餐厅当晚已满', right:'未完成'},{state:'ok', title:'备选餐厅清单', right:'已完成'}],
+    events:[['10-28 16:40','餐厅回复当晚已满']] },
+];
+
+let sel = 'w2', filter = 'all';
+const ic   = n => `<svg><use href="#i-${n}"/></svg>`;
+const chip = s => `<span class="chip s-${s}">${STATE[s]}</span>`;
+const isActive = w => w.state!=='done' && w.state!=='ended';
+
+/* ---------- 列表 ---------- */
+function renderList(){
+  const q = document.getElementById('q').value.trim();
+  const base = works.filter(w => !q || (w.title+w.context+w.summary).includes(q));
+  document.getElementById('seg').innerHTML =
+    `<button class="${filter==='all'?'on':''}" onclick="setF('all')">全部<span>${base.length}</span></button>` +
+    ORDER.map(s=>`<button class="${filter===s?'on':''}" onclick="setF('${s}')">${STATE[s]}<span>${base.filter(w=>w.state===s).length}</span></button>`).join('');
+  let h='';
+  ORDER.forEach(s=>{
+    const g = base.filter(w=>w.state===s && (filter==='all'||filter===s));
+    if(!g.length) return;
+    if(filter==='all') h += `<div class="gl">${STATE[s]}</div>`;
+    g.forEach(w=>{
+      const line = w.attention ? w.attention.title : w.summary;
+      h += `<div class="row s-${w.state} ${w.id===sel?'sel':''}" onclick="pick('${w.id}')">
+        <span class="sd"></span>
+        <div class="m"><div class="t"><span class="tt">${w.title}</span><span class="tm">${w.updatedAt}</span></div>
+        <div class="nx">${line}</div></div></div>`;
+    });
+  });
+  document.getElementById('rows').innerHTML = h || `<div class="gl" style="text-align:center;padding:48px 0">没有匹配的工作</div>`;
+}
+function setF(f){ filter=f; renderList(); }
+function pick(id){ sel=id; renderList(); renderDetail(); document.getElementById('detail').scrollTop=0; }
+
+/* ---------- 详情：唯一模板 ---------- */
+function renderDetail(){
+  const w = works.find(x=>x.id===sel);
+  const met = w.criteria.filter(c=>c.state==='ok').length, total = w.criteria.length;
+  const a = w.attention;
+
+  const header = `
+    <div class="top"><span>${w.context}</span><span>·</span><span>更新于 ${w.updatedAt}</span><span class="sp"></span>
+      <button class="ib">在聊天中讨论</button>
+      ${isActive(w) ? `<button class="ib">暂停</button><button class="ib" onclick="openStop()">停止</button>` : ''}
+    </div>
+    <h2>${w.title}</h2>
+    <div class="why">${chip(w.state)}<span>${w.summary}</span></div>`;
+
+  const hero = `
+    <div class="hero s-${w.state}">
+      <div class="ring" style="--p:${Math.round(met/total*100)}"><b>${met}/${total}<small>项标准</small></b></div>
+      <div><div class="k">我要的结果</div><div class="v">${w.result}</div>
+           <div class="k">现在进展</div><div class="v">${w.progress}</div></div>
+    </div>`;
+
+  const attention = !a ? '' : `
+    <div class="ask">
+      <div class="lab">${a.label}</div>
+      <h3>${a.title}</h3>
+      ${a.desc ? `<p>${a.desc}</p>` : ''}
+      ${a.facts ? `<dl class="facts">${a.facts.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>` : ''}
+      ${a.preview ? `<div class="preview">${a.preview.text||''}<div>${(a.preview.files||[]).map(f=>`<span class="file">${ic('doc')}${f}</span>`).join('')}</div></div>` : ''}
+      <div class="acts">
+        ${a.actions.map((t,i)=>`<button class="${i?'gb':'pb'}">${t}</button>`).join('')}
+        ${a.note ? `<span class="note">${a.note}</span>` : ''}
+      </div>
+    </div>`;
+
+  const notice = w.notice ? `<div class="callout ${w.notice.tone==='warn'?'warn':''}">${w.notice.text}</div>` : '';
+
+  const criteria = `
+    <div class="sec"><h4>完成标准 <span>全部满足才算完成</span></h4><div class="box">
+      ${w.criteria.map(c=>`<div class="li">
+        <span class="ck ${c.state}">${c.state==='ok'?ic('check'):c.state==='miss'?ic('x'):''}</span>
+        <div class="b">${c.title}${c.detail?`<div class="d">${c.detail}</div>`:''}</div>
+        ${c.right?`<span class="r">${c.right}</span>`:''}</div>`).join('')}
+    </div></div>`;
+
+  const follow = !w.followups ? '' : `
+    <div class="sec"><h4>持续跟进</h4><div class="box">
+      ${w.followups.map(f=>`<div class="follow">
+        <div><div class="k">跟进什么</div><div class="v">${f.what}</div><div class="d">${f.whatNote}</div></div>
+        <div><div class="k">怎么检查</div><div class="v">${f.how}</div><div class="d">${f.howNote}</div></div>
+        <div><div class="k">下次检查</div><div class="v">${f.next}</div><div class="d">${f.nextNote}</div></div>
+      </div>`).join('')}
+    </div></div>`;
+
+  const events = `
+    <div class="sec"><h4>动态</h4>
+      ${w.events.map(([t,x,n])=>`<div class="ev ${n?'new':''}"><span class="tm">${t}</span><span class="tx">${x}</span></div>`).join('')}
+    </div>`;
+
+  document.getElementById('detail').innerHTML =
+    `<div class="dw">${header}${hero}${attention}${notice}${criteria}${follow}${events}</div>`;
+}
+
+/* ---------- 停止确认：由同一数据生成影响预览 ---------- */
+function openStop(){
+  const w = works.find(x=>x.id===sel);
+  const open = w.criteria.filter(c=>c.state==='wait'||c.state==='todo');
+  const done = w.criteria.filter(c=>c.state==='ok');
+  document.getElementById('modal').innerHTML = `
+    <h3>停止「${w.title}」？</h3>
+    <div class="ms">剩余步骤和后续检查会停止，已发生的结果不会撤销。</div>
+    <ul class="imp">
+      ${open.map(c=>`<li><i style="color:var(--rose)">✕</i>停止：${c.title}</li>`).join('')}
+      ${(w.followups||[]).map(f=>`<li><i style="color:var(--rose)">✕</i>不再跟进：${f.what}</li>`).join('')}
+      ${done.map(c=>`<li><i style="color:var(--green)">✓</i>保留：${c.title}</li>`).join('')}
+    </ul>
+    <div class="acts">
+      <button class="gb" onclick="closeStop()">取消</button>
+      ${w.followups ? `<button class="gb" onclick="closeStop()">交给其他工作继续</button>` : ''}
+      <button class="pb danger" onclick="closeStop()">停止工作</button>
+    </div>`;
+  document.getElementById('mask').classList.add('open');
+}
+function closeStop(){ document.getElementById('mask').classList.remove('open'); }
+
+document.getElementById('q').addEventListener('input', renderList);
+renderList(); renderDetail();
+</script>
+</body>
+</html>

@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus · 目标</title>
+<style>
+:root{
+  --bg:#f7f7f8; --panel:#ffffff; --line:#ececef; --soft:#f3f3f5;
+  --text:#18181b; --sub:#63636e; --mute:#a1a1aa;
+  --accent:#5b5bd6; --accent-soft:#f0f0fd;
+  --amber:#d97706; --amber-soft:#fef6e7;
+  --rose:#e5484d;  --rose-soft:#fdeeee;
+  --blue:#3e63dd;  --blue-soft:#edf2fe;
+  --green:#30a46c; --green-soft:#e9f7ef;
+  --gray:#8b8d98;  --gray-soft:#f1f1f3;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden}
+body{font:14px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input{font:inherit}
+svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+.app{display:grid;grid-template-columns:72px 380px 1fr;height:100vh}
+.app>*{min-height:0}
+
+/* ---------- 导航 ---------- */
+.rail{display:flex;flex-direction:column;align-items:center;padding:20px 0;gap:6px;border-right:1px solid var(--line);background:var(--panel)}
+.logo{width:34px;height:34px;border-radius:10px;background:var(--text);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px;margin-bottom:18px}
+.nav{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:var(--mute);position:relative;transition:.15s}
+.nav svg{width:21px;height:21px}
+.nav:hover{background:var(--soft);color:var(--sub)}
+.nav.on{background:var(--accent-soft);color:var(--accent)}
+.nav .dot{position:absolute;top:9px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--rose);box-shadow:0 0 0 2px #fff}
+.nav[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:52px;background:var(--text);color:#fff;font-size:12px;padding:3px 8px;border-radius:6px;white-space:nowrap;z-index:9}
+.rail .grow{flex:1}
+
+/* ---------- 列表 ---------- */
+.list{display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line)}
+.lh{padding:26px 24px 14px}
+.lh .hr{display:flex;align-items:center}
+.lh h1{font-size:22px;font-weight:650;letter-spacing:-.01em;flex:1}
+.lh .hello{color:var(--sub);font-size:13px;margin-top:4px}
+.newb{height:32px;padding:0 12px;border-radius:9px;background:var(--text);color:#fff;font-size:13px;font-weight:600}
+.search{margin-top:16px;display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:10px;padding:0 12px;color:var(--mute)}
+.search input{flex:1;border:0;background:none;outline:none;padding:9px 0;color:var(--text)}
+.seg{display:flex;flex-wrap:wrap;gap:4px;padding:4px 24px 12px}
+.seg button{padding:4px 10px;border-radius:999px;font-size:13px;color:var(--sub);white-space:nowrap;transition:.15s}
+.seg button:hover{background:var(--soft)}
+.seg button.on{background:var(--text);color:#fff}
+.seg button span{opacity:.55;margin-left:3px}
+.rows{flex:1;overflow:auto;padding:0 12px 24px}
+.gl{font-size:12px;color:var(--mute);padding:16px 12px 6px}
+.row{display:flex;gap:12px;padding:12px;border-radius:12px;cursor:pointer;transition:.15s}
+.row:hover{background:var(--soft)}
+.row.sel{background:var(--accent-soft)}
+.row .m{flex:1;min-width:0}
+.row .t{display:flex;gap:8px}
+.row .tt{font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .tm{font-size:12px;color:var(--mute)}
+.row .nx{font-size:13px;color:var(--sub);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .meta{font-size:12px;color:var(--mute);margin-top:5px;display:flex;gap:10px}
+
+/* ---------- 分类 ---------- */
+.cat-study{--c:#5b5bd6;--cs:#f0f0fd}
+.cat-money{--c:#b7791f;--cs:#fdf5e3}
+.cat-health{--c:#2f9e74;--cs:#e8f6ef}
+.cat-career{--c:#3e63dd;--cs:#edf2fe}
+.cat-family{--c:#d6577a;--cs:#fdeef3}
+.cat-other{--c:#71717a;--cs:#f1f1f3}
+.tile{width:36px;height:36px;border-radius:11px;background:var(--cs);color:var(--c);display:grid;place-items:center;font-weight:650;font-size:14px;flex-shrink:0}
+.tile.lg{width:52px;height:52px;border-radius:15px;font-size:19px}
+
+/* ---------- 状态 ---------- */
+.st-active{--sc:var(--blue);--ss:var(--blue-soft)}
+.st-achieved{--sc:var(--green);--ss:var(--green-soft)}
+.st-stopped{--sc:var(--gray);--ss:var(--gray-soft)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--ss);color:var(--sc);font-size:12.5px;font-weight:600;white-space:nowrap}
+.chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--sc)}
+.w-action{--sc:var(--amber);--ss:var(--amber-soft)}
+.w-running{--sc:var(--blue);--ss:var(--blue-soft)}
+.w-done{--sc:var(--green);--ss:var(--green-soft)}
+
+/* ---------- 详情（统一模板） ---------- */
+.detail{overflow:auto}
+.dw{max-width:860px;margin:0 auto;padding:40px 48px 80px}
+@keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+.top{display:flex;align-items:center;gap:10px;color:var(--mute);font-size:13px}
+.top .sp{flex:1}
+.crumb{color:var(--accent);cursor:pointer}
+.crumb:hover{text-decoration:underline}
+.ib{height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--sub);font-size:13px;transition:.15s}
+.ib:hover{border-color:#dcdce0;color:var(--text)}
+.ib.dark{background:var(--text);border-color:var(--text);color:#fff}
+.ib.dark:hover{background:#000}
+.menu{position:relative}
+.dd{display:none;position:absolute;right:0;top:40px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.1);min-width:180px;padding:6px;z-index:10}
+.menu.open .dd{display:block}
+.dd button{display:block;width:100%;text-align:left;padding:8px 12px;border-radius:8px;font-size:13.5px;color:var(--text)}
+.dd button:hover{background:var(--soft)}
+.dd .red{color:var(--rose)}
+
+.title{display:flex;gap:16px;align-items:center;margin:18px 0 0}
+h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3}
+.why{color:var(--sub);font-size:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
+
+.hero{margin-top:28px;background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+.hero-main{display:grid;grid-template-columns:1fr 1fr}
+.hero-main>div{padding:24px 28px}
+.hero-main>div+div{border-left:1px solid var(--line)}
+.hero .k{font-size:12px;color:var(--mute);letter-spacing:.04em}
+.hero .v{font-size:15px;margin-top:4px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);background:#fcfcfd}
+.stats>div{padding:14px 28px}
+.stats>div+div{border-left:1px solid var(--line)}
+.stats b{font-size:17px;font-weight:650}
+.stats span{display:block;font-size:12px;color:var(--mute)}
+
+.callout{margin-top:20px;padding:16px 20px;border-radius:14px;background:var(--soft);color:var(--sub);font-size:13.5px;display:flex;align-items:center;gap:12px}
+.callout .sp{flex:1}
+.link{color:var(--accent);cursor:pointer}
+.link:hover{text-decoration:underline}
+
+.letter{margin-top:20px;padding:26px 30px;border-radius:18px;background:linear-gradient(160deg,#f5f4ff 0%,#fff 60%);border:1px solid #e4e2fb;position:relative}
+.letter .lab{font-size:12px;font-weight:600;color:var(--accent);letter-spacing:.04em}
+.letter h3{font-size:17px;font-weight:600;margin:6px 0 8px}
+.letter p{color:#3f3f46;font-size:14px;line-height:1.75}
+.letter .ft{display:flex;align-items:center;gap:14px;margin-top:14px;font-size:12.5px;color:var(--mute)}
+.letter .ft .sp{flex:1}
+
+.sec{margin-top:36px}
+.sec h4{font-size:13px;font-weight:600;color:var(--sub);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.sec h4 span{font-weight:400;color:var(--mute)}
+.sec h4 .sp{flex:1}
+.sec h4 .add{font-weight:500;color:var(--accent);cursor:pointer;font-size:13px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.li{display:flex;align-items:center;gap:14px;padding:14px 20px}
+.li+.li{border-top:1px solid var(--line)}
+.li.click{cursor:pointer;transition:.15s}
+.li.click:hover{background:#fafafb}
+.li .b{flex:1;min-width:0}
+.li .d{font-size:12.5px;color:var(--mute)}
+.li .arrow{color:var(--mute)}
+.empty{padding:22px 20px;color:var(--mute);font-size:13.5px;text-align:center}
+
+.rec{display:flex;gap:10px;padding:12px 14px 12px 18px;background:var(--panel);border:1px solid var(--line);border-radius:14px;align-items:center;margin-bottom:14px}
+.rec input{flex:1;border:0;outline:none;background:none;color:var(--text)}
+.rec input::placeholder{color:var(--mute)}
+.rec button{height:32px;padding:0 14px;border-radius:9px;background:var(--text);color:#fff;font-size:13px;font-weight:600}
+.ev{display:grid;grid-template-columns:92px 1fr;gap:12px;padding:10px 0;font-size:14px}
+.ev+.ev{border-top:1px dashed var(--line)}
+.ev .tm{color:var(--mute);font-size:12.5px;padding-top:1px}
+.ev .src{font-size:12px;color:var(--mute);margin-top:2px}
+.ev .src i{font-style:normal;display:inline-block;padding:0 7px;border-radius:5px;background:var(--soft);margin-right:6px;color:var(--sub)}
+.ev .src i.fact{background:var(--green-soft);color:var(--green)}
+.ev .src i.rest{background:var(--amber-soft);color:var(--amber)}
+
+/* ---------- 弹窗 ---------- */
+.mask{position:fixed;inset:0;background:rgba(24,24,27,.32);backdrop-filter:blur(3px);display:none;place-items:center;z-index:20}
+.mask.open{display:grid}
+.modal{width:480px;background:#fff;border-radius:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,.18)}
+.modal h3{font-size:18px;font-weight:650}
+.modal .ms{color:var(--sub);font-size:13.5px;margin-top:6px}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+.opt{border:1.5px solid var(--line);border-radius:14px;padding:14px;cursor:pointer;transition:.15s}
+.opt b{display:block;font-size:14.5px}
+.opt span{font-size:12.5px;color:var(--mute)}
+.opt.on{border-color:var(--text);background:#fafafa}
+.mlab{font-size:12px;color:var(--mute);margin:18px 0 6px}
+.chk{display:flex;gap:10px;align-items:center;padding:6px 0;font-size:13.5px;cursor:pointer}
+.chk input{width:16px;height:16px;accent-color:var(--text)}
+.imp{margin:0;padding:0;list-style:none;font-size:13.5px}
+.imp li{display:flex;gap:10px;padding:5px 0;color:var(--sub)}
+.imp i{font-style:normal;width:18px;flex-shrink:0;text-align:center}
+.acts{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:22px}
+.pb{height:38px;padding:0 20px;border-radius:10px;background:var(--text);color:#fff;font-weight:600}
+.pb:hover{background:#000}
+.pb.danger{background:var(--rose)}
+.gb{height:38px;padding:0 16px;border-radius:10px;color:var(--sub)}
+.gb:hover{background:var(--soft)}
+
+@media (max-width:1200px){
+  .app{grid-template-columns:64px 320px 1fr}
+  .dw{padding:32px 28px 60px}
+  .hero-main{grid-template-columns:1fr}
+  .hero-main>div+div{border-left:0;border-top:1px solid var(--line)}
+}
+</style>
+</head>
+<body>
+<svg style="display:none">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-work" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/></symbol>
+  <symbol id="i-goal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.5"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M21 20c0-2.6-1.5-4.6-3.8-5.3"/></symbol>
+  <symbol id="i-lib" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10l2 2.5h6.5A1.5 1.5 0 0 1 20 8v10.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z"/></symbol>
+  <symbol id="i-status" viewBox="0 0 24 24"><path d="M4 13h4l2-6 4 12 2-6h4"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11h.1a2 2 0 1 1 0 4z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 9a6 6 0 1 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9z"/><path d="M10 20a2 2 0 0 0 4 0"/><path d="M3 3l18 18"/></symbol>
+</svg>
+
+<div class="app">
+  <nav class="rail">
+    <div class="logo">N</div>
+    <button class="nav" data-tip="Chat"><svg><use href="#i-chat"/></svg><span class="dot"></span></button>
+    <button class="nav" data-tip="工作" onclick="location.href='nexus-work.html'"><svg><use href="#i-work"/></svg></button>
+    <button class="nav on" data-tip="目标"><svg><use href="#i-goal"/></svg></button>
+    <button class="nav" data-tip="人员" onclick="location.href='nexus-people.html'"><svg><use href="#i-people"/></svg></button>
+    <button class="nav" data-tip="资料库" onclick="location.href='nexus-library.html'"><svg><use href="#i-lib"/></svg></button>
+    <div class="grow"></div>
+    <button class="nav" data-tip="Status" onclick="location.href='nexus-status.html'"><svg><use href="#i-status"/></svg></button>
+    <button class="nav" data-tip="Settings"><svg><use href="#i-set"/></svg></button>
+  </nav>
+
+  <section class="list">
+    <div class="lh">
+      <div class="hr"><h1>目标</h1><button class="newb">在聊天中新建</button></div>
+      <div class="hello">你想长期坚持和达成的个人事情</div>
+      <label class="search"><svg><use href="#i-search"/></svg><input id="q" placeholder="搜索目标名称或内容"></label>
+    </div>
+    <div class="seg" id="seg"></div>
+    <div class="rows" id="rows"></div>
+  </section>
+
+  <main class="detail" id="detail"></main>
+</div>
+
+<div class="mask" id="mask" onclick="if(event.target===this)closeModal()"><div class="modal" id="modal"></div></div>
+
+<script>
+/* ================================================================
+   统一的目标详情模型（GoalView）
+   所有目标（含子目标）使用同一结构与同一渲染函数；字段为空时区块隐藏或显示空状态。
+
+   GoalView {
+     id, title, category, parentId?,          // 子目标只有一级
+     status: active | completed,
+     reason?: achieved | stopped,             // completed 时必填：已达成 / 不再追求
+     createdAt, completedAt?,
+     aim,                                     // 我想达到（里程碑，可不量化）
+     now,                                     // 现在情况
+     muted?: {since, note},                   // 已关闭主动提示（休息中）
+     letter?: {date, title, body},            // 已有的系统目标信，只展示，不可当场生成
+     progress: [{date, text, source: user | fact | rest, from?}],  // 按日期的真实进展
+     works?: [{title, state, next}]           // 可选关联的个人工作，状态各自独立
+   }
+   ================================================================ */
+
+const CAT = {
+  study:{l:'兴趣/学习',g:'学'}, money:{l:'个人财务',g:'财'}, health:{l:'健康习惯',g:'健'},
+  career:{l:'职业成长',g:'职'}, family:{l:'人际关系',g:'亲'}, other:{l:'个人效率',g:'效'}
+};
+const WSTATE = {action:'待你处理', running:'进行中', done:'已完成'};
+
+const goals = [
+  { id:'g1', title:'提升英语口语表达', category:'study', status:'active', createdAt:'09-02',
+    aim:'12 月底前，能用英语独立主持 30 分钟的客户会议',
+    now:'每周 2 次外教课；能流畅完成项目汇报，自由问答时还会卡顿',
+    letter:{ date:'10-27', title:'这个月，你开口得更从容了',
+      body:'过去四周你记录了 7 次练习，比上个月多 3 次。10-24 第一次在外教课上完整做完 10 分钟汇报，这是一个很实在的进步。问答环节仍是难点，你之前提到想多练“追问与澄清”的表达，下个月可以从这里入手。' },
+    progress:[
+      {date:'10-28', text:'外教课：模拟客户问答 20 分钟，能接住大部分追问', source:'user'},
+      {date:'10-24', text:'第一次完整完成 10 分钟英文项目汇报', source:'user'},
+      {date:'10-18', text:'雅思口语模考 6.0', source:'fact', from:'来自邮件：模考成绩单'},
+      {date:'10-09', text:'背完商务词汇 2000，子目标完成', source:'user'},
+      {date:'09-02', text:'开始这个目标：目前只能做简单自我介绍', source:'user'},
+    ],
+    works:[
+      {title:'预约 11 月外教课程', state:'action', next:'确认 8 节课套餐 ¥2,400'},
+      {title:'整理客户会议常用英文表达', state:'done', next:'表达清单已保存到资料库'},
+    ] },
+  { id:'g1a', parentId:'g1', title:'雅思口语达到 7 分', category:'study', status:'active', createdAt:'09-15',
+    aim:'12 月 14 日考试口语 7 分', now:'模考 6.0；流利度够，词汇多样性不足',
+    progress:[{date:'10-18', text:'口语模考 6.0', source:'fact', from:'来自邮件：模考成绩单'},{date:'09-20', text:'已报名 12-14 考试', source:'fact', from:'来自邮件：报名确认'}] },
+  { id:'g1b', parentId:'g1', title:'每周 3 次口语练习', category:'study', status:'active', createdAt:'09-02',
+    aim:'每周至少练习 3 次，每次 20 分钟以上', now:'近四周平均每周 2.5 次',
+    progress:[{date:'10-28', text:'本周第 2 次练习', source:'user'},{date:'10-25', text:'本周第 1 次练习', source:'user'}] },
+  { id:'g1c', parentId:'g1', title:'背完商务词汇 2000', category:'study', status:'completed', reason:'achieved', createdAt:'09-02', completedAt:'10-09',
+    aim:'背完商务英语核心词汇 2000 个', now:'已全部完成，进入复习',
+    progress:[{date:'10-09', text:'完成全部 2000 词', source:'user'}] },
+
+  { id:'g2', title:'年底前存够 10 万应急金', category:'money', status:'active', createdAt:'07-01',
+    aim:'12-31 前，应急账户余额达到 10 万元', now:'目前约 7.2 万，每月固定转入 5,000',
+    progress:[
+      {date:'10-25', text:'本月转入 5,000，余额约 7.2 万', source:'user'},
+      {date:'09-25', text:'本月转入 5,000，余额约 6.7 万', source:'user'},
+      {date:'07-01', text:'开始这个目标：余额 5.2 万', source:'user'},
+    ] },
+
+  { id:'g3', title:'每周跑步 3 次', category:'health', status:'active', createdAt:'05-10',
+    aim:'保持每周 3 次、每次 5 公里的跑步习惯', now:'膝盖不适，暂停两周',
+    muted:{ since:'10-20', note:'休息中，已关闭这个目标的主动提示' },
+    progress:[
+      {date:'10-20', text:'膝盖不适，休息两周再恢复', source:'rest'},
+      {date:'10-15', text:'本周跑了 3 次，共 16 公里', source:'user'},
+    ] },
+
+  { id:'g4', title:'拿到 PMP 证书', category:'career', status:'active', createdAt:'08-12',
+    aim:'明年 3 月前通过 PMP 考试', now:'已完成 35 学时培训，开始刷题',
+    progress:[{date:'10-22', text:'第一次全真模拟 68%', source:'user'},{date:'10-10', text:'35 学时证明已下发', source:'fact', from:'来自邮件：培训机构'}],
+    works:[{title:'整理 PMP 错题本', state:'running', next:'已整理 3 / 5 章'}] },
+  { id:'g4a', parentId:'g4', title:'模拟考稳定在 75% 以上', category:'career', status:'active', createdAt:'10-22',
+    aim:'连续 3 次全真模拟 ≥ 75%', now:'第一次 68%', progress:[{date:'10-22', text:'全真模拟 68%', source:'user'}] },
+
+  { id:'g5', title:'每月陪父母吃一次饭', category:'family', status:'active', createdAt:'06-01',
+    aim:'每个月至少回家吃一顿饭', now:'10 月还没有安排',
+    progress:[{date:'09-21', text:'中秋回家吃饭', source:'user'},{date:'08-17', text:'带爸妈去吃了粤菜', source:'user'}] },
+
+  { id:'g6', title:'今年读完 12 本书', category:'study', status:'completed', reason:'achieved', createdAt:'01-03', completedAt:'10-02',
+    aim:'2026 年读完 12 本书', now:'已读完 12 本，提前完成',
+    progress:[{date:'10-02', text:'读完第 12 本《长安的荔枝》', source:'user'},{date:'06-30', text:'上半年读完 7 本', source:'user'}] },
+  { id:'g7', title:'学会弹吉他', category:'study', status:'completed', reason:'stopped', createdAt:'02-14', completedAt:'08-30',
+    aim:'能弹唱 5 首完整的歌', now:'学会 2 首，之后时间不够，决定先放下',
+    progress:[{date:'08-30', text:'决定暂时不再追求，吉他借给了朋友', source:'user'},{date:'05-12', text:'能完整弹唱第 2 首', source:'user'}] },
+];
+
+let sel='g1', filter='active';
+const ic   = n => `<svg><use href="#i-${n}"/></svg>`;
+const kids = g => goals.filter(x=>x.parentId===g.id);
+const stKey  = g => g.status==='active' ? 'active' : g.reason;
+const stText = g => g.status==='active' ? '进行中' : g.reason==='achieved' ? '已达成' : '不再追求';
+const chip = g => `<span class="chip st-${stKey(g)}">${stText(g)}</span>`;
+const tile = (g,lg) => `<span class="tile cat-${g.category} ${lg?'lg':''}">${CAT[g.category].g}</span>`;
+
+/* ---------- 列表：只列一级目标，子目标在详情中 ---------- */
+function renderList(){
+  const q = document.getElementById('q').value.trim();
+  const tops = goals.filter(g=>!g.parentId && (!q || (g.title+g.aim+g.now).includes(q)));
+  const n = s => tops.filter(g=>g.status===s).length;
+  document.getElementById('seg').innerHTML =
+    `<button class="${filter==='active'?'on':''}" onclick="setF('active')">进行中<span>${n('active')}</span></button>
+     <button class="${filter==='completed'?'on':''}" onclick="setF('completed')">已完成<span>${n('completed')}</span></button>`;
+  const rows = tops.filter(g=>g.status===filter);
+  const selTop = (goals.find(x=>x.id===sel)||{}).parentId || sel;
+  document.getElementById('rows').innerHTML = rows.map(g=>{
+    const last = g.progress[0];
+    const sub = kids(g);
+    return `<div class="row ${g.id===selTop?'sel':''}" onclick="pick('${g.id}')">
+      ${tile(g)}
+      <div class="m">
+        <div class="t"><span class="tt">${g.title}</span><span class="tm">${last?last.date:''}</span></div>
+        <div class="nx">${g.muted ? '休息中 · ' : ''}${last?last.text:'还没有进展记录'}</div>
+        <div class="meta"><span>${CAT[g.category].l}</span>${sub.length?`<span>${sub.length} 个子目标</span>`:''}${g.status==='completed'?`<span>${stText(g)} · ${g.completedAt}</span>`:''}</div>
+      </div></div>`;
+  }).join('') || `<div class="gl" style="text-align:center;padding:48px 0">没有匹配的目标</div>`;
+}
+function setF(f){ filter=f; renderList(); }
+function pick(id){ sel=id; renderList(); renderDetail(); document.getElementById('detail').scrollTop=0; }
+
+/* ---------- 详情：唯一模板 ---------- */
+function renderDetail(){
+  const g = goals.find(x=>x.id===sel);
+  const parent = g.parentId && goals.find(x=>x.id===g.parentId);
+  const sub = kids(g);
+  const active = g.status==='active';
+
+  const header = `
+    <div class="top">
+      ${parent ? `<span class="crumb" onclick="pick('${parent.id}')">${parent.title}</span><span>›</span><span>子目标</span>`
+               : `<span>${CAT[g.category].l}</span><span>·</span><span>创建于 ${g.createdAt}</span>`}
+      <span class="sp"></span>
+      <button class="ib">在聊天中讨论</button>
+      ${active ? `<button class="ib dark" onclick="openComplete()">完成目标</button>`
+               : `<button class="ib">重新打开</button>`}
+      <div class="menu" id="more"><button class="ib" onclick="this.parentNode.classList.toggle('open')">···</button>
+        <div class="dd">
+          <button>重命名</button>
+          ${active && !g.muted ? `<button>休息一段时间</button>` : ''}
+          <button class="red" onclick="openDelete()">删除目标</button>
+        </div></div>
+    </div>
+    <div class="title">${tile(g,true)}<div><h2>${g.title}</h2>
+      <div class="why">${chip(g)}<span>${active ? (g.progress[0] ? '最近进展 '+g.progress[0].date : '还没有进展') : '完成于 '+g.completedAt}</span></div></div></div>`;
+
+  const hero = `
+    <div class="hero">
+      <div class="hero-main">
+        <div><div class="k">我想达到</div><div class="v">${g.aim}</div></div>
+        <div><div class="k">现在情况</div><div class="v">${g.now}</div></div>
+      </div>
+      <div class="stats">
+        <div><b>${g.progress.length}</b><span>条进展记录</span></div>
+        <div><b>${parent ? '—' : sub.length}</b><span>${parent ? '子目标不再分层' : '个子目标'}</span></div>
+        <div><b>${(g.works||[]).length}</b><span>件关联工作</span></div>
+      </div>
+    </div>`;
+
+  const muted = g.muted ? `<div class="callout">${ic('bell')}<span>${g.muted.note}（自 ${g.muted.since}）</span><span class="sp"></span><span class="link">恢复提示</span></div>` : '';
+
+  const letter = g.letter ? `
+    <div class="letter">
+      <div class="lab">目标信 · ${g.letter.date}</div>
+      <h3>${g.letter.title}</h3>
+      <p>${g.letter.body}</p>
+      <div class="ft"><span>根据你记录的目标与进展整理</span><span class="sp"></span><span class="link">查看往期</span><span class="link">目标信设置</span></div>
+    </div>` : '';
+
+  const subs = parent ? '' : `
+    <div class="sec"><h4>子目标<span class="sp"></span>${active?`<span class="add">+ 在聊天中添加</span>`:''}</h4>
+      <div class="box">${sub.length ? sub.map(s=>`
+        <div class="li click" onclick="pick('${s.id}')">
+          <div class="b"><div>${s.title}</div><div class="d">${s.progress[0]?s.progress[0].date+' · '+s.progress[0].text:'还没有进展'}</div></div>
+          ${chip(s)}<span class="arrow">${ic('right')}</span>
+        </div>`).join('') : `<div class="empty">没有子目标也没关系；需要拆分时在聊天中说一声即可</div>`}</div>
+    </div>`;
+
+  const progress = `
+    <div class="sec"><h4>进展 <span>按日期记录真实发生的事</span></h4>
+      ${active ? `<div class="rec"><input placeholder="记录一条进展，说说最近发生了什么"><button>记录</button></div>` : ''}
+      ${g.progress.map(p=>`<div class="ev"><span class="tm">${p.date}</span><div><div>${p.text}</div>
+        <div class="src">${p.source==='fact'?`<i class="fact">来源事实</i>${p.from}`:p.source==='rest'?`<i class="rest">休息</i>你记录`:`<i>你记录</i>`}</div></div></div>`).join('')}
+    </div>`;
+
+  const works = (!g.works || !g.works.length) ? '' : `
+    <div class="sec"><h4>关联工作 <span>工作各自推进，不会因目标完成而自动结束</span></h4>
+      <div class="box">${g.works.map(w=>`
+        <div class="li click" onclick="location.href='nexus-work.html'">
+          <div class="b"><div>${w.title}</div><div class="d">${w.next}</div></div>
+          <span class="chip w-${w.state}">${WSTATE[w.state]}</span><span class="arrow">${ic('right')}</span>
+        </div>`).join('')}</div>
+    </div>`;
+
+  document.getElementById('detail').innerHTML =
+    `<div class="dw">${header}${hero}${muted}${letter}${subs}${progress}${works}</div>`;
+}
+
+/* ---------- 完成目标：由同一数据生成 ---------- */
+function openComplete(){
+  const g = goals.find(x=>x.id===sel);
+  const actSubs = kids(g).filter(s=>s.status==='active');
+  document.getElementById('modal').innerHTML = `
+    <h3>完成「${g.title}」</h3>
+    <div class="ms">完成后仍可随时重新打开，所有进展都会保留。</div>
+    <div class="opts">
+      <div class="opt on" onclick="pickOpt(this)"><b>已达成</b><span>我做到了</span></div>
+      <div class="opt" onclick="pickOpt(this)"><b>不再追求</b><span>先放下，不算达成</span></div>
+    </div>
+    ${actSubs.length ? `<div class="mlab">还在进行的子目标，选择要一起完成的</div>
+      ${actSubs.map(s=>`<label class="chk"><input type="checkbox">${s.title}</label>`).join('')}` : ''}
+    ${(g.works||[]).length ? `<div class="mlab">关联工作</div><ul class="imp">
+      ${g.works.map(w=>`<li><i>·</i>${w.title}：${w.state==='done'?'已完成':'继续进行，不受影响'}</li>`).join('')}</ul>` : ''}
+    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb" onclick="closeModal()">完成目标</button></div>`;
+  document.getElementById('mask').classList.add('open');
+}
+function openDelete(){
+  const g = goals.find(x=>x.id===sel);
+  const sub = kids(g);
+  document.getElementById('modal').innerHTML = `
+    <h3>删除「${g.title}」？</h3>
+    <div class="ms">如果只是不再追求，建议选择“完成目标 › 不再追求”，可以保留历史。</div>
+    <div class="mlab">将删除</div>
+    <ul class="imp">
+      <li><i style="color:var(--rose)">✕</i>目标本身和 ${g.progress.length} 条进展</li>
+      ${sub.length?`<li><i style="color:var(--rose)">✕</i>${sub.length} 个子目标及其进展</li>`:''}
+      ${g.letter?`<li><i style="color:var(--rose)">✕</i>已有的目标信，并停止后续生成</li>`:''}
+    </ul>
+    ${(g.works||[]).length?`<div class="mlab">会保留</div><ul class="imp">
+      ${g.works.map(w=>`<li><i style="color:var(--green)">✓</i>${w.title}（只解除关联）</li>`).join('')}</ul>`:''}
+    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb danger" onclick="closeModal()">删除</button></div>`;
+  document.getElementById('more').classList.remove('open');
+  document.getElementById('mask').classList.add('open');
+}
+function pickOpt(el){ el.parentNode.querySelectorAll('.opt').forEach(o=>o.classList.remove('on')); el.classList.add('on'); }
+function closeModal(){ document.getElementById('mask').classList.remove('open'); }
+document.addEventListener('click',e=>{ const m=document.getElementById('more'); if(m && !m.contains(e.target)) m.classList.remove('open'); });
+document.getElementById('q').addEventListener('input', renderList);
+renderList(); renderDetail();
+</script>
+</body>
+</html>

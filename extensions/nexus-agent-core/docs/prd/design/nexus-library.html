@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus · 资料库</title>
+<style>
+:root{
+  --bg:#f7f7f8; --panel:#ffffff; --line:#ececef; --soft:#f3f3f5;
+  --text:#18181b; --sub:#63636e; --mute:#a1a1aa;
+  --accent:#5b5bd6; --accent-soft:#f0f0fd;
+  --amber:#d97706; --amber-soft:#fef6e7;
+  --rose:#e5484d;  --rose-soft:#fdeeee;
+  --blue:#3e63dd;  --blue-soft:#edf2fe;
+  --green:#30a46c; --green-soft:#e9f7ef;
+  --gray:#8b8d98;  --gray-soft:#f1f1f3;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden}
+body{font:14px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,select,textarea{font:inherit}
+svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+.app{display:grid;grid-template-columns:72px 380px 1fr;height:100vh}
+.app>*{min-height:0}
+
+/* ---------- 导航 ---------- */
+.rail{display:flex;flex-direction:column;align-items:center;padding:20px 0;gap:6px;border-right:1px solid var(--line);background:var(--panel)}
+.logo{width:34px;height:34px;border-radius:10px;background:var(--text);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px;margin-bottom:18px}
+.nav{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:var(--mute);position:relative;transition:.15s}
+.nav svg{width:21px;height:21px}
+.nav:hover{background:var(--soft);color:var(--sub)}
+.nav.on{background:var(--accent-soft);color:var(--accent)}
+.nav .dot{position:absolute;top:9px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--rose);box-shadow:0 0 0 2px #fff}
+.nav[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:52px;background:var(--text);color:#fff;font-size:12px;padding:3px 8px;border-radius:6px;white-space:nowrap;z-index:9}
+.rail .grow{flex:1}
+
+/* ---------- 列表 ---------- */
+.list{display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line)}
+.lh{padding:26px 24px 12px}
+.lh .hr{display:flex;align-items:center}
+.lh h1{font-size:22px;font-weight:650;letter-spacing:-.01em;flex:1}
+.lh .hello{color:var(--sub);font-size:13px;margin-top:4px}
+.newb{height:32px;padding:0 12px;border-radius:9px;background:var(--text);color:#fff;font-size:13px;font-weight:600}
+.search{margin-top:16px;display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:10px;padding:0 12px;color:var(--mute)}
+.search input{flex:1;border:0;background:none;outline:none;padding:9px 0;color:var(--text)}
+.seg{display:flex;flex-wrap:wrap;gap:4px;padding:4px 24px 8px}
+.seg button{padding:4px 10px;border-radius:999px;font-size:13px;color:var(--sub);white-space:nowrap;transition:.15s}
+.seg button:hover{background:var(--soft)}
+.seg button.on{background:var(--text);color:#fff}
+.seg button span{opacity:.55;margin-left:3px}
+.tools{display:flex;align-items:center;gap:8px;padding:0 24px 8px;font-size:12.5px;color:var(--mute)}
+.tools select{border:0;background:none;color:var(--sub);outline:none;cursor:pointer;font-size:12.5px}
+.tools .sp{flex:1}
+.vt{display:flex;background:var(--soft);border-radius:8px;padding:2px}
+.vt button{width:28px;height:24px;border-radius:6px;display:grid;place-items:center;color:var(--mute)}
+.vt button svg{width:15px;height:15px}
+.vt button.on{background:#fff;color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.rows{flex:1;overflow:auto;padding:0 12px 24px}
+.gl{font-size:12px;color:var(--mute);padding:14px 12px 6px}
+.row{display:flex;gap:12px;padding:10px 12px;border-radius:12px;cursor:pointer;transition:.15s;align-items:center}
+.row:hover{background:var(--soft)}
+.row.sel{background:var(--accent-soft)}
+.row .m{flex:1;min-width:0}
+.row .tt{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .meta{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pin{color:var(--amber)}
+.pin svg{width:14px;height:14px;fill:currentColor;stroke:none}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:4px 12px}
+.gc{border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;transition:.15s;background:#fff}
+.gc:hover{border-color:#d9d9de}
+.gc.sel{outline:2px solid var(--accent);outline-offset:-1px}
+.gc .th{height:92px;display:grid;place-items:center;background:var(--cs)}
+.gc .th{position:relative}
+.mini{width:58%;height:72px;margin-top:20px;background:#fff;border-radius:6px 6px 0 0;box-shadow:0 2px 8px rgba(0,0,0,.06);padding:10px 10px 0;align-self:end}
+.mini i{display:block;height:5px;border-radius:3px;background:#eceef1;margin-bottom:6px}
+.mini i:first-child{width:60%;background:var(--c);opacity:.5}
+.gc .th .tl{position:absolute;top:8px;left:10px;font-size:10px;font-weight:700;color:var(--c);letter-spacing:.03em}
+.gc .gb2{padding:8px 10px}
+.gc .tt{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gc .meta{font-size:11.5px;color:var(--mute)}
+
+/* ---------- 文件类型 ---------- */
+.ft{width:36px;height:40px;border-radius:9px;background:var(--cs);color:var(--c);display:grid;place-items:center;font-size:10px;font-weight:700;letter-spacing:.02em;flex-shrink:0}
+.ft.lg{width:52px;height:58px;border-radius:13px;font-size:12px}
+.t-docx{--c:#3e63dd;--cs:#edf2fe}
+.t-xlsx{--c:#2f9e74;--cs:#e8f6ef}
+.t-pdf{--c:#e5484d;--cs:#fdeeee}
+.t-md{--c:#18181b;--cs:#f1f1f3}
+.t-png{--c:#8e4ec6;--cs:#f7f0fd}
+.t-m4a{--c:#d97706;--cs:#fef6e7}
+.t-zip{--c:#71717a;--cs:#f1f1f3}
+.t-pptx{--c:#c2410c;--cs:#ffece3}
+
+/* ---------- 详情（统一模板） ---------- */
+.detail{overflow:auto}
+.dw{max-width:900px;margin:0 auto;padding:40px 48px 80px}
+.top{display:flex;align-items:center;gap:10px;color:var(--mute);font-size:13px}
+.top .sp{flex:1}
+.ib{height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--sub);font-size:13px;transition:.15s}
+.ib:hover{border-color:#dcdce0;color:var(--text)}
+.ib.dark{background:var(--text);border-color:var(--text);color:#fff}
+.ib.dark:hover{background:#000}
+.menu{position:relative}
+.dd{display:none;position:absolute;right:0;top:40px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.1);min-width:170px;padding:6px;z-index:10}
+.menu.open .dd{display:block}
+.dd button{display:block;width:100%;text-align:left;padding:8px 12px;border-radius:8px;font-size:13.5px;color:var(--text)}
+.dd button:hover{background:var(--soft)}
+.dd .red{color:var(--rose)}
+
+.title{display:flex;gap:16px;align-items:center;margin:18px 0 0}
+h2{font-size:26px;font-weight:650;letter-spacing:-.02em;line-height:1.3;word-break:break-all}
+.why{color:var(--sub);font-size:13.5px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:1px 9px;border-radius:999px}
+.badge.out{background:var(--green-soft);color:var(--green)}
+.badge.in{background:var(--soft);color:var(--sub)}
+.badge.del{background:var(--rose-soft);color:var(--rose)}
+
+/* 预览 */
+.pv{margin-top:24px;background:#eef0f3;border:1px solid var(--line);border-radius:18px;padding:28px;display:grid;place-items:center;position:relative}
+.pv .lab{position:absolute;top:12px;left:16px;font-size:12px;color:var(--mute)}
+.pv .edit{position:absolute;top:10px;right:12px}
+.paper{width:100%;max-width:560px;background:#fff;border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,.06);padding:36px 44px;font-size:13px;color:#3f3f46}
+.paper h6{font-size:17px;font-weight:650;color:var(--text);margin-bottom:4px}
+.paper .s{color:var(--mute);font-size:12px;margin-bottom:16px}
+.paper .ln{height:8px;background:#eef0f3;border-radius:4px;margin:9px 0}
+.paper ol{padding-left:18px;margin:6px 0 12px}
+.paper ol li{margin:4px 0}
+.sheet{width:100%;max-width:620px;background:#fff;border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,.06);overflow:hidden;font-size:12.5px}
+.sheet table{width:100%;border-collapse:collapse}
+.sheet th{background:#f6f7f8;font-weight:600;color:var(--sub);text-align:left}
+.sheet th,.sheet td{border:1px solid #edeef0;padding:7px 10px}
+.sheet td.n{text-align:right;font-variant-numeric:tabular-nums}
+.sheet .flag td{background:#fff8f0}
+.img{width:100%;max-width:420px;aspect-ratio:4/3;border-radius:10px;background:linear-gradient(135deg,#f5f0ff,#e8f3ff);display:grid;place-items:center;color:var(--sub);box-shadow:0 4px 20px rgba(0,0,0,.06)}
+.rcpt{background:#fff;width:200px;padding:16px;border-radius:6px;font-size:12px;line-height:1.9;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.rcpt b{font-size:13px}
+.aud{width:100%;max-width:560px;background:#fff;border-radius:14px;padding:22px 24px;box-shadow:0 4px 20px rgba(0,0,0,.06)}
+.wave{display:flex;align-items:center;gap:3px;height:56px;margin:14px 0 10px}
+.wave i{flex:1;background:#f3c98b;border-radius:2px}
+.aud .ctl{display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--mute)}
+.play{width:36px;height:36px;border-radius:50%;background:var(--text);color:#fff;display:grid;place-items:center}
+.play svg{width:14px;height:14px;fill:#fff;stroke:none}
+.zipl{width:100%;max-width:560px;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.06);overflow:hidden}
+.zipl div{display:flex;gap:10px;align-items:center;padding:9px 16px;font-size:13px}
+.zipl div+div{border-top:1px solid var(--line)}
+.zipl .ft{width:24px;height:28px;font-size:8px;border-radius:6px}
+.zipl span.r{margin-left:auto;color:var(--mute);font-size:12px}
+.md{width:100%;max-width:600px;background:#fff;border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,.06);padding:28px 36px;font-size:13.5px;line-height:1.8}
+.md h6{font-size:16px;font-weight:650;margin-bottom:6px}
+.md .h{font-weight:600;margin-top:10px}
+.md ul{padding-left:18px}
+
+.callout{margin-top:20px;padding:16px 20px;border-radius:14px;background:var(--soft);color:var(--sub);font-size:13.5px;display:flex;gap:12px;align-items:center}
+.callout .sp{flex:1}
+.callout.warn{background:var(--rose-soft);color:#8f2a2d}
+.callout b{color:var(--text)}
+
+.share{margin-top:20px;padding:20px 24px;border-radius:16px;border:1px solid #f6e3bd;background:linear-gradient(180deg,#fffaf0,#fff);display:flex;gap:16px;align-items:center}
+.share .b{flex:1}
+.share .lab{font-size:12px;font-weight:600;color:var(--amber);letter-spacing:.04em}
+.share .v{font-weight:600;margin-top:2px}
+.share .d{font-size:12.5px;color:var(--sub)}
+.share.private{border-color:var(--line);background:var(--panel)}
+.share.private .lab{color:var(--sub)}
+
+.sec{margin-top:36px}
+.sec h4{font-size:13px;font-weight:600;color:var(--sub);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.sec h4 span{font-weight:400;color:var(--mute)}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.li{display:flex;align-items:center;gap:14px;padding:14px 20px}
+.li+.li{border-top:1px solid var(--line)}
+.li.click{cursor:pointer}
+.li.click:hover{background:#fafafb}
+.li .b{flex:1;min-width:0}
+.li .d{font-size:12.5px;color:var(--mute)}
+.li .r{font-size:12.5px;color:var(--mute);white-space:nowrap}
+.vn{width:34px;height:24px;border-radius:7px;background:var(--soft);display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--sub);flex-shrink:0}
+.vn.cur{background:var(--text);color:#fff}
+.cur-tag{font-size:11.5px;color:var(--green);font-weight:600;margin-left:6px}
+.old{color:var(--mute)}
+.gbtn{height:30px;padding:0 10px;border-radius:8px;color:var(--sub);font-size:12.5px}
+.gbtn:hover{background:var(--soft)}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:8px 16px;padding:16px 20px;font-size:13.5px}
+.kv dt{color:var(--mute)}
+.kv dd{margin:0}
+.link{color:var(--accent);cursor:pointer}
+.link:hover{text-decoration:underline}
+
+/* ---------- 弹窗 ---------- */
+.mask{position:fixed;inset:0;background:rgba(24,24,27,.32);backdrop-filter:blur(3px);display:none;place-items:center;z-index:20}
+.mask.open{display:grid}
+.modal{width:500px;background:#fff;border-radius:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,.18)}
+.modal h3{font-size:18px;font-weight:650}
+.modal .ms{color:var(--sub);font-size:13.5px;margin-top:6px}
+.opts{display:grid;gap:10px;margin-top:18px}
+.opt{border:1.5px solid var(--line);border-radius:14px;padding:14px 16px;cursor:pointer;transition:.15s}
+.opt b{display:block;font-size:14.5px}
+.opt span{font-size:12.5px;color:var(--mute)}
+.opt.on{border-color:var(--text);background:#fafafa}
+.mlab{font-size:12px;color:var(--mute);margin:16px 0 6px}
+.imp{margin:0;padding:0;list-style:none;font-size:13.5px}
+.imp li{display:flex;gap:10px;padding:5px 0;color:var(--sub)}
+.imp i{font-style:normal;width:18px;flex-shrink:0;text-align:center}
+.drop{margin-top:18px;border:1.5px dashed #d4d4d8;border-radius:16px;padding:34px;text-align:center;color:var(--sub);background:#fafafb}
+.drop b{display:block;color:var(--text);font-size:15px;margin-bottom:4px}
+.limits{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-top:14px;font-size:12.5px;color:var(--sub)}
+.limits span{color:var(--mute)}
+.acts{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:22px}
+.pb{height:38px;padding:0 20px;border-radius:10px;background:var(--text);color:#fff;font-weight:600}
+.pb:hover{background:#000}
+.pb.danger{background:var(--rose)}
+.gb{height:38px;padding:0 16px;border-radius:10px;color:var(--sub)}
+.gb:hover{background:var(--soft)}
+
+@media (max-width:1200px){
+  .app{grid-template-columns:64px 320px 1fr}
+  .dw{padding:32px 28px 60px}
+}
+</style>
+</head>
+<body>
+<svg style="display:none">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-work" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/></symbol>
+  <symbol id="i-goal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.5"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M21 20c0-2.6-1.5-4.6-3.8-5.3"/></symbol>
+  <symbol id="i-lib" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10l2 2.5h6.5A1.5 1.5 0 0 1 20 8v10.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z"/></symbol>
+  <symbol id="i-status" viewBox="0 0 24 24"><path d="M4 13h4l2-6 4 12 2-6h4"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11h.1a2 2 0 1 1 0 4z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 2.5l2.6 6.1 6.4.5-4.9 4.2 1.5 6.4L12 16.3l-5.6 3.4 1.5-6.4L3 9.1l6.4-.5z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+</svg>
+
+<div class="app">
+  <nav class="rail">
+    <div class="logo">N</div>
+    <button class="nav" data-tip="Chat"><svg><use href="#i-chat"/></svg><span class="dot"></span></button>
+    <button class="nav" data-tip="工作" onclick="location.href='nexus-work.html'"><svg><use href="#i-work"/></svg></button>
+    <button class="nav" data-tip="目标" onclick="location.href='nexus-goals.html'"><svg><use href="#i-goal"/></svg></button>
+    <button class="nav" data-tip="人员" onclick="location.href='nexus-people.html'"><svg><use href="#i-people"/></svg></button>
+    <button class="nav on" data-tip="资料库"><svg><use href="#i-lib"/></svg></button>
+    <div class="grow"></div>
+    <button class="nav" data-tip="Status" onclick="location.href='nexus-status.html'"><svg><use href="#i-status"/></svg></button>
+    <button class="nav" data-tip="Settings"><svg><use href="#i-set"/></svg></button>
+  </nav>
+
+  <section class="list">
+    <div class="lh">
+      <div class="hr"><h1>资料库</h1><button class="newb" onclick="openUpload()">上传</button></div>
+      <div class="hello">工作产出的成果与你提供的资料</div>
+      <label class="search"><svg><use href="#i-search"/></svg><input id="q" placeholder="搜索文件名、内容或客户"></label>
+    </div>
+    <div class="seg" id="seg"></div>
+    <div class="tools">
+      <select id="ctx" onchange="renderList()"><option value="">全部上下文</option><option>A 客户</option><option>B 客户</option><option>个人</option></select>
+      <select id="sort" onchange="renderList()"><option value="t">最近更新</option><option value="n">名称</option></select>
+      <span class="sp"></span>
+      <div class="vt"><button id="vl" class="on" onclick="setView('list')"><svg><use href="#i-list"/></svg></button><button id="vg" onclick="setView('grid')"><svg><use href="#i-grid"/></svg></button></div>
+    </div>
+    <div class="rows" id="rows"></div>
+  </section>
+
+  <main class="detail" id="detail"></main>
+</div>
+
+<div class="mask" id="mask" onclick="if(event.target===this)closeModal()"><div class="modal" id="modal"></div></div>
+
+<script>
+/* ================================================================
+   统一的文件详情模型（FileView）
+   所有文件使用同一结构与同一渲染函数；预览按文件类型选择渲染器，其余区块完全一致。
+
+   FileView {
+     id, name, type: docx | xlsx | pdf | md | png | m4a | zip | pptx,
+     size, context, updatedAt, sortKey, pinned?,
+     origin: deliverable | upload,          // 工作成果 / 你上传的输入
+     ownerWork?,                           // 成果所属工作
+     preview,                              // 类型渲染器所需内容
+     editable?,                            // 仅 Markdown / 受支持演示稿可在线编辑
+     share?: {mode: private | public, version, expiresIn?},
+     versions: [{v, date, by, note, current?}],
+     usedBy: [{work, role}],
+     facts: [[键, 值]],                    // 来源、原件保留等
+     deleted?: {at, daysLeft}               // 回收站
+   }
+   ================================================================ */
+
+const files = [
+  { id:'f1', name:'A客户评审议程_v2.docx', type:'docx', size:'86 KB', context:'A 客户', updatedAt:'10-29', sortKey:9, pinned:true,
+    origin:'deliverable', ownerWork:'A 客户评审材料包',
+    preview:{ title:'11-03 A 客户评审议程（v2）', sub:'Nexus 咨询 · 2026-10-29',
+      items:['项目回顾与关键里程碑','报价方案说明','交付时间表确认','风险与应对','下一步安排'] },
+    versions:[
+      {v:'v2', date:'10-29 15:40', by:'A 客户评审材料包 生成', note:'按新期限更新交付时间表；你已审阅', current:true},
+      {v:'v1', date:'10-27 10:12', by:'A 客户评审材料包 生成', note:'已被 v2 替代'} ],
+    usedBy:[{work:'A 客户评审材料包', role:'主要成果'}],
+    facts:[['上下文','A 客户 · 管理工作'],['依据','10-26 会议纪要、决策 D2（期限改为 10-30）']] },
+
+  { id:'f2', name:'B客户周报_第43周.docx', type:'docx', size:'124 KB', context:'B 客户', updatedAt:'10-29', sortKey:8,
+    origin:'deliverable', ownerWork:'B 客户本周周报',
+    share:{ mode:'public', version:'v2', expiresIn:'46 小时后' },
+    preview:{ title:'B 客户项目周报 · 第 43 周', sub:'10-23 至 10-29',
+      items:['本周进展：完成 3 个模块联调','风险：测试环境延期 2 天','下周计划：用户验收准备'] },
+    versions:[
+      {v:'v2', date:'10-29 18:40', by:'B 客户本周周报 生成', note:'修正交付数据后重新核验', current:true},
+      {v:'v1', date:'10-29 10:20', by:'B 客户本周周报 生成', note:'数据有误，已被 v2 替代'} ],
+    usedBy:[{work:'B 客户本周周报', role:'主要成果'}],
+    facts:[['上下文','B 客户 · 管理工作'],['依据','项目管理系统 10-29 导出数据']] },
+
+  { id:'f3', name:'A客户会议纪要_1026.md', type:'md', size:'6 KB', context:'A 客户', updatedAt:'10-26', sortKey:6, pinned:true,
+    origin:'deliverable', ownerWork:'A 客户会议纪要', editable:true,
+    share:{ mode:'private', version:'v1' },
+    preview:{ title:'A 客户会议纪要 · 10-26', sections:[['决策',['报价表需含单价、数量、税额及总额','11-03 召开评审会']],['行动',['李明：交付报价表（10-28 17:00）','小王：预订评审会场']]] },
+    versions:[{v:'v1', date:'10-26 19:12', by:'A 客户会议纪要 生成', note:'你已确认', current:true}],
+    usedBy:[{work:'A 客户会议纪要', role:'主要成果'},{work:'A 客户评审材料包', role:'参考资料'}],
+    facts:[['上下文','A 客户 · 管理工作'],['依据','10-26 会议录音（你上传）']] },
+
+  { id:'f4', name:'Q3合同核对报告_草稿.xlsx', type:'xlsx', size:'48 KB', context:'B 客户', updatedAt:'09:30', sortKey:10,
+    origin:'deliverable', ownerWork:'Q3 供应商合同核对',
+    preview:{ rows:[['合同编号','供应商','付款期限','系统记录','结论'],['HT-0912','华东精密','60 天','45 天','不一致'],['HT-0915','鼎盛物流','30 天','30 天','一致'],['HT-0921','远航包装','90 天','60 天','不一致'],['HT-0927','新科电子','45 天','45 天','一致']], flags:[1,3] },
+    versions:[{v:'v1', date:'今天 09:30', by:'Q3 供应商合同核对 生成中', note:'已核对 21 / 38 份，完成后生成正式版', current:true}],
+    usedBy:[{work:'Q3 供应商合同核对', role:'主要成果（未完成）'}],
+    facts:[['上下文','B 客户 · 管理工作'],['依据','供应商合同_Q3.zip 中 38 份 PDF']] },
+
+  { id:'f5', name:'10-26会议录音.m4a', type:'m4a', size:'86 MB', context:'A 客户', updatedAt:'10-26', sortKey:5,
+    origin:'upload',
+    preview:{ duration:'58:12' },
+    versions:[{v:'原件', date:'10-26 17:45', by:'你上传', note:'始终保留原件', current:true}],
+    usedBy:[{work:'A 客户会议纪要', role:'输入资料'}],
+    facts:[['上传','10-26 17:45 · Mac 客户端'],['原件','完整保留，转写版本不覆盖原件'],['用途','作为输入使用，未采用为成果']] },
+
+  { id:'f6', name:'供应商合同_Q3.zip', type:'zip', size:'21.4 MB', context:'B 客户', updatedAt:'10-30', sortKey:7,
+    origin:'upload',
+    preview:{ entries:[['HT-0912_华东精密.pdf','1.2 MB'],['HT-0915_鼎盛物流.pdf','860 KB'],['HT-0921_远航包装.pdf','1.4 MB'],['… 其余 35 份','18 MB']] },
+    versions:[{v:'原件', date:'今天 08:02', by:'你上传', note:'已安全解压 38 份 PDF', current:true}],
+    usedBy:[{work:'Q3 供应商合同核对', role:'输入资料'}],
+    facts:[['上传','今天 08:02 · Web'],['安全','仅解压文件，不会执行其中任何内容'],['用途','作为输入使用，未采用为成果']] },
+
+  { id:'f7', name:'发票_滴滴_1021.png', type:'png', size:'412 KB', context:'个人', updatedAt:'10-29', sortKey:4,
+    origin:'upload',
+    preview:{ receipt:['滴滴出行 电子发票','开票日期 2026-10-21','金额 ¥86.00'] },
+    versions:[{v:'原件', date:'10-29 20:30', by:'你上传', note:'', current:true}],
+    usedBy:[{work:'10 月报销整理', role:'输入资料'}],
+    facts:[['上传','10-29 20:30 · 手机 Telegram'],['用途','作为输入使用，未采用为成果']] },
+
+  { id:'f8', name:'商务英语会议表达.pdf', type:'pdf', size:'1.1 MB', context:'个人', updatedAt:'10-21', sortKey:3,
+    origin:'deliverable', ownerWork:'整理客户会议常用英文表达',
+    preview:{ title:'客户会议常用英文表达', sub:'按开场、澄清、追问、收尾分类 · 共 86 条',
+      items:['开场：Thanks for making time today…','澄清：Just to make sure I understand…','追问：Could you walk me through…','收尾：Let me recap the next steps…'] },
+    versions:[{v:'v1', date:'10-21 21:05', by:'整理客户会议常用英文表达 生成', note:'', current:true}],
+    usedBy:[{work:'整理客户会议常用英文表达', role:'主要成果'}],
+    facts:[['上下文','个人 · 关联目标「提升英语口语表达」']] },
+
+  { id:'f9', name:'旧版报价模板.xlsx', type:'xlsx', size:'32 KB', context:'A 客户', updatedAt:'10-20', sortKey:1,
+    origin:'upload', deleted:{ at:'10-20', daysLeft:20 },
+    preview:{ rows:[['项目','单价','数量','金额'],['咨询服务','—','—','—']] },
+    versions:[{v:'原件', date:'09-30 14:00', by:'你上传', note:'', current:true}],
+    usedBy:[],
+    facts:[['删除','10-20 · 由你移到回收站'],['公开访问','删除时已立即撤销']] },
+];
+
+let sel='f1', filter='all', view='list';
+const ic = n => `<svg><use href="#i-${n}"/></svg>`;
+const ft = (f,lg) => `<span class="ft t-${f.type} ${lg?'lg':''}">${f.type.toUpperCase()}</span>`;
+const typeName = {docx:'Word 文档',xlsx:'Excel 表格',pdf:'PDF',md:'Markdown',png:'图片',m4a:'音频',zip:'压缩包',pptx:'演示稿'};
+
+/* ---------- 列表 ---------- */
+function renderList(){
+  const q = document.getElementById('q').value.trim();
+  const c = document.getElementById('ctx').value;
+  const live = files.filter(f=>!f.deleted);
+  const F = [['all','全部',live.length],['deliverable','成果',live.filter(f=>f.origin==='deliverable').length],
+             ['upload','我上传的',live.filter(f=>f.origin==='upload').length],['pinned','已固定',live.filter(f=>f.pinned).length],
+             ['trash','回收站',files.filter(f=>f.deleted).length]];
+  document.getElementById('seg').innerHTML = F.map(([k,l,n])=>`<button class="${filter===k?'on':''}" onclick="setF('${k}')">${l}<span>${n}</span></button>`).join('');
+  let rows = files.filter(f => (filter==='trash' ? f.deleted : !f.deleted) &&
+    (filter==='all'||filter==='trash'||(filter==='pinned'?f.pinned:f.origin===filter)) &&
+    (!c || f.context===c) && (!q || (f.name+f.context+(f.ownerWork||'')).includes(q)));
+  rows.sort(document.getElementById('sort').value==='n' ? (a,b)=>a.name.localeCompare(b.name,'zh') : (a,b)=>b.sortKey-a.sortKey);
+
+  const meta = f => f.deleted ? `${f.daysLeft||f.deleted.daysLeft} 天后永久删除` : `${f.context} · ${f.updatedAt} · ${f.size}`;
+  const el = document.getElementById('rows');
+  if(!rows.length){ el.innerHTML = `<div class="gl" style="text-align:center;padding:48px 0">${filter==='trash'?'回收站是空的':'没有匹配的文件'}</div>`; return; }
+  el.innerHTML = view==='list'
+    ? rows.map(f=>`<div class="row ${f.id===sel?'sel':''}" onclick="pick('${f.id}')">${ft(f)}
+        <div class="m"><div class="tt">${f.name}</div><div class="meta">${meta(f)}</div></div>
+        ${f.pinned?`<span class="pin">${ic('pin')}</span>`:''}</div>`).join('')
+    : `<div class="grid">${rows.map(f=>`<div class="gc t-${f.type} ${f.id===sel?'sel':''}" onclick="pick('${f.id}')">
+        <div class="th"><span class="tl">${f.type.toUpperCase()}</span><div class="mini"><i></i><i></i><i style="width:80%"></i><i style="width:65%"></i></div></div><div class="gb2"><div class="tt">${f.pinned?'★ ':''}${f.name}</div><div class="meta">${f.deleted?meta(f):f.updatedAt+' · '+f.size}</div></div></div>`).join('')}</div>`;
+}
+function setF(f){
+  filter=f;
+  const inView = x => (f==='trash') === !!x.deleted && (f==='all'||f==='trash'||(f==='pinned'?x.pinned:x.origin===f));
+  const cur = files.find(x=>x.id===sel);
+  if(!inView(cur)){ const first = files.find(inView); if(first){ sel=first.id; renderDetail(); } }
+  renderList();
+}
+function setView(v){ view=v; document.getElementById('vl').classList.toggle('on',v==='list'); document.getElementById('vg').classList.toggle('on',v==='grid'); renderList(); }
+function pick(id){ sel=id; renderList(); renderDetail(); document.getElementById('detail').scrollTop=0; }
+
+/* ---------- 预览：按类型选择渲染器 ---------- */
+function preview(f){
+  const p = f.preview;
+  switch(f.type){
+    case 'docx': case 'pdf': case 'pptx':
+      return `<div class="paper"><h6>${p.title}</h6><div class="s">${p.sub}</div><ol>${p.items.map(i=>`<li>${i}</li>`).join('')}</ol><div class="ln" style="width:92%"></div><div class="ln" style="width:78%"></div><div class="ln" style="width:85%"></div></div>`;
+    case 'xlsx':
+      return `<div class="sheet"><table>${p.rows.map((r,i)=>i===0?`<tr>${r.map(c=>`<th>${c}</th>`).join('')}</tr>`
+        :`<tr class="${(p.flags||[]).includes(i)?'flag':''}">${r.map(c=>`<td class="${/\d/.test(c)?'n':''}">${c}</td>`).join('')}</tr>`).join('')}</table></div>`;
+    case 'md':
+      return `<div class="md"><h6>${p.title}</h6>${p.sections.map(([h,l])=>`<div class="h">${h}</div><ul>${l.map(x=>`<li>${x}</li>`).join('')}</ul>`).join('')}</div>`;
+    case 'm4a':
+      return `<div class="aud"><b>录音</b><div class="wave">${Array.from({length:64},(_,i)=>`<i style="height:${18+Math.abs(Math.sin(i*1.7)*Math.cos(i*.45))*80}%"></i>`).join('')}</div>
+        <div class="ctl"><span class="play">${ic('play')}</span><span>00:00 / ${p.duration}</span></div></div>`;
+    case 'zip':
+      return `<div class="zipl">${p.entries.map(([n,s])=>`<div><span class="ft t-pdf">PDF</span>${n}<span class="r">${s}</span></div>`).join('')}</div>`;
+    case 'png':
+      return `<div class="img"><div class="rcpt">${p.receipt.map((l,i)=>i?`<div>${l}</div>`:`<b>${l}</b>`).join('')}</div></div>`;
+  }
+}
+
+/* ---------- 详情：唯一模板 ---------- */
+function renderDetail(){
+  const f = files.find(x=>x.id===sel);
+  const del = !!f.deleted;
+  const header = `
+    <div class="top"><span>${f.context}</span><span>·</span><span>${typeName[f.type]} · ${f.size}</span><span class="sp"></span>
+      ${del ? `<button class="ib" onclick="openPurge()">永久删除</button><button class="ib dark">恢复</button>` : `
+      <button class="ib">在聊天中讨论</button><button class="ib">下载</button>
+      <button class="ib dark" onclick="openShare()">分享</button>
+      <div class="menu" id="more"><button class="ib" onclick="this.parentNode.classList.toggle('open')">···</button>
+        <div class="dd">${f.origin==='upload'?'<button>用作某件工作的成果…</button>':''}<button>重命名</button><button>${f.pinned?'取消固定':'固定'}</button><button class="red" onclick="openDelete()">移到回收站</button></div></div>`}
+    </div>
+    <div class="title">${ft(f,true)}<div><h2>${f.name}</h2>
+      <div class="why">${del ? `<span class="badge del">在回收站</span>`
+        : f.origin==='deliverable' ? `<span class="badge out">成果</span>来自「<span class="link" onclick="location.href='nexus-work.html'">${f.ownerWork}</span>」`
+        : `<span class="badge in">你上传的</span>作为输入资料使用`}
+        <span>· 更新于 ${f.updatedAt}</span></div></div></div>`;
+
+  const pv = `<div class="pv"><span class="lab">${f.editable?'可在线编辑':'预览'}</span>${f.editable&&!del?`<button class="ib edit">编辑</button>`:''}${preview(f)}</div>`;
+
+  const notice = del
+    ? `<div class="callout warn"><span><b>将在 ${f.deleted.daysLeft} 天后永久删除。</b>恢复后仍是私有文件，不会自动重新公开。</span></div>`
+    : '';
+
+  const share = !f.share || del ? '' : f.share.mode==='public' ? `
+    <div class="share"><div class="b"><div class="lab">临时公开链接</div>
+      <div class="v">任何拿到链接的人都能查看 ${f.share.version} · ${f.share.expiresIn}自动失效</div>
+      <div class="d">对方已下载的副本无法收回</div></div>
+      <button class="ib">复制链接</button><button class="ib dark" style="background:var(--rose);border-color:var(--rose)">立即撤销</button></div>`
+    : `<div class="share private"><div class="b"><div class="lab">私有链接</div>
+      <div class="v">只有你登录后可以打开 · ${f.share.version}</div><div class="d">适合发给自己或在聊天中引用，不能用于对外分享</div></div>
+      <button class="ib">复制链接</button></div>`;
+
+  const versions = `
+    <div class="sec"><h4>版本 <span>每个版本都记录由谁生成</span></h4><div class="box">
+      ${f.versions.map(v=>`<div class="li"><span class="vn ${v.current?'cur':''}">${v.v}</span>
+        <div class="b ${v.current?'':'old'}"><div>${v.by}${v.current?'<span class="cur-tag">当前</span>':''}</div><div class="d">${v.date}${v.note?' · '+v.note:''}</div></div>
+        ${!v.current&&!del?`<button class="gbtn">设为当前</button><button class="gbtn">删除此版本</button>`:''}</div>`).join('')}
+    </div></div>`;
+
+  const used = `
+    <div class="sec"><h4>使用它的工作</h4><div class="box">
+      ${f.usedBy.length ? f.usedBy.map(u=>`<div class="li click" onclick="location.href='nexus-work.html'">
+        <div class="b">${u.work}<div class="d">${u.role}</div></div><span class="r">${ic('right')}</span></div>`).join('')
+        : `<div class="li"><div class="b d">没有工作在使用</div></div>`}
+    </div></div>`;
+
+  const facts = `<div class="sec"><h4>来源</h4><div class="box"><dl class="kv">${f.facts.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div></div>`;
+
+  document.getElementById('detail').innerHTML = `<div class="dw">${header}${notice}${pv}${share}${versions}${used}${facts}</div>`;
+}
+
+/* ---------- 弹窗：均由同一数据生成 ---------- */
+function show(html){ document.getElementById('modal').innerHTML = html; const m=document.getElementById('more'); if(m) m.classList.remove('open'); document.getElementById('mask').classList.add('open'); }
+function closeModal(){ document.getElementById('mask').classList.remove('open'); }
+function pickOpt(el){ el.parentNode.querySelectorAll('.opt').forEach(o=>o.classList.remove('on')); el.classList.add('on'); }
+
+function openShare(){
+  const f = files.find(x=>x.id===sel), cur = f.versions.find(v=>v.current);
+  show(`<h3>分享「${f.name}」</h3><div class="ms">当前版本 ${cur.v} · ${cur.date}</div>
+    <div class="opts">
+      <div class="opt on" onclick="pickOpt(this)"><b>私有链接</b><span>只有你登录后可以打开</span></div>
+      <div class="opt" onclick="pickOpt(this)"><b>临时公开链接</b><span>任何拿到链接的人可查看这个版本，最长 48 小时后自动失效，可随时撤销</span></div>
+    </div>
+    <div class="mlab">请注意</div>
+    <ul class="imp"><li><i>·</i>公开的是你现在看到的 ${cur.v}，之后的修改不会自动同步</li><li><i>·</i>对方已下载的副本无法收回</li><li><i>·</i>发邮件给客户请在聊天中说明，会单独请你确认</li></ul>
+    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb" onclick="closeModal()">生成链接</button></div>`);
+}
+function openDelete(){
+  const f = files.find(x=>x.id===sel);
+  show(`<h3>把「${f.name}」移到回收站？</h3><div class="ms">30 天内可以恢复，之后永久删除。</div>
+    ${f.versions.length>1?`<div class="opts"><div class="opt on" onclick="pickOpt(this)"><b>整个文件（${f.versions.length} 个版本）</b></div><div class="opt" onclick="pickOpt(this)"><b>只删除当前版本</b><span>不会自动切回旧版本，需要你手动选择</span></div></div>`:''}
+    <div class="mlab">影响</div><ul class="imp">
+      ${f.share&&f.share.mode==='public'?`<li><i style="color:var(--rose)">✕</i>公开链接立即失效</li>`:''}
+      ${f.usedBy.map(u=>`<li><i style="color:var(--amber)">!</i>「${u.work}」中会显示该${u.role.includes('输入')?'资料':'成果'}不可用</li>`).join('')}
+      <li><i style="color:var(--green)">✓</i>不会删除或结束任何工作</li></ul>
+    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb danger" onclick="closeModal()">移到回收站</button></div>`);
+}
+function openPurge(){
+  const f = files.find(x=>x.id===sel);
+  show(`<h3>永久删除「${f.name}」？</h3><div class="ms">删除后无法恢复。</div>
+    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb danger" onclick="closeModal()">永久删除</button></div>`);
+}
+function openUpload(){
+  show(`<h3>上传资料</h3><div class="ms">上传的文件作为输入资料，需要时在聊天中说明用途。</div>
+    <div class="drop"><b>拖入文件或点击选择</b>文件夹请先压缩为 ZIP</div>
+    <div class="limits"><div>文档、表格等<span> · 25 MB 以内</span></div><div>视频<span> · 100 MB 以内</span></div>
+      <div>音频<span> · 250 MB / 120 分钟以内</span></div><div>粘贴图片<span> · 8 MB 以内</span></div></div>
+    <ul class="imp" style="margin-top:14px"><li><i>·</i>上传的文件不会被执行，压缩包只会被安全解压</li><li><i>·</i>原件始终保留，处理后的版本不会覆盖原件</li></ul>
+    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb" onclick="closeModal()">选择文件</button></div>`);
+}
+
+document.addEventListener('click',e=>{ const m=document.getElementById('more'); if(m && !m.contains(e.target)) m.classList.remove('open'); });
+document.getElementById('q').addEventListener('input', renderList);
+renderList(); renderDetail();
+</script>
+</body>
+</html>

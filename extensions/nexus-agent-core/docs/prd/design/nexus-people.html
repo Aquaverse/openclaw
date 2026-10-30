@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus · 人员</title>
+<style>
+:root{
+  --bg:#f7f7f8; --panel:#ffffff; --line:#ececef; --soft:#f3f3f5;
+  --text:#18181b; --sub:#63636e; --mute:#a1a1aa;
+  --accent:#5b5bd6; --accent-soft:#f0f0fd;
+  --amber:#d97706; --amber-soft:#fef6e7;
+  --rose:#e5484d;  --rose-soft:#fdeeee;
+  --blue:#3e63dd;  --blue-soft:#edf2fe;
+  --green:#30a46c; --green-soft:#e9f7ef;
+  --gray:#8b8d98;  --gray-soft:#f1f1f3;
+  --violet:#8e4ec6; --violet-soft:#f7f0fd;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden}
+body{font:14px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input{font:inherit}
+svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+.app{display:grid;grid-template-columns:72px 380px 1fr;height:100vh}
+.app>*{min-height:0}
+
+/* ---------- 导航 ---------- */
+.rail{display:flex;flex-direction:column;align-items:center;padding:20px 0;gap:6px;border-right:1px solid var(--line);background:var(--panel)}
+.logo{width:34px;height:34px;border-radius:10px;background:var(--text);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px;margin-bottom:18px}
+.nav{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:var(--mute);position:relative;transition:.15s}
+.nav svg{width:21px;height:21px}
+.nav:hover{background:var(--soft);color:var(--sub)}
+.nav.on{background:var(--accent-soft);color:var(--accent)}
+.nav .dot{position:absolute;top:9px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--rose);box-shadow:0 0 0 2px #fff}
+.nav[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:52px;background:var(--text);color:#fff;font-size:12px;padding:3px 8px;border-radius:6px;white-space:nowrap;z-index:9}
+.rail .grow{flex:1}
+
+/* ---------- 列表 ---------- */
+.list{display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line)}
+.lh{padding:26px 24px 14px}
+.lh .hr{display:flex;align-items:center}
+.lh h1{font-size:22px;font-weight:650;letter-spacing:-.01em;flex:1}
+.lh .hello{color:var(--sub);font-size:13px;margin-top:4px}
+.newb{height:32px;padding:0 12px;border-radius:9px;background:var(--text);color:#fff;font-size:13px;font-weight:600}
+.search{margin-top:16px;display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:10px;padding:0 12px;color:var(--mute)}
+.search input{flex:1;border:0;background:none;outline:none;padding:9px 0;color:var(--text)}
+.seg{display:flex;flex-wrap:wrap;gap:4px;padding:4px 24px 12px}
+.seg button{padding:4px 10px;border-radius:999px;font-size:13px;color:var(--sub);white-space:nowrap;transition:.15s}
+.seg button:hover{background:var(--soft)}
+.seg button.on{background:var(--text);color:#fff}
+.rows{flex:1;overflow:auto;padding:0 12px 24px}
+.gl{font-size:12px;color:var(--mute);padding:16px 12px 6px}
+.row{display:flex;gap:12px;padding:12px;border-radius:12px;cursor:pointer;transition:.15s;align-items:flex-start}
+.row:hover{background:var(--soft)}
+.row.sel{background:var(--accent-soft)}
+.row .m{flex:1;min-width:0}
+.row .t{display:flex;gap:8px;align-items:baseline}
+.row .tt{font-weight:600;white-space:nowrap}
+.row .org{font-size:12.5px;color:var(--mute);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+.tg{font-size:12px;padding:0 8px;border-radius:6px;background:var(--soft);color:var(--sub);line-height:20px}
+.tg.rose{background:var(--rose-soft);color:#b4363a}
+.tg.amber{background:var(--amber-soft);color:#a15c07}
+.tg.mute{background:none;color:var(--mute);padding:0}
+
+/* ---------- 头像 ---------- */
+.av{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:600;font-size:14px;flex-shrink:0;background:var(--cs);color:var(--c)}
+.av.lg{width:56px;height:56px;font-size:20px}
+.k-self{--c:#18181b;--cs:#ececef}
+.k-colleague{--c:#3e63dd;--cs:#edf2fe}
+.k-client{--c:#8e4ec6;--cs:#f7f0fd}
+.k-vendor{--c:#b7791f;--cs:#fdf5e3}
+.k-unknown{--c:#a1a1aa;--cs:#fff;}
+.k-unknown.av{border:1.5px dashed #d4d4d8}
+.k-vendor.av{border-radius:11px}
+.k-vendor.av.lg{border-radius:16px}
+
+/* ---------- 承诺阶段 ---------- */
+.p-notsent{--sc:var(--gray);--ss:var(--gray-soft)}
+.p-waiting{--sc:var(--violet);--ss:var(--violet-soft)}
+.p-checking{--sc:var(--blue);--ss:var(--blue-soft)}
+.p-you{--sc:var(--amber);--ss:var(--amber-soft)}
+.p-late{--sc:var(--rose);--ss:var(--rose-soft)}
+.p-resolved{--sc:var(--green);--ss:var(--green-soft)}
+.p-cancelled{--sc:var(--gray);--ss:var(--gray-soft)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--ss);color:var(--sc);font-size:12.5px;font-weight:600;white-space:nowrap}
+.chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--sc)}
+
+/* ---------- 详情（统一模板） ---------- */
+.detail{overflow:auto}
+.dw{max-width:860px;margin:0 auto;padding:40px 48px 80px}
+.top{display:flex;align-items:center;gap:10px;color:var(--mute);font-size:13px}
+.top .sp{flex:1}
+.ib{height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--sub);font-size:13px;transition:.15s}
+.ib:hover{border-color:#dcdce0;color:var(--text)}
+.ib.dark{background:var(--text);border-color:var(--text);color:#fff}
+.ib.dark:hover{background:#000}
+.menu{position:relative}
+.dd{display:none;position:absolute;right:0;top:40px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.1);min-width:180px;padding:6px;z-index:10}
+.menu.open .dd{display:block}
+.dd button{display:block;width:100%;text-align:left;padding:8px 12px;border-radius:8px;font-size:13.5px;color:var(--text)}
+.dd button:hover{background:var(--soft)}
+.dd .red{color:var(--rose)}
+
+.title{display:flex;gap:16px;align-items:center;margin:18px 0 0}
+h2{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.3}
+.why{color:var(--sub);font-size:14px;margin-top:2px}
+.ends{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.end{font-size:12.5px;color:var(--sub);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:2px 10px}
+.end b{font-weight:500;color:var(--green);margin-left:4px}
+
+.hero{margin-top:24px;background:var(--panel);border:1px solid var(--line);border-radius:18px;display:grid;grid-template-columns:repeat(3,1fr)}
+.hero>div{padding:22px 28px}
+.hero>div+div{border-left:1px solid var(--line)}
+.hero b{font-size:26px;font-weight:650;letter-spacing:-.02em}
+.hero b.rose{color:var(--rose)}
+.hero b.amber{color:var(--amber)}
+.hero span{display:block;font-size:12.5px;color:var(--mute)}
+.hnote{font-size:12px;color:var(--mute);margin-top:8px;padding-left:4px}
+
+.ask{margin-top:20px;padding:24px 28px;border-radius:18px;background:linear-gradient(180deg,#fffaf0,#fff);border:1px solid #f6e3bd}
+.ask .lab{font-size:12px;font-weight:600;color:var(--amber);letter-spacing:.04em}
+.ask h3{font-size:17px;font-weight:600;margin:6px 0 4px}
+.ask p{color:var(--sub);font-size:13.5px}
+.cands{display:grid;gap:8px;margin-top:14px}
+.cand{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 14px;cursor:pointer;transition:.15s}
+.cand:hover{border-color:#d4d4d8}
+.cand .b{flex:1}
+.cand .d{font-size:12.5px;color:var(--mute)}
+.cand .av{width:32px;height:32px;font-size:13px}
+
+.callout{margin-top:20px;padding:16px 20px;border-radius:14px;background:var(--soft);color:var(--sub);font-size:13.5px}
+
+.tabs{display:flex;gap:4px;margin-top:36px;border-bottom:1px solid var(--line)}
+.tab{padding:8px 4px;margin-right:18px;font-size:14px;color:var(--mute);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.on{color:var(--text);font-weight:600;border-bottom-color:var(--text)}
+.tab span{margin-left:4px;font-weight:400;color:var(--mute)}
+
+.cmt{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+.cmt .h{display:flex;gap:12px;align-items:flex-start}
+.cmt .h .b{flex:1}
+.cmt h5{font-size:15.5px;font-weight:600}
+.cmt .req{font-size:13px;color:var(--sub);margin-top:2px}
+.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px;padding:12px 14px;background:#fafafb;border-radius:12px}
+.facts .k{font-size:11.5px;color:var(--mute)}
+.facts .v{font-size:13.5px;font-weight:500}
+.facts .v.rose{color:var(--rose)}
+.facts .v.green{color:var(--green)}
+.facts .v.mute{color:var(--mute);font-weight:400}
+.gap{margin-top:10px;font-size:12.5px;color:#a15c07;background:var(--amber-soft);border-radius:8px;padding:6px 10px}
+.foot{display:flex;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap}
+.next{font-size:13.5px;flex:1;min-width:200px}
+.next b{font-weight:600}
+.pb{height:34px;padding:0 16px;border-radius:9px;background:var(--text);color:#fff;font-weight:600;font-size:13px}
+.pb:hover{background:#000}
+.pb.danger{background:var(--rose)}
+.gb{height:34px;padding:0 12px;border-radius:9px;color:var(--sub);font-size:13px}
+.gb:hover{background:var(--soft)}
+.wlinks{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);font-size:12.5px;color:var(--mute);align-items:center}
+.wl{display:inline-flex;align-items:center;gap:6px;color:var(--accent);cursor:pointer;background:var(--accent-soft);border-radius:7px;padding:1px 8px}
+.wl:hover{text-decoration:underline}
+.wl.old{color:var(--sub);background:var(--soft)}
+.srcbtn{margin-left:auto;color:var(--mute);cursor:pointer}
+.srcbtn:hover{color:var(--sub)}
+.src{display:none;margin-top:10px;font-size:12.5px;color:var(--sub);background:#fafafb;border-radius:10px;padding:10px 12px}
+.src.open{display:block}
+.empty{padding:40px 20px;color:var(--mute);font-size:13.5px;text-align:center}
+
+/* ---------- 弹窗 ---------- */
+.mask{position:fixed;inset:0;background:rgba(24,24,27,.32);backdrop-filter:blur(3px);display:none;place-items:center;z-index:20}
+.mask.open{display:grid}
+.modal{width:480px;background:#fff;border-radius:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,.18)}
+.modal h3{font-size:18px;font-weight:650}
+.modal .ms{color:var(--sub);font-size:13.5px;margin-top:6px}
+.mlab{font-size:12px;color:var(--mute);margin:16px 0 6px}
+.imp{margin:0;padding:0;list-style:none;font-size:13.5px}
+.imp li{display:flex;gap:10px;padding:5px 0;color:var(--sub)}
+.imp i{font-style:normal;width:18px;flex-shrink:0;text-align:center}
+.field{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 12px;outline:none}
+.acts{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:22px}
+
+@media (max-width:1200px){
+  .app{grid-template-columns:64px 320px 1fr}
+  .dw{padding:32px 28px 60px}
+  .facts{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+<svg style="display:none">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-work" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/></symbol>
+  <symbol id="i-goal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.5"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M21 20c0-2.6-1.5-4.6-3.8-5.3"/></symbol>
+  <symbol id="i-lib" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10l2 2.5h6.5A1.5 1.5 0 0 1 20 8v10.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z"/></symbol>
+  <symbol id="i-status" viewBox="0 0 24 24"><path d="M4 13h4l2-6 4 12 2-6h4"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11h.1a2 2 0 1 1 0 4z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-work-s" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="11" rx="2"/><path d="M9.5 8V6.5h5V8"/></symbol>
+</svg>
+
+<div class="app">
+  <nav class="rail">
+    <div class="logo">N</div>
+    <button class="nav" data-tip="Chat"><svg><use href="#i-chat"/></svg><span class="dot"></span></button>
+    <button class="nav" data-tip="工作" onclick="location.href='nexus-work.html'"><svg><use href="#i-work"/></svg></button>
+    <button class="nav" data-tip="目标" onclick="location.href='nexus-goals.html'"><svg><use href="#i-goal"/></svg></button>
+    <button class="nav on" data-tip="人员"><svg><use href="#i-people"/></svg></button>
+    <button class="nav" data-tip="资料库" onclick="location.href='nexus-library.html'"><svg><use href="#i-lib"/></svg></button>
+    <div class="grow"></div>
+    <button class="nav" data-tip="Status" onclick="location.href='nexus-status.html'"><svg><use href="#i-status"/></svg></button>
+    <button class="nav" data-tip="Settings"><svg><use href="#i-set"/></svg></button>
+  </nav>
+
+  <section class="list">
+    <div class="lh">
+      <div class="hr"><h1>人员</h1><button class="newb">委派新工作</button></div>
+      <div class="hello">谁在为你负责什么，进展到哪了</div>
+      <label class="search"><svg><use href="#i-search"/></svg><input id="q" placeholder="搜索姓名、别名、客户或项目"></label>
+    </div>
+    <div class="seg" id="seg"></div>
+    <div class="rows" id="rows"></div>
+  </section>
+
+  <main class="detail" id="detail"></main>
+</div>
+
+<div class="mask" id="mask" onclick="if(event.target===this)closeModal()"><div class="modal" id="modal"></div></div>
+
+<script>
+/* ================================================================
+   统一的人员详情模型（PersonView）
+   所有人员（含“我”和待确认人员）使用同一结构与同一渲染函数。
+   人员视图只投影承诺记录，不保存另一份待办状态。
+
+   PersonView {
+     id, name, kind: self | colleague | client | vendor | unknown,
+     org, relation, aliases?, endpoints?: [{label, verified}],
+     identity?: {source, candidates: [{name, org, kind}]},   // 待确认人员
+     commitments: [{
+       role: responsible | related,          // 由其负责 / 与其相关
+       status: open | resolved | cancelled,
+       phase: notsent | waiting | checking | you | late | resolved | cancelled,
+       title, req, due, accept, comm, verify, gap?,
+       next, actions: [主操作, ...次操作],
+       works: [{title, old?}], source
+     }]
+   }
+   ================================================================ */
+
+const KIND = {self:'我', colleague:'同事与下属', client:'客户', vendor:'供应商', unknown:'待确认是谁'};
+const KORDER = ['self','colleague','client','vendor','unknown'];
+const PHASE = {notsent:'尚未发送委派', waiting:'等待对方回应', checking:'正在检查交付', you:'等待你决定', late:'截止已过', resolved:'已核验完成', cancelled:'已取消'};
+
+const people = [
+  { id:'me', name:'我', kind:'self', org:'张伟 · Nexus 咨询', relation:'',
+    endpoints:[{label:'zhang@nexus-consult.com', verified:true}],
+    commitments:[
+      { role:'responsible', status:'open', phase:'checking', title:'回复王总关于预算的问题', req:'说明 Q4 预算拆分与付款节点',
+        due:'10-31 18:00', accept:'你已答应', comm:'—', verify:'未核验', next:'草稿已备好，等你确认后发送', actions:['查看草稿'],
+        works:[{title:'A 客户评审材料包'}], source:'来自 10-29 王总邮件「预算问题」' },
+      { role:'responsible', status:'open', phase:'checking', title:'每周五交 B 客户周报', req:'DOCX，含进展、风险与下周计划',
+        due:'每周五 18:00', accept:'你已答应', comm:'—', verify:'本周未交', next:'本周周报将在今天 15:00 生成草稿', actions:[],
+        works:[{title:'B 客户本周周报'}], source:'来自 10-08 B 客户例会纪要' },
+    ] },
+
+  { id:'liming', name:'李明', kind:'colleague', org:'Nexus 咨询 · 项目经理', relation:'同事',
+    aliases:['Li Ming','明哥'], endpoints:[{label:'liming@nexus-consult.com', verified:true},{label:'企业微信', verified:true}],
+    commitments:[
+      { role:'responsible', status:'open', phase:'checking', title:'交付 A 客户报价表', req:'XLSX，含单价、数量、税额及总额',
+        due:'今天 17:00', accept:'已接受新期限', comm:'已送达', verify:'未核验',
+        next:'今天 09:00 检查暂未收到，17:00 截止时再检查', actions:['催办','手动结案'],
+        works:[{title:'A 客户评审材料包'},{title:'跟进李明报价表（已结束）', old:true}],
+        source:'来自 10-26 A 客户会议纪要；10-27 期限由 10-28 改为 10-30，李明回复“周五前交”' },
+      { role:'responsible', status:'open', phase:'waiting', title:'整理客户访谈纪要', req:'3 场访谈的要点汇总，PDF',
+        due:'11-01 18:00', accept:'待确认', comm:'已送达', verify:'—',
+        next:'委派邮件 10-29 已送达，李明尚未回复是否接受', actions:['催办','继续跟进'],
+        works:[{title:'A 客户评审材料包'}], source:'你于 10-29 在聊天中委派' },
+      { role:'related', status:'open', phase:'checking', title:'王总确认交付时间表', req:'李明是这封邮件的抄送人',
+        due:'未知', accept:'—', comm:'—', verify:'—', next:'由王总负责，李明仅为参与人', actions:[],
+        works:[{title:'A 客户评审材料包'}], source:'参与人：A 客户评审材料包' },
+      { role:'responsible', status:'resolved', phase:'resolved', title:'提交 10 月资源排期表', req:'XLSX',
+        due:'10-20 18:00', accept:'已接受', comm:'已送达', verify:'已核验完成', next:'10-20 15:12 收到并核对通过', actions:[],
+        works:[{title:'10 月资源排期'}], source:'来自 10-12 周会纪要' },
+    ] },
+
+  { id:'chenfang', name:'陈芳', kind:'colleague', org:'Nexus 咨询 · 分析师', relation:'下属',
+    endpoints:[{label:'chenfang@nexus-consult.com', verified:true}],
+    commitments:[
+      { role:'responsible', status:'open', phase:'late', title:'供应商合同复核意见', req:'对 2 份付款期限不一致的合同给出处理建议',
+        due:'10-28 18:00', accept:'待确认', comm:'已送达', verify:'未收到',
+        next:'要求的截止时间已过，接受情况待确认', actions:['催办','更改期限'],
+        works:[{title:'Q3 供应商合同核对'}], source:'你于 10-27 在聊天中委派' },
+    ] },
+
+  { id:'wang', name:'王总', kind:'client', org:'A 客户 · 采购总监', relation:'客户',
+    aliases:['王建国'], endpoints:[{label:'wang.zong@a-client.com', verified:true}],
+    commitments:[
+      { role:'responsible', status:'open', phase:'you', title:'确认交付时间表', req:'确认议程 v2 第 3 页的时间安排是否可行',
+        due:'未知', accept:'—', comm:'未发送', verify:'—',
+        next:'发给王总的邮件等待你批准', actions:['查看并批准'],
+        works:[{title:'A 客户评审材料包'}], source:'来自 10-26 A 客户会议纪要' },
+      { role:'related', status:'open', phase:'checking', title:'回复王总关于预算的问题', req:'由你负责，王总是收件人',
+        due:'10-31 18:00', accept:'—', comm:'—', verify:'—', next:'由你负责', actions:[],
+        works:[{title:'A 客户评审材料包'}], source:'来自 10-29 王总邮件' },
+    ] },
+
+  { id:'sf', name:'顺丰速运', kind:'vendor', org:'供应商 · 深圳分部', relation:'供应商',
+    endpoints:[{label:'客服邮箱 · 已验证', verified:true}],
+    commitments:[
+      { role:'responsible', status:'open', phase:'checking', title:'样品寄达 A 客户', req:'运单 SF1234 送达并签收',
+        due:'10-31', accept:'已揽收', comm:'—', verify:'运输中', next:'每天 10:00 查询物流状态', actions:['继续跟进'],
+        works:[{title:'A 客户评审材料包'}], source:'来自 10-29 寄件确认邮件' },
+    ] },
+
+  { id:'xw', name:'小王', kind:'unknown', org:'来自 10-26 A 客户会议纪要', relation:'',
+    identity:{ source:'纪要原文：“会场由小王负责订好”', candidates:[
+      {name:'王小雨', org:'Nexus 咨询 · 行政', kind:'colleague'},
+      {name:'王磊', org:'A 客户 · 行政助理', kind:'client'} ] },
+    commitments:[
+      { role:'responsible', status:'open', phase:'notsent', title:'预订 11-03 评审会场', req:'可容纳 12 人，带投影',
+        due:'11-01', accept:'未知', comm:'未发送', verify:'—',
+        next:'确认是谁之前，不会向其发送任何消息', actions:[],
+        works:[{title:'A 客户评审材料包'}], source:'来自 10-26 A 客户会议纪要' },
+    ] },
+];
+
+let sel='liming', kindF='all', tab='responsible';
+const ic = n => `<svg><use href="#i-${n}"/></svg>`;
+const av = (p,lg) => `<span class="av k-${p.kind} ${lg?'lg':''}">${p.kind==='self'?'我':p.kind==='unknown'?'?':p.name[0]}</span>`;
+const open = p => p.commitments.filter(c=>c.role==='responsible' && c.status==='open');
+
+/* ---------- 列表 ---------- */
+function renderList(){
+  const q = document.getElementById('q').value.trim();
+  const F = [['all','全部'],['colleague','同事'],['client','客户'],['vendor','供应商'],['unknown','待确认']];
+  document.getElementById('seg').innerHTML = F.map(([k,l])=>`<button class="${kindF===k?'on':''}" onclick="setK('${k}')">${l}</button>`).join('');
+  const base = people.filter(p => (kindF==='all'||p.kind===kindF) &&
+    (!q || (p.name+p.org+(p.aliases||[]).join('')).includes(q)));
+  let h='';
+  KORDER.forEach(k=>{
+    const g = base.filter(p=>p.kind===k);
+    if(!g.length) return;
+    if(k!=='self') h += `<div class="gl">${KIND[k]}</div>`;
+    g.forEach(p=>{
+      const o = open(p);
+      const late = o.filter(c=>c.phase==='late').length;
+      const acc = o.filter(c=>c.accept==='待确认').length;
+      const tags = o.length
+        ? `<span class="tg">${p.kind==='self'?'由我负责':'负责'} ${o.length} 项</span>${late?`<span class="tg rose">截止已过 ${late}</span>`:''}${acc?`<span class="tg amber">接受待确认 ${acc}</span>`:''}`
+        : `<span class="tg mute">暂无未解决事项</span>`;
+      h += `<div class="row ${p.id===sel?'sel':''}" onclick="pick('${p.id}')">${av(p)}
+        <div class="m"><div class="t"><span class="tt">${p.name}</span><span class="org">${p.org}</span></div>
+        <div class="tags">${tags}</div></div></div>`;
+    });
+  });
+  document.getElementById('rows').innerHTML = h || `<div class="gl" style="text-align:center;padding:48px 0">没有匹配的人员</div>`;
+}
+function setK(k){ kindF=k; renderList(); }
+function pick(id){ sel=id; tab='responsible'; renderList(); renderDetail(); document.getElementById('detail').scrollTop=0; }
+function setTab(t){ tab=t; renderDetail(); }
+
+/* ---------- 详情：唯一模板 ---------- */
+function renderDetail(){
+  const p = people.find(x=>x.id===sel);
+  const self = p.kind==='self', unknown = p.kind==='unknown';
+  const o = open(p);
+  const late = o.filter(c=>c.phase==='late').length;
+  const acc  = o.filter(c=>c.accept==='待确认').length;
+
+  const header = `
+    <div class="top"><span>${KIND[p.kind]}${p.relation&&p.relation!==KIND[p.kind]?' · '+p.relation:''}</span><span class="sp"></span>
+      <button class="ib">在聊天中讨论</button>
+      ${self||unknown ? '' : `<button class="ib dark">委派新工作</button>`}
+      <div class="menu" id="more"><button class="ib" onclick="this.parentNode.classList.toggle('open')">···</button>
+        <div class="dd">
+          ${unknown ? `<button>这不是一个人</button>` : `<button>更正身份</button>${self?'':'<button>合并重复人员</button>'}`}
+          ${self ? '' : `<button class="red" onclick="openDelete()">删除人员</button>`}
+        </div></div>
+    </div>
+    <div class="title">${av(p,true)}<div><h2>${p.name}</h2><div class="why">${p.org}${p.aliases?` · 也称 ${p.aliases.join('、')}`:''}</div></div></div>
+    ${p.endpoints ? `<div class="ends">${p.endpoints.map(e=>`<span class="end">${e.label}${e.verified?'<b>已验证</b>':''}</span>`).join('')}</div>` : ''}`;
+
+  const hero = `
+    <div class="hero">
+      <div><b>${o.length}</b><span>${self?'由我负责':'由其负责'} · 未解决</span></div>
+      <div><b class="${late?'rose':''}">${late}</b><span>截止已过</span></div>
+      <div><b class="${acc?'amber':''}">${acc}</b><span>接受待确认</span></div>
+    </div>
+    <div class="hnote">同一事项可能同时计入多个数字，不能相加；期限未知的事项不算逾期。</div>`;
+
+  const identity = !unknown ? '' : `
+    <div class="ask">
+      <div class="lab">需要你确认</div>
+      <h3>“小王”是谁？</h3>
+      <p>${p.identity.source}。确认之前不会归入任何人，也不会向其发送消息。</p>
+      <div class="cands">
+        ${p.identity.candidates.map(c=>`<div class="cand">${av({name:c.name,kind:c.kind})}<div class="b"><div>${c.name}</div><div class="d">${c.org}</div></div><button class="pb">是此人</button></div>`).join('')}
+        <div class="cand"><span class="av k-unknown">+</span><div class="b"><div>都不是</div><div class="d">在聊天中告诉我是谁</div></div></div>
+      </div>
+    </div>`;
+
+  const counts = {
+    responsible: o.length,
+    related: p.commitments.filter(c=>c.role==='related' && c.status==='open').length,
+    history: p.commitments.filter(c=>c.status!=='open').length,
+  };
+  const tabs = `
+    <div class="tabs">
+      <button class="tab ${tab==='responsible'?'on':''}" onclick="setTab('responsible')">${self?'由我负责':'由其负责'}<span>${counts.responsible}</span></button>
+      <button class="tab ${tab==='related'?'on':''}" onclick="setTab('related')">与${self?'我':'其'}相关<span>${counts.related}</span></button>
+      <button class="tab ${tab==='history'?'on':''}" onclick="setTab('history')">历史<span>${counts.history}</span></button>
+    </div>`;
+
+  const items = p.commitments.filter(c =>
+    tab==='history' ? c.status!=='open' : c.status==='open' && c.role===tab);
+
+  const cards = items.length ? items.map((c,i)=>`
+    <div class="cmt">
+      <div class="h"><div class="b"><h5>${c.title}</h5><div class="req">${c.req}</div></div>
+        <span class="chip p-${c.phase}">${PHASE[c.phase]}</span></div>
+      ${c.role==='responsible' ? `
+      <div class="facts">
+        <div><div class="k">期限</div><div class="v ${c.phase==='late'?'rose':''} ${c.due==='未知'?'mute':''}">${c.due}</div></div>
+        <div><div class="k">沟通</div><div class="v ${c.comm==='—'||c.comm==='未发送'?'mute':''}">${c.comm}</div></div>
+        <div><div class="k">对方接受</div><div class="v ${c.accept==='待确认'||c.accept==='未知'||c.accept==='—'?'mute':''}">${c.accept}</div></div>
+        <div><div class="k">交付核验</div><div class="v ${c.verify==='已核验完成'?'green':''} ${c.verify==='—'?'mute':''}">${c.verify}</div></div>
+      </div>` : ''}
+      ${c.gap ? `<div class="gap">${c.gap}</div>` : ''}
+      <div class="foot">
+        <div class="next">${c.status==='open'?'下一步：':''}<b>${c.next}</b></div>
+        ${c.actions.map((a,j)=>`<button class="${j?'gb':'pb'}" ${a==='手动结案'?'onclick="openClose()"':''}>${a}</button>`).join('')}
+      </div>
+      <div class="wlinks">关联工作
+        ${c.works.map(w=>`<span class="wl ${w.old?'old':''}" onclick="location.href='nexus-work.html'">${ic('work-s')}${w.title}</span>`).join('')}
+        <span class="srcbtn" onclick="this.parentNode.nextElementSibling.classList.toggle('open')">来源与依据 ›</span>
+      </div>
+      <div class="src">${c.source}</div>
+    </div>`).join('')
+    : `<div class="empty">${tab==='history'?'还没有已解决或已取消的事项':'没有事项'}</div>`;
+
+  document.getElementById('detail').innerHTML = `<div class="dw">${header}${hero}${identity}${tabs}${cards}</div>`;
+}
+
+/* ---------- 弹窗 ---------- */
+function openClose(){
+  document.getElementById('modal').innerHTML = `
+    <h3>手动结案「交付 A 客户报价表」</h3>
+    <div class="ms">手动结案不等于已核验交付，会标注为“手动结案”。</div>
+    <div class="mlab">结案原因（必填）</div>
+    <input class="field" placeholder="例如：李明已线下当面交付">
+    <div class="mlab">影响</div>
+    <ul class="imp">
+      <li><i style="color:var(--rose)">✕</i>停止仅为这件事安排的检查与提醒</li>
+      <li><i style="color:var(--amber)">!</i>「A 客户评审材料包」的报价表标准会显示为“手动结案”，不算核验通过</li>
+      <li><i style="color:var(--green)">✓</i>不会通知李明，不会修改任何外部系统</li>
+    </ul>
+    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb" onclick="closeModal()">确认结案</button></div>`;
+  document.getElementById('mask').classList.add('open');
+}
+function openDelete(){
+  const p = people.find(x=>x.id===sel);
+  const o = open(p);
+  document.getElementById('modal').innerHTML = `
+    <h3>删除「${p.name}」？</h3>
+    <div class="ms">只删除人员档案，不会删除任何事项或工作。</div>
+    <div class="mlab">影响</div>
+    <ul class="imp">
+      ${o.length?`<li><i style="color:var(--amber)">!</i>${o.length} 项未解决事项将变为“待确认是谁”，不会被删除</li>`:''}
+      <li><i style="color:var(--rose)">✕</i>联系方式与别名</li>
+      <li><i style="color:var(--green)">✓</i>关联工作与历史记录保留</li>
+    </ul>
+    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb danger" onclick="closeModal()">删除</button></div>`;
+  document.getElementById('more').classList.remove('open');
+  document.getElementById('mask').classList.add('open');
+}
+function closeModal(){ document.getElementById('mask').classList.remove('open'); }
+document.addEventListener('click',e=>{ const m=document.getElementById('more'); if(m && !m.contains(e.target)) m.classList.remove('open'); });
+document.getElementById('q').addEventListener('input', renderList);
+renderList(); renderDetail();
+</script>
+</body>
+</html>

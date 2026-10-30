@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus · Status</title>
+<style>
+:root{
+  --bg:#f7f7f8; --panel:#ffffff; --line:#ececef; --soft:#f3f3f5;
+  --text:#18181b; --sub:#63636e; --mute:#a1a1aa;
+  --accent:#5b5bd6; --accent-soft:#f0f0fd;
+  --amber:#d97706; --amber-soft:#fef6e7;
+  --rose:#e5484d;  --rose-soft:#fdeeee;
+  --blue:#3e63dd;  --blue-soft:#edf2fe;
+  --green:#30a46c; --green-soft:#e9f7ef;
+  --gray:#8b8d98;  --gray-soft:#f1f1f3;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden}
+body{font:14px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+input,select,textarea{font:inherit}
+svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+.app{display:grid;grid-template-columns:72px 380px 1fr;height:100vh}
+.app>*{min-height:0}
+
+/* ---------- 导航 ---------- */
+.rail{display:flex;flex-direction:column;align-items:center;padding:20px 0;gap:6px;border-right:1px solid var(--line);background:var(--panel)}
+.logo{width:34px;height:34px;border-radius:10px;background:var(--text);color:#fff;display:grid;place-items:center;font-weight:700;font-size:15px;margin-bottom:18px}
+.nav{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:var(--mute);position:relative;transition:.15s}
+.nav svg{width:21px;height:21px}
+.nav:hover{background:var(--soft);color:var(--sub)}
+.nav.on{background:var(--accent-soft);color:var(--accent)}
+.nav .dot{position:absolute;top:9px;right:9px;width:7px;height:7px;border-radius:50%;background:var(--rose);box-shadow:0 0 0 2px #fff}
+.nav[data-tip]:hover::after{content:attr(data-tip);position:absolute;left:52px;background:var(--text);color:#fff;font-size:12px;padding:3px 8px;border-radius:6px;white-space:nowrap;z-index:9}
+.rail .grow{flex:1}
+
+/* ---------- 列表 ---------- */
+.list{display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line)}
+.lh{padding:26px 24px 12px}
+.lh h1{font-size:22px;font-weight:650;letter-spacing:-.01em}
+.lh .hello{color:var(--sub);font-size:13px;margin-top:4px}
+.search{margin-top:16px;display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:10px;padding:0 12px;color:var(--mute)}
+.search input{flex:1;border:0;background:none;outline:none;padding:9px 0;color:var(--text)}
+.seg{display:flex;flex-wrap:wrap;gap:4px;padding:4px 24px 8px}
+.seg button{padding:4px 10px;border-radius:999px;font-size:13px;color:var(--sub);white-space:nowrap;transition:.15s}
+.seg button:hover{background:var(--soft)}
+.seg button.on{background:var(--text);color:#fff}
+.seg button span{opacity:.55;margin-left:3px}
+.rows{flex:1;overflow:auto;padding:0 12px 24px}
+.gl{font-size:12px;color:var(--mute);padding:14px 12px 6px}
+.row{display:flex;gap:12px;padding:10px 12px;border-radius:12px;cursor:pointer;transition:.15s;align-items:center}
+.row:hover{background:var(--soft)}
+.row.sel{background:var(--accent-soft)}
+.row .m{flex:1;min-width:0}
+.row .tt{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .meta{font-size:12px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ov{margin:4px 0 2px;border:1px solid var(--line)}
+.ov.sel{border-color:transparent}
+
+.ki{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex-shrink:0;background:var(--cs);color:var(--c)}
+.ki svg{width:18px;height:18px}
+.ki.lg{width:52px;height:52px;border-radius:14px}
+.ki.lg svg{width:24px;height:24px}
+.k-run{--c:var(--blue);--cs:var(--blue-soft)}
+.k-approval{--c:var(--green);--cs:var(--green-soft)}
+.k-check{--c:var(--accent);--cs:var(--accent-soft)}
+.k-job{--c:#71717a;--cs:var(--gray-soft)}
+.k-incident{--c:var(--rose);--cs:var(--rose-soft)}
+.k-overview{--c:#fff;--cs:var(--text)}
+
+.chip{font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0}
+.tn-blue{background:var(--blue-soft);color:var(--blue)}
+.tn-green{background:var(--green-soft);color:var(--green)}
+.tn-amber{background:var(--amber-soft);color:var(--amber)}
+.tn-rose{background:var(--rose-soft);color:var(--rose)}
+.tn-gray{background:var(--gray-soft);color:var(--gray)}
+
+/* ---------- 详情（统一模板） ---------- */
+.detail{overflow:auto}
+.dw{max-width:900px;margin:0 auto;padding:40px 48px 80px}
+.top{display:flex;align-items:center;gap:10px;color:var(--mute);font-size:13px}
+.top .sp{flex:1}
+.ib{height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--sub);font-size:13px;transition:.15s}
+.ib:hover{border-color:#dcdce0;color:var(--text)}
+.ib.dark{background:var(--text);border-color:var(--text);color:#fff}
+.ib.dark:hover{background:#000}
+.ib.red{color:var(--rose)}
+.menu{position:relative}
+.dd{display:none;position:absolute;right:0;top:40px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.1);min-width:170px;padding:6px;z-index:10}
+.menu.open .dd{display:block}
+.dd button{display:block;width:100%;text-align:left;padding:8px 12px;border-radius:8px;font-size:13.5px;color:var(--text)}
+.dd button:hover{background:var(--soft)}
+.dd .red{color:var(--rose)}
+
+.title{display:flex;gap:16px;align-items:center;margin:18px 0 0}
+h2{font-size:26px;font-weight:650;letter-spacing:-.02em;line-height:1.3}
+.why{color:var(--sub);font-size:13.5px;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.link{color:var(--accent);cursor:pointer}
+.link:hover{text-decoration:underline}
+
+.callout{margin-top:24px;padding:18px 22px;border-radius:16px;background:var(--soft);color:var(--sub);font-size:14px;display:flex;gap:14px;align-items:center}
+.callout .b{flex:1}
+.callout b{color:var(--text)}
+.callout.amber{background:linear-gradient(180deg,#fffaf0,#fff);border:1px solid #f6e3bd;color:#7a4a06}
+.callout.rose{background:var(--rose-soft);color:#8f2a2d}
+
+.story{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px}
+.story div{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 18px;font-size:13.5px}
+.story b{display:block;font-size:12px;color:var(--mute);font-weight:600;margin-bottom:4px}
+
+.sec{margin-top:36px}
+.sec h4{font-size:13px;font-weight:600;color:var(--sub);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.sec h4 span{font-weight:400;color:var(--mute)}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.li{display:flex;align-items:center;gap:14px;padding:14px 20px}
+.li+.li{border-top:1px solid var(--line)}
+.li.click{cursor:pointer}
+.li.click:hover{background:#fafafb}
+.li .b{flex:1;min-width:0}
+.li .d{font-size:12.5px;color:var(--mute)}
+.li .r{font-size:12.5px;color:var(--mute);white-space:nowrap}
+.dotc{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--c,var(--mute))}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:8px 16px;padding:16px 20px;font-size:13.5px}
+.kv dt{color:var(--mute)}
+.kv dd{margin:0}
+
+/* 资源使用 */
+.led{padding:20px 22px}
+.led .big{display:flex;align-items:baseline;gap:8px}
+.led .big b{font-size:26px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.led .big span{color:var(--mute);font-size:13px}
+.bar{height:10px;background:var(--soft);border-radius:6px;display:flex;overflow:hidden;margin:14px 0 12px}
+.bar i{display:block;height:100%}
+.bar .a{background:var(--text)}
+.bar .rv{background:repeating-linear-gradient(135deg,#c9c9d1 0 4px,#e4e4e9 4px 8px)}
+.bar.warn .a{background:var(--amber)}
+.leg{display:flex;gap:20px;flex-wrap:wrap;font-size:12.5px;color:var(--sub)}
+.leg span{display:inline-flex;align-items:center;gap:6px}
+.leg em{font-style:normal;color:var(--mute)}
+.sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+.led .note{margin-top:12px;font-size:12.5px;color:var(--mute)}
+
+/* 经过 */
+.tl{padding:8px 20px}
+.tl .e{display:flex;gap:14px;padding:9px 0;position:relative}
+.tl .e:not(:last-child)::before{content:"";position:absolute;left:52px;top:24px;bottom:-9px;width:1px;background:var(--line)}
+.tl .t{width:40px;font-size:12.5px;color:var(--mute);font-variant-numeric:tabular-nums;padding-top:1px;flex-shrink:0}
+.tl .n{width:9px;height:9px;border-radius:50%;margin-top:6px;flex-shrink:0;background:var(--c,#d4d4d8);box-shadow:0 0 0 3px #fff;position:relative;z-index:1}
+.tl .x{font-size:13.5px}
+
+/* 概览 */
+.health{margin-top:22px;display:flex;gap:16px;align-items:center;padding:22px 24px;border-radius:18px;background:var(--panel);border:1px solid var(--line)}
+.health .b{flex:1}
+.health b{font-size:17px;font-weight:650}
+.health .d{color:var(--sub);font-size:13.5px;margin-top:2px}
+.pulse{width:12px;height:12px;border-radius:50%;background:var(--green);box-shadow:0 0 0 6px var(--green-soft);flex-shrink:0;margin:0 6px}
+.caps{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.cap{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
+.cap .l{font-size:12.5px;color:var(--mute)}
+.cap .v{font-size:24px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:2px}
+.cap .v span{font-size:13px;color:var(--mute);font-weight:400;margin-left:4px}
+.cap .bar{height:6px;margin:10px 0 8px}
+.cap .d{font-size:12.5px;color:var(--sub)}
+.wq{display:flex;align-items:center;gap:14px}
+.wq .bar{width:120px;height:6px;margin:0}
+.wq .n{font-size:12.5px;color:var(--sub);width:64px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---------- 弹窗 ---------- */
+.mask{position:fixed;inset:0;background:rgba(24,24,27,.32);backdrop-filter:blur(3px);display:none;place-items:center;z-index:20}
+.mask.open{display:grid}
+.modal{width:500px;background:#fff;border-radius:20px;padding:28px;box-shadow:0 24px 64px rgba(0,0,0,.18)}
+.modal h3{font-size:18px;font-weight:650}
+.modal .ms{color:var(--sub);font-size:13.5px;margin-top:6px}
+.mlab{font-size:12px;color:var(--mute);margin:16px 0 6px}
+.imp{margin:0;padding:0;list-style:none;font-size:13.5px}
+.imp li{display:flex;gap:10px;padding:5px 0;color:var(--sub)}
+.imp i{font-style:normal;width:18px;flex-shrink:0;text-align:center}
+textarea{width:100%;margin-top:16px;border:1.5px solid var(--line);border-radius:14px;padding:12px 14px;min-height:96px;resize:none;outline:none}
+textarea:focus{border-color:var(--text)}
+.acts{display:flex;align-items:center;gap:10px;justify-content:flex-end;margin-top:22px}
+.pb{height:38px;padding:0 20px;border-radius:10px;background:var(--text);color:#fff;font-weight:600}
+.pb:hover{background:#000}
+.pb.danger{background:var(--rose)}
+.gb{height:38px;padding:0 16px;border-radius:10px;color:var(--sub)}
+.gb:hover{background:var(--soft)}
+
+@media (max-width:1200px){
+  .app{grid-template-columns:64px 320px 1fr}
+  .dw{padding:32px 28px 60px}
+}
+</style>
+</head>
+<body>
+<svg style="display:none">
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-work" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/></symbol>
+  <symbol id="i-goal" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.5"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M21 20c0-2.6-1.5-4.6-3.8-5.3"/></symbol>
+  <symbol id="i-lib" viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H10l2 2.5h6.5A1.5 1.5 0 0 1 20 8v10.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5z"/></symbol>
+  <symbol id="i-status" viewBox="0 0 24 24"><path d="M4 13h4l2-6 4 12 2-6h4"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 9 4.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11h.1a2 2 0 1 1 0 4z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-run" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v4.5h-4.5"/></symbol>
+  <symbol id="i-approval" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2.2 2.2L15.5 10"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-job" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5"/><path d="M10 2.5V6M14 2.5V6M10 18v3.5M14 18v3.5M2.5 10H6M2.5 14H6M18 10h3.5M18 14h3.5"/></symbol>
+  <symbol id="i-incident" viewBox="0 0 24 24"><path d="M10.3 4.2 2.8 17.5A2 2 0 0 0 4.5 20.5h15a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4M12 17h.01"/></symbol>
+  <symbol id="i-overview" viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0"/><path d="m12 18 4-5"/></symbol>
+</svg>
+
+<div class="app">
+  <nav class="rail">
+    <div class="logo">N</div>
+    <button class="nav" data-tip="Chat"><svg><use href="#i-chat"/></svg><span class="dot"></span></button>
+    <button class="nav" data-tip="工作" onclick="location.href='nexus-work.html'"><svg><use href="#i-work"/></svg></button>
+    <button class="nav" data-tip="目标" onclick="location.href='nexus-goals.html'"><svg><use href="#i-goal"/></svg></button>
+    <button class="nav" data-tip="人员" onclick="location.href='nexus-people.html'"><svg><use href="#i-people"/></svg></button>
+    <button class="nav" data-tip="资料库" onclick="location.href='nexus-library.html'"><svg><use href="#i-lib"/></svg></button>
+    <div class="grow"></div>
+    <button class="nav on" data-tip="Status"><svg><use href="#i-status"/></svg></button>
+    <button class="nav" data-tip="Settings"><svg><use href="#i-set"/></svg></button>
+  </nav>
+
+  <section class="list">
+    <div class="lh">
+      <h1>Status</h1>
+      <div class="hello">执行、批准与检查的记录 · 日常无需查看</div>
+      <label class="search"><svg><use href="#i-search"/></svg><input id="q" placeholder="搜索工作、规则或来源"></label>
+    </div>
+    <div class="seg" id="seg"></div>
+    <div class="rows" id="rows"></div>
+  </section>
+
+  <main class="detail" id="detail"></main>
+</div>
+
+<div class="mask" id="mask" onclick="if(event.target===this)closeModal()"><div class="modal" id="modal"></div></div>
+
+<script>
+/* ================================================================
+   统一的记录详情模型（RecordView）
+   执行、批准、检查、系统处理、问题共用同一结构与同一渲染函数；
+   区块为空即不显示。Status 只投影原记录，所有决定回到原工作 / 聊天处理。
+
+   RecordView {
+     id, kind: run | approval | check | job | incident,
+     title, work?, context, time, group: 今天 | 昨天 | 更早,
+     state: [文案, 色调],                 // 自然语言状态，不暴露枚举
+     summary, tone?: amber | rose,          // 一句话结论；需要用户时着色
+     story?: {happened, stopped, maybe, next},   // 问题记录：四问
+     ledger?: {unit, limit, actual, reserved, estimate, note},
+     items?: [[名称, 结果, 色调]],          // 逐项回执 / 观察交付对象
+     timeline?: [[时间, 事件, 色调]],
+     facts: [[键, 值]],
+     controls?: [{label, style, act}],      // 只放真实可用的控制
+     report?: true                          // 显示“出了问题”
+   }
+   ================================================================ */
+
+const overview = {
+  health:{ ok:false, title:'2 件事需要你，其余运行正常', sub:'周报更正邮件等你确认；携程登录过期，机票价格已 2 次未检查。都已在聊天中提醒过你。', go:'i1' },
+  caps:[
+    {l:'今日执行容量', v:'62%', u:'已使用', p:62, d:'明天 00:00 重置 · 当前 2 件在执行，1 件排队'},
+    {l:'自动批准 · 账号今日', v:'7', u:'/ 20 次', p:35, d:'剩余 13 次 · 明天 00:00 重置'},
+  ],
+  workQuota:[
+    {w:'A 客户评审材料包', used:8, max:10, note:'剩余 2 次，用完后合并为一次审阅'},
+    {w:'会前准备', used:3, max:10, note:''},
+    {w:'改期通知', used:10, max:10, note:'已用完 · 后续提醒需要你审阅'},
+  ],
+  env:[
+    ['Agent 主机浏览器','云端主机 · 在线 · 10:42 最近响应','green'],
+    ['Gmail（工作邮箱）','正常 · 服务商配额已用 18%','green'],
+    ['Google 日历','正常','green'],
+    ['携程','登录已过期 · 需要你重新登录','amber'],
+  ],
+  coverage:'3 项检查 · 1 项降级',
+};
+
+const records = [
+  { id:'i1', kind:'incident', title:'周报 v1 数据有误，已发给 B 客户', work:'B 客户本周周报', context:'B 客户', time:'昨天 17:55 报告', group:'昨天',
+    state:['处理中','rose'], tone:'rose',
+    summary:'<b>已停止后续外发，更正邮件等你确认。</b>',
+    story:{ happened:'10-29 10:25 周报 v1 发给了 B 客户 2 位联系人，其中交付数据有误。',
+            stopped:'「B 客户本周周报」后续外发已暂停；v1 的公开链接已撤销。',
+            maybe:'对方可能已阅读或转发 v1，已下载的副本无法收回。',
+            next:'已起草更正邮件并附上 v2，确认后发送。' },
+    timeline:[['10:25','v1 发送给 2 位联系人（你批准）',''],['17:55','你报告：交付数据有误','rose'],['17:56','暂停后续外发，撤销 v1 公开链接','amber'],['18:40','v2 重新核验通过，起草更正邮件','blue']],
+    facts:[['问题编号','IR-1029-02'],['影响范围','1 封已发送邮件 · 1 个公开链接'],['已核实','v1 中「本周完成模块数」与项目系统不符']],
+    controls:[{label:'查看更正邮件',style:'dark',act:"location.href='nexus-work.html'"}] },
+
+  { id:'r1', kind:'run', title:'核对 Q3 供应商合同', work:'Q3 供应商合同核对', context:'B 客户', time:'今天 08:05 开始', group:'今天',
+    state:['正在执行','blue'],
+    summary:'已核对 <b>21 / 38</b> 份合同，预计 11:30 完成。资源在你接受的上限内，不需要处理。',
+    ledger:{unit:'页', limit:450, actual:214, reserved:190, estimate:'380–420 页', note:'08:40 因账号容量排队 22 分钟，已自动继续，不计入失败。'},
+    timeline:[['08:05','开始执行',''],['08:40','账号容量已满，排队等待（原预算内，无需确认）','amber'],['09:02','容量释放，自动继续','blue'],['09:30','生成核对报告草稿（21 份）','green']],
+    facts:[['执行','逐份核对付款条款 · 第 1 次运行'],['输入','供应商合同_Q3.zip · 38 份 PDF'],['上限','450 页 · 开始时由你接受']],
+    report:true },
+
+  { id:'r3', kind:'run', title:'检查 11-02 上海机票价格', work:'11-02 上海出差机票', context:'个人', time:'今天 10:30', group:'今天',
+    state:['等待浏览器','amber'], tone:'amber',
+    summary:'<b>Agent 主机上的携程登录已过期。</b>10:00 和 10:30 两次没有检查，这段时间价格是否变化未知。',
+    timeline:[['09:30','检查完成：¥1,280，与上次相同','green'],['10:00','携程登录过期，本次未检查','amber'],['10:30','再次未检查，已在聊天中提醒你','amber']],
+    facts:[['运行环境','云端 Agent 主机 · 浏览器在线'],['计划','每 30 分钟 · 截至 11-01 20:00'],['恢复后','先检查一次，不补跑错过的每一次']],
+    controls:[{label:'去重新登录',style:'dark',act:''}] },
+
+  { id:'r2', kind:'run', title:'整理 10 月报销', work:'10 月报销整理', context:'个人', time:'今天 10:32', group:'今天',
+    state:['排队中','gray'],
+    summary:'已就绪，正在等待账号执行容量，预计 10:55 开始。原预算内的等待不需要你确认。',
+    ledger:{unit:'张发票', limit:30, actual:0, reserved:12, estimate:'12 张'},
+    timeline:[['10:31','你补充了 3 张发票',''],['10:32','已就绪，进入排队','gray']],
+    facts:[['排队原因','账号今日执行容量正被 2 件工作使用'],['优先级','普通 · 先于后台维护']] },
+
+  { id:'a2', kind:'approval', title:'提醒李明交付报价表', work:'A 客户评审材料包', context:'A 客户', time:'今天 09:00', group:'今天',
+    state:['按规则批准','blue'],
+    summary:'命中规则「向协作方发送待办提醒」第 3 版，邮件已发送。这是规则授权，不是你逐项批准。',
+    items:[['提醒邮件 → li.ming@a-corp.com','已发送并核验','green']],
+    facts:[['规则','向小团队指定协作方发送待办提醒 · v3 · 有效至 11-20'],['命中依据','收件人在规则名单内；只用了提醒模板和截止时间'],['额度','本工作剩余 2 / 10 次 · 账号今日剩余 13 / 20 次']],
+    controls:[{label:'查看规则',style:'',act:''}], report:true },
+
+  { id:'c1', kind:'check', title:'李明报价表回复检查', work:'A 客户评审材料包', context:'A 客户', time:'今天 10:15', group:'今天',
+    state:['按计划','green'],
+    summary:'每 60 分钟检查一次邮件线程。10:15 检查，没有新回复；下次 11:15。',
+    timeline:[['07:15','已检查 · 无新回复','green'],['08:15','已检查 · 无新回复','green'],['09:15','已检查 · 李明回复“今天下午给”','blue'],['10:15','已检查 · 无新回复','green']],
+    facts:[['来源','Gmail · A 客户评审线程'],['频率','截止前 24 小时以外每 60 分钟，之后每 15 分钟'],['读取','与「评审会回复检查」共用同一次读取，各自判断']] },
+
+  { id:'c2', kind:'check', title:'机票价格检查', work:'11-02 上海出差机票', context:'个人', time:'今天 10:30', group:'今天',
+    state:['覆盖降级','amber'],
+    summary:'连续 2 次没能检查。<b>未检查不等于价格没变。</b>重新登录后会立即检查一次。',
+    timeline:[['09:00','已检查 · ¥1,280','green'],['09:30','已检查 · ¥1,280','green'],['10:00','未检查 · 携程登录过期','amber'],['10:30','未检查 · 携程登录过期','amber']],
+    facts:[['来源','携程 · Agent 主机浏览器'],['计划','每 30 分钟'],['空档','10:00 至今价格未知']] },
+
+  { id:'c3', kind:'check', title:'评审会回复检查', work:'A 客户评审材料包', context:'A 客户', time:'今天 10:15', group:'今天',
+    state:['按计划','green'],
+    summary:'等待 3 位参会人确认 11-03 评审会。王总已确认，还差 2 位；下次 11:15。',
+    timeline:[['09:15','已检查 · 无新回复','green'],['10:15','已检查 · 王总确认参会','blue']],
+    facts:[['来源','Gmail · A 客户评审线程'],['频率','每 60 分钟 · 截至 11-02 18:00'],['读取','与「李明报价表回复检查」共用同一次读取']] },
+
+  { id:'j4', kind:'job', title:'共享读取 · A 客户评审线程', context:'A 客户', time:'今天 10:15', group:'今天',
+    state:['已完成','green'],
+    summary:'一次读取邮件线程，交给 2 项检查各自判断，不合并授权。',
+    items:[['李明报价表回复检查','无新回复','green'],['评审会回复检查','王总已确认参会','green']],
+    facts:[['读取','1 次 · 费用按两项检查平分'],['范围','只读该线程，不扩大到其他邮件']] },
+
+  { id:'j3', kind:'job', title:'运行日志到期清理', context:'账号', time:'今天 03:00 开始', group:'今天',
+    state:['处理中','blue'],
+    summary:'清理 30 天前的运行日志。到期清理按期限执行，不能暂停。',
+    facts:[['范围','10-01 之前的运行日志'],['保留','审计元数据另行保留 90 天'],['不影响','工作、成果和资料库文件']] },
+
+  { id:'a1', kind:'approval', title:'评审材料包 · 10 项外发', work:'A 客户评审材料包', context:'A 客户', time:'昨天 16:10', group:'昨天',
+    state:['你批准了 9 项','green'],
+    summary:'你批准了 9 项；议程公开链接没有选择，仍在工作中等你决定。',
+    items:[['6 封评审邀请邮件','已发送并核验','green'],['2 个日程改期','已核验','green'],['1 个日程改期（王总）','已提交 · 结果待确认，11:00 再核对','amber'],['议程 v2 临时公开链接','未选择 · 已延后','gray']],
+    facts:[['批准方式','你一次批准所选项'],['额度','手动批准不消耗自动批准次数']],
+    report:true },
+
+  { id:'j1', kind:'job', title:'邮件历史回填', context:'账号', time:'昨天 21:20 暂停', group:'昨天',
+    state:['你暂停了','gray'],
+    summary:'已读取 <b>1,240 / 3,000</b> 封。暂停后不会因重新连接自动继续。',
+    ledger:{unit:'封', limit:3000, actual:1240, reserved:0, estimate:'3,000 封'},
+    facts:[['范围','工作邮箱 · 最近 90 天 · A 客户、B 客户标签'],['产出','46 条候选背景，等你在聊天中确认'],['说明','读取完成不代表候选已被确认']],
+    controls:[{label:'取消',style:'',act:'openCancel()'},{label:'继续',style:'dark',act:''}] },
+
+  { id:'r4', kind:'run', title:'B 客户周报 第 43 周', work:'B 客户本周周报', context:'B 客户', time:'昨天 18:40', group:'昨天',
+    state:['已完成','green'],
+    summary:'修正交付数据后重新核验通过，生成 v2。',
+    ledger:{unit:'次读取', limit:40, actual:18, reserved:0, estimate:'约 20 次'},
+    timeline:[['10:20','生成 v1',''],['17:55','你指出数据有误','rose'],['18:40','v2 重新核验通过','green']],
+    facts:[['依据','项目管理系统 10-29 导出数据']], report:true },
+
+  { id:'j2', kind:'job', title:'目标信 · 提升英语口语表达', context:'个人', time:'10-27', group:'更早',
+    state:['已完成','green'],
+    summary:'根据本周 3 条进展写了一封目标信。写信不代表目标完成。',
+    facts:[['依据','你记录的 2 条进展 · 1 条来源事实'],['策略','每周日生成 · 可在目标设置中关闭']],
+    controls:[{label:'打开目标',style:'',act:"location.href='nexus-goals.html'"}] },
+
+  { id:'a3', kind:'approval', title:'购买 11-02 上海机票', work:'11-02 上海出差机票', context:'个人', time:'10-28 21:14', group:'更早',
+    state:['你拒绝了','rose'],
+    summary:'你拒绝了 ¥1,460 的 MU5102。拒绝会一直保留，除非你主动改变决定。',
+    items:[['东航 MU5102 · 经济舱 · ¥1,460','未执行','gray']],
+    facts:[['批准方式','付款需逐项人工批准'],['之后','改为继续盯价，低于 ¥1,300 再问你']] },
+];
+
+const kinds = {run:'执行', approval:'批准', check:'检查', job:'系统处理', incident:'问题'};
+let sel='overview', filter='all';
+const ic = n => `<svg><use href="#i-${n}"/></svg>`;
+const ki = (k,lg) => `<span class="ki k-${k} ${lg?'lg':''}">${ic(k)}</span>`;
+const chip = ([t,c]) => `<span class="chip tn-${c}">${t}</span>`;
+const tc = c => c ? `style="--c:var(--${c})"` : '';
+
+/* ---------- 列表 ---------- */
+function renderList(){
+  const q = document.getElementById('q').value.trim();
+  const F = [['all','全部',records.length], ...Object.entries(kinds).map(([k,l])=>[k,l,records.filter(r=>r.kind===k).length])].filter(f=>f[2]);
+  document.getElementById('seg').innerHTML = F.map(([k,l,n])=>`<button class="${filter===k?'on':''}" onclick="setF('${k}')">${l}<span>${n}</span></button>`).join('');
+  const rows = records.filter(r => (filter==='all'||r.kind===filter) && (!q || (r.title+(r.work||'')+r.context).includes(q)));
+  let html = filter==='all' && !q ? `<div class="row ov ${sel==='overview'?'sel':''}" onclick="pick('overview')">${ki('overview')}
+      <div class="m"><div class="tt">容量与运行环境</div><div class="meta">今日已用 62% · ${overview.coverage}</div></div>
+      ${overview.health.ok?'':chip(['2 件需要你','amber'])}</div>` : '';
+  ['今天','昨天','更早'].forEach(g=>{
+    const G = rows.filter(r=>r.group===g); if(!G.length) return;
+    html += `<div class="gl">${g}</div>` + G.map(r=>`<div class="row ${r.id===sel?'sel':''}" onclick="pick('${r.id}')">${ki(r.kind)}
+      <div class="m"><div class="tt">${r.title}</div><div class="meta">${r.work||kinds[r.kind]} · ${r.time}</div></div>${chip(r.state)}</div>`).join('');
+  });
+  document.getElementById('rows').innerHTML = html || `<div class="gl" style="text-align:center;padding:48px 0">没有匹配的记录</div>`;
+}
+function setF(f){
+  filter=f;
+  const cur = records.find(r=>r.id===sel);
+  if(f!=='all' && (!cur || cur.kind!==f)){ sel = records.find(r=>r.kind===f).id; renderDetail(); }
+  renderList();
+}
+function pick(id){ sel=id; renderList(); renderDetail(); document.getElementById('detail').scrollTop=0; }
+
+/* ---------- 概览 ---------- */
+function renderOverview(){
+  const o = overview, h = o.health;
+  const caps = o.caps.map(c=>`<div class="cap"><div class="l">${c.l}</div><div class="v">${c.v}<span>${c.u}</span></div>
+    <div class="bar ${c.p>=80?'warn':''}"><i class="a" style="width:${c.p}%"></i></div><div class="d">${c.d}</div></div>`).join('');
+  const wq = o.workQuota.map(w=>`<div class="li click" onclick="location.href='nexus-work.html'"><div class="b">${w.w}${w.note?`<div class="d">${w.note}</div>`:''}</div>
+    <div class="wq"><div class="bar ${w.used>=w.max?'warn':''}"><i class="a" style="width:${w.used/w.max*100}%"></i></div><span class="n">${w.used} / ${w.max}</span></div></div>`).join('');
+  const env = o.env.map(([n,d,c])=>`<div class="li"><span class="dotc" ${tc(c)}></span><div class="b">${n}<div class="d">${d}</div></div></div>`).join('');
+  return `
+    <div class="top"><span>账号</span><span>·</span><span>10:42 更新</span></div>
+    <div class="title">${ki('overview',true)}<div><h2>容量与运行环境</h2><div class="why">你关闭电脑或锁屏，工作仍在 Agent 主机上继续</div></div></div>
+    <div class="health">${h.ok?'<span class="pulse"></span>':`<span class="pulse" style="background:var(--amber);box-shadow:0 0 0 6px var(--amber-soft)"></span>`}
+      <div class="b"><b>${h.title}</b><div class="d">${h.sub}</div></div>${h.go?`<button class="ib" onclick="pick('${h.go}')">查看</button>`:''}</div>
+    <div class="sec"><h4>账号容量</h4><div class="caps">${caps}</div></div>
+    <div class="sec"><h4>自动批准 · 按工作累计 <span>不按日重置，规则续期也不会恢复</span></h4><div class="box">${wq}</div></div>
+    <div class="sec"><h4>连接与运行环境</h4><div class="box">${env}</div></div>`;
+}
+
+/* ---------- 详情：唯一模板 ---------- */
+function renderDetail(){
+  const D = document.getElementById('detail');
+  if(sel==='overview'){ D.innerHTML = `<div class="dw">${renderOverview()}</div>`; return; }
+  const r = records.find(x=>x.id===sel);
+
+  const ctl = (r.controls||[]).map(c=>`<button class="ib ${c.style}" onclick="${c.act}">${c.label}</button>`).join('');
+  const header = `
+    <div class="top"><span>${kinds[r.kind]}</span><span>·</span><span>${r.context}</span><span class="sp"></span>
+      ${r.work?`<button class="ib" onclick="location.href='nexus-work.html'">打开工作</button>`:''}${ctl}
+      <div class="menu" id="more"><button class="ib" onclick="this.parentNode.classList.toggle('open')">···</button>
+        <div class="dd"><button>在聊天中讨论</button><button>复制记录编号</button>${r.report?'<button class="red" onclick="openReport()">出了问题</button>':''}</div></div>
+    </div>
+    <div class="title">${ki(r.kind,true)}<div><h2>${r.title}</h2>
+      <div class="why">${chip(r.state)}${r.work?`属于「<span class="link" onclick="location.href='nexus-work.html'">${r.work}</span>」`:'<span>系统处理，不属于任何工作</span>'}<span>· ${r.time}</span></div></div></div>`;
+
+  const summary = `<div class="callout ${r.tone||''}"><div class="b">${r.summary}</div></div>`;
+
+  const story = r.story ? `<div class="story">${[['发生了什么','happened'],['已停止什么','stopped'],['还可能发生什么','maybe'],['下一步','next']]
+    .map(([l,k])=>`<div><b>${l}</b>${r.story[k]}</div>`).join('')}</div>` : '';
+
+  const L = r.ledger;
+  const ledger = L ? `
+    <div class="sec"><h4>资源使用 <span>上限内自动排队与继续</span></h4><div class="box led">
+      <div class="big"><b>${L.actual.toLocaleString()}</b><span>/ ${L.limit.toLocaleString()} ${L.unit}</span></div>
+      <div class="bar"><i class="a" style="width:${L.actual/L.limit*100}%"></i><i class="rv" style="width:${L.reserved/L.limit*100}%"></i></div>
+      <div class="leg"><span><i class="sw" style="background:var(--text)"></i>已使用 <em>${L.actual.toLocaleString()}</em></span>
+        ${L.reserved?`<span><i class="sw" style="background:#d4d4da"></i>已预留 <em>${L.reserved.toLocaleString()}</em></span>`:''}
+        <span>剩余 <em>${(L.limit-L.actual-L.reserved).toLocaleString()}</em></span><span>估算 <em>${L.estimate}</em></span></div>
+      ${L.note?`<div class="note">${L.note}</div>`:''}</div></div>` : '';
+
+  const items = r.items ? `
+    <div class="sec"><h4>${r.kind==='job'?'交给':'逐项结果'}</h4><div class="box">
+      ${r.items.map(([n,s,c])=>`<div class="li"><span class="dotc" ${tc(c)}></span><div class="b">${n}</div><span class="r">${s}</span></div>`).join('')}</div></div>` : '';
+
+  const tl = r.timeline ? `
+    <div class="sec"><h4>经过</h4><div class="box tl">
+      ${r.timeline.map(([t,x,c])=>`<div class="e"><span class="t">${t}</span><span class="n" ${tc(c)}></span><span class="x">${x}</span></div>`).join('')}</div></div>` : '';
+
+  const facts = `<div class="sec"><h4>依据</h4><div class="box"><dl class="kv">${r.facts.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div></div>`;
+
+  D.innerHTML = `<div class="dw">${header}${summary}${story}${ledger}${items}${tl}${facts}</div>`;
+}
+
+/* ---------- 弹窗：均由同一数据生成 ---------- */
+function show(html){ document.getElementById('modal').innerHTML = html; const m=document.getElementById('more'); if(m) m.classList.remove('open'); document.getElementById('mask').classList.add('open'); }
+function closeModal(){ document.getElementById('mask').classList.remove('open'); }
+
+function openReport(){
+  const r = records.find(x=>x.id===sel);
+  show(`<h3>出了问题？</h3><div class="ms">关于「${r.title}」。用一句话说明即可，比如“邮件发错客户了”。</div>
+    <textarea placeholder="发生了什么…"></textarea>
+    <div class="mlab">提交后</div>
+    <ul class="imp"><li><i>·</i>立即暂停相关的后续外发，已提交的不受影响</li><li><i>·</i>先核实事实，再给出可行的补救选项</li><li><i>·</i>不会自动发送更正或申请退款</li></ul>
+    <div class="acts"><button class="gb" onclick="closeModal()">取消</button><button class="pb danger" onclick="closeModal()">报告</button></div>`);
+}
+function openCancel(){
+  const r = records.find(x=>x.id===sel);
+  show(`<h3>取消「${r.title}」？</h3><div class="ms">已读取 ${r.ledger.actual.toLocaleString()} 封，取消后不再继续。</div>
+    <div class="mlab">影响</div><ul class="imp">
+      <li><i style="color:var(--rose)">✕</i>停止读取剩余邮件，临时索引会被清理</li>
+      <li><i style="color:var(--amber)">!</i>已整理的 46 条候选仍在聊天中，确认与否由你决定</li>
+      <li><i style="color:var(--green)">✓</i>不影响任何工作或检查</li></ul>
+    <div class="acts"><button class="gb" onclick="closeModal()">返回</button><button class="pb danger" onclick="closeModal()">取消回填</button></div>`);
+}
+
+document.addEventListener('click',e=>{ const m=document.getElementById('more'); if(m && !m.contains(e.target)) m.classList.remove('open'); });
+document.getElementById('q').addEventListener('input', renderList);
+renderList(); renderDetail();
+</script>
+</body>
+</html>
