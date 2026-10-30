@@ -2,7 +2,7 @@ import { sql } from "kysely";
 import {
   getNodeSqliteKysely,
   executeSqliteQuerySync,
-  executeSqliteQueryTakeFirstSync,
+  iterateSqliteQuerySync,
 } from "../../infra/kysely-sync.js";
 import { coerceRequiredSqliteNumber as sqliteNumber } from "../../infra/sqlite-number.js";
 import type { DB } from "../../state/openclaw-agent-db.generated.js";
@@ -11,97 +11,20 @@ import type {
   SessionTranscriptRawDeltaResult,
 } from "./session-accessor.sqlite-contract.js";
 import type { CurrentTranscriptProjection } from "./session-accessor.sqlite-projection-read.js";
-import type { resolveSqliteTranscriptReadScope } from "./session-accessor.sqlite-scope.js";
-import { normalizeVisibleMessageLimit } from "./session-accessor.sqlite-visible-cursor.js";
+import type { ResolvedTranscriptReadScope } from "./session-accessor.sqlite-scope.js";
+import { readSessionTranscriptHotWatermark } from "./session-accessor.sqlite-transcript-watermark-read.js";
+import {
+  bootstrapRawTranscriptCursor,
+  encodeRawTranscriptCursor,
+  normalizeRawDeltaLimits,
+  parseRawTranscriptCursor,
+} from "./session-transcript-raw-cursor.js";
+import { transcriptEventReadBytesSql } from "./session-transcript-read-bytes.js";
 import {
   resolveSqliteSessionTranscriptReadFence,
   SessionTranscriptReadFenceError,
 } from "./session-transcript-read-fence.js";
-
-const RAW_TRANSCRIPT_CURSOR_VERSION = 1;
-const DEFAULT_RAW_TRANSCRIPT_MAX_EVENTS = 1_000;
-const DEFAULT_RAW_TRANSCRIPT_MAX_BYTES = 1_000_000;
-const MAX_RAW_TRANSCRIPT_EVENTS = 10_000;
-const MAX_RAW_TRANSCRIPT_BYTES = 64 * 1024 * 1024;
-
-type RawTranscriptCursor = {
-  agentId: string;
-  generation: string;
-  lastSeq: number;
-  sessionId: string;
-  version: typeof RAW_TRANSCRIPT_CURSOR_VERSION;
-};
-
-type ResolvedTranscriptReadScope = ReturnType<typeof resolveSqliteTranscriptReadScope>;
-
-function encodeRawTranscriptCursor(cursor: RawTranscriptCursor): string {
-  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
-}
-
-/** Mint the raw-delta cursor for a generation-consistent transcript snapshot. */
-export function createTranscriptRawDeltaCursor(params: {
-  agentId: string;
-  generation: string;
-  lastSeq: number;
-  sessionId: string;
-}): string {
-  return encodeRawTranscriptCursor({ ...params, version: RAW_TRANSCRIPT_CURSOR_VERSION });
-}
-
-function parseRawTranscriptCursor(value: string): RawTranscriptCursor | undefined {
-  if (value.length > 4_096) {
-    return undefined;
-  }
-  try {
-    const parsed = JSON.parse(
-      Buffer.from(value, "base64url").toString("utf8"),
-    ) as Partial<RawTranscriptCursor>; // SAFETY: Checks and catch reject invalid cursor shapes.
-    if (
-      parsed.version !== RAW_TRANSCRIPT_CURSOR_VERSION ||
-      typeof parsed.agentId !== "string" ||
-      typeof parsed.sessionId !== "string" ||
-      typeof parsed.generation !== "string" ||
-      !Number.isSafeInteger(parsed.lastSeq) ||
-      (parsed.lastSeq ?? -2) < -1
-    ) {
-      return undefined;
-    }
-    // SAFETY: All required fields and the sequence range passed validation above.
-    return parsed as RawTranscriptCursor;
-  } catch {
-    return undefined;
-  }
-}
-
-function bootstrapCursor(
-  scope: ResolvedTranscriptReadScope,
-  generation: string,
-): RawTranscriptCursor {
-  return {
-    agentId: scope.agentId,
-    generation,
-    lastSeq: -1,
-    sessionId: scope.sessionId,
-    version: RAW_TRANSCRIPT_CURSOR_VERSION,
-  };
-}
-
-/** Host adapters validate limits before acquiring a database handle. */
-export function normalizeRawDeltaLimits(limits: SessionTranscriptRawDeltaLimits) {
-  const maxEvents = normalizeVisibleMessageLimit(
-    limits.maxEvents,
-    DEFAULT_RAW_TRANSCRIPT_MAX_EVENTS,
-    MAX_RAW_TRANSCRIPT_EVENTS,
-    "maxEvents",
-  );
-  const maxBytes = normalizeVisibleMessageLimit(
-    limits.maxBytes,
-    DEFAULT_RAW_TRANSCRIPT_MAX_BYTES,
-    MAX_RAW_TRANSCRIPT_BYTES,
-    "maxBytes",
-  );
-  return { maxEvents, maxBytes };
-}
+import { readTranscriptPayload } from "./transcript-payload.js";
 
 /** Read inside the caller's validated projection snapshot on its exact connection. */
 export function readTranscriptRawDeltaFromProjection(
@@ -126,7 +49,7 @@ export function readTranscriptRawDeltaFromProjection(
 
 /** The caller owns this synchronous snapshot and any already-captured frontier. */
 export function readRawDeltaInTransaction(
-  database: import("node:sqlite").DatabaseSync,
+  database: import("../../infra/sql-connection.js").EngineConnection,
   scope: ResolvedTranscriptReadScope,
   encodedCursor: string | undefined,
   maxEvents: number,
@@ -134,22 +57,15 @@ export function readRawDeltaInTransaction(
   beforeEventSeq: number | undefined,
   snapshot?: { generation: string | undefined; indexedSeq: number },
 ): SessionTranscriptRawDeltaResult {
-  const db =
-    getNodeSqliteKysely<Pick<DB, "transcript_rewrite_watermarks" | "transcript_events">>(database);
-  const generation = snapshot
-    ? snapshot.generation
-    : executeSqliteQueryTakeFirstSync(
-        database,
-        db
-          .selectFrom("transcript_rewrite_watermarks")
-          .select("generation")
-          .where("session_id", "=", scope.sessionId),
-      )?.generation;
+  const watermark = snapshot
+    ? undefined
+    : readSessionTranscriptHotWatermark({ db: database }, scope.sessionId);
+  const generation = snapshot ? snapshot.generation : (watermark?.generation ?? undefined);
   if (generation === undefined) {
     return { kind: "missing" };
   }
 
-  const initialCursor = bootstrapCursor(scope, generation);
+  const initialCursor = bootstrapRawTranscriptCursor(scope, generation);
   const reset = (
     reason: Extract<SessionTranscriptRawDeltaResult, { kind: "reset" }>["reason"],
   ) => ({
@@ -168,15 +84,11 @@ export function readRawDeltaInTransaction(
   if (cursor.generation !== generation) {
     return reset("generation_mismatch");
   }
+  const db = getNodeSqliteKysely<Pick<DB, "transcript_events">>(database);
   const transcript = db.selectFrom("transcript_events").where("session_id", "=", scope.sessionId);
-  const frontier = snapshot
-    ? snapshot.indexedSeq
-    : executeSqliteQueryTakeFirstSync(
-        database,
-        transcript.select("seq").orderBy("seq", "desc").limit(1),
-      )?.seq;
+  const frontier = snapshot ? snapshot.indexedSeq : watermark?.maxSeq;
   const maxSeq = Math.min(
-    frontier === undefined ? -1 : sqliteNumber(frontier),
+    sqliteNumber(frontier ?? -1),
     beforeEventSeq === undefined ? Number.POSITIVE_INFINITY : beforeEventSeq - 1,
   );
   if (cursor.lastSeq > maxSeq) {
@@ -198,7 +110,7 @@ export function readRawDeltaInTransaction(
       .select([
         "seq",
         /* kysely-allow-raw: SQLite byte length avoids fetching or parsing excluded JSON. */
-        sql<number>`OCTET_LENGTH(event_json) + 1`.as("serialized_bytes"),
+        sql<number>`${transcriptEventReadBytesSql()} + 1`.as("serialized_bytes"),
       ])
       .$if(beforeEventSeq !== undefined, (query) => query.where("seq", "<", beforeEventSeq!))
       .orderBy("seq", "asc");
@@ -230,17 +142,17 @@ export function readRawDeltaInTransaction(
   const rows =
     selectedCount === 0
       ? []
-      : executeSqliteQuerySync(
-          database,
-          transcript
-            .select(["event_json", "seq"])
-            .where("seq", ">", cursor.lastSeq)
-            .where("seq", "<=", lastSeq)
-            .orderBy("seq", "asc"),
-        ).rows.map((row) => ({
-          event: JSON.parse(row.event_json),
-          seq: sqliteNumber(row.seq),
-        }));
+      : Array.from(
+          iterateSqliteQuerySync(
+            database,
+            transcript
+              .select(["event_json", "event_zstd", "event_utf8_bytes", "seq"])
+              .where("seq", ">", cursor.lastSeq)
+              .where("seq", "<=", lastSeq)
+              .orderBy("seq", "asc"),
+          ),
+          (row) => ({ event: JSON.parse(readTranscriptPayload(row)), seq: sqliteNumber(row.seq) }),
+        );
   const nextCursor = encodeRawTranscriptCursor({ ...cursor, lastSeq });
   return {
     kind: "page",

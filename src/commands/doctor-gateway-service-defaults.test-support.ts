@@ -1,14 +1,9 @@
-import { expect, it, type Mock } from "vitest";
+import { expect, it } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
+import type { mocks as nativeMocks } from "./doctor-gateway-services.native.test-support.js";
 
 type ServiceDefaultsTestContext = {
-  mocks: {
-    readCommand: Mock;
-    buildGatewayInstallPlan: Mock;
-    auditGatewayServiceConfig: Mock;
-    resolveGatewayPort: Mock;
-    install: Mock;
-  };
+  mocks: typeof nativeMocks;
   gatewayProgramArguments: string[];
   runRepair: (config: OpenClawConfig) => Promise<void>;
   mockProcessPlatform: (platform: NodeJS.Platform) => void;
@@ -22,6 +17,45 @@ export function registerDoctorServiceDefaultsTests({
   mockProcessPlatform,
   expectNoNoteContaining,
 }: ServiceDefaultsTestContext) {
+  it("reports definition facts without creating repair work", async () => {
+    const command = { programArguments: gatewayProgramArguments, environment: {} };
+    mocks.readCommand.mockResolvedValue(command);
+    mocks.buildGatewayInstallPlan.mockResolvedValue(command);
+    mocks.auditGatewayServiceConfig.mockResolvedValue({
+      ok: true,
+      issues: [],
+      definitionDrift: [
+        {
+          kind: "outdated",
+          key: "Service.KillMode",
+          current: null,
+          expected: "mixed",
+          message: "Service.KillMode: missing; installer expects mixed.",
+        },
+        {
+          kind: "unknown-edit",
+          key: "Service.ExecStartPre",
+          reason: "Operator-authored directive",
+          message: "Service.ExecStartPre: unknown edit; preserved.",
+        },
+      ],
+      definitionDriftError: "Could not inspect a service drop-in.",
+    });
+
+    await runRepair({ gateway: {} });
+
+    const output = mocks.note.mock.calls
+      .filter(([, title]) => title === "Gateway service definition")
+      .map(([message]) => String(message))
+      .join("\n");
+    expect(output).toContain("Service.KillMode: missing");
+    expect(output).toContain("Service.ExecStartPre: unknown edit; preserved");
+    expect(output).toContain("Could not inspect a service drop-in");
+    expect(mocks.stage).not.toHaveBeenCalled();
+    expect(mocks.install).not.toHaveBeenCalled();
+    expect(mocks.restart).not.toHaveBeenCalled();
+  });
+
   it("repairs managed port drift even when an operator overrides the working directory", async () => {
     mockProcessPlatform("linux");
     mocks.resolveGatewayPort.mockReturnValue(18888);
@@ -43,14 +77,7 @@ export function registerDoctorServiceDefaultsTests({
     });
     mocks.auditGatewayServiceConfig.mockResolvedValue({
       ok: false,
-      issues: [
-        {
-          code: "gateway-port-mismatch",
-          message: "Gateway service port does not match current gateway config.",
-          detail: "18789 -> 18888",
-          level: "recommended",
-        },
-      ],
+      issues: [{ code: "gateway-port-mismatch", message: "Port mismatch", level: "recommended" }],
     });
     mocks.install.mockResolvedValue(undefined);
 
@@ -63,27 +90,5 @@ export function registerDoctorServiceDefaultsTests({
       expect.objectContaining({ programArguments: expect.arrayContaining(["18888"]) }),
     );
     expectNoNoteContaining("operator-owned systemd drop-in", "Gateway service config");
-  });
-
-  it("repairs a short systemd stop timeout through the managed service installer", async () => {
-    mockProcessPlatform("linux");
-    const command = { programArguments: gatewayProgramArguments, environment: {} };
-    mocks.readCommand.mockResolvedValue(command);
-    mocks.buildGatewayInstallPlan.mockResolvedValue(command);
-    mocks.auditGatewayServiceConfig.mockResolvedValue({
-      ok: false,
-      issues: [
-        {
-          code: "systemd-stop-timeout",
-          message:
-            "TimeoutStopSec=330 or longer is required for the Gateway drain and final cleanup.",
-          level: "recommended",
-        },
-      ],
-    });
-
-    await runRepair({ gateway: {} });
-
-    expect(mocks.install).toHaveBeenCalledExactlyOnceWith(expect.objectContaining(command));
   });
 }

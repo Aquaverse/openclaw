@@ -18,15 +18,87 @@ import {
 afterEach(cleanupUsagePageTest);
 
 describe("Usage query failure ownership", () => {
-  it.each(["start date", "end date", "scope", "time zone", "agent"] as const)(
+  it("keeps model options mounted while a text query is pending", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-07T12:00:00Z"));
+    focusDocument();
+    const snapshot = cacheSnapshot("fresh");
+    const original = {
+      ...snapshot.result,
+      sessions: ["synthetic-alpha", "synthetic-beta"].map((model) => ({
+        key: `agent:main:${model}`,
+        agentId: "main",
+        label: `${model} session`,
+        model,
+        usage: snapshot.result.totals,
+      })),
+    };
+    const reply = deferred<typeof original>();
+    let pending = false;
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.usage") {
+        return pending ? reply.promise : original;
+      }
+      return { updatedAt: Date.now(), providers: [] };
+    });
+    // SAFETY: The fixture exercises only the mocked request method.
+    const page = await createPage({ request } as unknown as GatewayBrowserClient, true);
+    await preloadUsage(page);
+    const trigger = page.querySelector<HTMLButtonElement>('[id="usage-filter-model:trigger"]')!;
+    const menu = trigger.closest<HTMLElement>(".usage-filter-select")!;
+    menu.addEventListener(
+      "overlay-show",
+      () => {
+        // JSDOM has no scrolling layout; exercise the real Menu selection path.
+        for (const item of menu.querySelectorAll<HTMLElement>('[role^="menuitem"]')) {
+          item.scrollIntoView = vi.fn();
+        }
+      },
+      { once: true },
+    );
+    trigger.click();
+    await page.updateComplete;
+    const options = [...menu.querySelectorAll<HTMLButtonElement>(".usage-filter-option")];
+    expect(options.map((option) => option.textContent?.trim())).toEqual([
+      "synthetic-alpha",
+      "synthetic-beta",
+    ]);
+
+    pending = true;
+    options[0]!.click();
+    page.read().callbacks.filters.onApplyQuery();
+    await page.updateComplete;
+    expect(page.read().filters.query.trim()).toBe("model:synthetic-alpha");
+    expect(page.usageLoading).toBe(true);
+    expect(page.read().data.totals).toBeNull();
+    expect(page.read().data.overview).toBeUndefined();
+    expect(page.textContent).not.toContain("synthetic-alpha session");
+    expect(menu.querySelectorAll(".usage-filter-option")[0]).toBe(options[0]);
+    expect(menu.querySelectorAll(".usage-filter-option")[1]).toBe(options[1]);
+    expect(options[0]!.getAttribute("aria-checked")).toBe("true");
+
+    reply.resolve(original);
+    await vi.advanceTimersByTimeAsync(0);
+    await page.updateComplete;
+    expect(page.usageLoading).toBe(false);
+    expect(page.textContent).toContain("synthetic-alpha session");
+    expect(page.textContent).not.toContain("synthetic-beta session");
+    expect(menu.querySelectorAll(".usage-filter-option")[0]).toBe(options[0]);
+    expect(menu.querySelectorAll(".usage-filter-option")[1]).toBe(options[1]);
+  });
+
+  it.each(["start date", "end date", "scope", "time zone", "agent", "creator"] as const)(
     "does not attribute cached or late results to a changed %s",
     async (change) => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-08-07T12:00:00Z"));
       focusDocument();
-      const snapshot = cacheSnapshot("sessions", "fresh");
+      const snapshot = cacheSnapshot("fresh");
       const original = {
         ...snapshot.result,
+        creatorOptions: [
+          { key: "profile:opaque-alex", actor: { type: "human" as const, label: "Alex Morgan" } },
+        ],
         sessions: [
           {
             key: "agent:main:old",
@@ -47,8 +119,11 @@ describe("Usage query failure ownership", () => {
               ? oldReply.promise
               : newReply.promise;
         }
-        if (method === "usage.cost") {
-          return snapshot.costSummary;
+        if (method === "sessions.usage.timeseries") {
+          return { points: [] };
+        }
+        if (method === "sessions.usage.logs") {
+          return { logs: [] };
         }
         return {
           updatedAt: Date.now(),
@@ -70,6 +145,12 @@ describe("Usage query failure ownership", () => {
         const page = await createPage(client, true, context);
         await preloadUsage(page);
         expect(page.textContent).toContain("Old query row");
+        expect(page.read().data.filterOptions?.agent).toEqual(["main"]);
+        if (change === "creator") {
+          page.querySelector<HTMLButtonElement>(".session-bar-selection")!.click();
+          await vi.advanceTimersByTimeAsync(0);
+          expect(page.usageSelectedSessions).toEqual(["agent:main:old"]);
+        }
         phase = "old";
         refreshButton(page).click();
         await page.updateComplete;
@@ -89,12 +170,24 @@ describe("Usage query failure ownership", () => {
           const select = page.querySelector<HTMLSelectElement>("select.usage-select")!;
           select.value = "utc";
           select.dispatchEvent(new Event("change", { bubbles: true }));
-        } else {
+        } else if (change === "agent") {
           selection.setScope("writer");
+        } else {
+          const select = page.querySelector<HTMLSelectElement>(".usage-creator-filter")!;
+          select.value = "profile:opaque-alex";
+          select.dispatchEvent(new Event("change", { bubbles: true }));
         }
         await page.updateComplete;
+        expect(page.usageSelectedSessions).toEqual([]);
+        expect(page.read().data.filterOptions).toBeUndefined();
         expect.soft(page.textContent).not.toContain("Old query row");
-        expect.soft(page.querySelector(".usage-metric-badge")).toBeNull();
+        expect
+          .soft(
+            [...page.querySelectorAll(".usage-metric-badge strong")].map(
+              (node) => node.textContent,
+            ),
+          )
+          .toEqual(["—", "—", "—"]);
         expect.soft(page.querySelector(".usage-empty-state")).toBeNull();
         expect(page.textContent).toContain("QA Provider Plan");
         expect(page.querySelector<HTMLInputElement>("input.usage-date-input")?.disabled).toBe(
@@ -105,6 +198,7 @@ describe("Usage query failure ownership", () => {
         await vi.advanceTimersByTimeAsync(0);
         await page.updateComplete;
         expect.soft(page.textContent).not.toContain("Old query row");
+        expect(page.read().data.filterOptions).toBeUndefined();
         await vi.advanceTimersByTimeAsync(400);
         const query = request.mock.calls.findLast(([method]) => method === "sessions.usage")?.[1];
         expect(query).toMatchObject(
@@ -116,7 +210,9 @@ describe("Usage query failure ownership", () => {
                 ? { groupBy: "instance" }
                 : change === "time zone"
                   ? { mode: "utc" }
-                  : { agentId: "writer" },
+                  : change === "agent"
+                    ? { agentId: "writer" }
+                    : { creatorKey: "profile:opaque-alex" },
         );
         newReply.resolve({
           ...original,
@@ -136,6 +232,21 @@ describe("Usage query failure ownership", () => {
         expect(page.textContent).toContain("New query row");
         expect(page.textContent).not.toContain("Old query row");
         expect(refreshButton(page).disabled).toBe(false);
+        if (change === "creator") {
+          const select = page.querySelector<HTMLSelectElement>(".usage-creator-filter")!;
+          expect(select.value).toBe("profile:opaque-alex");
+          expect(select.textContent).toContain("Alex Morgan");
+          phase = "initial";
+          select.value = "";
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+          await vi.advanceTimersByTimeAsync(0);
+          await page.updateComplete;
+          expect(
+            request.mock.calls.findLast(([method]) => method === "sessions.usage")?.[1],
+          ).not.toHaveProperty("creatorKey");
+          expect(page.textContent).toContain("Old query row");
+          expect(page.textContent).not.toContain("New query row");
+        }
       } finally {
         selection.dispose();
       }
@@ -148,7 +259,7 @@ describe("Usage query failure ownership", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-08-07T12:00:00Z"));
       focusDocument();
-      const snapshot = cacheSnapshot("sessions", "fresh");
+      const snapshot = cacheSnapshot("fresh");
       let phase: "initial" | "failure" | "recovered" = "initial";
       const request = vi.fn(async (method: string, params?: Record<string, unknown>) => {
         if (method === "usage.status") {
@@ -157,23 +268,21 @@ describe("Usage query failure ownership", () => {
             providers: [{ provider: "openai", displayName: "QA Provider Plan", windows: [] }],
           };
         }
-        if (method === "usage.cost" && phase === "failure") {
-          throw new Error("QA cost temporarily unavailable");
+        if (method === "sessions.usage" && phase === "failure") {
+          throw new Error("QA usage temporarily unavailable");
         }
         const date = params?.startDate;
         const endDate = params?.endDate;
         assert(typeof date === "string" && typeof endDate === "string");
-        if (method === "usage.cost") {
-          return {
-            ...snapshot.costSummary,
-            daily: [{ date, ...snapshot.costSummary.totals }],
-          };
-        }
         if (method === "sessions.usage") {
           return {
             ...snapshot.result,
             startDate: date,
             endDate,
+            aggregates: {
+              ...snapshot.result.aggregates,
+              costDaily: [{ date, ...snapshot.result.totals }],
+            },
             sessions: [
               {
                 key: "agent:main:query-proof",
@@ -189,11 +298,12 @@ describe("Usage query failure ownership", () => {
       const page = await createPage({ request } as unknown as GatewayBrowserClient, true);
       await preloadUsage(page);
       expect(page.textContent).toContain("Original query row");
-      expect(page.textContent).toContain("QA Provider Plan");
-      expect(page.querySelector(".cost-window-card--range")?.textContent).toContain("$1");
-      const originalRange = page.querySelector(".cost-window-range-label")?.textContent?.trim();
+      // Provider plans load on the page after the route data applies.
+      await vi.waitFor(() => expect(page.textContent).toContain("QA Provider Plan"));
+      expect(page.querySelector(".cost-window--range")?.textContent).toContain("$1");
+      const originalRange = page.querySelector(".cost-window-range")?.textContent?.trim();
       const originalValue = page
-        .querySelector(".cost-window-card--range .cost-window-card__value")
+        .querySelector(".cost-window--range .cost-window__value")
         ?.textContent?.trim();
       expect(originalRange).toBeTruthy();
       expect(originalValue).toMatch(/^\$1(?:\.0+)?$/);
@@ -211,7 +321,7 @@ describe("Usage query failure ownership", () => {
       await vi.advanceTimersByTimeAsync(400);
       await page.updateComplete;
       expect(page.querySelector(".usage-callout.danger")?.textContent).toContain(
-        "QA cost temporarily unavailable",
+        "QA usage temporarily unavailable",
       );
       expect(refreshButton(page).disabled).toBe(false);
       expect(page.textContent).toContain("QA Provider Plan");
@@ -219,11 +329,11 @@ describe("Usage query failure ownership", () => {
       expect(query).toMatchObject(
         change === "dates"
           ? { startDate: "2026-07-01", endDate: "2026-07-01" }
-          : { startDate: "2026-08-07", endDate: "2026-08-07" },
+          : { startDate: "2026-07-09", endDate: "2026-08-07" },
       );
-      const failedRange = page.querySelector(".cost-window-range-label")?.textContent?.trim();
+      const failedRange = page.querySelector(".cost-window-range")?.textContent?.trim();
       const failedValue = page
-        .querySelector(".cost-window-card--range .cost-window-card__value")
+        .querySelector(".cost-window--range .cost-window__value")
         ?.textContent?.trim();
       if (change === "same query") {
         expect(page.textContent).toContain("Original query row");
@@ -241,10 +351,10 @@ describe("Usage query failure ownership", () => {
       await page.updateComplete;
       expect(page.querySelector(".usage-callout.danger")).toBeNull();
       expect(page.textContent).toContain("Recovered query row");
-      expect(page.querySelector(".cost-window-card--range")?.textContent).toContain("$1");
+      expect(page.querySelector(".cost-window--range")?.textContent).toContain("$1");
       expect(page.textContent).toContain("QA Provider Plan");
       if (change === "dates") {
-        const recoveredRange = page.querySelector(".cost-window-range-label")?.textContent?.trim();
+        const recoveredRange = page.querySelector(".cost-window-range")?.textContent?.trim();
         expect(recoveredRange).toBeTruthy();
         expect(recoveredRange).not.toBe(originalRange);
       }
