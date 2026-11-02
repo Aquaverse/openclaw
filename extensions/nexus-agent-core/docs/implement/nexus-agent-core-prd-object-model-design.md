@@ -5,7 +5,7 @@
 | 文档位置                         | `extensions/nexus-agent-core/docs/implement/`（此后的实现类文档都放这里；已有文档不迁移）                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | 依据                             | `extensions/nexus-agent-core/docs/prd/NEXUS_AI_PRD.md` **v1.95**（2026-11-01；含 §0.6 本批范围总表 R-01–R-35、附录 D 数据模型规范与附录 E 的不变量 INV-01–INV-34）；另对照了 `docs/prd/design/` 下五个 HTML 原型（工作、人员、目标、资料库、状态）。起草基线是 v1.57（2026-10-28），到 v1.86、再到 v1.95 的逐项对齐记录见 `extensions/nexus-agent-core/docs/prd/NEXUS_AI_PRD_CHANGE_LOG.md`（该文件只是本地对照用，不进 git）。重点是 §3.1 核心对象及归属，另读了 §0.4 术语、§4.1 导航与 WK / PV、NX-03 / NX-04 / NX-05 / NX-14、§8.1、§10.2 / §10.3 |
 | 前提                             | 之前在插件里完成的是没有 PRD 时按大体功能做的版本（事项、决策授权、声明证据、偏好、回检、文件柜、目标）；本文把它们对齐到 PRD 的对象模型，并新增 Work、Counterpart、Commitment、Schedule                                                                                                                                                                                                                                                                                                                                                             |
-| 日期                             | 2026-10-28 起草；2026-11-02 先对齐 PRD v1.86，再对齐 PRD v1.95                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 日期                             | 2026-10-28 起草；2026-11-02 先对齐 PRD v1.86，再对齐 PRD v1.95；同日按原型重做目标、资料库、状态三页的界面设计（§11.5b – §11.8）                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 状态                             | 设计稿，待评审；未开始写代码。**正文已对齐 PRD v1.95，是当前的实现方案**；PRD 已答复附录 E 原有的大部分问题，仍待需求方确认的只剩 §14 与附录 E.1 列出的几项                                                                                                                                                                                                                                                                                                                                                                                          |
 | 已确认的决定（2026-10-28，用户） | ① 现有事项保留为 Task，上面新增 Work；② 首批范围含 Work + 工作视图、Counterpart + 人员视图、Commitment、Schedule；③ Commitment 的完成判定把"来源自动核验"整套写全（第一版实现里没有外部来源，见 §8）                                                                                                                                                                                                                                                                                                                                                 |
 
@@ -102,7 +102,10 @@
   - [11.4 人员页](#114-人员页)
   - [11.5 组件与文件落点](#115-组件与文件落点)
   - [11.5a 资料库与状态页的本批边界（只列和本文对象有关的）](#115a-资料库与状态页的本批边界只列和本文对象有关的)
-  - [11.6 与现有"目标"页的衔接](#116-与现有目标页的衔接)
+  - [11.5b 统一页面骨架与视觉规范（对齐 `docs/prd/design/*.html`，2026-11-02）](#115b-统一页面骨架与视觉规范对齐-docsprddesignhtml2026-11-02)
+  - [11.6 目标页（按 PRD NX-03 和 `nexus-goals.html` 重新设计，2026-11-02）](#116-目标页按-prd-nx-03-和-nexus-goalshtml-重新设计2026-11-02)
+  - [11.7 资料库页（按 PRD NX-08 / R-22 / R-23、`nexus-library.html` 和已实现的个人文件柜改造，2026-11-02）](#117-资料库页按-prd-nx-08--r-22--r-23nexus-libraryhtml-和已实现的个人文件柜改造2026-11-02)
+  - [11.8 状态页（Status，按 PRD R-24 / R-25 / R-17 / IR-01 和 `nexus-status.html` 重做，2026-11-02）](#118-状态页status按-prd-r-24--r-25--r-17--ir-01-和-nexus-statushtml-重做2026-11-02)
 - [12. 迁移、兼容与开关](#12-迁移兼容与开关)
   - [12.1 迁移顺序](#121-迁移顺序)
   - [12.2 回填：backfillWorks()（幂等，可中断重跑）](#122-回填backfillworks幂等可中断重跑)
@@ -131,6 +134,8 @@
   - [E.7 开发步骤与剩余待确认问题的关系](#e7-开发步骤与剩余待确认问题的关系)
   - [E.8 原型更新（nexus update html，2026-10-30）逐页变化与本文的关系](#e8-原型更新nexus-update-html2026-10-30逐页变化与本文的关系)
   - [E.9 五个原型页面的功能与本文覆盖度（2026-11-02，按 PRD v1.95 更新）](#e9-五个原型页面的功能与本文覆盖度2026-11-02按-prd-v195-更新)
+  - [E.10 评审发现的研发修订项（2026-11-02，已并入正文）](#e10-评审发现的研发修订项2026-11-02已并入正文)
+  - [E.11 开发确认记录与待确认（不阻塞开工，先按默认做）](#e11-开发确认记录与待确认不阻塞开工先按默认做)
 
 ## 0. 先读这一节
 
@@ -139,7 +144,7 @@
 本文以 PRD v1.95 为准。起草时的基线是 v1.57，两者之间的差异已经逐条并入正文相应章节，变更记录单独放在与 PRD 同目录的 `docs/prd/NEXUS_AI_PRD_CHANGE_LOG.md`（本文不再保留“差异附录”；该变更记录只供本地查看，不进 git）。几点说明：
 
 - **PRD v1.95 的 §0.6 已经把“本批做什么、推迟什么、明确不支持什么”写成唯一总表（R-01–R-35）**，本文附录 E 原来的大部分问题由它回答；总表在本文的落点见 §0.5。
-- **待决事项**集中在两处：§14（需要需求方在写代码前拍板的 Q-1…Q-n，每条带建议默认值）和附录 E（PRD v1.95 之后仍没有答案的少数问题，编号沿用 R-xx，新增的接续 R-42 起）。带“待 R-xx”的地方，意思是按括号里的默认值先做，需求方改了再调。
+- **待决事项**集中在两处：§14（需要需求方在写代码前拍板的 Q-1…Q-n，每条带建议默认值）和附录 E（PRD v1.95 之后仍没有答案的少数问题，编号沿用 R-xx，新增的接续 R-42 起；R-45 – R-47 是三页界面改版带出的界面层问题）。带“待 R-xx”的地方，意思是按括号里的默认值先做，需求方改了再调。
 - **“用户验收”现在是 PRD 概念**：v1.95 的 OC-03 / R-03 用 `criterion_source = user_confirmation`（用户确认标准）表达，本文原来自造的 `user_accept` 已全部改为它，不再有“待 R-03”。
 - **HTML 原型**（`docs/prd/design/`）的逐页对照记录在附录 E.5 / E.6 / E.8 / E.9；原型与 PRD 字面不一致的地方，本文默认取原型的交互、PRD 的数据语义，并在对应 R-xx 里写明。
 
@@ -382,6 +387,8 @@ CREATE TABLE work_links (               -- WorkObjectLink：Work 与其他对象
   original_result_id TEXT,              -- handoff_result：被接手的原结果（CP 分母去重）
   standard_scope_json TEXT,             -- 承接 / 消费的标准范围
   purpose TEXT,                         -- 引用的限定用途（一句话）
+  artifact_file_id TEXT,                -- target_kind='artifact' 时：该版本所属的文件 ID（一个文件最多一个所属工作，INV-30，见 §11.7.4）
+  artifact_version_seq INTEGER,         -- target_kind='artifact' 时：固定的版号（vault_versions.seq）；target_id 写成 '<file_id>#<seq>'
   accept_tx_ref TEXT,                   -- 接受这条关联的事务 / 请求引用
   link_version INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL, ended_at INTEGER, end_basis TEXT,    -- 解除只设 ended_at，不删行
@@ -393,12 +400,23 @@ CREATE TABLE work_links (               -- WorkObjectLink：Work 与其他对象
   CHECK (role NOT IN ('required','reference') OR target_kind IN ('commitment','artifact')),
   CHECK (role <> 'handoff_result' OR original_result_id IS NOT NULL),
   CHECK (target_kind <> 'work' OR target_id <> work_id),
+  CHECK (target_kind <> 'artifact' OR (artifact_file_id IS NOT NULL AND artifact_version_seq IS NOT NULL)),
   FOREIGN KEY (owner_id, work_id) REFERENCES works(owner_id, id)
 ) STRICT;
+-- 一个文件最多一个所属工作：只对“采用为成果”的关联生效；别的工作要用它只能建 reference 关联（§11.7.4）
+CREATE UNIQUE INDEX work_links_owner_file ON work_links(owner_id, artifact_file_id)
+  WHERE target_kind = 'artifact' AND role = 'required' AND purpose = 'adopted_deliverable' AND ended_at IS NULL;
 -- 同一 Work 对同一目标、同一角色至多一条未解除的关联
 CREATE UNIQUE INDEX work_links_pair ON work_links(owner_id, work_id, role, target_kind, target_id) WHERE ended_at IS NULL;
 CREATE INDEX work_links_target ON work_links(owner_id, target_kind, target_id) WHERE ended_at IS NULL;
 ```
+
+**替换会删掉被工作采用的版本时，必须先让用户决定（评审发现，INV-30；开发确认 2026-11-02）**：已实现的 `vault-ledger.appendVersion` 每次写入新版本，都会删除“最近 5 个”之外的旧版本（`VAULT_KEEP_VERSIONS`），不看版本有没有被引用；而采用成果要固定版号、版本不可变。处理办法**不是**永久保留，而是替换前先查：文件库直接查 `work_links` 里 `(artifact_file_id, artifact_version_seq)` 命中本次将被删除版本的未解除关联（同库，文件库代码读 Work 的表）。没有命中就照常删；命中就**不能静默删除**，要用户二选一：
+
+- **复制为新文件再删**：把这个版本的内容登记成一个新文件（同一个 `object_id`，不复制字节），命中的 `work_links` 在同一事务里改指向新文件的第 1 版（原关联 `ended_at` 并写 `end_basis='version_copied'`，新建的关联保持原角色和用途；新文件的所属工作 = 原来采用它的工作）。
+- **直接删除**：版本被删，命中的关联在同一事务里解除（`end_basis='version_deleted'`），按 §6.5 的提交边界先出影响预览，Work 的状态由推导重新计算（“成果已交付”标准可能不再满足）。
+
+替换请求必须带这个选择，否则服务端拒绝并返回受影响清单。替换只有用户在控制台能做（Agent 没有替换工具，`nexus_file_*` 只有搜索、读取、附加），所以不存在无人值守的情况。细节见 §11.7.4 规则 6 与 §11.7.6。
 
 各关联的合法组合（写入层按此校验）：
 
@@ -459,7 +477,8 @@ CREATE TABLE work_events (             -- 追加的时间线；历史不改写�
     'terminal_recorded',               -- 引用 work_terminal_events 的一条
     'prerequisite_changed',            -- 引用 work_prerequisites
     'handoff_out','handoff_in',        -- 接手（CD-03）的两端
-    'merged_into','split_from'))
+    'merged_into','split_from',
+    'incident_reported','incident_closed'))   -- 状态页“出了问题”与结案（§11.8.6），引用 incident_reports
   , FOREIGN KEY (owner_id, work_id) REFERENCES works(owner_id, id)
 ) STRICT;
 
@@ -1214,7 +1233,7 @@ CREATE INDEX plan_by_work ON delegation_plans(owner_id, work_id, status);
 - **同 C 的"当前方案"选择与替换**用 Commitment ID + 当前方案版本做原子并发校验，规则见 §9.5。
 - 状态名对齐 PRD：`draft / accepted / ended / revoked`；旧的 `proposed / confirmed / superseded / rejected` 只在迁移时映射（`proposed→draft`、`confirmed→accepted`、`superseded→ended`、`rejected→revoked`）。
 
-`plan_json.stop_conditions[]`（NX-03、CD-04）记录"这份方案什么时候该结束"，形如 `{kind:"goal_event", goal_id, events:["completed","deleted"]}`、`{kind:"commitment_resolved"}`、`{kind:"until", at}`。**完成 Goal 时，只有已接受的停止条件明确包含该目标事件的计划才按约结束，其余只提示、由用户选**（§6.6、§10.2 的 `previewGoalImpact`）。
+`plan_json.stop_conditions[]`（NX-03、CD-04）记录"这份方案什么时候该结束"，形如 `{kind:"goal_event", goal_id, events:["completed","deleted"]}`、`{kind:"commitment_resolved"}`、`{kind:"until", at}`。**完成 Goal 时，只有已接受的停止条件明确包含该目标事件的计划才按约结束，其余只提示、由用户选**（§6.6、§10.2 的 `nexus.goal.previewImpact`）。
 
 #### 4.5.2 `schedules`
 
@@ -1312,6 +1331,32 @@ CREATE UNIQUE INDEX schedule_slot_once ON schedule_triggers(owner_id, schedule_i
 - `catch_up` 来源只补**仍在窗口内**的一次，不回放每一个错过的时点；多个遗漏合并成一条 `merged`，保留被合并时点引用。改期时记录原触发"已替代 / 取消"，保留旧的已派发历史。
 - `quarantined` 用于"承诺已 resolved / cancelled、方案已结束后迟到的触发"（NX-04）：记录下来但不建 Task。
 
+**谁来启动检查 Task（评审发现；开工前须做宿主能力验证 S-H1）**
+
+INV-12 要求每次触发**新建**一个检查 Task。现有 watcher 不是这样工作的：它由宿主定时任务唤醒**原会话**，复检的是**同一个 Task**。所以 `executor_kind='watch'`（沿用现有 watcher，不改行为）和 `executor_kind='check_task'`（本批新增）是两条不同的路径，后者目前**只有表结构，没有“谁在后台到点启动它”**。本文规定的接口如下，实现方式由 S-H1 的结果决定：
+
+```ts
+interface ScheduleDispatcher {
+  arm(schedule): Promise<void>; // 为 active 的 Schedule 登记下一次触发（幂等，按 next_due_at）
+  disarm(scheduleId): Promise<void>;
+  // 到点回调：只允许经 schedule-ledger.fire(occurrenceKey) 建 schedule_triggers 行并建 Task；
+  // 重复回调、进程重启后的补发都靠 (schedule_id, occurrence_key) 唯一约束去重
+  onFire(scheduleId, occurrenceKey, plannedAt): Promise<void>;
+}
+```
+
+两个候选实现：（A）宿主定时任务到点唤醒一个会话，由会话调用 `nexus_schedule_fire` 工具走 `onFire`；（B）插件在网关进程里自带定时器并持久化 `next_due_at`，进程重启时扫描到期行。两者都必须满足：去重靠数据库约束而不是靠定时器只触发一次；到点时进程不在，恢复后按 `catch_up` 规则处理（只补仍在窗口内的一次）。
+
+**S-H1 宿主能力验证**（写第一行 W4 代码前做，结论写进状态文档；W0 的任务）：
+
+- **定时触发**：宿主能否到点触发“新建一个 Task 并运行”（而不是唤醒已有会话）？触发时能否带稳定的 `occurrence_key`？网关重启、机器休眠后恢复，漏掉的触发会不会补发、补发几次？
+- **后台运行入口**：谁调用 `createTaskWithWork`，新 Task 绑定哪个会话、工具白名单是什么，用户不在线时能否运行。
+- **持久延时队列**：窗口评估请求（§4.2.12）能否在到点后 60 秒内被取出；宿主有无可持久的延时作业，还是插件自己轮询 `window_evaluation_requests`。
+- **主动外发**：没有活动用户会话时，宿主能否向渠道发消息（完成通知、更正通知）；发送主体和渠道身份由谁提供（本人配对，R-13）；能否拿到 `submitted` 回执。状态文档此前写的是“外发 API 未核实”。
+- **休眠与离线**：以上各项在网关停止、机器休眠、网络断开后的实际行为——这是 R-48 验收口径的依据。
+
+**验证不通过时的降级（不虚设覆盖）**：没有可用的启动器时，新方案**不称活跃**：`schedules.status='blocked'`，`block_reasons_json` 写 `prerequisite_missing`（`ref` 指向 `host_capability:scheduled_dispatch`，不新增 reason_code，R-11 的九个码不变），Work 显示“跟进受阻：宿主暂不支持到点启动检查”；`watch` 路径和已有 legacy_watch 不受影响。窗口评估、完成 / 更正通知、IM 私聊决定、本人配对在对应能力验证通过前同样按“能力缺失”降级，页面不显示“已安排”“已通知”。
+
 #### 4.5.4 `goal_briefing_policies`（目标信策略，最小版）
 
 ```sql
@@ -1327,7 +1372,7 @@ CREATE TABLE goal_briefing_policies (
 ) STRICT;
 ```
 
-NX-03 要求目标信策略有自己的存放处，生成由 SystemJob 完成（SJ-01–03）。**本批只建策略表，不跑生成作业**（待决问题 Q-C 的默认值）：用于目标页的"目标信设置"开关、删除或完成目标时的影响预览（§10.2 `previewGoalImpact`）。目标提示静音（休息）不暂停已确认的 Schedule，也不暂停目标信策略；完成目标不会自动关闭目标信策略，用户在设置里关。
+NX-03 要求目标信策略有自己的存放处，生成由 SystemJob 完成（SJ-01–03）。**本批只建策略表，不跑生成作业**（待决问题 Q-C 的默认值）：用于目标页的"目标信设置"开关、删除或完成目标时的影响预览（§10.2 `nexus.goal.previewImpact`）。目标提示静音（休息）不暂停已确认的 Schedule，也不暂停目标信策略；完成目标不会自动关闭目标信策略，用户在设置里关。
 
 ### 4.6 其他
 
@@ -1349,28 +1394,34 @@ CREATE TABLE migration_snapshots (    -- R-20：迁移先保存“版本化映�
 ) STRICT;
 ```
 
+**状态页的 `incident_reports`**（stage7-0005，§11.8.7）：问题 / 事故记录的最小表，只保存稳定编号、用户原话、“你报告 / 已核实”分层的四问和影响引用；不复制业务正文，也不是完整的 IncidentRecord（PRD R-24 允许复用现有记录）。
+
 **不落表的对象**：WorkView、PersonView、`overdue`、RT-02 计数、Task 的 §8.1 状态（`taskPhase()`）。第一版单用户本机数据量小，直接查询；如果工作页的首屏 P95 超过 RT-01 的 5 秒预算，再加 `work_view_cache`（带评估版本和来源对象版本，WK-03），这一步不改任何权威表。
 
 ### 4.7 数值基线（`limit_policy_version = launch-1`，R-16）
 
 PRD 把此前“要求有上限但没写数”的项目补成了本批默认值。这些数字**集中放在服务端配置（`src/config/limits.ts`）**，计划 / 请求 / 账本保存实际采用的版本和上限，界面从同一配置读取，不得硬编码原型里的数字；产品硬限、服务商限制、来源授权和约定窗口同时适用，取最严格者；降低上限只停止新预留，不重置已耗或未知预留。
 
-| 项目                               | 默认值                                                                                                                             | 超限 / 迟到行为                                                               |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| 即时问答（interactive_query）      | 90 秒执行墙钟、读取 10 次、元数据 200 条、邮件正文 20 封、解析 30 页 / 10 张、模型 20,000 token，不生成独立文件                    | 停止新增读取，交付有用部分，提议升级 Work；用户接受才升级，已耗沿 INV-26 带入 |
-| 小工作默认资源包（每 Work 含沿袭） | 读取 40 次、100 页、20 张、邮件正文 100 封、元数据 1,000 条、100,000 token、活动执行 30 分钟                                       | 各维度分别限制；预估超出时在同一计划里接受适配规模，不先跑到限                |
-| 单 Work 可接受扩额硬上限           | 读取 400、1,000 页、200 张、邮件 1,000 封、元数据 10,000、1,000,000 token、活动执行 8 小时                                         | 超过提示缩小范围；不能靠拆分 / 接手换 ID 规避                                 |
-| 账号每日硬限                       | 读取 1,000、2,000 页、400 张、邮件 2,000 封、元数据 20,000、2,000,000 token、活动执行 12 小时                                      | 原子预留；越过有效时间记漏查，不默认成功                                      |
-| 并发与队列                         | 2 个活动执行槽 + 保护通道；同账号浏览器写操作最多 1 个；待派发队列 100 项；排队最多等 30 分钟                                      | 满队列记录未派发与时效缺口，不无限建 Task                                     |
-| 同步轻量 CRUD                      | 令牌桶 120 次 / 分钟，突发 20；单请求最多 100 条、5 秒                                                                             | 返回明确 retry_after；大批量改受控作业                                        |
-| 方案收尾（CD-04）                  | 自 `end_requested_at` 起最多 30 分钟（更短取更短）；Work 硬窗口收尾最多 5 分钟                                                     | 到界隔离剩余业务执行并结束方案，未知效果保留                                  |
-| 一次性最晚派发                     | 默认约定时刻后 1 小时，最多可延至 24 小时                                                                                          | 超窗 `missed_window`，不自动改即时任务                                        |
-| 周期合并补跑有效期                 | min(相邻周期间隔, 24 小时)                                                                                                         | 多个漏跑合一个逻辑触发，超窗只留覆盖缺口                                      |
-| 无期限“直到…”                      | 默认 30 天复核，单次最长 180 天                                                                                                    | 到期停止并复核，续期须明确接受新窗口                                          |
-| 手动“运行一次”冷却                 | 两次被接受的触发至少 5 分钟（`last_manual_trigger_at`）                                                                            | 同 `trigger_id` 去重；仍受 15 分钟轮询下限约束                                |
-| 日界                               | 账号 `quota_timezone`（缺失用 UTC 并显示），按该时区 00:00 – 次日 00:00，保存 UTC 边界 / `day_bucket_id`；改时区从当前桶关闭后生效 | 夏令时日 23 / 25 小时；冷却和时长按 UTC elapsed                               |
+| 项目                               | 默认值                                                                                                                                                                                                                                 | 超限 / 迟到行为                                                               |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 即时问答（interactive_query）      | 90 秒执行墙钟、读取 10 次、元数据 200 条、邮件正文 20 封、解析 30 页 / 10 张、模型 20,000 token，不生成独立文件                                                                                                                        | 停止新增读取，交付有用部分，提议升级 Work；用户接受才升级，已耗沿 INV-26 带入 |
+| 小工作默认资源包（每 Work 含沿袭） | 读取 40 次、100 页、20 张、邮件正文 100 封、元数据 1,000 条、100,000 token、活动执行 30 分钟                                                                                                                                           | 各维度分别限制；预估超出时在同一计划里接受适配规模，不先跑到限                |
+| 单 Work 可接受扩额硬上限           | 读取 400、1,000 页、200 张、邮件 1,000 封、元数据 10,000、1,000,000 token、活动执行 8 小时                                                                                                                                             | 超过提示缩小范围；不能靠拆分 / 接手换 ID 规避                                 |
+| 账号每日硬限                       | 读取 1,000、2,000 页、400 张、邮件 2,000 封、元数据 20,000、2,000,000 token、活动执行 12 小时                                                                                                                                          | 原子预留；越过有效时间记漏查，不默认成功                                      |
+| 并发与队列                         | 2 个业务执行槽 + 1 个独立保护通道槽（控制 / 清理 / 窗口评估；不占业务槽，不参与“今日资源”分母；同账号合计最多 3 个活动执行；控制入口令牌桶 60 次 / 分钟，突发 10）；同账号浏览器写操作最多 1 个；待派发队列 100 项；排队最多等 30 分钟 | 满队列记录未派发与时效缺口，不无限建 Task                                     |
+| 同步轻量 CRUD                      | 令牌桶 120 次 / 分钟，突发 20；单请求最多 100 条、5 秒                                                                                                                                                                                 | 返回明确 retry_after；大批量改受控作业                                        |
+| 方案收尾（CD-04）                  | 自 `end_requested_at` 起最多 30 分钟（更短取更短）；Work 硬窗口收尾最多 5 分钟                                                                                                                                                         | 到界隔离剩余业务执行并结束方案，未知效果保留                                  |
+| 一次性最晚派发                     | 默认约定时刻后 1 小时，最多可延至 24 小时                                                                                                                                                                                              | 超窗 `missed_window`，不自动改即时任务                                        |
+| 周期合并补跑有效期                 | min(相邻周期间隔, 24 小时)                                                                                                                                                                                                             | 多个漏跑合一个逻辑触发，超窗只留覆盖缺口                                      |
+| 无期限“直到…”                      | 默认 30 天复核，单次最长 180 天                                                                                                                                                                                                        | 到期停止并复核，续期须明确接受新窗口                                          |
+| 手动“运行一次”冷却                 | 两次被接受的触发至少 5 分钟（`last_manual_trigger_at`）                                                                                                                                                                                | 同 `trigger_id` 去重；仍受 15 分钟轮询下限约束                                |
+| 日界                               | 账号 `quota_timezone`（缺失用 UTC 并显示），按该时区 00:00 – 次日 00:00，保存 UTC 边界 / `day_bucket_id`；改时区从当前桶关闭后生效                                                                                                     | 夏令时日 23 / 25 小时；冷却和时长按 UTC elapsed                               |
 
 未启用的作业类型配额为 0，启用前必须采用这张表或显式修订的有界配置。计量口径：一次来源读取 = 一次适配器请求 / 分页调用 / 浏览器导航；重试也计；缓存命中不计来源请求但仍计实际解析的内容和模型用量；邮件按独立 message / version 计，附件另计页 / 张；模型 token 按服务端输入 + 输出实际量计，调用前预留输入和最大输出。
+
+**单次执行 / 单个工作的上限由用户决定（2026-11-02 澄清）**：上表的“小工作默认资源包”（如 100 页）和“单 Work 可接受扩额硬上限”（如 1,000 页）是系统给的范围；一次具体执行的上限，由用户在接受计划时从这个范围里选定适配规模（预估超出默认包时，同一张计划卡里列出估算并让用户接受），保存在计划 / 请求 / 账本里。所以 `nexus-status.html` 里“核对 Q3 供应商合同 · 上限 450 页 · 开始时由你接受”的 450 是**这一次用户接受的值，不是配置值**，`limits.ts` 里不放 450；开发造数和验收可以用 450 作示例。服务端取“用户接受的值、产品硬上限、服务商限制、来源授权、约定窗口”中最严格者执行（本节开头已写）。
+
+**“用量计量”和“上限”是两件事（2026-11-02 澄清）**：上限是“最多能用多少”——来自系统范围（上表，配置）和用户在开始时接受的适配规模；用量计量是记录“实际已经用了多少、预留了多少”。计量用在两处：一是执行前原子预留、执行中累计，越限就停——这是服务端底线，R-16 / R-24 要求不能因为界面没做就丢；二是状态页显示——执行记录里的“资源使用”（已用 / 已预留 / 剩余 / 估算）和概览里的“今日资源”。**概览里的“执行中 1/2、排队 N”不来自计量，是实时计数。** **目前设计里有上限、没有计量的存放表，代码里也没有**（`works.budget_ref` 只是一个引用字段）。建议的最小形态（待开发确认，E.11.2）：一张 `usage_ledger`，列为 `owner_id, id, scope_kind（run / work / account_day）, scope_id, day_bucket_id, dimension（reads / pages / images / mail_bodies / metadata / tokens / active_ms）, reserved, used, limit_value, limit_source（policy_default / user_accepted / provider / source_auth / commitment_window）, accepted_request_id, limit_policy_version, updated_at`；预留与结算在同一事务里改 `reserved` / `used`；`works.budget_ref` 指向该 Work 的 work 范围行；状态页只读它。“依据”里的“450 页 · 开始时由你接受”就来自 `limit_source=user_accepted` 加 `accepted_request_id` 对应的接受时间。
 
 ## 5. 工作视图（WorkView）与状态推导
 
@@ -1614,7 +1665,7 @@ PRD 把所有跨对象的暂停、停止、结案、到期、删除、拆合收�
 | 修订 C 的责任人 / 期限 / 标准               | `responsibility_version + 1` 或新 `contract_version`                       | 标记相关约定和采用待迁移（`adoptionPending`）；展示或通知"完成被撤回 / 标准被替代"的真实原因                                                                                                                                                                                                                                                      |
 | 身份映射争议 / 撤销或端点变化               | `identity_links` 新版本（§7.4）                                            | 重评实际依赖和结果有效性（INV-34、INV-18、INV-19），不扩大到无关人员或结果                                                                                                                                                                                                                                                                        |
 | 来源授权撤销 / 准入或许可范围变化（INV-16） | 来源状态                                                                   | `denied` / `revoked` / `review_required` / `unknown` 或新许可范围不再覆盖原用途时，立即阻断受影响能力，显示真实缺口和允许的下一步；没有权限本身不等于业务失败                                                                                                                                                                                     |
-| Goal 完成 / 停止追求                        | `goals` 状态                                                               | 关联 Personal Work 不自动完成或停止；停止条件含该目标事件的已接受计划按约结束，其余只提示（§10.2 `previewGoalImpact`）                                                                                                                                                                                                                            |
+| Goal 完成 / 停止追求                        | `goals` 状态                                                               | 关联 Personal Work 不自动完成或停止；停止条件含该目标事件的已接受计划按约结束，其余只提示（§10.2 `nexus.goal.previewImpact`）                                                                                                                                                                                                                     |
 | 删除 Work W                                 | `works.lifecycle='deleted'`                                                | 先处置活跃执行和计划，再按明确范围删除；保留必要沿袭和审计标记                                                                                                                                                                                                                                                                                    |
 | 删除 C                                      | `commitments` 软删除                                                       | 先展示全部有效引用的影响；解除后标"依赖缺失"，**不能显示履行**                                                                                                                                                                                                                                                                                    |
 | 删除 Goal G                                 | `goals.lifecycle='deleted'`                                                | 独立 Work 保留，解除 Goal 关联并重评覆盖；目标专属计划和目标信策略停止                                                                                                                                                                                                                                                                            |
@@ -1953,33 +2004,36 @@ type SourceEvidence = {
 
 ### 10.2 控制台 RPC（`nexus.*`）
 
-| 方法                                                                                                  | 作用                                                                                                                                                                                                             | 说明                                                                                                                                                                                                            |
-| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `nexus.work.list` / `.get`                                                                            | 工作列表 / 详情（含 WorkView、关联对象摘要、最近事件）                                                                                                                                                           | 过滤：主状态、上下文、目标、关键字、是否隐藏                                                                                                                                                                    |
-| `nexus.work.counts`                                                                                   | RT-02 五类计数 + 各类前 N 条                                                                                                                                                                                     | 工作页顶部、导航角标                                                                                                                                                                                            |
-| `nexus.work.create`                                                                                   | 手动新建 Work（用户在工作页"新建工作"）                                                                                                                                                                          | 去重 `request_ref`；不创建 Task                                                                                                                                                                                 |
-| `nexus.work.update`                                                                                   | 改标题 / 结果文字 / 所属范围（`context_scopes`，语义变化走修订）/ 隐藏 / 归档                                                                                                                                    | 隐藏与归档**只改可见性**，不动后台工作                                                                                                                                                                          |
-| `nexus.work.setGoal`                                                                                  | 设主 Goal / 清除 / 增删参考 Goal                                                                                                                                                                                 | 唯一写源是 `goal_work_links`，并同步 `goal_links` 影子（§4.2.3）；Executive Work 一律拒绝                                                                                                                       |
-| `nexus.work.link` / `.unlink`                                                                         | 关联 / 解除 Commitment、Task 输出引用、文件                                                                                                                                                                      | 角色 `required` / `reference` / `coordination` / `handoff_result` / `output_dependency`；解除可能让 Work 失去必要依赖，按 §6.5 的提交边界先出预览；Task 主归属不可转移（`task_work_owner` 不变），只能拆合      |
-| `nexus.work.control`                                                                                  | `pause` / `resume` / `stop_follow_up` / `stop_work` / `end_partial` / `close_with_reason`（作用于选定 Commitment） / `reopen`                                                                                    | 先 `dryRun:true` 取影响预览，再确认；对应 WK-04 逐条（§6.6、§10.4）                                                                                                                                             |
-| `nexus.work.merge` / `.split`                                                                         | TI-04 的合并 / 拆分                                                                                                                                                                                              | 预览 → 确认；写 `work_lineage` 与事件；**Task 的主归属不转移**，新 Work 通过 `work_links` 引用原 Task 输出；不丢历史、不改 `original_result_id` 的语义（INV-32）                                                |
-| `nexus.work.delete`                                                                                   | 删除 Work                                                                                                                                                                                                        | 先处置活动 Task / Schedule；披露共享引用影响；接入 purge（§12.5）                                                                                                                                               |
-| `nexus.counterpart.*`                                                                                 | `list/get/create/update/deactivate/reactivate/merge/split`（界面的“删除”= `deactivate` 停用档案，§7.5；遗忘另走 FG 流程），`name.*`、`relation.*`、`role.*`、`endpoint.*`、`link.*`（候选 / 确认 / 纠正 / 解除） | `link.confirm` 带范围选项；变更先 `dryRun` 影响清单（含 `previewGoalImpact` 之外的承诺、待发消息、依赖的审批 / 规则 / 计划）                                                                                    |
-| `nexus.counterpart.correct` / `.notPerson`                                                            | 更正身份（改资料／联系方式挂错／类型更正）；“这不是一个人”选去向（组织／我负责／忽略称呼）                                                                                                                       | 仅用户；`dryRun:true` 先取影响清单；`revision` 并发校验（§7.6）                                                                                                                                                 |
-| `nexus.scope.list` / `.create` / `.rename` / `.archive`                                               | 范围记录（R-08，§4.2.10）                                                                                                                                                                                        | 新标签只给候选，不按同名合并；改名保持 ID；改模式 / 客户归属 = 语义修订                                                                                                                                         |
-| `nexus.work.contract.accept`                                                                          | 接受结果约定（含 `window_policy`、`accepted_basis_policy`）                                                                                                                                                      | `end_at_window` 时**同事务**登记 `window_evaluation_requests`（§4.2.12）；带 `expectedRevision`                                                                                                                 |
-| `nexus.work.contract.confirmCriterion`                                                                | 用户确认某条 `user_confirmation` 标准（R-03）                                                                                                                                                                    | 保存确认人 / 请求 / 时间 / 标准版本 / 成果引用；不能覆盖来源证据标准；可在 IM 私聊用 `decision_request_id` 完成                                                                                                 |
-| `nexus.work.acceptRevision`                                                                           | 工作级修订卡：接受当前版本（R-06）                                                                                                                                                                               | 一个事务里：隔离旧 Task、建后继 Task + `task_adoptions`；并发再次修订则失败重读；卡片列出保留成果、未完成范围、已提交 / 未知效果                                                                                |
-| `nexus.commitment.generatePeriods`                                                                    | 周期义务：一次生成最多 12 期的逐期 Commitment（R-28）                                                                                                                                                            | `request_id + period_key` 幂等；超出范围拒绝并提示缩短窗口                                                                                                                                                      |
-| `nexus.mention.list` / `.resolve` / `.dismiss`                                                        | 待确认人员的提及（R-31，§4.3.5）                                                                                                                                                                                 | 默认 `this_time_only`；候选只来自获准可见的已有人员                                                                                                                                                             |
-| `nexus.identity.pairOwner` / `.unpair`                                                                | 本人配对 / 解绑（R-13，§7.8）                                                                                                                                                                                    | 仅用户；重复配对幂等；解绑保留历史                                                                                                                                                                              |
-| `nexus.person.list` / `.get`                                                                          | 人员视图（PV-01 / PV-02）                                                                                                                                                                                        | 只读投影；默认当前范围，`includeOtherModes` 仅临时展示（R-12），不授予权限                                                                                                                                      |
-| `nexus.commitment.list` / `.get` / `.create` / `.update`                                              | 行动台账：按模式 / 上下文 / 对应人员 / 截止日期 / 核验筛选                                                                                                                                                       | 更新带变更说明；`update` 不能直接写 `lifecycle`                                                                                                                                                                 |
-| `nexus.commitment.communication` / `.acceptance`                                                      | 记录“已传达”（沟通）与“对方接受 / 拒绝 / 要求澄清”（接受，必带依据；用户报告单独标）                                                                                                                             | 两条线独立，只对当前责任版本有效；`accepted` 无依据被拒（§4.4.1）                                                                                                                                               |
-| `nexus.commitment.resolve` / `.cancel` / `.restore` / `.reopen`                                       | 手动结案（必填原因，`manual_override`）、取消、恢复、重开                                                                                                                                                        | 先 `dryRun` 取影响（引用它的 Work、将停止的检查）；`source_verified` 只能由核验引擎的原子提交写入（§6.2）                                                                                                       |
-| `nexus.commitment.evidence.add` / `.reassess`                                                         | 添加证据 / 重新评估                                                                                                                                                                                              | 触发 `verifyCommitment`                                                                                                                                                                                         |
-| `nexus.delegation.propose` / `.confirm` / `.reject` / `.end` / `.resolveCarrier`                      | 跟进方案：草案、**用户接受并开始**、拒绝、结束（含 CD-04 有界收尾）、解析由哪件工作承载（§9.5）                                                                                                                  | `confirm` 原子完成：校验前置 → 方案置 `accepted` → 建 Schedule（及执行器）→ 写承载关联 → 回执；Commitment ID + 当前方案版本 compare-and-set，重复点击去重                                                       |
-| `nexus.schedule.list` / `.get` / `.update` / `.pause` / `.resume` / `.stop` / `.runOnce` / `.history` | 查看 / 编辑 / 暂停 / 停止 / 单次运行 / 触发历史                                                                                                                                                                  | `.stop` 把状态置 `cancelled`；`.runOnce` 受 5 分钟冷却（`last_manual_trigger_at`）和 15 分钟轮询下限约束，同 `trigger_id` 去重；`.resume` 不能恢复 ended / cancelled；改频率 / 范围按方案变更重新接受（INV-10） |
+| 方法                                                                                                                 | 作用                                                                                                                                                                                                             | 说明                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nexus.work.list` / `.get`                                                                                           | 工作列表 / 详情（含 WorkView、关联对象摘要、最近事件）                                                                                                                                                           | 过滤：主状态、上下文、目标、关键字、是否隐藏                                                                                                                                                                    |
+| `nexus.work.counts`                                                                                                  | RT-02 五类计数 + 各类前 N 条                                                                                                                                                                                     | 工作页顶部、导航角标                                                                                                                                                                                            |
+| `nexus.work.create`                                                                                                  | 手动新建 Work（用户在工作页"新建工作"）                                                                                                                                                                          | 去重 `request_ref`；不创建 Task                                                                                                                                                                                 |
+| `nexus.work.update`                                                                                                  | 改标题 / 结果文字 / 所属范围（`context_scopes`，语义变化走修订）/ 隐藏 / 归档                                                                                                                                    | 隐藏与归档**只改可见性**，不动后台工作                                                                                                                                                                          |
+| `nexus.work.setGoal`                                                                                                 | 设主 Goal / 清除 / 增删参考 Goal                                                                                                                                                                                 | 唯一写源是 `goal_work_links`，并同步 `goal_links` 影子（§4.2.3）；Executive Work 一律拒绝                                                                                                                       |
+| `nexus.work.link` / `.unlink`                                                                                        | 关联 / 解除 Commitment、Task 输出引用、文件                                                                                                                                                                      | 角色 `required` / `reference` / `coordination` / `handoff_result` / `output_dependency`；解除可能让 Work 失去必要依赖，按 §6.5 的提交边界先出预览；Task 主归属不可转移（`task_work_owner` 不变），只能拆合      |
+| `nexus.work.control`                                                                                                 | `pause` / `resume` / `stop_follow_up` / `stop_work` / `end_partial` / `close_with_reason`（作用于选定 Commitment） / `reopen`                                                                                    | 先 `dryRun:true` 取影响预览，再确认；对应 WK-04 逐条（§6.6、§10.4）                                                                                                                                             |
+| `nexus.work.merge` / `.split`                                                                                        | TI-04 的合并 / 拆分                                                                                                                                                                                              | 预览 → 确认；写 `work_lineage` 与事件；**Task 的主归属不转移**，新 Work 通过 `work_links` 引用原 Task 输出；不丢历史、不改 `original_result_id` 的语义（INV-32）                                                |
+| `nexus.work.delete`                                                                                                  | 删除 Work                                                                                                                                                                                                        | 先处置活动 Task / Schedule；披露共享引用影响；接入 purge（§12.5）                                                                                                                                               |
+| `nexus.counterpart.*`                                                                                                | `list/get/create/update/deactivate/reactivate/merge/split`（界面的“删除”= `deactivate` 停用档案，§7.5；遗忘另走 FG 流程），`name.*`、`relation.*`、`role.*`、`endpoint.*`、`link.*`（候选 / 确认 / 纠正 / 解除） | `link.confirm` 带范围选项；变更先 `dryRun` 影响清单（含 `nexus.goal.previewImpact` 之外的承诺、待发消息、依赖的审批 / 规则 / 计划）                                                                             |
+| `nexus.counterpart.correct` / `.notPerson`                                                                           | 更正身份（改资料／联系方式挂错／类型更正）；“这不是一个人”选去向（组织／我负责／忽略称呼）                                                                                                                       | 仅用户；`dryRun:true` 先取影响清单；`revision` 并发校验（§7.6）                                                                                                                                                 |
+| `nexus.scope.list` / `.create` / `.rename` / `.archive`                                                              | 范围记录（R-08，§4.2.10）                                                                                                                                                                                        | 新标签只给候选，不按同名合并；改名保持 ID；改模式 / 客户归属 = 语义修订                                                                                                                                         |
+| `nexus.work.contract.accept`                                                                                         | 接受结果约定（含 `window_policy`、`accepted_basis_policy`）                                                                                                                                                      | `end_at_window` 时**同事务**登记 `window_evaluation_requests`（§4.2.12）；带 `expectedRevision`                                                                                                                 |
+| `nexus.work.contract.confirmCriterion`                                                                               | 用户确认某条 `user_confirmation` 标准（R-03）                                                                                                                                                                    | 保存确认人 / 请求 / 时间 / 标准版本 / 成果引用；不能覆盖来源证据标准；可在 IM 私聊用 `decision_request_id` 完成                                                                                                 |
+| `nexus.work.acceptRevision`                                                                                          | 工作级修订卡：接受当前版本（R-06）                                                                                                                                                                               | 一个事务里：隔离旧 Task、建后继 Task + `task_adoptions`；并发再次修订则失败重读；卡片列出保留成果、未完成范围、已提交 / 未知效果                                                                                |
+| `nexus.commitment.generatePeriods`                                                                                   | 周期义务：一次生成最多 12 期的逐期 Commitment（R-28）                                                                                                                                                            | `request_id + period_key` 幂等；超出范围拒绝并提示缩短窗口                                                                                                                                                      |
+| `nexus.mention.list` / `.resolve` / `.dismiss`                                                                       | 待确认人员的提及（R-31，§4.3.5）                                                                                                                                                                                 | 默认 `this_time_only`；候选只来自获准可见的已有人员                                                                                                                                                             |
+| `nexus.identity.pairOwner` / `.unpair`                                                                               | 本人配对 / 解绑（R-13，§7.8）                                                                                                                                                                                    | 仅用户；重复配对幂等；解绑保留历史                                                                                                                                                                              |
+| `nexus.person.list` / `.get`                                                                                         | 人员视图（PV-01 / PV-02）                                                                                                                                                                                        | 只读投影；默认当前范围，`includeOtherModes` 仅临时展示（R-12），不授予权限                                                                                                                                      |
+| `nexus.commitment.list` / `.get` / `.create` / `.update`                                                             | 行动台账：按模式 / 上下文 / 对应人员 / 截止日期 / 核验筛选                                                                                                                                                       | 更新带变更说明；`update` 不能直接写 `lifecycle`                                                                                                                                                                 |
+| `nexus.commitment.communication` / `.acceptance`                                                                     | 记录“已传达”（沟通）与“对方接受 / 拒绝 / 要求澄清”（接受，必带依据；用户报告单独标）                                                                                                                             | 两条线独立，只对当前责任版本有效；`accepted` 无依据被拒（§4.4.1）                                                                                                                                               |
+| `nexus.commitment.resolve` / `.cancel` / `.restore` / `.reopen`                                                      | 手动结案（必填原因，`manual_override`）、取消、恢复、重开                                                                                                                                                        | 先 `dryRun` 取影响（引用它的 Work、将停止的检查）；`source_verified` 只能由核验引擎的原子提交写入（§6.2）                                                                                                       |
+| `nexus.commitment.evidence.add` / `.reassess`                                                                        | 添加证据 / 重新评估                                                                                                                                                                                              | 触发 `verifyCommitment`                                                                                                                                                                                         |
+| `nexus.delegation.propose` / `.confirm` / `.reject` / `.end` / `.resolveCarrier`                                     | 跟进方案：草案、**用户接受并开始**、拒绝、结束（含 CD-04 有界收尾）、解析由哪件工作承载（§9.5）                                                                                                                  | `confirm` 原子完成：校验前置 → 方案置 `accepted` → 建 Schedule（及执行器）→ 写承载关联 → 回执；Commitment ID + 当前方案版本 compare-and-set，重复点击去重                                                       |
+| `nexus.schedule.list` / `.get` / `.update` / `.pause` / `.resume` / `.stop` / `.runOnce` / `.history`                | 查看 / 编辑 / 暂停 / 停止 / 单次运行 / 触发历史                                                                                                                                                                  | `.stop` 把状态置 `cancelled`；`.runOnce` 受 5 分钟冷却（`last_manual_trigger_at`）和 15 分钟轮询下限约束，同 `trigger_id` 去重；`.resume` 不能恢复 ended / cancelled；改频率 / 范围按方案变更重新接受（INV-10） |
+| `nexus.goal.rest` / `.resumeNotify` / `.adoptEvidence` / `.previewImpact`（及扩展的 `.complete` / `.list` / `.get`） | 目标页（§11.6）：休息一段时间 / 恢复提醒、采用 Work 证据为进展（R-33）、完成与删除前的影响预览（NX-03）                                                                                                          | 数据与接口见 §11.6.8；写入走目标设计已有的写门，Agent 不直接写“来源事实”                                                                                                                                        |
+| `nexus.vault.adoptDeliverable` / `.setScope`（及扩展的 `.list` / `.get` / `.stats`）                                 | 资料库页（§11.7）：把文件明确采用为某工作的成果、设置范围；列表带 `origin`、`draft`、`limits`                                                                                                                    | 数据与接口见 §11.7.6；一个文件最多一个所属工作；`restoreVersion` 页面不再调用（R-46）                                                                                                                           |
+| `nexus.status.list` / `.counts` / `.get` / `.overview`、`nexus.incident.report` / `.close`                           | 状态页（§11.8）：聚合执行、批准、检查、系统处理、问题记录；报告问题与结案                                                                                                                                        | 只读投影 + 两个写入；见 §11.8.7；浏览器端不再自己拼 `decision.list` / `execution.list` / `task.purgeReceipts`                                                                                                   |
 
 ### 10.3 Agent 工具
 
@@ -2024,12 +2078,12 @@ type SourceEvidence = {
 
 | 项              | 现在                                    | 改后                                                                                                                                                                                        |
 | --------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 一级入口        | 任务（事项）· 偏好 · 回执 · 文件 · 目标 | **工作** · **人员** · 目标 · 偏好 · 回执 · 文件                                                                                                                                             |
+| 一级入口        | 任务（事项）· 偏好 · 回执 · 文件 · 目标 | **工作** · **人员** · 目标 · **资料库**（原“文件”）· **状态**（原“回执”，底部、无角标）· 设置（原“偏好”，底部）；导航形式见 §11.5b                                                          |
 | 默认落地页      | `tasks`                                 | `works`（`worksEnabled` 关闭时仍为 `tasks`，保持原样）                                                                                                                                      |
 | 路由            | `view=tasks` / `view=task&task=ID`      | 新增 `view=works` / `view=work&work=ID` / `view=people` / `view=person&person=ID`；`view=task&task=ID` **保留**并重定向到所属 Work 的详情（定位到该 Task 区块），老书签、老回执链接继续有效 |
 | 页面标题 / 文案 | "事项""任务"                            | 全部用"工作"；Task 在详情内称"步骤"或"任务"（见 §11.3）；按钮用"暂停工作""停止工作"（WK-01）；`i18n.ts` 增 `work.*` 键，保留旧键避免回归                                                    |
 
-**R-18 导航决定**：本批**不新建 Nexus Chat 页面**，“Chat”入口跳到已配置的 OpenClaw 宿主聊天，携带经校验的**工作引用而非敏感正文**；宿主不支持深链时打开聊天并给一个可复制的工作引用。控制台默认路由是 `works`，**返回视图和“待你处理”都完整放在工作首页**；宿主聊天只通过回复 / 卡片 / 控制台链接呈现同一个问题，不要求改造宿主首页。旧页面映射：事项 → **工作**，文件 → **资料库**，目标 → **目标**，偏好 → **设置**，回执 → **状态**（Status）。旧路由继续有效（`view=tasks` / `view=task` 重定向）。原型的全量双栏改版不是本批必需。
+**R-18 导航决定**：本批**不新建 Nexus Chat 页面**，“Chat”入口跳到已配置的 OpenClaw 宿主聊天，携带经校验的**工作引用而非敏感正文**；宿主不支持深链时打开聊天并给一个可复制的工作引用。控制台默认路由是 `works`，**返回视图和“待你处理”都完整放在工作首页**；宿主聊天只通过回复 / 卡片 / 控制台链接呈现同一个问题，不要求改造宿主首页。旧页面映射：事项 → **工作**，文件 → **资料库**，目标 → **目标**，偏好 → **设置**，回执 → **状态**（Status）。旧路由继续有效（`view=tasks` / `view=task` 重定向；旧 `view=receipts` 重定向到状态页的“系统处理”）。**目标、资料库、状态三页按原型的“列表栏 + 详情栏”双栏重做，页面风格与 `docs/prd/design/*.html` 一致**（§11.5b – §11.8）；工作页、人员页随 W1 – W3 沿用同一骨架；任务详情和偏好页暂时保持现样式。PRD 对 Status 的验收要求是“列表→详情、能返回原筛选、访问准确详情”，双栏满足它。
 
 `route.ts` 的 `NexusRoute` 联合类型增加四个成员，`parseRoute` / `toParams` / URL 路径解析各加一支；`route.test.ts` 补测试。
 
@@ -2061,34 +2115,602 @@ type SourceEvidence = {
 
 ### 11.5 组件与文件落点
 
-`browser/` 下新增：`works-view.ts`、`work-detail-view.ts`、`commitment-card.ts`、`people-view.ts`、`person-detail-view.ts`、`schedule-panel.ts`、`work-dialogs.ts`、`revision-card.ts`（R-06 修订卡）、`mention-resolver.ts`（R-31）；沿用 `dialog.ts`、`filters.ts`、`sanitize.ts`；`page.ts` 的导航表增加两项；`style.ts` 增样式。样式沿用现有变量。每个视图配 `*.test.ts`（沿用 `goals-view.test.ts` 的 DOM 测试风格）。
+`browser/` 下新增：`works-view.ts`、`work-detail-view.ts`、`commitment-card.ts`、`people-view.ts`、`person-detail-view.ts`、`schedule-panel.ts`、`work-dialogs.ts`、`revision-card.ts`（R-06 修订卡）、`mention-resolver.ts`（R-31）；沿用 `dialog.ts`、`filters.ts`、`sanitize.ts`；`page.ts` 的导航表增加两项；`style.ts` 增样式。共用组件与样式按 §11.5b（`--nx-*` 令牌、`ui-kit.ts`、`style-tokens.ts` / `style-shell.ts`）；目标页在现有 `goals-view.ts` 等文件上改造（§11.6），资料库页在 `files-view.ts` 等文件上改造（§11.7），状态页新增 `status-view.ts` / `status-dialogs.ts` / `status-data.ts`（§11.8.7）。每个视图配 `*.test.ts`（沿用 `goals-view.test.ts` 的 DOM 测试风格）。
 
 ### 11.5a 资料库与状态页的本批边界（只列和本文对象有关的）
+
+本批这三页的完整界面设计在 §11.5b – §11.8；本节只保留与对象模型有关的边界。
 
 - **资料库（R-22 / R-23）**：分享能力**整体关闭**——没有分享弹窗、公开链接、分享记录表；所有者在已认证的控制台打开 / 下载准确版本可用，宿主聊天可引用受认证的资产入口（不是可外传的链接）。迁移环境里若有有效旧公开链接，必须先撤销或保留真实的到期 / 撤销能力直到失效。因此原 R-38（发给指定客户的披露语义）本批不适用。`inbox` 在资料库里是“待整理输入”集合，不是 Attention Inbox；敏感标记及其模型读取限制必须保留。
 - **状态（R-24 / R-25）**：Status 只显示**真实记录**——执行、批准、检查、清理、问题、资源；不显示虚构的批准记录或公开链接；主机配置显示实际配置和最后观测，不宣称“休眠中持续执行”或“无外部监测的实时离线通知”。容量数字来自 §4.7 的集中配置，不能用原型数字。
 - **目标（R-33）**：目标进展来自用户**明确采用**的获准 Work 证据；Goal 不直接读外部来源，不按关联 Work 的完成比例判达成（NX-03）。
 
-### 11.6 与现有"目标"页的衔接
+### 11.5b 统一页面骨架与视觉规范（对齐 `docs/prd/design/*.html`，2026-11-02）
 
-目标详情里"关联事项"区块改称"关联工作"，列的是 `goal_work_links` 里 `role='primary'` 且未解除的 Work 及其主状态；`reference` 角色的“参考的工作”另列。解除关联先出影响预览（§6.5）。目标页不显示 Work 完成比例，也不据此改目标状态（NX-03）。
+五个原型页（`nexus-work / people / goals / library / status.html`）用同一套骨架和样式。本批按 R-18 **不强制整体替换**现有控制台，但**目标、资料库、Status 三页按本节重做**（§11.6 – §11.8），工作页和人员页随各自切片（W1 – W3）沿用同一骨架，任务详情和偏好页暂时保持现样式。
+
+原型是**版式和样式**的依据，不是能力和数据的依据：原型画了、PRD 本批不做的东西（分享、规则额度、历史回填、目标信生成、版本“设为当前”等）按各页“不做”清单去掉，不为凑版式保留空壳（R-22、R-17、R-07、R-23）。
+
+**骨架**（原型：`.app` 三列网格）：
+
+```text
+┌ rail 72px ┬ 列表栏 380px ───────────┬ 详情栏（自适应）──────────────────┐
+│ logo      │ 标题 + 一句说明 + 主按钮  │ 顶栏：面包屑 · 操作按钮 · ···       │
+│ 导航图标  │ 搜索框                   │ 标题块：图标块 + 名称 + 状态        │
+│           │ 分段筛选（药丸按钮）      │ 内容列 max-width 860px、居中        │
+│ ……底部    │ 分组列表（独立滚动）      │ 区块：sec > h4 + box > li           │
+│ Status    │                          │ 弹窗：遮罩 + 圆角 20 的 modal        │
+│ Settings  │                          │                                     │
+└───────────┴──────────────────────────┴─────────────────────────────────────┘
+```
+
+| 项               | 值                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 宽屏（> 1200px） | 列 `72px 380px 1fr`；详情内边距 `40px 48px 80px`                                                                                      |
+| 中屏（≤ 1200px） | 列 `64px 320px 1fr`；详情内边距 `32px 28px 60px`；hero 的两栏改单栏                                                                   |
+| 窄屏（≤ 860px）  | 单栏：先列表，点一项进详情，详情顶栏左侧出现“‹ 返回”；rail 收成顶部横排图标条（宿主给的容器窄时同样处理）                             |
+| 列表和详情的滚动 | 各自独立滚动；点列表项后详情回到顶部；筛选 / 搜索变化后若当前项不在结果里，自动选第一项（原型的 `ensureSel`）                         |
+| 选中状态与 URL   | 选中项写进页面参数（`view=goals&goal=ID`、`view=files&file=ID`、`view=status&record=ID`），刷新和后退不丢；与现有 `route.ts` 同一机制 |
+
+**rail（左侧导航）**取代现有页面顶部的文字导航 `nav`（宿主自己的侧栏仍在宿主，rail 只是 Nexus 模块内部的导航）。图标 21px，悬停出黑底提示。入口按原型顺序，但落点按 R-18 调整：
+
+| 入口             | 落点                                     | 角标                                                                             |
+| ---------------- | ---------------------------------------- | -------------------------------------------------------------------------------- |
+| Chat             | 跳宿主聊天，带工作引用（R-18）           | **无**。原型的红点没有落点（E.5 第 11 项）                                       |
+| 工作             | `view=works`（默认首页）                 | 红点 = “待你处理”不为 0（R-27）                                                  |
+| 目标             | `view=goals`                             | 红点 = 有到期回看的目标（沿用现有“目标 (n)”的数字，改成红点 + 悬停显示数量）     |
+| 人员             | `view=people`                            | 无                                                                               |
+| 资料库           | `view=files`                             | 无                                                                               |
+| Status（底部）   | `view=status`；旧 `view=receipts` 重定向 | **无任何角标**：它的定位是“日常无需查看”。有未处理的问题时，工作页和聊天已经提醒 |
+| Settings（底部） | 现有偏好页（R-18：Settings = 偏好）      | 无                                                                               |
+
+现有顶部导航里的“刷新”按钮挪到列表栏标题行右侧，做成小图标按钮；事件驱动的自动刷新（`CHANGE_EVENTS`）不变。
+
+**样式变量**（挂在 `.nexus-page` 上，前缀 `--nx-`；取值照原型 `:root`，浅色为默认）：
+
+| 变量                                   | 浅色                              | 用途                                          |
+| -------------------------------------- | --------------------------------- | --------------------------------------------- |
+| `--nx-bg` / `--nx-panel`               | `#f7f7f8` / `#ffffff`             | 页面底色 / 面板（rail、列表栏、卡片、弹窗）   |
+| `--nx-line` / `--nx-soft`              | `#ececef` / `#f3f3f5`             | 分隔线、卡片边 / 悬停底、搜索框底、callout 底 |
+| `--nx-text` / `--nx-sub` / `--nx-mute` | `#18181b` / `#63636e` / `#a1a1aa` | 正文 / 次要文字 / 辅助文字                    |
+| `--nx-accent` + `-soft`                | `#5b5bd6` / `#f0f0fd`             | 当前导航项、链接、选中行底                    |
+| `--nx-blue` + `-soft`                  | `#3e63dd` / `#edf2fe`             | 进行中、正在执行                              |
+| `--nx-green` + `-soft`                 | `#30a46c` / `#e9f7ef`             | 已完成、已达成、来源事实、✓                   |
+| `--nx-amber` + `-soft`                 | `#d97706` / `#fef6e7`             | 待你处理、需注意、覆盖降级、!                 |
+| `--nx-rose` + `-soft`                  | `#e5484d` / `#fdeeee`             | 危险按钮、问题、✕                             |
+| `--nx-gray` + `-soft`                  | `#8b8d98` / `#f1f1f3`             | 已停止 / 不再追求、排队中                     |
+
+字体沿用原型：`-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif`，正文 14px / 1.6。字号：列表栏标题 22 / 650，详情标题 28 / 650（Status 为 26），区块标题 13 / 600（`--nx-sub`），状态药丸 12.5 / 600，元信息 12 – 12.5（`--nx-mute`）。圆角：药丸 999，图标块 11（大号 15），按钮 9 – 10，卡片 16 – 18，下拉 12，弹窗 20。阴影只用在下拉（`0 12px 32px rgba(0,0,0,.1)`）和弹窗（`0 24px 64px rgba(0,0,0,.18)`），遮罩 `rgba(24,24,27,.32)` 加 3px 模糊。
+
+**分类色和类型色**（图标块用）：
+
+| 目标分类（七类，R-20）   | 字  | 前景 / 底色           |
+| ------------------------ | --- | --------------------- |
+| 兴趣 / 学习 `interests`  | 学  | `#5b5bd6` / `#f0f0fd` |
+| 个人财务 `finance`       | 财  | `#b7791f` / `#fdf5e3` |
+| 健康习惯 `health`        | 健  | `#2f9e74` / `#e8f6ef` |
+| 职业成长 `career`        | 职  | `#3e63dd` / `#edf2fe` |
+| 人际关系 `relationships` | 亲  | `#d6577a` / `#fdeef3` |
+| 个人效率 `productivity`  | 效  | `#0e8aa6` / `#e6f5f8` |
+| 其他 `something_else`    | 他  | `#71717a` / `#f1f1f3` |
+
+原型只画了六类（把“其他”并进“个人效率”，E.5 第 8 项），PRD R-20 要求七类全部保留，所以“个人效率”改用青色，“其他”用灰色。**这个配色是研发补的**，设计方可以改。
+
+| 文件类型  | 前景 / 底色           | 文件类型   | 前景 / 底色           |
+| --------- | --------------------- | ---------- | --------------------- |
+| docx      | `#3e63dd` / `#edf2fe` | png / 图片 | `#8e4ec6` / `#f7f0fd` |
+| xlsx      | `#2f9e74` / `#e8f6ef` | m4a / 音频 | `#d97706` / `#fef6e7` |
+| pdf       | `#e5484d` / `#fdeeee` | zip        | `#71717a` / `#f1f1f3` |
+| md / 文本 | `#18181b` / `#f1f1f3` | pptx       | `#c2410c` / `#ffece3` |
+
+Status 的记录类型图标：执行 = 蓝，批准 = 绿，检查 = 紫（accent），系统处理 = 灰，问题 = 红，概览 = 黑底白图标。
+
+**颜色模式**：原型只有浅色。宿主有三种颜色模式——跟随系统、浅色、深色（宿主设置里的 `themeMode`），宿主把结果解析成浅色或深色，写在根元素的 `data-theme-mode="light"` / `"dark"` 上（`ui/src/app/bootstrap-theme.ts`，同时设置 `color-scheme`）。Nexus 页面**只读这个属性**：`dark` 用下面这套深色变量，其余用原型的浅色；“跟随系统”由宿主去解析，Nexus 不再自己判断 `prefers-color-scheme`，也不改宿主 `ui/`。宿主另有主题家族（claw / knot / dash / 自定义，在 `data-theme` 上）：**本批不跟家族，只跟模式**，强调色仍用 `--nx-accent`。现有页面靠 `currentColor` 跟随宿主，新骨架改用上面的变量，所以必须补这一套深色。研发先按下面的值做，**设计方确认**：`--nx-bg #111113`、`--nx-panel #1a1a1d`、`--nx-line #2a2a2f`、`--nx-soft #222226`、`--nx-text #ececef`、`--nx-sub #a1a1ab`、`--nx-mute #6f6f7a`；各色相不变，前景提亮一档、`-soft` 底色改成同色 14% 透明度叠在 panel 上。
+
+**共用组件**（DOM 构造函数，放在新文件 `browser/ui-kit.ts`，各页复用；现有 `dialog.ts` 保留并改用同一套变量）：
+
+| 组件                  | 原型类名                                | 说明                                                                              |
+| --------------------- | --------------------------------------- | --------------------------------------------------------------------------------- |
+| `rail()`              | `.rail .nav .logo`                      | 导航、角标红点、悬停提示                                                          |
+| `listPane()`          | `.list .lh .search .seg .rows .row .gl` | 标题 + 说明 + 主按钮 + 搜索 + 分段筛选 + 分组列表；分段按钮带计数                 |
+| `detailPane()`        | `.detail .dw .top .title`               | 顶栏（面包屑 + 按钮 + `···` 菜单）+ 标题块；内容列居中                            |
+| `chip()` / `tile()`   | `.chip .tile .ft .ki`                   | 状态药丸（前面一个实心圆点）/ 图标块（分类字、文件类型缩写、记录类型图标）        |
+| `hero()`              | `.hero .hero-main .stats`               | 两栏要点 + 三格统计                                                               |
+| `callout()`           | `.callout`                              | 底色提示条，可带右侧链接 / 按钮；`amber` / `rose` 变体                            |
+| `section()` / `box()` | `.sec h4 .box .li`                      | 区块标题（右侧可放“+ 添加”链接）+ 圆角容器 + 行；行可点击，右侧箭头               |
+| `timeline()`          | `.ev` / `.tl`                           | 日期列 + 内容 + 来源小标签（进展用 `.ev`，Status 的“经过”用 `.tl`）               |
+| `kv()`                | `.kv`                                   | 两列键值（“依据”“来源”）                                                          |
+| `modal()`             | `.mask .modal .opts .imp .acts`         | 弹窗；`opts` 是二选一大按钮；`imp` 是影响清单；`acts` 是底部按钮行                |
+| `impactList()`        | `.imp li i`                             | ✓ 绿 = 保留 / 不受影响，✕ 红 = 将停止 / 删除 / 失效，! 琥珀 = 需要注意 / 结果未知 |
+| `menu()`              | `.menu .dd`                             | `···` 下拉；点外面关闭                                                            |
+
+**共用行为**：
+
+1. **影响清单只由服务端 `dryRun` 的真实对象生成**，前端不猜。清单里每一条都能点到那个对象；没有对象就不写这一行（不写“没有……”的空话，除非 PRD 要求明确告知，例如“没有启用的目标信策略”）。
+2. 弹窗标题用具体动词（“完成『…』”“把『…』移到回收站？”），主按钮用同一个动词，危险操作的主按钮是红色；弹窗左下角用一行小字说明不可逆的部分（“重新打开不会恢复已结束的计划”）。
+3. 状态一律用自然语言，不暴露枚举值（“正在执行”“等待你决定”，不写 `running` / `needs_you`）。时间显示 `MM-DD`、`今天 HH:mm`，悬停显示含时区的绝对时间（PV-02）。 新增页面文字一律进 `i18n` 目录，不在视图里写死中文：目标页已有 `i18n-goals.ts`，资料库、状态页各新增 `i18n-library.ts`、`i18n-status.ts`（`[中文, 英文]` 成对）。
+4. 只读连接（没有写权限）时，所有写按钮隐藏而不是置灰，沿用现有 `actions` 选项。
+5. 空状态各页统一用一句话：“当前筛选下没有 X”，并给出下一步（例如目标页：“在聊天中说出你想达成的事就可以新建”）。
+6. 列表项、详情区块的数字都来自服务端，页面不写死任何示例数据（R-24、R-16）。
+7. 键盘与无障碍：列表项是可聚焦的按钮；`Esc` 关闭弹窗；弹窗打开时焦点困在弹窗内，关闭后回到触发它的按钮；状态药丸除颜色外一定有文字。
+
+**与现有样式的衔接**：`style.ts` 拆成 `style-tokens.ts`（变量、深浅两套）、`style-shell.ts`（骨架与组件）、`style.ts`（入口，拼接前两者再接现有规则）。现有 `.gl-*`、`.nx-*` 类名在三页重写完成前保留，**重写某页时同一个提交里改掉它的测试**（`goals-view.test.ts`、`files-view.test.ts` 的 DOM 查询按新类名）。新骨架的颜色全部走变量，不再依赖 `currentColor`；还没重写的页面继续用旧规则，两套都限定在 `.nexus-page` 作用域里，互不污染宿主。
+
+### 11.6 目标页（按 PRD NX-03 和 `nexus-goals.html` 重新设计，2026-11-02）
+
+目标页是个人长期目标的入口，不是项目目录（PRD §4.1）。目标自己不是执行主体，也不是证据；页面只是把“目标 + 进展 + 它名下的关联工作和后台安排”放在一处，让用户看清楚，并在完成和删除之前看到真实影响（NX-03、WK-04）。
+
+下面的设计**取代**现有（G1 – G3a）目标页的版式：圆形完成框 + 弹层详情改为“列表栏 + 详情栏”。G1 – G3a 已实现的能力全部保留，只换位置（见 11.6.8 的对照）。
+
+#### 11.6.1 列表栏
+
+- **标题行**：“目标”，说明“你想长期坚持和达成的个人事情”，右侧主按钮“在聊天中新建”，其后是小图标“刷新”和 `···`。
+- **“在聊天中新建”**：点开后是一个小浮层，列出七个分类（`interests / finance / health / career / relationships / productivity / something_else`）和一个“先聊聊再说”。选了分类就带着分类开始创建对话（沿用 G1 的 `startCreation`，Agent 在聊天里问，不是页面表单，聊完直接建在“进行中”）；“先聊聊再说”不带分类，由 Agent 判断。**七个分类全放开**（R-20），原先只放行三类的写入口改成七类（目标设计文档同步，11.6.8）。健康习惯只支持用户自述的目标和进展，不做监测（NX-03），这条写进创建对话的技能规则。
+- **搜索框**：匹配目标标题、“我想达到”、“现在情况”、进展文字，**也匹配子目标**（标题和进展）。子目标命中时，列表行的副标题改显示“子目标『…』”，点这行直接打开那个子目标（原型 `preferChild`）。
+- **分段筛选**：`进行中 n`、`已完成 n`，以及仅在有候选时出现的 `待确认 n`（PRD R-20：Agent 提出、用户还没确认的目标，前台叫“待确认”，不算正式目标，也不带提醒、计划和目标信）。计数随搜索变化。
+- **列表**：只列一级目标，子目标收在父目标的详情里。每行：分类图标块、标题、最近进展日期、副标题、元信息（分类名、子目标数；已完成的显示“已达成 · 日期”等）。副标题优先级：搜索命中的子目标 > 休息中（前缀“休息中 · ”）+ 最近进展 > 最近进展 > 现状 > “还没有进展记录”。`···` 菜单里可切换副标题显示“最近进展 / 现状 / 不显示”（沿用现有 `goal-prefs.ts` 的开关，选项改了）和“手动排序”。到期回看的目标，标题后面带琥珀色“该回看了”小标签。
+- **排序**：默认按手动序号（现有 `sort_order`），其次最近进展；关闭“手动排序”后按最近进展。上移 / 下移放在详情 `···` 菜单里，仅手动排序开启时出现（v1 仍不做拖拽）。
+- **原来的圆形完成框取消**：完成必须选“已达成 / 不再追求”（R-20），一键勾选没有地方放这个选择，所以完成统一走详情里的“完成目标”（见 R-47，默认这样做）。
+- **“已完成”分段**取代原来的“已完成的目标”弹层；按完成月份分组，行末显示原因（已达成 / 不再追求 / 历史已结束·原因未记录）。
+
+#### 11.6.2 详情栏：统一模板
+
+所有目标（含子目标）用同一个模板、同一个渲染函数；字段为空的区块隐藏或显示一句空状态。子目标的顶栏面包屑是“父目标 › 子目标”，且**没有“子目标”区块**（只嵌套一层，INV-06）。
+
+| 区块                 | 显示什么                                                                                                                                                                                                                                                           | 数据来源                                                                                              | 为空时                                                     |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| 顶栏                 | 面包屑（分类 · 创建于 日期 / 父目标 › 子目标）；按钮“在聊天中讨论”“完成目标”（已完成则“重新打开”）；`···` 菜单                                                                                                                                                     | `goals`                                                                                               | —                                                          |
+| 标题块               | 分类图标块（大号）、标题、状态药丸、“最近进展 日期”/“完成于 日期”                                                                                                                                                                                                  | `goals.title / status / completed_at`、最近进展                                                       | —                                                          |
+| 待确认横幅（仅候选） | “这是 Nexus 根据对话提出的目标，确认后才会生效”，按钮“确认”“不要”；横幅出现时隐藏完成、记录进展、安排等写操作                                                                                                                                                      | `goals.status='proposed'`；`nexus.goal.confirm / reject`                                              | 非候选不显示                                               |
+| hero                 | 左“我想达到”（`summary`，空则显示用户原话）、右“现在情况”（`current_state`）；下面三格统计：进展条数、子目标数、关联工作数                                                                                                                                         | `goals.summary / current_state / user_words`；计数由服务端给                                          | 字段空显示“还没写，可以在聊天里补充”                       |
+| 提示条               | **休息中**：“休息中，已关闭这个目标的主动提示（自 日期）”+“恢复提示”；**该回看了**：“已回看”“稍后（2 天）”两个按钮                                                                                                                                                 | `goal_entries.kind='break'`（R-20：只在用户明确记录过休息进展后显示）；`goal_review_plans`            | 都没有则不显示                                             |
+| 目标信               | 已有的系统目标信（日期、标题、正文、“根据你记录的目标与进展整理”）；页脚链接“查看往期”                                                                                                                                                                             | 已有合法信件（R-20：本批不新生成）                                                                    | **整块不显示**，也不显示“目标信设置”，除非存在目标信策略行 |
+| 衡量（度量）         | 现有 G2 的度量：名称、当前值 / 目标值、进度条、“自述 / 已被证据支持 / 已核验”标签；区块标题右侧“+ 添加度量”                                                                                                                                                        | `goal_metrics`                                                                                        | 没有度量就不显示区块，“添加度量”放进 `···` 菜单            |
+| 子目标               | 每行：标题、最近进展、状态药丸；区块标题右侧“+ 在聊天中添加”（带 `parentId` 开创建对话）                                                                                                                                                                           | `goals.parent_id`                                                                                     | “没有子目标也没关系；需要拆分时在聊天中说一声即可”         |
+| 进展                 | 顶部输入框“记录一条进展，说说最近发生了什么”+“记录”（仅进行中）；下面按日期倒序的条目，每条带来源小标签：**你记录**（灰）/ **来源事实**（绿，附“来自 …”和跳转）/ **休息**（琥珀）                                                                                  | `goal_entries`（见 11.6.4 的来源映射）                                                                | “还没有进展”                                               |
+| 关联工作             | 每行：工作标题、下一步一句话、**主状态药丸（五类，R-34）**、次级标识；“主要 / 参考”分两组；行点击进工作页（`#workId`）；行末“把结果记为进展…”                                                                                                                      | `goal_work_links` + WorkView 摘要（§4.2.3、§5）                                                       | 不显示区块                                                 |
+| 提醒与后台安排       | 三类行：①**定期回看**（周期下拉：不提醒 / 每周 / 每两周 / 每月，下次时间，上次回看，说明“只在你打开控制台或开始聊天时提醒”）；②**业务归属为本目标的计划**（名称、执行它的工作、下次检查、覆盖状态，只读，点击进工作页）；③**目标信策略**（仅存在时显示开关和周期） | `goal_review_plans`；`schedules`（`business_owner=goal`，§4.5.2）；`goal_briefing_policies`（§4.5.4） | 都没有则整块不显示                                         |
+| 资料与提醒           | 关联的文件（点击进资料库对应文件）、偏好、监视；区块标题右侧“+ 添加关联”                                                                                                                                                                                           | `goal_links`（`vault_file / preference / watch`；`task` 类不再单列，见下）                            | 不显示区块                                                 |
+
+“关联工作”和“资料与提醒”的分工：**Task 不再直接出现在目标页**。`goal_links(kind='task')` 已经是 `goal_work_links` 的兼容影子（§4.2.3），用户看到的是“工作”，不是“任务”；文件、偏好、监视仍是目标自己的轻量关联。
+
+#### 11.6.3 状态词
+
+| 数据                                         | 药丸文字               | 色调  |
+| -------------------------------------------- | ---------------------- | ----- |
+| `status='proposed'`                          | 待确认                 | amber |
+| `status='active'`                            | 进行中                 | blue  |
+| `completed` + `completion_reason='achieved'` | 已达成                 | green |
+| `completed` + `completion_reason='stopped'`  | 不再追求               | gray  |
+| `completed` + `legacy_unknown`（迁移历史）   | 历史已结束，原因未记录 | gray  |
+
+旧 `completed` 缺原因的一律显示最后一行，不默认当成“已达成”、不计入已达成数量；详情顶栏有链接“补记原因”，弹窗选“已达成 / 不再追求”，保存变更来源和时间，**不改动原来的完成时间**（R-20）。关联工作的主状态药丸用五类（待你处理 / 继续中 / 阻塞或暂停 / 已结束 / 已完成，文案按 R-34，§5.2），解决原型只有三种词、受阻和已结束的工作无法显示的问题（E.5 第 7 项）。
+
+#### 11.6.4 进展的来源（R-33）
+
+三种来源，用同一个条目列表显示：
+
+| 标签     | 含义                                                               | 存储                                                                                    |
+| -------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| 你记录   | 用户或经用户同意由 Agent 记下的自述                                | `goal_entries.kind IN ('note','milestone','review','system')`                           |
+| 休息     | 用户明确记录的休息（含发生时间和可选的结束）                       | `goal_entries.kind='break'`                                                             |
+| 来源事实 | 用户**明确采用**的、已获准 Work 的证据；保存证据 / 工作 / 范围版本 | `goal_entries.kind='note'`（`author='user'`）+ 附表 `goal_entry_adoptions`（见 11.6.8） |
+
+**目标自己不读外部来源**，也不会把工作完成度当进展。“采用”的入口有两个：关联工作行末的“把结果记为进展…”，和进展区标题右侧的“+ 采用工作成果”（仅当关联工作里有可采用的证据时出现）。弹窗列出该工作可采用的证据（名称、来源、日期、核验状态），用户勾选后可改写一句进展文字再保存；保存的条目显示“来源事实 · 来自『…』”并带回到工作的链接。证据后来被撤回或被否定时，条目旁的标签随之变化，条目文字不改（延续 G1 对关联声明的做法）。
+
+#### 11.6.5 动作与弹窗
+
+| 动作                      | 入口                              | 做什么                                                                                                                                                                                                     |
+| ------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 完成目标                  | 顶栏深色按钮                      | 弹窗（宽）：先选**已达成 / 不再追求**；再列“还在进行的子目标”供勾选一起完成；“将按约结束”“默认继续”“关联工作”“目标信”四段影响清单（来自 `previewImpact`）；提交 `nexus.goal.complete`（G1 已有，本批扩展） |
+| 重新打开                  | 已完成目标的顶栏按钮              | 回到进行中；回看计时重新开始（G3a 已有）；**不复活**已结束的计划，**不自动改**工作和承诺（NX-03）                                                                                                          |
+| 补记完成原因              | 历史已结束目标的顶栏链接          | 二选一弹窗，见 11.6.3                                                                                                                                                                                      |
+| 休息一段时间              | `···`（进行中、未休息时才有）     | 弹窗：可选一句备注、可选预计结束日；说明 ✓ 记一条“休息”进展 ✓ 关闭这个目标的主动提示（回看提醒、通知）；! 已确认的计划**不会**暂停；✕ 不会把目标标成“暂停”（没有这个状态）。提交 `nexus.goal.rest`         |
+| 恢复提示                  | “休息中”提示条上的链接            | 恢复休息前的提示设置，并给休息进展补一条结束事实；`nexus.goal.resumeNotify`                                                                                                                                |
+| 重命名                    | `···`                             | 沿用现有；只改 `title`，不动用户原话                                                                                                                                                                       |
+| 添加子目标                | 子目标区标题右侧 / `···`          | 带 `parentId` 开创建对话                                                                                                                                                                                   |
+| 上移 / 下移               | `···`（手动排序时）               | 沿用现有的排序写入（`nexus.goal.update` 的序号）                                                                                                                                                           |
+| 删除目标                  | `···`（红色）                     | 弹窗（宽）：“如果只是不再追求，建议选『完成目标 › 不再追求』，可以保留历史”；三段清单“将删除”“将停止的后台处理”“会保留，只解除关联”；提交 `nexus.goal.delete`（软删除，沿用 G1）                           |
+| 永久清除                  | `···` → 删除后的目标 / 已完成列表 | 沿用 G1 的清除：二次确认、写回执；弹窗改用新样式                                                                                                                                                           |
+| 添加 / 编辑度量、添加关联 | 区块标题右侧链接                  | 沿用 G2 / G2.2 的小弹窗，改用新样式                                                                                                                                                                        |
+| 回看周期、已回看、稍后    | “提醒与后台安排”区 / 提示条       | 沿用 G3a：`nexus.goal.review.set / act`                                                                                                                                                                    |
+
+**影响预览** `nexus.goal.previewImpact`（读接口，就是 §10.2 提到的 `nexus.goal.previewImpact`）一次返回完成和删除两个弹窗需要的全部清单，前端不拼：
+
+```text
+previewImpact { goalId, action: "complete" | "delete", reason? } → {
+  activeChildren:   [{ id, title }],                         // complete：可选一起完成；delete：将一并删除
+  endingSchedules:  [{ id, title, hostWorkId, hostWorkTitle, nextAt?, inFlightCheck? }],   // 停止条件含本目标事件，将按约结束 / 删除时将停止
+  keepSchedules:    [{ id, title, hostWorkTitle, nextAt }],  // 停止条件不含本目标：默认继续，可勾选停止（仅 complete）
+  works:            [{ workId, title, primary: boolean, hostOfGoalSchedule: boolean, state }],  // 关联工作：只解除关联，不自动结束
+  coverageGaps:     [{ workId, reason }],                    // 解除后其他消费方会出现的覆盖缺口
+  briefing:         { policy: "enabled" | "disabled" | "none", nextAt?, letterTitle? },
+  counts:           { progress, children, letters }          // delete：将删除的数量
+}
+```
+
+完成弹窗里“将按约结束”红色 ✕ 列出 `endingSchedules`（含“由『…』执行 · 下次 … · 正在汇总……”）；“默认继续”是可勾选的 `keepSchedules`（勾上就在提交时一并停止）；“关联工作”琥珀 ! 列出每件工作为什么不自动结束（“独立工作，继续进行；它自己的计划不因本目标完成而取消”或“执行工作留下，专用计划按停止条件结束后这里会显示覆盖缺口”）；目标信段落：有策略则琥珀 ! “目标信策略仍启用，完成不会自动关闭”，没有则绿 ✓。删除弹窗把“没有业务归属为本目标的计划”这种空话保留为一行绿 ✓（这是 NX-03 要求明确告知的范围），没有 `inFlightCheck` 时显示琥珀 ! “当前没有仅服务本目标的在途检查”。
+
+#### 11.6.6 与 Work 的衔接（原 11.6）
+
+目标详情里“关联事项”区块改称“关联工作”，列的是 `goal_work_links` 里 `role='primary'` 且未解除的 Work 及其主状态；`reference` 角色的“参考的工作”另列一组。解除关联先出影响预览（§6.5）。目标页不显示 Work 完成比例，也不据此改目标状态（NX-03）。Goal 的指标（G2）里“关联任务数 / 已完成数”的口径已改为“关联 Work 数 / 已完成 Work 数”（§4.2.3），目标详情的统计格“关联工作数”同一口径。
+
+#### 11.6.7 现有能力对照（G1 – G3a → 新页面）
+
+| 已实现的能力                      | 新页面里的位置                                 |
+| --------------------------------- | ---------------------------------------------- |
+| 类别选择页 + 创建对话             | 列表栏“在聊天中新建”浮层（七类）               |
+| 待确认分组 + 批准按钮             | “待确认”分段 + 详情顶部横幅                    |
+| 圆形完成框、“标为未完成”          | 取消；改为“完成目标 / 重新打开”                |
+| 副标题开关、手动排序、上移 / 下移 | 列表栏 `···`、详情 `···`                       |
+| 已完成的目标弹层（按月分组）      | “已完成”分段                                   |
+| 详情弹窗（原地更新、焦点保持）    | 详情栏（天然原地更新；保持选中和滚动位置）     |
+| 度量、关联、定期回看、静音        | “衡量”“资料与提醒”“提醒与后台安排”区块、“休息” |
+| 删除（软）与永久清除              | 删除弹窗 + `···` 里的永久清除                  |
+| 活动时间线（按天分组）            | “进展”区（按日期倒序，来源小标签）             |
+
+#### 11.6.8 需要的数据与接口变化（落在《目标设计》，这里只列页面要用的）
+
+| 变化                            | 内容                                                                                                                                                                                                                                               |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 七类分类放开                    | 表的 `CHECK` 已经是七个值；只改写入口（原来只放行 `finance / interests / something_else`）和各类的技能规则。`health` 只支持自述；`finance` 沿用“不给投资建议”                                                                                      |
+| `goals.completion_reason`       | 新增列 `achieved / stopped / legacy_unknown`，`completed` 时必填；迁移把已有 `completed` 回填成 `legacy_unknown`（R-20）；`nexus.goal.complete` 加必填参数 `reason`                                                                                |
+| 来源事实                        | 新增附表 `goal_entry_adoptions(owner_id, entry_id, work_id, evidence_ref, work_version, scope_version, adopted_by, adopted_at)`；不改已发布的 `goal_entries`（它的 `kind` 的 `CHECK` 不能原地放宽，重建表风险大）；新增 `nexus.goal.adoptEvidence` |
+| 休息                            | 沿用 `goal_entries.kind='break'`；新增 `nexus.goal.rest { goalId, note?, endsAt? }` 与 `nexus.goal.resumeNotify`；休息前的 `notify_policy` 记在该条目的结构化字段里，恢复时还原                                                                    |
+| `nexus.goal.previewImpact`      | 新增读接口，返回见 11.6.5；与 `nexus.goal.complete / delete` 共用同一段计算，保证“预览看到的”和“提交时做的”一致                                                                                                                                    |
+| `nexus.goal.complete` 扩展      | 参数 `reason`、`completeChildIds[]`、`stopScheduleIds[]`、`expectedRevision`；同一事务内完成目标、完成所选子目标、按停止条件结束计划                                                                                                               |
+| `nexus.goal.list` / `.get` 扩展 | 列表行带 `lastProgressAt`、`childCount`、`matchedChild`（搜索命中的子目标）、`reviewDue`；`list` 接受 `q`；`get` 带关联工作摘要、业务归属为本目标的计划、目标信 / 策略状态                                                                         |
+
+#### 11.6.9 本批不做，以及页面验收
+
+不做：新生成目标信（只显示已有信件；没有信件时不显示“目标信”块和“目标信设置”）、目标信的编辑和重新生成、势头评估（G 设计 6.3）、目标直接读外部来源（R-33）、按关联工作完成比例判达成（NX-03）、拖拽排序。
+
+页面验收（浏览器侧 DOM 测试，沿用 `goals-view.test.ts` 的写法）：
+
+1. 搜索命中子目标时，列表行显示“子目标『…』”，点击直接选中该子目标，详情的面包屑是“父目标 › 子目标”。
+2. 完成弹窗：不选原因不能提交；勾选的子目标和计划与服务端返回一致；只读连接看不到“完成目标”按钮。
+3. 旧 `completed` 且 `legacy_unknown` 的目标显示“历史已结束，原因未记录”，不出现在“已达成”计数里；补记后写入变更来源，原完成时间不变。
+4. “休息中”提示条只在存在休息进展时出现；只有 `notify_policy='off'` 而没有休息进展的旧目标**不**显示休息中。
+5. 关联工作的药丸能显示五类状态，受阻 / 已结束的工作不会被显示成“进行中”。
+6. 目标信：没有信件时整块不出现；有信件时只能看、不能重新生成。
+7. 删除弹窗里的清单与 `previewImpact` 返回逐项一致；点“删除目标”后没有残留的目标专属计划（服务端测试，见 §13.2 的级联用例）。
+8. 深浅两套主题下，七个分类的图标块、五种状态药丸都有足够对比度（人工看一遍）。
+
+### 11.7 资料库页（按 PRD NX-08 / R-22 / R-23、`nexus-library.html` 和已实现的个人文件柜改造，2026-11-02）
+
+资料库回答一个问题：**“Nexus 替我做出了什么、我给过 Nexus 什么”**。它列两类东西——工作产出的**成果**和用户上传的**输入资料**——并让用户打开、下载准确的版本。输入不因为放进资料库就变成已核验的成果（PRD §4.1）。
+
+底层仍是《文件库设计》（F1 – F3，已实现）的 `vault_*`：按 owner 隔离、同内容去重、写入四阶段、敏感分级、全文检索、清除回执都不动。本节只改**页面和页面需要的少量数据**。
+
+#### 11.7.1 保留什么，去掉什么
+
+| 项目                                                                         | 处理                                                                                                                                                    |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 上传（16 MiB 内走 RPC，更大走分块 HTTP）、从本机路径导入、拖入 / 选择        | **保留**，合并进一个“上传”弹窗；上限改为按类型由服务端给（11.7.5）                                                                                      |
+| 列表 / 网格、排序、搜索（名称 + 文件内容）、分页、类型 / 敏感筛选            | **保留**，换成新列表栏                                                                                                                                  |
+| 固定                                                                         | **保留**；R-23 规定“收藏映射固定”，所以页面上只有“固定”一个概念，写 `favorite`；旧的置顶 `pinned_at` 视同固定，取消固定时两个一起清                     |
+| 重命名、移动到文件夹、下载、替换内容、敏感标注、复制聊天引用码（`#VF…`）     | **保留**，进详情 `···` 菜单                                                                                                                             |
+| 收件 / 库 / 产出三类集合                                                     | **保留为筛选元数据**（R-23）：`inbox` 显示为“待整理”，它不是 Attention Inbox，不产生“待你处理”，也不出角标                                              |
+| 回收站（30 天）、永久清除、清除回执                                          | **保留**；删除弹窗按 FG 披露真实保留类别、用途和到期日（11.7.5）                                                                                        |
+| 版本列表与下载某个版本                                                       | **保留**                                                                                                                                                |
+| 版本“恢复为此版本”                                                           | **页面不再出现**：R-23 本批不开放“设为当前版本”，它在效果上就是把旧版本设为当前（见 R-46，默认隐藏按钮，`nexus.vault.restoreVersion` 只留给操作员脚本） |
+| **分享**（发给指定客户 / 私有链接 / 临时公开链接）、发件邮箱、收件人披露许可 | **整体不做**（R-22）：没有分享弹窗、公开链接、复制链接、撤销链接；顶栏主按钮是“下载”，不是“分享”。原 R-38 不适用                                        |
+| 版本“删除此版本”                                                             | **不做**（R-23）；删除只到整个文件                                                                                                                      |
+| Markdown / 演示稿在线编辑                                                    | **本批不做**（R-45，默认）；要改内容用“替换内容”或请 Agent 改                                                                                           |
+| docx / xlsx / 音频 / zip 的内嵌预览                                          | **本批不做**：原型里这些预览是示意。见 11.7.3 的预览清单                                                                                                |
+
+#### 11.7.2 列表栏
+
+- **标题行**：“资料库”，说明“工作产出的成果与你提供的资料”，主按钮“上传”，其后是小图标“刷新”。
+- **搜索框**：占位“搜索文件名、内容或范围”。同时匹配文件名、范围名、所属工作名和已提取的文字（用户可以搜内容；Agent 搜不到正文，F2 的规则不变）。只靠内容命中的行，在元信息后加“命中文件内容”。搜索结果底部若有文件还没建立文字索引（待处理、失败、不支持），显示“还有 N 个文件没有建立文字索引，没搜到不代表没有”（AR-01 的覆盖说明，沿用 F2）。
+- **分段筛选**（带计数）：`全部`、`成果`、`我上传的`、`待整理`、`已固定`、`回收站`。回收站的计数是回收站里的文件数，其余只数未删除的。
+- **工具行**：范围下拉（读 `context_scopes`，“全部范围 / 各客户 / 个人”，R-08）、类型下拉（文本 / 图片 / PDF / 办公文档 / 其他，沿用现有 `qkind`）、排序（最近更新 / 名称）、列表 ↔ 网格切换；“更多筛选”浮层放“仅敏感 / 仅非敏感”。
+- **列表行**：文件类型方块（36×40，按类型着色，写类型缩写）、名称、元信息（范围 · 更新日期 · 大小；回收站里的显示“N 天后永久删除”）、行末的固定星标；名称后可带小标签：`草稿`（琥珀）、`敏感`（灰）、`提取中`（蓝）。网格视图两列卡片，卡片上方是类型色块和几行示意线，下方名称和元信息。
+- **分页**沿用现有每页 20 / 50 / 100，放在列表底部；切换标签页再回来，筛选和页码保持（沿用 F 设计 13.3 的记忆规则）。
+
+#### 11.7.3 详情栏：统一模板
+
+所有文件用同一个模板；预览区按文件类型选渲染器，其余区块完全一致。
+
+| 区块         | 显示什么                                                                                                                                                                                                                                                   | 数据来源                                                                                                 |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| 顶栏         | 范围 · 类型 · 大小；按钮“在聊天中讨论”“下载”（深色主按钮）；`···` 菜单                                                                                                                                                                                     | `vault_files`                                                                                            |
+| 标题块       | 类型方块（大号）、文件名、徽标行：`成果` 来自「工作名」（可点）/ `你上传的` 作为输入资料使用 / `草稿 · 未核验` / `在回收站`；“更新于 日期”                                                                                                                 | 11.7.4 的来源推导                                                                                        |
+| 提示条       | 回收站：“将在 N 天后永久删除。恢复后仍是私有文件”；敏感：“已标为敏感：不提取文字、不进搜索，Nexus 的文件工具读不到它”；损坏（`damaged`）：红色说明                                                                                                         | `vault_files.state / sensitivity / trashed_at`                                                           |
+| 预览         | 按类型渲染，见下表；左上小标签“预览”                                                                                                                                                                                                                       | `nexus.vault.read`（分块，沿用现有）                                                                     |
+| 版本         | 每行：版号药丸、来源（“『工作名』生成”/“你上传”/“你替换”）、时间、备注、`当前` 标记、“下载此版本”；被工作采用或引用的版本多一个“被『工作名』采用”标记；替换时如果要删掉它，会先问你怎么处理（11.7.4 规则 6）。**没有**“设为当前”“删除此版本”“恢复为此版本” | `nexus.vault.versions`                                                                                   |
+| 使用它的工作 | 每行：工作标题、角色（主要成果 / 参考资料 / 输入资料）、右箭头进工作页                                                                                                                                                                                     | `nexus.vault.links`（证据挂载）+ `work_links(target_kind='artifact')` + Task → Work（`task_work_owner`） |
+| 关联的目标   | 每行：目标标题，进目标页                                                                                                                                                                                                                                   | `nexus.goal.forFile`（目标是唯一所有者，F 设计 6）                                                       |
+| 来源         | 键值表：范围、上传来源与时间（“Mac 客户端 / Web / 聊天 / 邮件…”）、原件（“完整保留，处理后的版本不覆盖原件”）、用途（“作为输入使用，未采用为成果”）、文字处理（已提取 / 提取中 / 不支持 / 失败原因 + “重试提取”）、文件夹、引用码                          | `vault_files`、`nexus.vault.get` 的 `extraction`                                                         |
+
+预览清单（**只做现在能真实渲染的**，其余显示类型卡 + “暂不支持预览，可下载查看” + 文字处理状态）：
+
+| 类型                                   | 本批预览                                                                                        |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 文本、Markdown、CSV、JSON、HTML、源码  | 文本预览前 `PREVIEW_MAX_BYTES`，等宽字体；Markdown 先按文本显示（不渲染）；超出显示“仅显示开头” |
+| 图片（png / jpg / webp / gif）         | 通过 `nexus.vault.read` 取字节后用 blob URL 显示，8 MB 以内；更大的只给下载                     |
+| PDF、docx、xlsx、pptx、音频、视频、zip | 类型卡 + 下载；PDF 第一页缩略图列入后续（需要 `derived/` 页图，F 设计 9.1 的 `derive` 阶段）    |
+
+#### 11.7.4 “成果”和“输入”怎么区分（R-23、INV-30）
+
+页面上的 `origin = deliverable | upload` **不新增存储列**，由服务端读取时推导：
+
+| 情形                                                                                                                                         | 页面显示                     |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `source='task_output'`，且 `source_ref` 指向的 Task 在 `task_work_owner` 里有主归属 Work                                                     | **成果**，所属工作 = 该 Work |
+| 用户在“用作某件工作的成果…”里采用过：存在一条 `work_links(role='required', target_kind='artifact', purpose='adopted_deliverable')`，且未解除 | **成果**，所属工作 = 该 Work |
+| 其他全部（包括迁移来的、来源不明的旧文件）                                                                                                   | **你上传的**（输入）         |
+
+规则：
+
+1. **一个文件最多一个所属工作**（INV-30 的“固定 `owner_work_id`”）：`adopted_deliverable` 这种关联用 `work_links.artifact_file_id` 列加部分唯一索引 `work_links_owner_file`（§4.2.2）；别的工作要用它，只能建 `reference` 关联，**不能静默转移归属**。
+2. **旧文件按 `upload` 回填**（R-23）：只有 `source='task_output'` 且 `source_ref` 能解析到 Work 的，才恢复成果归属；不为统一字段捏造所属工作。
+3. **版本不可变，采用要固定版号**：采用关联记录 `target_id` = 文件版本（`work_links.target_id` 本来就是“成果版本”，§4.2.2）；之后“替换内容”产生的新版本是**新版本**，不会自动变成该工作的当前采用版（INV-30：最新草稿不覆盖当前已验证版）。
+4. **草稿 / 核验标记**：成果的某一版在所属工作的 `deliverable_ready` 标准（§4.4.3）满足之前显示`草稿 · 未核验`；满足后显示`已核验`。尚未形成可打开版本的生成中内容只在工作详情里显示，不进资料库（R-23）。列出不等于可交付，草稿旁不出现任何“已就绪”字样。
+5. **输入不因为在资料库里就变成成果**：采用必须是用户明确动作（`nexus.vault.adoptDeliverable`），采用时不改写这个文件在别的工作里的用途。
+6. **替换要删掉被工作采用的版本时，先问用户**：“替换内容”仍只保留最近 5 个版本；但如果要被删除的版本有未解除的 `work_links(target_kind='artifact')` 命中（采用为成果，或被别的工作引用），文件库直接查 `work_links` 发现后，不静默删除。页面在用户点“替换内容…”时先调 `nexus.vault.replacePreview`，有命中就先弹窗（见 11.7.5），让用户选“复制为新文件”或“直接删除”；服务端在提交事务里再核对一次，选择过期就拒绝并重新询问。只有“采用后又连续替换了 5 次”才会触发，平时看不到这个弹窗；内容没有变化（与当前版字节相同）时不产生新版本，也不触发。
+
+文件的“范围”（原型的“上下文”，客户 A / 客户 B / 个人）：成果继承所属工作的范围（读取时推导，不存）；输入资料在 `vault_files` 增加可空列 `scope_id`（指向 `context_scopes`，服务端校验，空 = “未指定范围”，R-20 的保守默认），由上传时的筛选或用户在详情里指定（`nexus.vault.setScope`）。
+
+#### 11.7.5 动作与弹窗
+
+| 动作                 | 入口                                 | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 上传                 | 列表栏主按钮                         | 弹窗两个页签：“上传文件”（拖入 / 选择；可选范围；可勾“先放进待整理”）和“从本机路径导入”（操作员，沿用 F1 的规则）。显示**服务端给的**上限；超限的错误给可操作的建议（见下）                                                                                                                                                                                                                                                                                                                                                                                    |
+| 用作某件工作的成果…  | `···`（仅 `upload`、且尚无所属工作） | 选一件工作（可搜索）；清单：✓ 记下它是『工作』的成果，固定在当前版本；✓ 原件保留；! 它在其他工作里的用途不变；✕ 不会改变这件工作的完成状态（完成仍按结果约定核验）。提交 `nexus.vault.adoptDeliverable`                                                                                                                                                                                                                                                                                                                                                        |
+| 替换内容…            | `···`                                | 沿用 F 设计 14.8 的替换（≤ 16 MiB）；成果被替换后新版本显示`草稿 · 未核验`，工作侧的采用版不变；**若这次替换会删掉被工作采用 / 引用的旧版本**，先弹“替换后会删掉一个已被工作采用的旧版本”：列出第 N 版和用到它的工作（角色：主要成果 / 参考）；两个大选项——『复制为新文件并保留』（✓ 内容保存在新文件『原名（第 N 版）』；✓ 工作『X』的成果改为指向新文件并归它所有；! 原文件不再属于该工作）、『直接删除』（✕ 该版本内容永久删除，不可恢复；✕ 工作『X』失去已采用的成果，“成果已交付”重新评估，可能不再显示已完成）；必须选一项，没有默认项；按钮“取消”“替换” |
+| 重命名 / 移动 / 固定 | `···`                                | 沿用                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 标为敏感 / 取消敏感  | `···`                                | 沿用；弹窗说明实际处理限制（不提取、不进搜索、不进引用码、Nexus 文件工具读不到）。**不写“对 Agent 不可见”**（S8 未解，F 设计 13.4 第 10 项）                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 保留到资料库 / 丢弃  | `···`（仅待整理）                    | 沿用 `keep / discard`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 复制聊天引用码       | `···`                                | 复制 `#VF…`；引用码不是授权，也不是可外传的链接                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 移到回收站           | `···`（红色）                        | 弹窗：“30 天内可以恢复，之后永久删除”。清单：! 引用它的工作里会显示该资料不可用（逐个列出工作和角色）；✓ 不会删除或结束任何工作；! 备份、云同步或快照里的副本不在 Nexus 控制范围；保留说明一行：“回收站保留 30 天，到期自动永久清除，只留一条不含名称的回执”（FG：真实保留类别、用途、到期日）                                                                                                                                                                                                                                                                 |
+| 恢复 / 永久清除      | 回收站里的文件顶栏                   | 恢复后仍是私有、不自动重新发布（NX-08）；永久清除沿用二次确认（勾选 + 重复文件编号）和回执                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+**上传超限的错误**（NX-08、DU-01）：**现状（已核对代码）是一个全局上限，不是按类型**：单个文件上限 `vaultMaxFileBytes`，默认 100 MiB（`VAULT_DEFAULT_MAX_FILE_BYTES`，插件配置里可改，范围 1 KiB – 4 GiB）；单次 RPC 上传最多 16 MiB（`VAULT_UPLOAD_MAX_BYTES`，更大的走分块 HTTP，仍受单个文件上限约束）；账号文件库总容量默认 5 GiB（`vaultOwnerQuotaBytes`）；一次读取最多 4 MiB。PRD 初始上限里“按媒体类型”的数字（普通文件 25 MB、视频 100 MB、粘贴图片 8 MB、音频 250 MB 且 120 分钟内）**本批不实现**，页面只展示服务端实际的全局上限，按类型限制列入后续（E.3）。页面从 `nexus.vault.stats` 的 `limits` 读（`maxFileBytes`、`rpcUploadMaxBytes`、`ownerQuotaBytes`），不写死。错误弹条写明原因和下一步，例如“『报价.pdf』120 MB，超过单个文件 100 MB 的上限。可以：压缩后再传；PDF 按页分批上传；文件夹请先压缩为 ZIP”。压缩包会被安全解压，不执行里面的任何内容；解析页数 / 像素超限时同样给出“按页选择或分批”的选项。
+
+**旧公开链接（R-22）**：文件库从来没有做过分享，正常环境没有；迁移检查（§12.2）若在别处发现有效的旧公开链接，资料库详情顶部显示红色提示条“这份文件有一个仍然有效的公开链接（到期 …）”和“立即撤销”，撤销前不得隐藏入口留下无人管理的公开访问。
+
+#### 11.7.6 需要的数据与接口变化
+
+| 变化                                                                      | 内容                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nexus.vault.list` / `.get` 扩展                                          | 每行带 `origin`、`ownerWork {id, title}`、`draft`（成果且未核验）、`scope {id, label}`、`pinned`（= `favorite`）、`matchedBy`（name / content）；接受 `origin`、`scopeId`、`q`（名称 + 内容）                                                                                                                              |
+| `nexus.vault.get` 的版本与使用方                                          | 版本带来源归因（生成它的 Task / 工作，或“你上传 / 你替换”）；`usedBy[]` 合并证据挂载、`work_links` 和 Task → Work；`goals[]` 来自 `goal.forFile`                                                                                                                                                                           |
+| `nexus.vault.adoptDeliverable`                                            | 新增写接口 `{ fileId, version, workId, expectedRevision }`；写 `work_links` 采用关联，部分唯一索引保证一个文件一个所属工作；`dryRun` 返回上面的清单                                                                                                                                                                        |
+| `nexus.vault.setScope`                                                    | 新增；`vault_files.scope_id` 为新增可空列（`ADD COLUMN`，迁移只追加）                                                                                                                                                                                                                                                      |
+| `nexus.vault.replacePreview`（新增）、`.replace` / `.restoreVersion` 扩展 | `replacePreview {fileId}` 返回这次替换会删掉的、被工作使用的版本：`affected[] {seq, works[{id,title,role}]}`；`replace` / `restoreVersion` 新增参数 `onAdoptedVersion: "copy" / "delete"`，有受影响版本却没带时返回 `adopted_version_in_use`；复制或解除关联与追加版本在同一事务；字节相同不产生新版本时不执行任何一个选择 |
+| `nexus.vault.stats` 扩展                                                  | 返回 `limits`（`maxFileBytes`、`rpcUploadMaxBytes`、`ownerQuotaBytes`，都是现有配置的原值）、未索引文件计数、`legacyShares`（迁移发现的有效旧公开链接数，正常为 0）                                                                                                                                                        |
+| 页面不再调用                                                              | `nexus.vault.restoreVersion`（保留给操作员脚本）                                                                                                                                                                                                                                                                           |
+
+#### 11.7.7 本批不做，以及页面验收
+
+不做：分享的一切（R-22）、版本设为当前 / 删除单个版本（R-23）、Markdown 在线编辑（R-45）、docx / xlsx / 音频 / zip 内嵌预览、PDF 页图（后续 `derive`）、文件夹树视图、手机上传（F 设计远期项）、HTTP 独立页面的“文件”标签（F 设计 13.3 暂缓项仍暂缓）。
+
+页面验收（沿用 `files-view.test.ts` 的 DOM 测试写法）：
+
+1. 页面上任何位置都找不到“分享”“公开链接”“复制链接”“设为当前”“删除此版本”字样；`nexus.vault.restoreVersion` 没有页面入口。
+2. `origin` 推导：`task_output` 且能解析到 Work 的 → 成果；采用过的 → 成果；其余（含迁移来的）→ 你上传的；一个文件第二次采用被拒绝（部分唯一索引），换工作用 `reference`。
+3. 成果的新版本显示`草稿 · 未核验`，且所属工作的采用版不变；核验标准满足后变`已核验`。
+4. “待整理”筛选只是一个筛选，不出角标、不进“待你处理”。
+5. 敏感文件：列表有标记，详情有“不提取、不进搜索”的实际限制说明，页面文字里没有“Agent 看不到”这类承诺。
+6. 删除弹窗逐个列出引用它的工作；回收站里的文件顶栏是“恢复 / 永久清除”，没有“下载以外的写操作”。
+7. 超限上传的提示包含文件大小、当前上限和至少一条下一步；上限数字来自 `limits`，不是前端常量。
+8. 图片预览不超过 8 MB；超过显示类型卡和下载，不整个读进内存（沿用 256 MiB 下载上限，F 设计 14.8）。
+9. 替换时的采用版本询问：采用第 1 版后连续替换 5 次都不弹窗；第 6 次替换前 `replacePreview` 返回第 1 版和采用它的工作，页面先弹窗；选“复制为新文件”后新文件存在、`work_links` 指向它、工作的成果仍可打开，原文件保留最近 5 版；选“直接删除”后关联被解除、工作按 §6.5 重新推导状态；不带选择直接调 `replace` 被拒绝；字节相同的替换不触发；引用它的是 `reference` 角色的工作时同样弹窗。
+
+### 11.8 状态页（Status，按 PRD R-24 / R-25 / R-17 / IR-01 和 `nexus-status.html` 重做，2026-11-02）
+
+状态页是**执行、批准与检查的记录**，用来事后查证“Nexus 到底做了什么、停在哪、为什么”。**日常无需查看**：导航里它在最底部、**没有任何角标**，需要你处理的事（待批准、登录过期、更正邮件）由工作页的“待你处理”和聊天提醒，不靠这一页催。
+
+它取代现有“回执”页（PRD 导航：回执 → Status）。本节只定义**页面如何把已有的真实记录投影出来**，不新增决定入口：批准、暂停、恢复、重试都回到原来的工作或聊天里做。
+
+#### 11.8.1 原则
+
+- **只显示真实记录**（R-24）：每一行都能指到一条已存在的数据。没有数据的区块**整块隐藏**，不拿原型数字填充，也不写“暂无 0 项”的占位。
+- **只读投影**：页面不保存自己的状态，也不新增写操作，唯一例外是“出了问题”（报告）和“结案”（11.8.6）。
+- **未启用的能力不出现**（R-07 / R-17）：规则自动批准与额度卡、邮件历史回填、目标信作业、共享读取、查看规则按钮，本批全部隐藏。旧规则产生过的批准只作为**历史记录**显示，且不带额度。
+- **不用合成百分比**（R-16）：原型的“今日执行容量 62%”这种把各维度压成一个数的做法不用，改为分维度显示“已用 / 上限”。
+- **主机配置只讲实际**（R-25）：显示实际主机类型和最后一次观测时间，不写“休眠时仍在执行”“离线实时通知”之类没有依据的承诺。
+- **页面风格**：沿用 11.5b 的骨架和 `--nx-*` 令牌，三栏 `72px 380px 1fr`；详情只有 **RecordView 一个模板**，执行、批准、检查、系统处理、问题共用，区块为空就不显示。
+
+#### 11.8.2 列表栏
+
+| 部分   | 内容                                                                                                                                                                                                                                                                                                                                                    |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 标题   | “状态”，副标题“执行、批准与检查的记录 · 日常无需查看”                                                                                                                                                                                                                                                                                                   |
+| 搜索   | 按标题、所属工作名、范围名过滤当前已加载的记录；不搜正文                                                                                                                                                                                                                                                                                                |
+| 分段   | 全部 · 执行 · 批准 · 检查 · 系统处理 · 问题，每段带条数；某一类当前一条也没有时**仍显示该段**，计 0，选中后给出空状态说明                                                                                                                                                                                                                               |
+| 第一行 | “容量与运行环境”（概览入口，仅在“全部”且未搜索时出现）；右侧只在有未恢复的异常时显示一个琥珀药丸，如“2 项异常”，**不是**待处理计数，点开只是看                                                                                                                                                                                                          |
+| 分组   | 整个列表按“记录最近一次变化的时间”从新到旧排（与原型一致），时间相同按编号倒序，翻页用 `(at, id)` 复合游标。**首屏只显示最近两天**（今天、昨天，按 `quota_timezone` 的日界，缺失时 UTC）；更早的全部归到列表底部的一行“更多 · N 条”，点开按 50 条一页继续加载（仍按同一排序，不再按日分段）。搜索时在全部记录里查，结果同样先显示最近两天，其余归“更多” |
+| 每一行 | 类型图标块（执行蓝、批准绿、检查紫、系统灰、问题红）+ 标题 + “所属工作 · 时间” + 状态药丸（文字 + 色调）                                                                                                                                                                                                                                                |
+| 空状态 | “当前筛选下没有记录”；全库为空时写“还没有执行过任何事。你在聊天里交代的事开始执行后，记录会出现在这里”                                                                                                                                                                                                                                                  |
+
+记录保留期：执行、批准、检查记录跟随各自来源表的保留规则，页面不自己定期清理，也不展示一个原型里的“运行日志到期清理”作业——**除非**该作业在服务端真实存在并写了回执。
+
+#### 11.8.3 概览（容量与运行环境）
+
+概览是第一行点开后的详情，由总体一句话、账号容量（“执行槽与排队”和“今日资源”两部分）、连接与运行环境组成，**任何一块没有真实数据就整块不画**。
+
+| 区块           | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 来源                                                                                                                                                                                          |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 总体一句话     | 绿点“一切正常”；有异常时琥珀点“N 件事需要留意”+ 每件一句 + “查看”跳到对应记录。**这是汇总，不是新的待办**                                                                                                                                                                                                                                                                                                                                                                    | 11.8.4 里“需要留意”的记录（等待浏览器、结果待确认、覆盖降级、未结案的问题）                                                                                                                   |
+| 执行槽与排队   | **“执行中 1/2、排队 N”**：业务槽 `执行中 x / 2`（Task Run、系统作业运行、独立并行专业执行共同占用；等待输入 / 批准 / 外部回执时释放计算槽，但不释放计划占槽和未知效果的预留）；`排队 N`（队列上限 100，最多等 30 分钟，超时显示“已让出队列，将在原有效窗内重评”，预计等待不确定就写“未知”）；**保护通道**单独一行 `1 个独立槽`：显示“空闲”或“正在处理：控制 / 清理 / 窗口评估”，**不占 2 个业务槽，也不进“今日资源”的分母**；账号合计 `活动执行 x / 3`；浏览器写操作 `x / 1` | 实时状态：运行中的 Task Run、派发队列、保护通道作业的当前计数，放在网关进程内存、重启后从 `nexus_tasks` 运行态和派发队列重建，不建表（PRD R-16 的“保护通道与容量准入”）；**不依赖用量计量表** |
+| 今日资源       | **分维度、带明确单位**：`今日来源读取 X / 1,000`、解析页数、图片张数、邮件正文、模型 token、活动执行时长（保护通道不计入）；每行 `已用 / 今日上限` + 进度条 + “明天 00:00 重置”（按 `quota_timezone` 的日界，缺失时显示 UTC）。百分比必须绑定一个单位和当前上限，**不把瞬时并发率叫作“今日已耗”**；80% 预警只在完成存在风险时按预算版本提示一次，多个维度合并成一项说明                                                                                                      | 上限来自 §4.7 的 `limits.ts`；已用来自用量计量（`scope_kind=account_day`）；无计量数据则这一行整块隐藏                                                                                        |
+| 连接与运行环境 | 每个连接器一行：名称、状态（正常 / 需要重新登录 / 不可用）、最后观测时间；Agent 主机一行：类型（云端主机 / 本机）、最后响应时间。不写服务商配额百分比（我们拿不到的数字不画）                                                                                                                                                                                                                                                                                                | 来源适配器 `status()`（§8.4：available / unavailable / needs_reauth）和 `HostProfile`（只读投影，无新表）                                                                                     |
+
+> **已知缺口（需要在《资源与限额》设计里补，见附录 E.4）**：“执行槽与排队”来自实时计数，不受影响；“今日资源”和执行记录里的“资源使用”依赖用量计量，而**本设计没有定义用量计量的存放表**（§4.7 末尾有最小建议）。所以这两处按“计量接口有数据才画”实现：`nexus.status.overview` 的 `capacity.today.available=false` 时只隐藏“今日资源”，**不退回去画上限本身**，执行槽照常显示。服务端的预留与硬限不受影响（R-24：不能因为 UI 缺失而丢掉服务端底线）。
+
+**“连接与运行环境”这一块是什么**：它列出 Nexus 依赖的外部东西现在是否可用，一行一个——Agent 主机的浏览器是否在线、邮箱 / 日历这类**连接器**（Nexus 连到外部服务的授权连接）是否正常、某个网站的登录是否过期。每行只有名称、状态（正常 / 需要重新登录 / 不可用）和最后观测时间。目前插件没有真实的邮件、日历连接器（来源适配器只有手动来源），所以第一版**只显示 Agent 主机和浏览器就绪状态**；以后接入真实适配器，每个适配器的 `status()` 自动多出一行。
+
+**“宿主配置”（HostProfile，R-25）指什么**：不是打包参数，而是“Nexus 的 Agent 实际跑在哪台机器上”的记录——部署类型（`local_mac` 这台 Mac / `cloud_host` 云主机 / `dedicated_physical` 独立物理机）、用户读得懂的位置、最近一次心跳时间、网关 / 浏览器 / 会话各自的状态和观测时间。它决定页面怎么写：`local_mac` 显示“这台 Mac · 最近响应 HH:mm；休眠、关机或断网期间无法检查”，只有独立主机才能写“关闭聊天设备不影响在线 Agent 主机”。来源（开发已确认，§12.4）：部署类型和位置由插件配置给出——新增两个可选配置项 `hostDeployment`（默认 `local_mac`）和 `hostLabel`；Mac 安装包的预设写 `local_mac`，云端部署（部署方案文档）写 `cloud_host`，所以它和打包预设有关，但只是填一个值；心跳取网关自己的运行时间；浏览器状态取宿主的浏览器能力（能否读到待 S-H1 验证，读不到就整行不显示）。不新增表。
+
+**去掉的原型区块**：“今日执行容量 62%”（R-16：含义不明的百分比不用，改为上面的“执行中 1/2、排队 N”和分维度的今日资源）；“自动批准 · 账号今日 7 / 20 次”和“按工作累计的自动批准额度”（R-17：规则与额度执行关闭，额度 UI 隐藏）。
+
+#### 11.8.4 详情栏：RecordView 统一模板
+
+| 区块       | 内容与来源                                                                                                                                                                                                                                                 | 为空时                     |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| 顶栏       | 面包屑“类型 · 范围”；右侧“打开工作”（有所属工作时）、记录自己的控制（见 11.8.6）、`···`：在聊天中讨论 / 复制记录编号 / 出了问题（仅执行、批准、检查记录）                                                                                                  | 无所属工作不显示“打开工作” |
+| 标题块     | 类型图标（大号）、标题、状态药丸、“属于「工作名」”（可点）或“系统处理，不属于任何工作”、时间                                                                                                                                                               | —                          |
+| 一句话结论 | 一个浅色提示块：这条记录**当前**意味着什么；需要你时用琥珀 / 玫红                                                                                                                                                                                          | 必有                       |
+| 四问       | 只用于问题记录：发生了什么 / 已停止什么 / 还可能发生什么 / 下一步。每句标注依据：**你报告**（怀疑）或**已核实**                                                                                                                                            | 非问题不显示               |
+| 资源使用   | 每个有上限的维度一行：`已用 / 上限 单位` + 双色进度条（已用、已预留）+ “剩余”“估算”；排队等待说明“在原预算内的等待不需要你确认”；“依据”里的“上限”一行写来源：“开始时由你接受”（用户接受计划时选定的适配规模）/ “系统默认资源包” / “受服务商或来源授权限制” | 无计量不显示               |
+| 逐项结果   | 批准记录的每个动作；系统处理的“交给了谁”；每项带圆点色和结果词                                                                                                                                                                                             | 无则不显示                 |
+| 经过       | 时间线：时间列 + 事件，圆点色表示正常 / 注意 / 问题                                                                                                                                                                                                        | 无则不显示                 |
+| 依据       | 键值表：为什么是这个状态（计划、频率、范围、批准方式、命中的历史规则名等）                                                                                                                                                                                 | 必有                       |
+
+时间显示 `今天 HH:mm`、`MM-DD`，悬停显示含时区的绝对时间。所有“依据”都是**记录里已有的字段**，不由页面编写。
+
+**状态词**（统一用自然语言，不暴露枚举；由读时函数 `statusWord(record)` 产生**词条键和参数**，如 `status.word.run.queued`；文字放在新增的 `src/i18n-status.ts`，沿用 `i18n-goals.ts` 的做法——`[中文, 英文]` 成对、并入 `i18n.ts` 的目录，浏览器用 `tr(lang, key, vars)` 渲染；测试覆盖每一行，且中英文都齐全）：
+
+| 类型     | 来源                                                                                                      | 状态词（色调）                                                                                                                                                                                                                        |
+| -------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 执行     | `nexus_tasks` + `run_triggers`，Work 由 `task_work_owner` 取；状态用 §5.1 的 `taskPhase()`                | 排队中（灰）· 正在执行（蓝）· 等待浏览器 / 等待登录（琥珀）· 等你批准（琥珀）· 已完成（绿）· 未完成（灰）· 失败（玫红）· 已取消（灰）；排队是“账号容量被占满”的常态，**不记失败**                                                     |
+| 批准     | `decisions` + `decision_actions` + `action_executions`；旧规则用 `grant_uses` + `standing_grants`（只读） | 等你批准（琥珀）· 你批准了 N 项（绿）· 你拒绝了（玫红）· 已过期（灰）· 已被新请求取代（灰）· 批准已记录，应用失败（琥珀）· **结果待确认**（琥珀，执行 `state='unknown'`，写“下次核对 HH:mm”）· 按旧规则批准（灰，历史；无“查看规则”） |
+| 检查     | `schedules` + `schedule_triggers`（含 `legacy_watch` 行）                                                 | 按计划（绿）· 覆盖降级（琥珀）· 暂时无法检查（琥珀）· 已暂停（灰）· 受阻（琥珀，写阻塞原因）· 已结束 / 已取消（灰）。`status` 与 `coverage_state` 分开（§4.5.2）；“未检查”写成“未检查”，**绝不写成“没有变化”**（CS-05）               |
+| 系统处理 | 清除回执（`purge_receipts`、偏好 / 文件 / 目标的清除回执）、`vault_jobs`（文件提取）、真实存在的到期清理  | 处理中（蓝）· 已完成（绿）· 部分完成（琥珀）· 失败待重试（琥珀）。**清除回执只出现在这里，不伪装成批准记录**（PRD 导航规定）                                                                                                          |
+| 问题     | `incident_reports`（11.8.7）                                                                              | 处理中（玫红）· 已结案（灰）· 已结案，残余风险已接受（灰，带琥珀小点）。结案**不写成“影响已消除”**（IR-02）                                                                                                                           |
+
+“需要留意”的定义（用于概览一句话和列表第一行的药丸）：等待浏览器 / 等待登录、结果待确认、覆盖降级且空档未补上、处理中的问题、应用失败的批准。**等你批准不算**——它已经在工作页的“待你处理”里。
+
+#### 11.8.5 各类记录的具体内容
+
+- **执行**：标题取任务标题；“经过”取 `nexus_task_steps` 的关键节点和 `run_triggers` 的触发 / 重试；因账号容量排队的写成“排队等待，已自动继续”，不进失败计数。资源块按 R-16 逐维度；“依据”里的“上限”写来源，如“450 页 · 开始时由你接受”——那是用户在接受计划时选定的适配规模，不是全局配置（§4.7）。一次任务多次运行时，每次运行是“经过”里的一组，不拆成多条记录。
+- **批准**：一条记录对应**一次批准决定**，里面逐项列出被批准或拒绝的动作，每项一个结果词：已执行 / 未执行 / 结果待确认。**“已核验”只在有对应证据或 claim 通过时才写**（见 §8），否则只写“已执行”。手动逐项批准不消耗任何额度，所以“依据”里没有额度行。旧规则历史只显示“按旧规则批准 · 历史”与当时的规则名，不给任何跳转。
+- **检查**：“经过”来自 `schedule_triggers`：`created` → “已检查 · 结果”（取检查 Task 的结论）；`skipped` / `missed` → “未检查 · 原因”；`merged` → “漏掉的 N 次已合并为一次补查”；`quarantined` → “已忽略（承诺已结束）”。恢复后只补一次，页面写明“恢复后先检查一次，不补跑错过的每一次”（`catch_up` 规则）。“共用同一次读取”那一行本批隐藏（共享读取关闭，R-07）。
+- **系统处理**：原“回执”页的内容原样并入——每次清除一条记录，“逐项结果”列出已清除的类别和保留的审计元数据，“依据”给出范围和保留期。文件提取作业只在失败或重试时才作为记录出现，成功的提取不刷屏。
+- **问题**：见 11.8.6。
+
+#### 11.8.6 控制与“出了问题”
+
+页面上**只有这些控制**，全部是真实可用的；其余用“打开工作”回到原处理处。
+
+| 控制                    | 出现在                         | 行为                                                                                                                                                                      |
+| ----------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 打开工作                | 有所属工作的记录               | 跳到工作详情并定位到对应步骤 / 批准 / 检查区块；批准、暂停、恢复、重试都在那里做                                                                                          |
+| 取消（作业）            | 仍在处理的系统处理记录         | 只用于**能取消的真实作业**（文件提取重试、尚未开始的清除）；弹窗列出影响（✕ 停止什么 · ! 已完成的部分保留 · ✓ 不影响什么）。邮件回填的“继续 / 取消”本批没有对应作业，不画 |
+| 出了问题                | `···` 菜单（执行、批准、检查） | 打开报告弹窗（下）                                                                                                                                                        |
+| 结案                    | 处理中的问题记录               | 弹窗要求选“已处理”或“接受残余风险”并**必填原因**；列出尚未核实的影响（如“可能已被阅读 / 转发的邮件”），文案写明“结案不代表影响已消除”                                     |
+| 在聊天中讨论 / 复制编号 | `···`                          | 在聊天中带记录引用（不带正文）；编号是记录的稳定编号（IR-… 或原任务 / 决定编号）                                                                                          |
+
+**“出了问题”弹窗**（对应 IR-01）：一个文本框，提示“用一句话说明即可，比如‘邮件发错客户了’”；下方影响清单：
+
+- “立即暂停相关工作的后续外发，已提交的不受影响”
+- “先核实事实，再给出可行的补救选项”
+- “不会自动发送更正或申请退款”
+
+提交后：写一条 `incident_reports`（稳定编号，如 `IR-1029-02`），关联到来源的任务 / 动作 / 决定 / 工作；若有所属工作，同事务写一条 `work_controls`（`scope_kind='work'`，`reason='incident_hold'`，`initiated_by='user'`，状态 `paused`）和一条 `work_events`（`incident_reported`）。**暂停只针对后续外发**；解除由用户在工作页做（WK-04“恢复”只解除所选的那一条控制）。四问先由服务端用已有记录确定性地填：已发出的外发（`action_executions`、`outbox`）列入“可能还会发生什么”，标 **你报告**；Agent 之后只能通过 `nexus_incident_note` 工具补充 **已核实** 的事实和下一步，**不能结案**，也不能因为读了一封邮件就写“对方已读”（IR-01：报告不推定所有邮件已读）。补救动作如果有副作用（例如发更正邮件），照常走逐项批准，不继承原授权（IR-02）。
+
+“事故补救”和“工作成果”是两件事（呼应附录 E 的 R-36）：问题处理中时，工作可以同时显示“已完成”，状态页的问题记录不改写工作的完成状态。
+
+#### 11.8.7 需要的数据与接口变化
+
+**新增一张小表**（stage7-0005，未发布迁移，可直接定义）。PRD 允许复用现有记录而不建完整 IncidentRecord，但需要一个稳定编号和“怀疑 vs 已核实”的分层，所以只建最小版：
+
+```sql
+CREATE TABLE incident_reports (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  code TEXT NOT NULL,                  -- 稳定展示编号，IR-MMDD-nn，同一 owner 内唯一
+  source_kind TEXT NOT NULL,           -- execution|decision|task|schedule_trigger|work
+  source_id TEXT NOT NULL,
+  work_id TEXT,                        -- 有所属工作时填；用于 incident_hold 和 work_events
+  task_id TEXT,
+  report_text TEXT NOT NULL,           -- 用户原话，写入后不改
+  story_json TEXT NOT NULL,            -- {happened,stopped,maybe,next}，每项 {text, basis:'user_report'|'verified'}
+  effects_json TEXT NOT NULL,          -- 受影响的执行 / 外发引用：[{kind, id, effect, verified}]，verified=false 即“未核实”
+  status TEXT NOT NULL,                -- open|closed
+  close_kind TEXT, close_reason TEXT,  -- resolved|risk_accepted；结案必填原因
+  revision INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL, closed_at INTEGER,
+  PRIMARY KEY (owner_id, id),
+  UNIQUE (owner_id, code),
+  CHECK (source_kind IN ('execution','decision','task','schedule_trigger','work')),
+  CHECK (status IN ('open','closed')),
+  CHECK ((status = 'closed') = (closed_at IS NOT NULL)),
+  CHECK (close_kind IS NULL OR close_kind IN ('resolved','risk_accepted')),
+  CHECK (status <> 'closed' OR (close_kind IS NOT NULL AND close_reason IS NOT NULL))
+) STRICT;
+CREATE INDEX incident_by_status ON incident_reports(owner_id, status, created_at);
+```
+
+`work_events.kind` 的固定列表（§4.2.4）增加 `incident_reported`、`incident_closed`；`work_controls.reason` 约定值增加 `incident_hold`（§5.2 的阻塞原因表已有该行）。
+
+**RPC**（页面只调这一组聚合接口，浏览器端不再自己拼 `decision.list`、`execution.list`、`task.purgeReceipts`）：
+
+| 方法                             | 作用                                                                                                                                                                                                                                                                                              | 说明                                                                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `nexus.status.list`              | 记录摘要列表：`{id, kind, title, workId?, workTitle?, contextLabel?, stateWord, tone, at, group}`；参数 `kind?`、`q?`、`days`（默认 2，只返回最近两天；0 表示不限）、`before?`（`(at, id)` 游标）、`limit`（默认 50）；返回 `{items, more:{count, cursor?}}`，`more` 是更早记录的条数与下一页游标 | 服务端合并六类来源并按时间排序；`id` 形如 `run:ID`、`approval:ID`、`check:ID`、`job:ID`、`incident:ID`，浏览器只当不透明串用         |
+| `nexus.status.counts`            | 各分段条数（只算最近两天内的，与首屏一致；“更多”另给总条数） + “需要留意”的条数与摘要                                                                                                                                                                                                             | 只给列表栏用，**不进导航角标**                                                                                                       |
+| `nexus.status.get`               | 一条记录的 RecordView：`{header, summary, story?, ledger?, items?, timeline?, facts, controls}`                                                                                                                                                                                                   | 服务端只给词条键和参数（`statusWord`、各区块的 `*Key`），中英文文字在 `src/i18n-status.ts`，页面用 `tr()` 渲染，不在视图里拼业务语句 |
+| `nexus.status.overview`          | 概览：`{health, capacity:{slots:{business:{active,max}, queued, protected:{active,max}, accountActive, accountMax, browserWrite:{active,max}}, today:{available, dimensions[]}}, environment:[{name, state, observedAt}]}`                                                                        | `capacity.today.available=false` 时页面只隐藏“今日资源”，执行槽照常显示；环境来自适配器 `status()` 与 `HostProfile`                  |
+| `nexus.incident.report`          | 报告问题：`{sourceKind, sourceId, text, requestId}`                                                                                                                                                                                                                                               | `requestId` 幂等；同一来源重复报告返回已有的未结案记录并追加一条用户补充，而不是新建                                                 |
+| `nexus.incident.close`           | 结案：`{id, kind, reason, expectedRevision}`                                                                                                                                                                                                                                                      | 仅用户；先列出未核实影响；`revision` 并发校验                                                                                        |
+| Agent 工具 `nexus_incident_note` | 补充已核实事实 / 下一步                                                                                                                                                                                                                                                                           | 只能写 `basis:'verified'` 的条目和 `next`；不能结案、不能改 `report_text`                                                            |
+
+现有 `nexus.decision.*`、`nexus.execution.*`、`nexus.task.purgeReceipts` 等**保持不变**，继续服务聊天内审批和工作详情；`nexus.status.*` 只是读它们。
+
+**路由**：`view=status`（可带 `kind=`、`q=`、`record=ID`）；旧 `view=receipts` 重定向到 `view=status&kind=job`，保留原深链。`NexusRoute` 联合类型增 `{ view: "status", kind?, q?, record? }`，`route.test.ts` 补测试。
+
+**文件落点**：`browser/status-view.ts`（列表栏 + 概览 + RecordView 渲染）、`browser/status-dialogs.ts`（出了问题 / 结案 / 取消作业）、`browser/status-data.ts`（`nexus.status.*` 的请求与类型）；原 `renderReceipts`（`src/ui-render.ts`）的清除回执渲染迁入 `status-view.ts` 的“系统处理”分支后再删除旧入口，**保留旧的 DOM 测试断言并改写成 RecordView 版本**，确保清除回执仍能逐项核对。
+
+#### 11.8.8 和原型的差别
+
+| 原型                                  | 本批                                                | 原因                                |
+| ------------------------------------- | --------------------------------------------------- | ----------------------------------- |
+| 概览：今日执行容量 62%                | 分维度已用 / 上限；无计量时隐藏                     | R-16 不合成百分比；计量表是已知缺口 |
+| 概览：自动批准 7 / 20、按工作累计额度 | 整块隐藏                                            | R-17                                |
+| 批准记录“按规则批准”+“查看规则”       | 只作为“按旧规则批准 · 历史”，无跳转、无额度         | R-17                                |
+| 邮件历史回填（暂停 / 继续 / 取消）    | 不出现                                              | R-07                                |
+| 目标信作业记录                        | 不出现；目标信相关记录待 R-07 放开后再接            | R-07                                |
+| 共享读取记录、“共用同一次读取”        | 不出现                                              | R-07                                |
+| 运行日志到期清理                      | 仅当服务端真实有该作业并写回执时才出现              | R-24                                |
+| 服务商配额“已用 18%”                  | 不画                                                | 拿不到真实数字                      |
+| 检查记录“去重新登录”按钮              | 只写“需要在 Agent 主机的浏览器里重新登录”，不放按钮 | 没有宿主深链；不假装有一键操作      |
+| 事故记录里“查看更正邮件”              | 改为“打开工作”                                      | 更正邮件是工作里的一个草稿          |
+| 记录编号“IR-1029-02”                  | 保留                                                | `incident_reports.code`             |
+
+#### 11.8.9 本批不做，以及页面验收
+
+不做：规则管理与额度、回填、目标信 / 共享读取记录、跨账号视图、导出、对记录的任何批量操作、在状态页里批准 / 拒绝 / 重试、实时推送（页面打开时每 30 秒刷新一次计数即可）。
+
+页面验收（DOM 测试写法沿用现有 `page.test.ts`）：
+
+1. 导航中的“状态”**没有角标**；有异常时只在列表第一行出现“N 项异常”药丸。
+2. 页面任何位置都找不到“自动批准额度”“查看规则”“邮件回填”“分享”“62%”这类字样或数字；所有数字都来自接口返回值，用空接口渲染时对应区块整块消失。
+3. 六种类型都能渲染同一个 RecordView，空区块不留标题；状态词来自 `statusWord` 的词条键，页面源码里找不到 `running`、`unknown` 等枚举字面量，也没有写死的中文；中英文两套文案都齐全（缺任一语言的词条键会让测试失败）。
+4. 结果待确认的批准：药丸是“结果待确认”，写出下次核对时间，**不写“已核验”**；有证据通过的才写“已核验”。
+5. 检查降级：空档写成“未检查”，页面文字里没有“没有变化”这类结论；恢复后说明只补一次。
+6. 旧 `view=receipts` 链接打开后落在“系统处理”分段，清除回执能逐项核对已清除和保留的内容；回执不出现在“批准”分段里。
+7. “出了问题”：提交后记录里能看到“你报告”和“已核实”两类依据；相关工作出现 `incident_hold` 暂停；重复提交只追加补充；结案必须填原因，且文案不含“影响已消除”。
+8. 排队中的执行不计入“需要留意”，也不出现失败色；等你批准的不计入“需要留意”。
+9. 概览的“账号容量”写“执行中 x / 2、排队 N”，保护通道单独一行且不计入 2 个业务槽，账号合计不超过 3；页面上没有“今日执行容量”字样；“今日资源”的每个百分比旁都有单位和当前上限，没有计量数据时只隐藏这一部分。
+10. 列表首屏只含今天和昨天的记录，其余归底部“更多 · N 条”；点开后按同一排序（时间、编号倒序）每页 50 条继续加载，翻页不重复、不漏；分段条数只算最近两天；搜索命中更早的记录时显示在“更多”里。
 
 ## 12. 迁移、兼容与开关
 
 ### 12.1 迁移顺序
 
-1. 发布 `stage7-0001` … `0004` 四个纯加表的迁移（含索引；`context_scopes`、`task_adoptions`、`completion_presentations`、`window_evaluation_requests`、`unresolved_mentions`、`migration_snapshots` 按所属组并入这四个迁移，不再另起编号）。老版本代码遇到它们不受影响（只加表）。
+1. 发布 `stage7-0001` … `0004` 四个纯加表的迁移（含索引；`context_scopes`、`task_adoptions`、`completion_presentations`、`window_evaluation_requests`、`unresolved_mentions`、`migration_snapshots` 按所属组并入这四个迁移，不再另起编号）。老版本代码遇到它们不受影响（只加表）。三页界面改版另外需要 `stage7-0005`（状态页的 `incident_reports`，§11.8.7）和目标、文件库各自的“追加列”迁移（§11.6.8、§11.7.6），同样只加不改。
 2. 新代码启动，`worksEnabled=false` 时与现在行为**完全相同**。
-3. 用户打开 `worksEnabled` → 触发一次**回填**（§12.2）→ 之后新任务自动带 Work。
+3. 用户打开 `worksEnabled` → 触发一次**回填**（§12.2）→ 之后新任务自动带 Work。**这是发布后的行为；开发阶段改为手动命令，见下面。**
 4. 其余三个开关按依赖逐个打开（§12.4）。
+
+**开发阶段（尚未正式发布）的数据处理（2026-11-02，开发确认）**：本批还没发布，库里只有开发数据，不存在“老用户升级”，所以：
+
+- stage7 的迁移文件在发布前可以直接改，不写“修补迁移”。已经跑过旧版 stage7 的开发库，`schema_migrations` 里有同名 id 但表结构不同，**必须清库重建**。
+- **不在启动时自动回填**。插件新增一个命令组（用 `api.registerCli` 注册，写法参照 google-meet 扩展），**停掉网关后、运行前手动执行**（命令名为建议）：
+  - `openclaw nexus data backfill-works [--dry-run]`：对现有开发库跑 §12.2 的回填（幂等，可重复跑）；`--dry-run` 只打印将建多少 Work、多少个隐藏、多少个历史成功。
+  - `openclaw nexus data reset [--yes]`：清空 Nexus 的全部开发数据，即 `<stateDir>/plugins/nexus-agent-core/` 下的 `nexus.sqlite`（含 `-wal` / `-shm`）、`vault/` 目录和同目录下的证据文件存储。执行前打印要删的路径并要求 `--yes`；网关在运行时拒绝执行。
+  - `openclaw nexus data status`：打印已应用的 `schema_migrations` id 和各主要表的行数，用来判断要回填还是要清库。
+- 这些命令只在网关停止时使用，不进入网关的运行路径。**正式发布前**改成启动时自动迁移 + 打开 `worksEnabled` 时回填，那时 R-42 必须已有答案。
 
 ### 12.2 回填：`backfillWorks()`（幂等，可中断重跑）
 
-放 `src/work/backfill.ts`。**先写 `migration_snapshots`**（映射规则版本 + 来源哈希，R-20），再回填；完成后在 `store_flags` 写 `works_backfill_v1`。纯记录 / 问答型的老事项**不强制回填为 Work**——是否构成工作仍守 WK-01，不能把存量每行 Task 都当成新的业务请求（回填只给 `nexus_tasks` 里确有任务语义的行包 Work，规则版本写进映射）。内部以"每个 Task 一个事务"推进，崩溃后重跑只处理仍缺主关联的 Task。
+放 `src/work/backfill.ts`。开发阶段由手动命令 `openclaw nexus data backfill-works` 调用（§12.1），发布后才在打开 `worksEnabled` 时自动调用。**先写 `migration_snapshots`**（映射规则版本 + 来源哈希，R-20），再回填；完成后在 `store_flags` 写 `works_backfill_v1`。**每个 live Task 都回填一件 Work**——INV-02 要求每个 Task 有主 Work，验收按 Task 数 = Work 数。WK-01 说的“并非每个请求都是业务工作”不靠少建 Work 来体现，而靠可见性：没有任务语义的老事项，其 Work 以 `hidden=1` 建立（仍可在“隐藏的工作”里找到，工作页页脚提示数量，隐藏不暂停任何后台工作）。判据 `trivialTaskRule v1`（规则版本写进 `migration_snapshots.mapping_version`）：**同时满足**才隐藏——处于终态（`succeeded` / `failed` / `cancelled`）；没有关联的步骤、决策、声明、证据、监控；没有 `goal_links`；没有以它为来源的文件产出。任一条不满足，一律可见。判据只看这些已有的行，不看标题或正文内容。内部以"每个 Task 一个事务"推进，崩溃后重跑只处理仍缺主关联的 Task。
 
 对每个 `nexus_tasks`（`status` 不在 `deleted` / `purging`，且无 `task_work_owner` 行）：
 
-1. `work_id = "w_" + task.id`（**确定性**，重跑不会重复建）；`title = task.title`；`request_text` 取 `goal_json` 中的目标文字；`outcome_text` 同；`origin='migrated'`；`context_mode='personal'`、`primary_context_id` = Personal 的默认根范围、`context_origin='legacy_default'`、`context_review='pending'`（R-20：这是保守的存储默认，**不声称内容确属个人**，不新增跨来源权限，不自动重启后台工作；用户在**首次新的执行 / 披露前**就地确认用途，历史浏览不逐条弹窗；若有可靠的旧上下文字段则保留准确范围、`context_origin='explicit'`）；`original_result_id = "r_" + work_id`；`created_at / updated_at` 取 Task 的；同时写 `work_versions` 第 1 版和一行 `outcome_contract_versions(template_id='legacy_task_success', provenance='migration')`（**只读历史**，R-02：不据此产生新的达成事件）；同时按旧 Task 的终局写 `works.migrated_outcome`。
+1. `work_id = "w_" + task.id`（**确定性**，重跑不会重复建）；`title = task.title`；`request_text` 取 `goal_json` 中的目标文字；`outcome_text` 同；`origin='migrated'`；`hidden` 按上面的 `trivialTaskRule v1`；`context_mode='personal'`、`primary_context_id` = Personal 的默认根范围、`context_origin='legacy_default'`、`context_review='pending'`（R-20：这是保守的存储默认，**不声称内容确属个人**，不新增跨来源权限，不自动重启后台工作；用户在**首次新的执行 / 披露前**就地确认用途，历史浏览不逐条弹窗；若有可靠的旧上下文字段则保留准确范围、`context_origin='explicit'`）；`original_result_id = "r_" + work_id`；`created_at / updated_at` 取 Task 的；同时写 `work_versions` 第 1 版和一行 `outcome_contract_versions(template_id='legacy_task_success', provenance='migration')`（**只读历史**，R-02：不据此产生新的达成事件）；同时按旧 Task 的终局写 `works.migrated_outcome`。
 2. 写 `task_work_owner(task_id → work_id)`（创建后不变，INV-02）。老事项不带 `work_links` 主关联行。
 3. 若 `goal_links(kind='task', ref_id=task.id)` 存在 → 写 `goal_work_links(role='primary')`（`work_version=1`），`goal_links` 行保留作影子。
 4. 若该 Task 有活动 `watches`（状态 `pending_schedule/scheduled/firing`）→ 为每个建一行 `schedules(owner_type='legacy_watch', owner_ref=watch.id, executor_kind='watch', executor_ref=watch.id, created_via='migration', schedule_kind 取自 watch 是否循环, status=active, cadence_json 取自 watch 的 expect/下次检查, work_id=上面的 Work)`，不要求方案（INV-10 的 `legacy_watch` 例外）；已 `satisfied/exhausted/cancelled` 的 watch 建 `ended/cancelled` 的 Schedule（`stop_reason` 取 `satisfied/exhausted/cancelled`）以保留历史。
@@ -2096,7 +2718,7 @@ type SourceEvidence = {
 6. 已结束但未成功的老事项（`failed` / `cancelled` 且用户已看过）：不凭空写结束事实；它们按 §5.2 第 4–6 行自然落在“阻塞 / 已结束”之一，由用户决定是否写 `work_terminal_events`。
 7. 写 `work_events(created, actor=system, payload.migrated=true)`。
 
-**验收（回填）**：Task 数 = 迁移出的 Work 数；每个 live Task 恰一行 `task_work_owner`；已有的决策、授权、声明、证据、回检**行数与内容零变化**（对账脚本比较前后哈希）；再跑一遍不产生新行；回填中途杀进程再起能继续。
+**验收（回填）**：Task 数 = 迁移出的 Work 数（隐藏的也算）；`hidden=1` 的恰为判据命中的行，且都能在“隐藏的工作”里找到；每个 live Task 恰一行 `task_work_owner`；已有的决策、授权、声明、证据、回检**行数与内容零变化**（对账脚本比较前后哈希）；再跑一遍不产生新行；回填中途杀进程再起能继续。
 
 ### 12.3 Task 创建路径改动
 
@@ -2112,6 +2734,13 @@ type SourceEvidence = {
 | `schedulesEnabled`                               | `worksEnabled` + `commitmentsEnabled` + `watchersEnabled` | 跟进方案、Schedule、触发记录、`nexus_schedule_*`。Schedule 的 Goal 主归属还需 `goalsEnabled`                                     |
 
 关闭任一开关：对应入口隐藏、工具不注册、RPC 返回"未启用"，**数据保留、后台执行器按各自开关处理**（关闭 `schedulesEnabled` 时 `active` 的 Schedule 暂停触发，但不改状态，重新打开后按"遗漏触发合并补跑一次"恢复）。默认全部 `false`。manifest 的 `description` 与 `configSchema` 同步更新，`manifest.test.ts` 的开关清单测试补四项。
+
+**宿主配置项（HostProfile，开发确认 2026-11-02）**：`openclaw.plugin.json` 的 `configSchema` 增加两个可选项，不依赖任何开关，由状态页读取：
+
+- `hostDeployment`：`local_mac` / `cloud_host` / `dedicated_physical`，默认 `local_mac`。
+- `hostLabel`：用户读得懂的位置，如“这台 Mac”“东京云主机”；可空，默认按部署类型给文案。
+
+安装预设：Mac 安装包（`openclawInstaller`）写 `hostDeployment=local_mac`，云端部署（部署方案文档）写 `cloud_host`；改预设要把 Mac 预设版本号 +1（W6）。`nexus.status.overview` 的 `environment` 由这两项，加上网关心跳（网关自己的运行时间）和浏览器就绪状态拼成，读不到的行不显示；不新增表。
 
 ### 12.5 删除、清除与导出的接入
 
@@ -2145,16 +2774,22 @@ type SourceEvidence = {
 
 每片独立可合入、可回退（新表只增不改，开关默认关）。"规模"是相对大小：S ≈ 半天到一天，M ≈ 两三天，L ≈ 一周左右（含测试与文档，仅供排期参考）。
 
-| 片                            | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 规模  | 前置                       |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | -------------------------- |
-| **W0 准备**                   | 确定 ID 前缀与 `newId` 约定；`createTaskWithWork()` 入口梳理（找出所有 Task 创建点）；`derive` 的类型与测试骨架；配置开关与 manifest 文案；本文评审通过                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | S     | —                          |
-| **W1 Work 核心 + 工作视图**   | stage7-0001 迁移（`works` / `work_versions` / `task_work_owner` / `work_links` / `goal_work_links` / 结果达成与结束事实 / `work_prerequisites` / `work_controls`）；`work-ledger`（创建 / 更新 / 关联 / 事件 / 控制 / 合并拆分 / 软删除）；`taskPhase()`；`deriveWorkState()`（6 行）+ 表格测试；`backfillWorks()`（先写 `migration_snapshots`；迁移完成的老事项不写达成事件，设 `migrated_outcome`，待 R-42）；`context_scopes`（两个默认根）、`task_adoptions`、`completion_presentations`、`window_evaluation_requests` 四张表及其账本函数（窗口评估服务可晚于 W4 接入，但表和登记在 W1 就位）；`nexus.work.*` RPC；`nexus_task_create` 自动带 Work；工作页 + 工作详情（嵌入现有任务详情）；路由重定向；`nexus.work.integrity` | **L** | W0                         |
-| **W2 Commitment + 行动台账**  | stage7-0002 与 stage7-0003 迁移一并发布（承诺的外键指向 `counterparts` / 自身份，迁移编号顺序固定；0002 的表在 W2 只建表、写自身份，业务逻辑留给 W3）：stage7-0003（commitments / 责任版本 / events / 最小合同 / `commitment_assessments` / 证据归属表建好，引擎先不接）；`commitment-ledger`（转换函数、影响预览、副作用 §6.4）；`nexus.commitment.*`；`nexus_commitment_*` 工具；工作详情"承诺事项"区块；WK-02 里接入承诺事实                                                                                                                                                                                                                                                                                                   | **L** | W1                         |
-| **W3 人员 + 身份 + 人员视图** | 0002 的表已随 W2 建好（含自身份 `owner_identity`、两张参与人链接表）；`counterpart-ledger`（人员 / 名称 / 关系 / 端点 / link 状态机 / 更正身份 / 合并拆分 / 停用档案的影响清单）；`resolveName()`；`nexus.counterpart.*` / `nexus.person.*`；`nexus_counterpart_*` 工具；人员页（列表 + 详情 + 待确认人员 + 记录一项交代；R-12 范围过滤、R-29 三列、R-30 阶段顺序）；`unresolved_mentions` 与消歧卡（R-31）；停用 / 合并（R-32）；本人配对（R-13）；承诺责任人解析与"待确认人员"                                                                                                                                                                                                                                                  | **L** | W2                         |
-| **W4 Schedule + 跟进方案**    | stage7-0004 迁移；`schedule-ledger`（状态机、触发键去重、15 分钟下限、时区 / 夏令时）；`legacy_watch` 回填；执行器适配（`executor_kind='watch'` 复用现有 watcher 与 `run_triggers`）；`delegation_plans`（接受事务、承载解析 §9.5、CD-03 接手、CD-04 有界收尾）与 `nexus.delegation.*`；`goal_briefing_policies`；`nexus_schedule_*`；工作详情"跟进"区块；WK-04 控制全套；承诺结束 → 停止仅为它服务的检查（§6.4）                                                                                                                                                                                                                                                                                                                 | **L** | W2（承诺作主归属）；W1     |
-| **W5 来源自动核验**           | `verifyCommitment()` 三步引擎；`resolveIdentity / assessRelevance / assessCriteria`；`EvidenceSourceAdapter` 接口、`manual` 来源与测试用 `fixture` 适配器；重评估 / 重开 / 映射变更失效（§7.4）；`evidence_attributions` 与 `criterion_assessments` 写入；Work 里的证据缺口 flag                                                                                                                                                                                                                                                                                                                                                                                                                                                  | **L** | W2、W3，W4（定时检查触发） |
-| **W6 对齐与收尾**             | Goal 页"关联工作"、指标口径切换、`goal_links` 影子对账；Agent 协议提示 `work-prompt.ts`（及是否做技能，Q7）；评测场景文档（参照 G4 的 S1–S13）；Mac 预设版本号 +1；安装与演示文档、状态文档、README 更新                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | M     | W1–W5                      |
-| **W7 暂缓项（另立文档）**     | PRD Decision 记录；RV 批量审阅；NX-15 文档内容理解；真实连接器适配器（邮件 / 日历）；通知出口与完整定时回看；Context 管理；Specialist subtask；待处理（IN）统一收件箱                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | —     | —                          |
+| 片                            | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | 规模  | 前置                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | -------------------------------------------------------- |
+| **W0 准备**                   | 确定 ID 前缀与 `newId` 约定；`createTaskWithWork()` 入口梳理（找出所有 Task 创建点）；`derive` 的类型与测试骨架；配置开关与 manifest 文案；本文评审通过；**宿主能力验证 S-H1**（§4.5.3，W4、窗口评估、通知与 IM 决定的前置）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | S     | —                                                        |
+| **W1 Work 核心 + 工作视图**   | stage7-0001 迁移（`works` / `work_versions` / `task_work_owner` / `work_links` / `goal_work_links` / 结果达成与结束事实 / `work_prerequisites` / `work_controls`）；`work-ledger`（创建 / 更新 / 关联 / 事件 / 控制 / 合并拆分 / 软删除）；`taskPhase()`；`deriveWorkState()`（6 行）+ 表格测试；`backfillWorks()` 与手动命令 `nexus data backfill-works` / `reset` / `status`（§12.1）（先写 `migration_snapshots`；迁移完成的老事项不写达成事件，设 `migrated_outcome`，待 R-42）；`context_scopes`（两个默认根）、`task_adoptions`、`completion_presentations`、`window_evaluation_requests` 四张表及其账本函数（窗口评估服务可晚于 W4 接入，但表和登记在 W1 就位）；`nexus.work.*` RPC；`nexus_task_create` 自动带 Work；工作页 + 工作详情（嵌入现有任务详情）；路由重定向；`nexus.work.integrity` | **L** | W0                                                       |
+| **W2 Commitment + 行动台账**  | stage7-0002 与 stage7-0003 迁移一并发布（承诺的外键指向 `counterparts` / 自身份，迁移编号顺序固定；0002 的表在 W2 只建表、写自身份，业务逻辑留给 W3）：stage7-0003（commitments / 责任版本 / events / 最小合同 / `commitment_assessments` / 证据归属表建好，引擎先不接）；`commitment-ledger`（转换函数、影响预览、副作用 §6.4）；`nexus.commitment.*`；`nexus_commitment_*` 工具；工作详情"承诺事项"区块；WK-02 里接入承诺事实                                                                                                                                                                                                                                                                                                                                                                        | **L** | W1                                                       |
+| **W3 人员 + 身份 + 人员视图** | 0002 的表已随 W2 建好（含自身份 `owner_identity`、两张参与人链接表）；`counterpart-ledger`（人员 / 名称 / 关系 / 端点 / link 状态机 / 更正身份 / 合并拆分 / 停用档案的影响清单）；`resolveName()`；`nexus.counterpart.*` / `nexus.person.*`；`nexus_counterpart_*` 工具；人员页（列表 + 详情 + 待确认人员 + 记录一项交代；R-12 范围过滤、R-29 三列、R-30 阶段顺序）；`unresolved_mentions` 与消歧卡（R-31）；停用 / 合并（R-32）；本人配对（R-13）；承诺责任人解析与"待确认人员"                                                                                                                                                                                                                                                                                                                       | **L** | W2                                                       |
+| **W4 Schedule + 跟进方案**    | stage7-0004 迁移；`schedule-ledger`（状态机、触发键去重、15 分钟下限、时区 / 夏令时）；`legacy_watch` 回填；执行器适配（`check_task` 的启动器受 S-H1 约束，见 §4.5.3；`executor_kind='watch'` 复用现有 watcher 与 `run_triggers`）；`delegation_plans`（接受事务、承载解析 §9.5、CD-03 接手、CD-04 有界收尾）与 `nexus.delegation.*`；`goal_briefing_policies`；`nexus_schedule_*`；工作详情"跟进"区块；WK-04 控制全套；承诺结束 → 停止仅为它服务的检查（§6.4）                                                                                                                                                                                                                                                                                                                                        | **L** | W2（承诺作主归属）；W1；S-H1                             |
+| **W5 来源自动核验**           | `verifyCommitment()` 三步引擎；`resolveIdentity / assessRelevance / assessCriteria`；`EvidenceSourceAdapter` 接口、`manual` 来源与测试用 `fixture` 适配器；重评估 / 重开 / 映射变更失效（§7.4）；`evidence_attributions` 与 `criterion_assessments` 写入；Work 里的证据缺口 flag                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | **L** | W2、W3，W4（定时检查触发）                               |
+| **W6 对齐与收尾**             | Goal 页"关联工作"、指标口径切换、`goal_links` 影子对账；Agent 协议提示 `work-prompt.ts`（及是否做技能，Q7）；评测场景文档（参照 G4 的 S1–S13）；Mac 预设版本号 +1（预设写入 `hostDeployment=local_mac`，§12.4）；安装与演示文档、状态文档、README 更新                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | M     | W1–W5                                                    |
+| **U0 页面骨架与样式**         | `browser/ui-kit.ts`（rail / listPane / detailPane / chip / tile / callout / section / timeline / kv / modal / impactList / menu）；`style.ts` 拆成 `style-tokens.ts` + `style-shell.ts`；`--nx-*` 令牌与深色主题；顶部文字导航换成 rail；旧类名迁移；DOM 测试沿用现有写法（§11.5b）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | **M** | —                                                        |
+| **U1 目标页改版**             | §11.6：列表栏 / 详情模板 / 状态词 / 完成与删除弹窗 / 休息与采用来源；七类开放、`goals.completion_reason`、`goal_entry_adoptions`、`nexus.goal.rest` / `resumeNotify` / `adoptEvidence` / `previewImpact`；取消列表上的一键完成框（R-47）；“关联工作”区块随 W6 接入                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | **L** | U0；关联工作区块依赖 W1、W6                              |
+| **U2 资料库页改版**           | §11.7：来源推导（成果 / 我上传的）、`adoptDeliverable`、`work_links.artifact_file_id`、`setScope`、`limits` 与超限提示、旧公开链接提示条；去掉分享与版本“设为当前”                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | **M** | U0；成果采用依赖 W1                                      |
+| **U3 状态页**                 | §11.8：`nexus.status.*` 聚合、RecordView、概览、`incident_reports` 与 `nexus.incident.*`、旧回执并入“系统处理”并保留逐项核对                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | **L** | U0；工作归属依赖 W1，检查记录依赖 W4；容量块等用量计量表 |
+| **W7 暂缓项（另立文档）**     | PRD Decision 记录；RV 批量审阅；NX-15 文档内容理解；真实连接器适配器（邮件 / 日历）；通知出口与完整定时回看；Context 管理；Specialist subtask；待处理（IN）统一收件箱                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | —     | —                                                        |
+
+界面改版 U0 – U3 可以与 W 系列并行：先做 U0（骨架），U1 / U2 的大部分不依赖 Work，U3 的检查记录要等 W4。
 
 建议先做 **W1 → W2 → W3**：这三片合起来用户就能得到"工作 + 人员"两个入口和承诺台账（"交代给某人的事做完没有"），这是你最关心的价值；W4 / W5 再补"自动盯着"和"自动核验"。
 
@@ -2208,7 +2843,7 @@ type SourceEvidence = {
 
 | 编号 | 场景                                  | 通过标准                                                                                                                                                                                       | 对应 PRD                               |
 | ---- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| V1   | 老用户升级                            | 打开 `worksEnabled` 后，所有老事项各成一件工作，详情里原步骤 / 决策 / 证据一字不少；老链接可打开                                                                                               | AT-149–AT-154（前台命名与对象）；§12.2 |
+| V1   | 老用户升级                            | 打开 `worksEnabled` 后，所有老事项各成一件工作（无任务语义的默认隐藏），详情里原步骤 / 决策 / 证据一字不少；老链接可打开                                                                       | AT-149–AT-154（前台命名与对象）；§12.2 |
 | V2   | "帮我盯住李明周三交报价表"            | 一件 Work + 一个人员（李明，`stated`）+ 一条 Commitment（责任人李明、周三 17:00 带时区、标准含"指定项目"）；**没有**因此建任何 Task 或 Schedule；人员页能看到这一条                            | AT-81–AT-86；§3.1 示例                 |
 | V3   | 同名两个"小王"                        | 人员列表并列显示，不自动合并；承诺保持"待确认人员"直到用户选择                                                                                                                                 | PV-01；ER-02                           |
 | V4   | 用户停止工作                          | 预览列出将取消的 Task / Schedule 和**保留**的 Commitment；确认后 Work 为"已结束（未完成）"，承诺仍 waiting                                                                                     | WK-04；AT-24                           |
@@ -2232,10 +2867,12 @@ type SourceEvidence = {
 | V22  | 周期义务                              | “每周五交周报”在同一 Work 内生成 ≤12 期独立 Commitment，重试不重复；超范围要求缩短窗口；某期交付不完成后续期                                                                                   | R-28；AT-270                           |
 | V23  | 停用 / 合并 / 提及                    | 停用后未解 C 经新责任版本置空、相关计划 `dependency_version_pending`、不静默改派；自身份不可停用；合并只限同一主体且独立 C 不合并；不同会议的同名“小王”不自动同组，确认默认仅本次              | R-31 / R-32；AT-271–272、AT-280        |
 | V24  | 人员页三列与阶段                      | 沟通 / 接受 / 核验三列固定文案；阶段按 R-30 顺序；“截止已过”并存不盖住“等待你决定”；默认当前范围，“显示其他模式”不授予权限                                                                     | R-12 / R-29 / R-30；AT-260、AT-278–279 |
+| V25  | 替换时的采用版本询问                  | 采用后连续替换 5 次不弹窗；第 6 次先弹窗；选复制则关联改指向新文件；选删除则关联解除、工作重新推导；不带选择被拒绝；字节相同不触发                                                             | AT-268、AT-274                         |
+| V26  | 回填的可见性                          | Task 数 = Work 数；无任务语义的老事项 Work 为 `hidden=1`，可在“隐藏的工作”找到；有步骤 / 决策 / 证据 / 监控的一律可见                                                                          | AT-149                                 |
 
 ## 14. 待决问题（建议的默认值已写在括号里，评审时请确认或改）
 
-PRD v1.95 回答了本文原来大部分问题。下表是 Q1–Q15 的当前状态；**仍待需求方确认的只剩 R-36、R-37、R-42、R-43、R-44**（见下表后的清单与附录 E.2），其余是研发自决项。
+PRD v1.95 回答了本文原来大部分问题。下表是 Q1–Q15 的当前状态；**仍待需求方确认的只剩 R-36、R-37、R-42、R-43、R-44**（见下表后的清单与附录 E.2），另有三页界面改版带出的 R-45、R-46、R-47（只影响页面入口与交互，不影响表结构），以及评审新增的 R-48（休眠 / 离线时的验收口径），其余是研发自决项。
 
 | 编号 | 问题                                 | 当前状态（对照 PRD v1.95）                                                                                                                        |
 | ---- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2262,8 +2899,12 @@ PRD v1.95 回答了本文原来大部分问题。下表是 Q1–Q15 的当前状
 3. **R-42 迁移出的“已成功”老事项算不算“已完成”**：PRD 说 `legacy_task_success` “不据此产生新的达成事件”，但“已完成”又必须有达成事件。默认：不写事件，显示“历史已结束，原因未记录”，用户可补记。
 4. **R-43 PRD Decision 记录是否在本批范围**。默认：不在。
 5. **R-44 Schedule 因约定到期 ended，是否直接等于“已结束（未完成）”**：WK-02 典型组合说是，R-04 又说 Schedule ended 不代写 `window_ended`。默认：只在推导里读 Schedule 自己的结束事实，不写终止事件。
+6. **R-45 资料库要不要在线编辑 Markdown / 演示稿**（原型有，PRD 没有这项要求）。默认：本批不做，改内容用“替换内容”或请 Agent 改。
+7. **R-46 资料库版本的“恢复为此版本”要不要保留**（R-23 不开放“设为当前”，而恢复在效果上是把旧内容变成最新版）。默认：页面不出现，`nexus.vault.restoreVersion` 只留给操作员脚本。
+8. **R-47 目标列表上的“一键完成”勾选要不要取消**（R-20 要求完成必须选“已达成 / 不再追求”）。默认：取消，完成统一走详情里的“完成目标”。
+9. **R-48 本地电脑休眠或离线时的验收口径**：AT-244 – AT-246 要求窗口到期 60 秒内评估、撤回完成要发更正通知，但本机休眠时什么都发不出去。默认：“正常服务”= 网关在运行且宿主能力可用；休眠期间到期的，恢复后立即补评估并标“延迟”，验收按恢复后 60 秒判。
 
-> **对照 PRD v1.95 的状态**：附录 E 的原有问题 R-01–R-41 中，R-01–R-35、R-39–R-41 已由 PRD 回答（R-38 因分享关闭不再适用），R-36、R-37 仍待确认；本轮新增 R-42–R-44。
+> **对照 PRD v1.95 的状态**：附录 E 的原有问题 R-01–R-41 中，R-01–R-35、R-39–R-41 已由 PRD 回答（R-38 因分享关闭不再适用），R-36、R-37 仍待确认；本轮新增 R-42–R-44；三页界面改版新增界面层的 R-45–R-47；评审新增 R-48。
 
 ## 附录 A. PRD 追溯（对照 PRD v1.95）
 
@@ -2280,6 +2921,7 @@ PRD v1.95 回答了本文原来大部分问题。下表是 Q1–Q15 的当前状
 | PRD 附录 D.3 Commitment（责任版本、沟通 / 接受、origin、当前 Assessment、周期字段） / OutcomeContract             | §4.4、§6                                | 覆盖（六个模板键、启用四个；`criterion_source` 三类）                                                                                |
 | PRD 附录 D.3 Schedule / DelegationPlan / ScheduleTrigger / TaskControl                                            | §4.5、§4.2.8、§10.4                     | 覆盖                                                                                                                                 |
 | PRD 附录 D.4 跟进承载解析、动作与账本协议                                                                         | §9.5、§10.2                             | 覆盖                                                                                                                                 |
+| 控制台页面：NX-03 目标、NX-08 资料库、R-17 / R-22 – R-25 / IR-01 Status（目标、资料库、状态三页）                 | §11.5b – §11.8                          | 覆盖（界面与页面所需数据 / 接口）；Status 的用量计量表为已知缺口（E.4）                                                              |
 | §10.2 PersonView                                                                                                  | §9                                      | 覆盖                                                                                                                                 |
 | §10.3 服务约定                                                                                                    | §10                                     | 覆盖；“上下文初始化”“批次批准”“网关动作”不在本批                                                                                     |
 | WK-01                                                                                                             | §10.3 `nexus_task_create`、§12.3、§11.2 | 覆盖（TI 意图识别、多归属消歧由 Agent 协议 + 对话处理，W6）                                                                          |
@@ -2408,7 +3050,7 @@ erDiagram
 本附录原来列了 R-01–R-41 共 41 个需要需求方答复的问题。PRD v1.95（2026-11-01）的 §0.6 “唯一本批范围总表”和相关章节**已经回答了其中绝大部分**，所以这里不再逐条展开原来的提问和备选，只做三件事：
 
 1. **E.1** 列出每个原问题现在的答案和落点（已答 / 不再适用 / 仍待确认）；
-2. **E.2** 详细写**仍待需求方确认**的问题（R-36、R-37，以及本轮新发现的 R-42、R-43、R-44），每条给默认做法和不回答时的后果；
+2. **E.2** 详细写**仍待需求方确认**的问题（R-36、R-37，本轮新发现的 R-42、R-43、R-44，三页界面改版新增的 R-45 – R-47，以及评审新增的 R-48），每条给默认做法和不回答时的后果；
 3. **E.3 – E.5** 记录研发自决项、需要在别的设计文档里跟进的变化、原型自身的问题。原型自身的不一致、未覆盖的界面、逐页变化和覆盖度保留在 E.5、E.6、E.8、E.9。
 
 优先级沿用：P0 = 不定就不能开写相关表；P1 = 不定会返工；P2 = 可边做边定。
@@ -2481,7 +3123,7 @@ erDiagram
 - **问题**：老事项里 `status='succeeded'` 的，迁移后算“已完成”吗？本文原来的做法是写一条 `basis='migration'` 的达成事件，工作页显示“已完成”，CP 排除。但 PRD v1.95 的 OC 小节规定 `legacy_task_success` “仅可读取迁移历史，不创建新约定、不据此产生新的达成事件”，目标侧又规定旧 completed 缺原因时填 `legacy_unknown`，“不默认 achieved、不计已达成”；而 INV-19 要求“已完成”必须有有效达成事件。
 - **默认（本文已按此写，§12.2）**：**不写达成事件**，设 `works.migrated_outcome='succeeded'`，显示“历史已结束，原因未记录”，不计入“已完成”、不进 CP；用户可明确**补记**已完成（追加 `provenance='legacy_backfill'` 的 `user_report` 达成事件，保存变更来源和时间，不伪造旧完成时间）。
 - **备选**：迁移时直接写 `legacy_backfill` 达成事件并显示“已完成”（CP 排除）。表结构不用改，只改回填步骤。
-- **不回答的后果**：升级后老用户会看到一批“历史已结束”而不是“已完成”；需求方若不接受，改备选即可。
+- **不回答的后果**：升级后老用户会看到一批“历史已结束”而不是“已完成”；需求方若不接受，改备选即可。**影响面比这一句大**：升级后老用户所有历史成功的事项都不再算“已完成”，也不进完成指标、CP 和目标进展的来源，“历史成功数”会显示为空。需求方必须明确：接受这个体验，还是改用备选（迁移时补写 `provenance='legacy_backfill'` 的达成事件）。 **2026-11-02 开发确认**：本批尚未发布，库里只有开发数据，没有“老用户升级”，所以 R-42 **暂不阻塞开发**——开发库用手动命令回填或清库重来（§12.1）；正式发布前需求方必须回答。
 
 #### R-43 PRD 的 Decision / DecisionObjectLink 是否在本批范围（P1，需求方）
 
@@ -2496,27 +3138,58 @@ erDiagram
 - **备选**：Schedule 到期时由唯一结果评估服务写一条 `work_terminal_events`（`reason` 新增 `agreed_end`），推导只读事件。
 - **不回答的后果**：只影响“已结束”在无硬窗口情形下的事实来源，对用户可见行为相同。
 
+#### R-45 资料库要不要在线编辑 Markdown / 演示稿（P2，设计方）
+
+- **问题**：原型资料库对 Markdown 和演示稿有“编辑”入口；PRD 4.1 / NX-08 没有“在线编辑成果”的要求，R-23 只规定成果的新内容是新版本。
+- **默认（§11.7.3、§11.7.7 已按此写）**：本批不做；要改内容用“替换内容”（上传新版本），或在聊天里请 Agent 修改。
+- **备选**：做一个纯文本编辑器，保存即产生新版本；该版本按 R-23 是“草稿 · 未核验”，不自动成为所属工作的采用版。需另写保存冲突和敏感文件的处理。
+- **不回答的后果**：页面少一个按钮，数据模型不受影响。
+
+#### R-46 资料库版本的“恢复为此版本”要不要保留（P2，共同）
+
+- **问题**：已实现的文件库有 `nexus.vault.restoreVersion`（把旧版本内容恢复为最新版本，保留最近 5 个版本）。R-23 说“手动设当前”不支持，而恢复旧版本在效果上就是把旧内容变成最新版，对成果文件会制造一个新的“草稿 · 未核验”。
+- **默认（§11.7.3 已按此写）**：页面不出现该按钮，RPC 保留给操作员脚本；版本列表只读，可下载仍保留的历史版本（最近 5 个）。
+- **备选**：只对“你上传的”输入文件保留恢复，对成果文件隐藏。
+- **不回答的后果**：用户想回到旧内容时只能下载旧版再“替换内容”。
+
+#### R-47 目标列表上的“一键完成”勾选要不要取消（P1，设计方）
+
+- **问题**：现有目标页的圆形勾选一点就完成；R-20 要求完成时必须选“已达成 / 不再追求”（`completion_reason`），勾选没有地方放这个选择。原型的目标列表也没有勾选。
+- **默认（§11.6.1 已按此写）**：取消勾选，完成统一走详情里的“完成目标”弹窗（同一个弹窗展示 NX-03 规定的影响预览）。
+- **备选**：保留勾选，点击后弹出同一个“已达成 / 不再追求”选择；多一步点击，但列表上能直接完成。
+- **不回答的后果**：只影响列表交互，不影响数据。
+
+#### R-48 本地电脑休眠或离线时的验收口径（P1，需求方）
+
+- **问题**：PRD 的 AT-244 – AT-246 要求硬窗口到期后“60 秒内开始评估”，完成被撤回必须发更正通知。本批是单用户 / 自部署，状态文档自己写“机器休眠时任何渠道都发不出去”。设计只写了“正常服务下”，没有定义“正常服务”。
+- **默认（本文按此写）**：“正常服务”= 网关进程在运行且宿主定时 / 外发能力可用（以 S-H1 验证为准，§4.5.3）。进程停止、机器休眠或离线期间到期的窗口：恢复后**立即**补评估，评估请求、触发记录和通知都标“延迟”并保留原计划时间；验收按“恢复后 60 秒内开始评估 / 发出通知”判，**不**按到期时刻判。休眠期间“没有检查”按覆盖缺口显示，不写成“没有变化”（CS-05）。
+- **备选**：只在“独立在线的 Agent 主机”部署形态下承诺原口径（BR-04），本机部署形态下 AT-244 – AT-246 标为“依赖机器在线”。
+- **不回答的后果**：测试用例无法写 AT-244 – AT-246 的休眠场景；不影响表结构。
+
 ### E.3 研发自决项（不需要问需求方，按默认做）
 
-| 项                                                                  | 默认做法                                                                                                                           |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| “以部分结果结束”的 Task 侧实现（Q2）                                | `accept_partial` 终止事件 + Task 取消路径；`task_ext.partial` 作展示字段                                                           |
-| 不给 `nexus_tasks.status` 加枚举（Q6）                              | 阻塞 / 部分完成放 `task_ext` 和 `task_adoptions`                                                                                   |
-| Agent 技能（Q7）、进行中事项提示（Q8）、`entities_json` 人名（Q11） | W6 先写协议提示；按 Work 聚合；不回填                                                                                              |
-| “核验提交中”过渡态                                                  | WK-02 第 1 行说满足标准但事件未提交时先显示“核验提交中”：作为第 4 类（核对中 · 暂无需操作）的瞬时 reason，不写事件前不显示“已完成” |
-| 老事项是否都包成 Work                                               | 只给确有任务语义的 `nexus_tasks` 行包 Work；纯记录 / 问答型不强制回填（WK-01），规则版本写进 `migration_snapshots`                 |
-| 数值配置的存放                                                      | 集中在 `src/config/limits.ts`，`limit_policy_version` 随计划 / 请求保存                                                            |
+| 项                                                                  | 默认做法                                                                                                                                                                             |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| “以部分结果结束”的 Task 侧实现（Q2）                                | `accept_partial` 终止事件 + Task 取消路径；`task_ext.partial` 作展示字段                                                                                                             |
+| 不给 `nexus_tasks.status` 加枚举（Q6）                              | 阻塞 / 部分完成放 `task_ext` 和 `task_adoptions`                                                                                                                                     |
+| Agent 技能（Q7）、进行中事项提示（Q8）、`entities_json` 人名（Q11） | W6 先写协议提示；按 Work 聚合；不回填                                                                                                                                                |
+| “核验提交中”过渡态                                                  | WK-02 第 1 行说满足标准但事件未提交时先显示“核验提交中”：作为第 4 类（核对中 · 暂无需操作）的瞬时 reason，不写事件前不显示“已完成”                                                   |
+| 老事项是否都包成 Work                                               | 每个 live Task 都包成 Work（INV-02）；无任务语义的以 `hidden=1` 建立，判据 `trivialTaskRule v1` 写进 `migration_snapshots`（§12.2）                                                  |
+| 数值配置的存放                                                      | 集中在 `src/config/limits.ts`，`limit_policy_version` 随计划 / 请求保存                                                                                                              |
+| 上传大小上限（§11.7.5）                                             | 本批沿用现有全局上限：单文件默认 100 MiB（配置 `vaultMaxFileBytes`，可改）、单次 RPC 16 MiB、账号 5 GiB；PRD 的按类型上限（25 MB / 视频 100 MB / 粘贴图 8 MB / 音频 250 MB）暂不实现 |
+| 三页的深色主题与新增分类色（§11.5b）                                | 原型只有浅色、只有六种分类色；按 §11.5b 的提议值做，设计方可以替换变量，不改结构                                                                                                     |
+| Status 页的刷新节奏（§11.8.9）                                      | 打开时每 30 秒刷新一次计数，不做实时推送                                                                                                                                             |
 
 ### E.4 需要在别的设计文档里跟进的 PRD 变化
 
 本文只管 Work / Counterpart / Commitment / Schedule。以下变化落在其他设计文档，需要各自更新：
 
-| 文档                        | 需要跟进的 PRD 决定                                                                                                                                                                                                                                |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 目标设计（G1–G4 已实现）    | R-20：`completion_reason`（achieved / stopped；迁移历史 `legacy_unknown`）、proposed 候选、七个分类、休息进展；R-33：进展 `kind = report / rest / source_fact` 与“用户明确采用 Work 证据”；R-39 / NX-03：完成 / 删除前的影响预览；目标信本批不生成 |
-| 文件库设计（F1–F3 已实现）  | R-22：分享整体关闭，旧公开链接先撤销；R-23：输入 / 成果 / 持久草稿、固定 / 敏感 / 集合保留，单版本删除与手动设当前不支持，旧文件按 upload 回填                                                                                                     |
-| Status 页（目前无专门设计） | R-24 / R-25 / R-16：只显示真实记录；主机配置与最后观测；容量数字来自集中配置；批准记录里不虚构规则批准                                                                                                                                             |
-| 渠道与通知                  | R-13 / R-15：配对、IM 私聊决定矩阵；R-05：呈现事实与更正通知                                                                                                                                                                                       |
+| 文档                           | 需要跟进的 PRD 决定                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 目标设计（G1–G4 已实现）       | R-20：`completion_reason`（achieved / stopped；迁移历史 `legacy_unknown`）、proposed 候选、七个分类、休息进展；R-33：进展 `kind = report / rest / source_fact` 与“用户明确采用 Work 证据”；R-39 / NX-03：完成 / 删除前的影响预览；目标信本批不生成；**三页改版带来的具体数据与接口变化已列在本文 §11.6.8，目标设计按它同步**                              |
+| 文件库设计（F1–F3 已实现）     | R-22：分享整体关闭，旧公开链接先撤销；R-23：输入 / 成果 / 持久草稿、固定 / 敏感 / 集合保留，单版本删除与手动设当前不支持，旧文件按 upload 回填；**三页改版带来的具体变化已列在本文 §11.7.6，文件库设计按它同步**；另需修改 `appendVersion`：替换要删掉被 Work 关联的版本时先查 `work_links`，让用户选“复制为新文件”或“直接删除”（§4.2.2、§11.7.4 规则 6） |
+| Status 页（本文 §11.8 已设计） | 页面、RecordView 和 `incident_reports` 在本文 §11.8；**仍缺：用量计量的存放与对外接口**（§4.7 只有上限与预留规则，没有“已用量”的表）。需要在《资源与限额》设计里补，补齐前状态页的容量块与执行记录里的资源块整块隐藏                                                                                                                                      |
+| 渠道与通知                     | R-13 / R-15：配对、IM 私聊决定矩阵；R-05：呈现事实与更正通知；**S-H1 的验证结论（定时启动、主动外发、发送主体）要写回状态文档**（§4.5.3）                                                                                                                                                                                                                 |
 
 ### E.5 原型（`docs/prd/design/*.html`）自身的不一致
 
@@ -2546,21 +3219,24 @@ erDiagram
 
 - **工作页**：PRD WK-04 的"停止跟进""以部分结果结束""注明原因结案""隐藏／归档／删除"（原型只有暂停、停止、交给其他工作继续）；工作页内的跟进方案"开始／修改／暂不"确认面板（CD-02/03；人员页的"继续跟进"面板已有）；一件工作多个待决定时的列表；"其他步骤进行中"标识；手动结案、证据冲突、证据缺口的显示。**已补**：跟进的"覆盖局限"说明（`followups[].limit`）、事故补救决定卡。
 - **人员页**：更正身份、合并重复人员、"这不是一个人"（仍只有按钮没有弹窗；流程已按 §7.6 设计，弹窗版式待补）；批量选择；期限的时区显示（PV-02 要"绝对期限/时区"，原型只写"今天 17:00"）。**已补**：催办、继续跟进、委派新工作的审阅面板，删除人员的影响范围。
-- **目标页**：目标创建／添加子目标（"以带当前 Goal 的聊天请求开始"，只有入口文字）；目标信设置与往期列表。**已补**：完成目标的"将按约结束／默认继续"清单，删除目标的"将停止的后台处理／会保留"清单。
-- **资料库**：上传失败／超限的可操作错误（NX-08、DU-01 的按页选择或分批）；删除与永久删除时按 FG 披露"真实保留类别、用途、到期日"（原型只写"无法恢复"）；重命名、固定、"用作成果"的选择 Work 面板。**已补**：发送／分享面板（发件邮箱、收件人身份、披露许可、记入工作）。
-- **Status**：容量与排队、规则管理（"查看规则"无下文）、事故卡"补救"之后的完整流程（工作页已有一张补救决定卡，见 R-36）、"出了问题"之后的流程。
+- **目标页**：目标创建／添加子目标（"以带当前 Goal 的聊天请求开始"，只有入口文字）；目标信设置与往期列表。**已补**：完成目标的"将按约结束／默认继续"清单，删除目标的"将停止的后台处理／会保留"清单。 **2026-11-02 补充**：完成时选择“已达成 / 不再追求”、休息、采用来源、状态词表已在 §11.6 设计，版式请设计方确认。
+- **资料库**：上传失败／超限的可操作错误（NX-08、DU-01 的按页选择或分批）；删除与永久删除时按 FG 披露"真实保留类别、用途、到期日"（原型只写"无法恢复"）；重命名、固定、"用作成果"的选择 Work 面板。**已补**：发送／分享面板（发件邮箱、收件人身份、披露许可、记入工作）。 **2026-11-02 补充**：上传超限的可操作提示、删除披露、“采用为成果”的选择工作面板已在 §11.7 设计，版式请设计方确认。
+- **Status**：规则管理不做（R-17）。**已由本文设计（§11.8）**：分维度的容量与排队、“出了问题”弹窗与结案。仍待补稿：事故补救卡的完整版式（工作页已有一张补救决定卡，见 R-36）。
 - **未画的一级入口**：Chat（含 IN-01 的"待你处理"首页、即时问答 interactive_query 的呈现）、Settings（渠道配对、来源连接、权限/规则、数据控制、通知路由）；首次使用的背景导入（CB）；"一句话忘掉"的确认卡（FG）。
+- **整体**：深色主题，以及目标分类 `productivity`、`something_else` 的颜色，原型都没有；§11.5b 给了开发提议值，请设计方确认或替换。
 
 **PRD v1.95 对上面几条的影响**：资料库的“发送 / 分享面板”不再需要（R-22 关闭分享）；Status 的“规则管理”不需要（R-17 规则暂缓）；Chat 与 Settings 的落点由 R-18 回答（Chat 跳宿主聊天，Settings = 偏好）；“更正身份 / 合并 / 这不是一个人”弹窗仍待设计方补稿。
 
 ### E.7 开发步骤与剩余待确认问题的关系
 
-| 开发步骤            | 被哪个问题卡住 | 不回答时的默认做法                                                    |
-| ------------------- | -------------- | --------------------------------------------------------------------- |
-| 迁移脚本（回填）    | R-42           | 老事项成功 = “历史已结束，原因未记录”，用户可补记                     |
-| `deriveWorkState()` | R-36、R-44     | 补救并存 = 主状态不变 + `remediation_open`；Schedule 结束只在推导里读 |
-| 人员页合并面板      | R-37           | 两个决定独立                                                          |
-| 行动台账 / 修订确认 | R-43           | 不做 Decision 记录，用各自记录上的确认字段                            |
+| 开发步骤                      | 被哪个问题卡住   | 不回答时的默认做法                                                                       |
+| ----------------------------- | ---------------- | ---------------------------------------------------------------------------------------- |
+| 迁移脚本（回填）              | R-42             | 老事项成功 = “历史已结束，原因未记录”，用户可补记；开发阶段用手动命令，暂不阻塞（§12.1） |
+| `deriveWorkState()`           | R-36、R-44       | 补救并存 = 主状态不变 + `remediation_open`；Schedule 结束只在推导里读                    |
+| 人员页合并面板                | R-37             | 两个决定独立                                                                             |
+| 行动台账 / 修订确认           | R-43             | 不做 Decision 记录，用各自记录上的确认字段                                               |
+| 三页界面（U1 – U3）           | R-45、R-46、R-47 | 不做在线编辑；隐藏版本恢复；目标只能从详情里完成                                         |
+| 窗口评估 / 通知 / IM 决定验收 | R-48、S-H1       | 休眠后恢复即补评估并标“延迟”；宿主能力未验证前按“能力缺失”降级（§4.5.3）                 |
 
 其余开发步骤**不再被需求方问题卡住**，可以按 §13.1 的切片顺序（W1 → W2 → W3）开工。建议先在评审会上过一遍 R-42 和 R-44（影响迁移与推导），R-36、R-37 可以边做边定。
 
@@ -2574,7 +3250,7 @@ erDiagram
 | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
 | 工作   | 周报 w10 变成"已完成 + 事故补救决定卡"，带"补救未完成"标签；w7 由"受阻"改为"待你处理"；跟进多了"覆盖局限"一行；首页件数按 `state==="action"` 计；搜索匹配 attention 标题；`#工作id` 深链  | `deriveWorkState` 需要 flag `remediation_open` 和 `connection_expired` 前置请求；跟进"覆盖局限"来自 `plan_json`；路由要支持 `#workId` | R-36、R-40、§5.2       |
 | 人员   | 催办／继续跟进／委派合并成审阅面板；按承载解析；事项显示责任版本（v1/v2）；人员带 `rules`；跟进方案带暂停信息；"删除人员"弹窗列出停止／留下／不受影响；手动记录的承诺显示"没有工作在跟进" | 新增 §9.5、§9.5；R-32 的建议改为采用原型做法；R-37 新增服务端语义问题                                                                 | §9.5、§9.5、R-32、R-37 |
-| 目标   | 数据多了 `briefing` 和 `schedules`；完成弹窗列出将按约结束的计划、默认继续的计划、关联工作、目标信策略；删除弹窗列出将停止的后台处理；搜索也匹配子目标与进展，并在列表显示命中的子目标    | 需要 `stop_conditions[]`、`goal_briefing_policies` 和 `previewGoalImpact()`                                                           | §4.5.4、R-39           |
+| 目标   | 数据多了 `briefing` 和 `schedules`；完成弹窗列出将按约结束的计划、默认继续的计划、关联工作、目标信策略；删除弹窗列出将停止的后台处理；搜索也匹配子目标与进展，并在列表显示命中的子目标    | 需要 `stop_conditions[]`、`goal_briefing_policies` 和 `nexus.goal.previewImpact`                                                      | §4.5.4、R-39           |
 | 资料库 | 分享弹窗改为三种：发给指定客户／私有链接／临时公开链接；发件邮箱按上下文选；收件人区分"身份已验证"与"来源允许披露"；可在弹窗内确认身份                                                    | R-22 重写；新增 R-38                                                                                                                  | R-22、R-38             |
 | Status | 事故卡拆成"工作成果""事故补救"两行；工作链接改为按工作 id 深链                                                                                                                            | R-24、R-36                                                                                                                            | R-24 补充、R-36        |
 
@@ -2582,38 +3258,82 @@ erDiagram
 
 ### E.9 五个原型页面的功能与本文覆盖度（2026-11-02，按 PRD v1.95 更新）
 
-“本文”指本设计文档；目标页和资料库的底层分别由《目标设计》和《文件库设计》负责，Status 页目前没有专门设计。覆盖度分四档：**已覆盖**、**部分**（有，但缺关键点）、**缺**（没有设计）、**不做**（PRD 已明确本批不做）。
+“本文”指本设计文档；目标页和资料库的底层分别由《目标设计》和《文件库设计》负责，Status 页的设计在本文 §11.8，目标页和资料库页的界面在 §11.6、§11.7。覆盖度分四档：**已覆盖**、**部分**（有，但缺关键点）、**缺**（没有设计）、**不做**（PRD 已明确本批不做）。
 
-| 页面   | 功能                                                                  | 覆盖                                 | 说明                                                 |
-| ------ | --------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------- |
-| 工作   | 五分组列表、件数、搜索、状态筛选                                      | 已覆盖                               | §11.2；文案 R-34（§5.2）                             |
-| 工作   | “你离开期间”摘要与动态里的离开标记                                    | 缺                                   | RT-01 摘要未覆盖；需要“上次查看”水位，事件按水位标记 |
-| 工作   | 一张待办卡（决定 / 补充 / 处理 / 事故补救），带准确条款、预览和有效期 | 部分                                 | 多决定见 R-27（§11.2）；补救卡见 R-36（待确认）      |
-| 工作   | 完成标准与进度环                                                      | 已覆盖                               | §4.4.3、§5.3；核验与进展分维（R-26）                 |
-| 工作   | 持续跟进（跟进什么 / 怎么检查 / 下次 / 覆盖局限）                     | 已覆盖                               | §4.5、§11.3                                          |
-| 工作   | 暂停、停止（先看影响）、交给其他工作继续                              | 已覆盖                               | §10.4；承接规则见 §9.5                               |
-| 工作   | 业务修订卡（接受当前版本）                                            | 已覆盖                               | §4.2.11、§11.3（原型未画，先按现有样式做）           |
-| 人员   | 列表分组、待确认人员、确认“是此人”                                    | 已覆盖                               | §9.2、§7.7                                           |
-| 人员   | 关系、联系方式、负责内容、关联工作、来源依据                          | 已覆盖                               | §4.3、§9.3                                           |
-| 人员   | 更正身份、这不是一个人                                                | 已覆盖                               | §7.6                                                 |
-| 人员   | 合并重复人员                                                          | 已覆盖                               | §7.5（R-32：只限同一主体，独立 Commitment 不合并）   |
-| 人员   | 停用人员（原型“删除人员”）                                            | 已覆盖                               | §7.5（R-32）                                         |
-| 人员   | 委派新工作、催办、继续跟进                                            | 已覆盖                               | §9.5；先后与失败回退待 R-37                          |
-| 人员   | 三列与阶段                                                            | 已覆盖                               | §9.3（R-29 / R-30）                                  |
-| 目标   | 一级子目标、进展记录、重命名、重新打开                                | 已覆盖                               | 《目标设计》已实现                                   |
-| 目标   | 完成原因“已达成 / 不再追求”                                           | 已定，待目标设计跟进                 | R-20：`completion_reason`                            |
-| 目标   | 休息一段时间、进展来源（你记录 / 来源事实 / 休息）                    | 已定，待目标设计跟进                 | R-20、R-33                                           |
-| 目标   | 目标信（生成、往期、设置）                                            | 不做（本批不生成）                   | R-07、R-20；本文只留最小策略表 §4.5.4                |
-| 目标   | 完成与删除前的影响预览                                                | 已覆盖                               | §4.5.4、§10.2 `previewGoalImpact`                    |
-| 资料库 | 列表 / 网格、排序、搜索、固定、重命名、下载、回收站                   | 已覆盖                               | 《文件库设计》                                       |
-| 资料库 | 版本“设为当前”“删除此版本”                                            | 不做                                 | R-23                                                 |
-| 资料库 | “用作某件工作的成果”                                                  | 已定，待文件库设计跟进               | R-23                                                 |
-| 资料库 | 分享（指定客户 / 私有 / 临时公开链接 / 撤销）                         | 不做                                 | R-22：整体关闭                                       |
-| Status | 检查记录与“覆盖降级”时间线                                            | 部分                                 | §4.5.3；展示规则“未检查不等于没变”待补               |
-| Status | 批准记录与自动批准额度                                                | 不做（规则 / 额度）                  | R-17：规则暂缓，隐藏额度 UI；历史执行只读            |
-| Status | 账号执行容量、排队、资源使用                                          | 已定，待 Status 设计                 | R-16 / R-24：数字来自 §4.7 集中配置                  |
-| Status | 运行环境与连接健康                                                    | 已定，待 Status 设计                 | R-25                                                 |
-| Status | 系统处理（共享读取、清理、回填、目标信）                              | 不做（回填 / 目标信 / 共享读取关闭） | R-07                                                 |
-| Status | 问题记录“四问”与“出了问题”                                            | 部分                                 | 补救并存待 R-36                                      |
+| 页面   | 功能                                                                  | 覆盖                                | 说明                                                      |
+| ------ | --------------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------- |
+| 工作   | 五分组列表、件数、搜索、状态筛选                                      | 已覆盖                              | §11.2；文案 R-34（§5.2）                                  |
+| 工作   | “你离开期间”摘要与动态里的离开标记                                    | 缺                                  | RT-01 摘要未覆盖；需要“上次查看”水位，事件按水位标记      |
+| 工作   | 一张待办卡（决定 / 补充 / 处理 / 事故补救），带准确条款、预览和有效期 | 部分                                | 多决定见 R-27（§11.2）；补救卡见 R-36（待确认）           |
+| 工作   | 完成标准与进度环                                                      | 已覆盖                              | §4.4.3、§5.3；核验与进展分维（R-26）                      |
+| 工作   | 持续跟进（跟进什么 / 怎么检查 / 下次 / 覆盖局限）                     | 已覆盖                              | §4.5、§11.3                                               |
+| 工作   | 暂停、停止（先看影响）、交给其他工作继续                              | 已覆盖                              | §10.4；承接规则见 §9.5                                    |
+| 工作   | 业务修订卡（接受当前版本）                                            | 已覆盖                              | §4.2.11、§11.3（原型未画，先按现有样式做）                |
+| 人员   | 列表分组、待确认人员、确认“是此人”                                    | 已覆盖                              | §9.2、§7.7                                                |
+| 人员   | 关系、联系方式、负责内容、关联工作、来源依据                          | 已覆盖                              | §4.3、§9.3                                                |
+| 人员   | 更正身份、这不是一个人                                                | 已覆盖                              | §7.6                                                      |
+| 人员   | 合并重复人员                                                          | 已覆盖                              | §7.5（R-32：只限同一主体，独立 Commitment 不合并）        |
+| 人员   | 停用人员（原型“删除人员”）                                            | 已覆盖                              | §7.5（R-32）                                              |
+| 人员   | 委派新工作、催办、继续跟进                                            | 已覆盖                              | §9.5；先后与失败回退待 R-37                               |
+| 人员   | 三列与阶段                                                            | 已覆盖                              | §9.3（R-29 / R-30）                                       |
+| 目标   | 一级子目标、进展记录、重命名、重新打开                                | 已覆盖                              | 《目标设计》已实现                                        |
+| 目标   | 完成原因“已达成 / 不再追求”                                           | 已定，待目标设计跟进                | R-20：`completion_reason`                                 |
+| 目标   | 休息一段时间、进展来源（你记录 / 来源事实 / 休息）                    | 已定，待目标设计跟进                | R-20、R-33                                                |
+| 目标   | 目标信（生成、往期、设置）                                            | 不做（本批不生成）                  | R-07、R-20；本文只留最小策略表 §4.5.4                     |
+| 目标   | 完成与删除前的影响预览                                                | 已覆盖                              | §4.5.4、§10.2 `nexus.goal.previewImpact`                  |
+| 资料库 | 列表 / 网格、排序、搜索、固定、重命名、下载、回收站                   | 已覆盖                              | 《文件库设计》                                            |
+| 资料库 | 版本“设为当前”“删除此版本”                                            | 不做                                | R-23                                                      |
+| 资料库 | “用作某件工作的成果”                                                  | 已定，待文件库设计跟进              | R-23                                                      |
+| 目标   | 列表上的一键完成勾选                                                  | 不做（取消）                        | R-47：完成统一走详情弹窗（§11.6.1）                       |
+| 资料库 | Markdown / 演示稿在线编辑                                             | 不做                                | R-45                                                      |
+| 资料库 | 版本“恢复为此版本”                                                    | 不做（页面隐藏）                    | R-46                                                      |
+| 资料库 | 分享（指定客户 / 私有 / 临时公开链接 / 撤销）                         | 不做                                | R-22：整体关闭                                            |
+| Status | 检查记录与“覆盖降级”时间线                                            | 已覆盖                              | §11.8.5；§4.5.3；“未检查不等于没变”写进状态词             |
+| Status | 批准记录与自动批准额度                                                | 不做（规则 / 额度）                 | R-17：规则暂缓，隐藏额度 UI；历史批准只读（§11.8.8）      |
+| Status | 账号执行容量、排队、资源使用                                          | 已覆盖（计量表是缺口）              | §11.8.3；R-16 / R-24：分维度，数字来自 §4.7，无计量则隐藏 |
+| Status | 运行环境与连接健康                                                    | 已覆盖                              | §11.8.3；R-25                                             |
+| Status | 系统处理（共享读取、清理、回填、目标信）                              | 清除回执 / 文件提取已覆盖；其余不做 | §11.8.5；回填 / 目标信 / 共享读取关闭（R-07）             |
+| Status | 问题记录“四问”与“出了问题”                                            | 已覆盖                              | §11.8.6、§11.8.7；补救并存待 R-36                         |
 
-**结论**：工作页和人员页的数据模型已经够用，且 PRD v1.95 回答了此前的大部分阻塞问题；剩下的缺口主要在目标页、资料库、Status 三页，它们分别落在各自的设计文档里（E.4）。
+**结论**：工作页和人员页的数据模型已经够用，且 PRD v1.95 回答了此前的大部分阻塞问题；目标页、资料库、Status 三页的界面已在 §11.5b – §11.8 设计；剩下的缺口是各自底层设计文档要同步的数据变化（E.4）、Status 的用量计量表，以及 R-45 – R-47 三个界面层问题。
+
+### E.10 评审发现的研发修订项（2026-11-02，已并入正文）
+
+下面三条是对照现有实现评审出的、**研发要先改**的问题，修订已写进正文，这里记录来由和落点。
+
+| #   | 问题                                                                                                                                                                                                                                         | 修订                                                                                                                                                                                   | 落点                                            |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| 1   | 新跟进检查靠谁在后台启动没有写：现有 watcher 是宿主定时任务唤醒原会话、复检同一个 Task，而 INV-12 要求每次触发新建检查 Task；`executor_kind='check_task'` 只有表结构。窗口评估的持久队列、完成 / 更正通知、IM 私聊决定、本人配对都落在这一层 | 定义 `ScheduleDispatcher` 接口和两个候选实现；增加宿主能力验证 **S-H1** 作为 W4 的前置；验证不通过时新方案不称活跃（`prerequisite_missing`，ref 为宿主能力）                           | §4.5.3、§13.1（W0、W4）、E.4、E.7               |
+| 2   | 资料库会误删被采用的成果版本：`appendVersion` 每次写入都删掉最近 5 个之外的旧版本，而采用成果要固定版号且版本不可变（INV-30），`work_links` 会指向不存在的版本                                                                               | `work_links` 增 `artifact_version_seq`；替换前文件库直接查 `work_links`，命中将被删的版本时弹窗让用户选“复制为新文件”或“直接删除”（同事务处理关联）；新增 `nexus.vault.replacePreview` | §4.2.2、§11.7.3、§11.7.4 规则 6、§13.3 V25、E.4 |
+| 3   | 回填规则与自己的验收矛盾：§12.2 说纯记录 / 问答型老事项不强制回填，但验收写“Task 数 = Work 数”、V1 写“所有老事项各成一件工作”、INV-02 要求每个 Task 都有主 Work；“确有任务语义”没有判据                                                      | 全部回填；无任务语义的以 `hidden=1` 建立，判据 `trivialTaskRule v1`（终态且无步骤 / 决策 / 声明 / 证据 / 监控 / 目标链接 / 文件产出）                                                  | §12.2、§13.3 V1 / V26、E.3                      |
+
+### E.11 开发确认记录与待确认（不阻塞开工，先按默认做）
+
+#### E.11.1 已确认（2026-11-02，开发）
+
+| #   | 项目                         | 结论                                                                                                                                                                                             | 落点                   |
+| --- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
+| 1   | 状态词的多语言               | 参考现有 i18n：服务端给词条键 + 参数，文字放 `src/i18n-status.ts`（`[中文, 英文]` 成对），浏览器 `tr()` 渲染；资料库同理 `i18n-library.ts`                                                       | §11.5b、§11.8.4        |
+| 2   | 状态页排序                   | 按记录最近一次变化的时间从新到旧（与 `nexus-status.html` 一致），今天 / 昨天 / 更早只是分段；`(at, id)` 游标                                                                                     | §11.8.2                |
+| 3   | 问题结案后的暂停             | 不自动解除；工作页继续显示暂停原因，由用户在 WK-04 里恢复                                                                                                                                        | §11.8.6                |
+| 4   | 文件上传上限                 | 核对代码：单一全局上限（默认 100 MiB，配置 `vaultMaxFileBytes`；单次 RPC 16 MiB；账号 5 GiB），**不是按类型**；PRD 的按类型上限本批不做                                                          | §11.7.5                |
+| 5   | 颜色模式                     | 只考虑宿主的三种模式（跟随系统 / 浅色 / 深色），读根元素 `data-theme-mode`；不跟主题家族；深色色值仍待设计方确认                                                                                 | §11.5b                 |
+| 6   | 开发阶段的数据               | 尚未发布：不自动回填，提供手动命令 `nexus data backfill-works / reset / status`，停网关后运行前执行；R-42 暂不阻塞                                                                               | §12.1                  |
+| 7   | 单次执行 / 单个工作的上限    | **由用户在接受计划时决定**（原型“上限 450 页 · 开始时由你接受”），保存在计划 / 请求 / 账本里；450 是示例数据，不是配置值；`limits.ts` 只放系统范围（默认资源包 100 页、可接受硬上限 1,000 页等） | §4.7、§11.8.5          |
+| 8   | 替换时遇到被工作采用的旧版本 | 文件库直接查 `work_links`；命中则弹窗让用户选“复制为新文件”或“直接删除”，不静默删除、不永久保留；不设“每文件固定上限”                                                                            | §4.2.2、§11.7.4 规则 6 |
+| 9   | 状态页“连接与运行环境”第一版 | 只显示 Agent 主机和浏览器就绪状态；以后有日历等授权连接再逐个加行                                                                                                                                | §11.8.3                |
+| 10  | 宿主配置（HostProfile）      | 按建议：插件配置 `hostDeployment`（默认 `local_mac`）、`hostLabel`；安装预设填值；心跳取网关运行时间；浏览器状态读不到就不显示                                                                   | §11.8.3、§12.4         |
+| 11  | 执行槽与排队的实时计数       | 放网关进程内存（重启后从 `nexus_tasks` 运行态和派发队列重建），字段很少，**不建表**；保护通道的“正在处理”读控制 / 清理 / 窗口评估作业的当前状态；状态页只读                                      | §11.8.3                |
+| 12  | “复制为新文件”的细节         | 新文件名『原名（第 N 版）』、集合 `vault`、来源标记 `copy`；多个工作引用同一版本时，关联都改指向新文件；原采用它的工作成为新文件的所属工作                                                       | §4.2.2、§11.7.4 规则 6 |
+| 13  | 影响预览的命名               | RPC 用 `nexus.goal.previewImpact`，内部函数同名；§4.5.4、§10.2 等处的 `previewGoalImpact` 已全部改成它                                                                                           | §4.5.4、§10.2、§11.6.5 |
+| 14  | 状态页六类来源合并分页       | 先直接 UNION 查询；排序按时间和编号倒序，`(at, id)` 复合游标；首屏只显示最近两天，其余归“更多”按 50 条一页加载；首屏 P95 超过 1 秒再建投影视图（不改权威表）                                     | §11.8.2、§11.8.7       |
+
+#### E.11.2 仍待确认
+
+| #   | 问题                                                                                                                                                                                                                                                                     | 默认做法                                                                                                                          | 最晚确认  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| 1   | **用量计量的存放**：要不要按 §4.7 末尾的建议建 `usage_ledger`（含 `limit_source` / `accepted_request_id`，记录用户接受的上限），建在哪个切片。上限是“最多能用多少”，计量是“实际用了多少”，目前设计和代码里都没有计量表；概览的“执行中 x / 2、排队 N”是实时计数，不依赖它 | 建议的最小形态放进 stage7-0005，状态页只读；执行侧的预留 / 结算接入点另评估；没有计量数据时状态页隐藏“今日资源”和执行记录的资源块 | U3 开始前 |
+| 2   | 旧“回执”页的 DOM 测试迁移                                                                                                                                                                                                                                                | 把断言改写成“系统处理”RecordView 版本，保留逐项核对的覆盖                                                                         | U3        |
+| 3   | `trivialTaskRule v1` 各条件对应的实际列（步骤、决策、声明、证据、监控、文件来源各自的 task 关联列）                                                                                                                                                                      | 开发读 schema 后调整字段名，语义不变                                                                                              | W1 开始前 |
+| 4   | 手动命令组的名字和注册写法（`nexus data …`、`api.registerCli`），以及 `reset` 要清的目录是否包含证据文件存储                                                                                                                                                             | 按 §12.1 的建议；`reset` 以实际代码里的状态目录为准                                                                               | W1 开始前 |
+| 5   | 按类型的上传上限要不要在后续做（PRD 初始上限与现有全局上限不一致）                                                                                                                                                                                                       | 本批不做，页面只显示全局上限                                                                                                      | 发布前    |
