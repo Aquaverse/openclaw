@@ -1,13 +1,13 @@
 # Nexus Agent Core：按 PRD 落地的对象模型与开发设计（Work / Counterpart / Commitment / Schedule）
 
-| 项目                             | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 文档位置                         | `extensions/nexus-agent-core/docs/implement/`（此后的实现类文档都放这里；已有文档不迁移）                                                                                                                                                                                                                                                                                                                                                                         |
-| 依据                             | `extensions/nexus-agent-core/docs/prd/NEXUS_AI_PRD.md` **v1.86**（含 PRD 附录 D 数据模型规范与附录 E 的不变量 INV-01–INV-34）；另对照了 `docs/prd/design/` 下五个 HTML 原型（工作、人员、目标、资料库、状态）。起草基线是 v1.57（2026-10-28），到 v1.86 的逐项对齐记录见 `extensions/nexus-agent-core/docs/prd/NEXUS_AI_PRD_CHANGE_LOG.md`。重点是 §3.1 核心对象及归属，另读了 §0.4 术语、§4.1 导航与 WK / PV、NX-03 / NX-04 / NX-05 / NX-14、§8.1、§10.2 / §10.3 |
-| 前提                             | 之前在插件里完成的是没有 PRD 时按大体功能做的版本（事项、决策授权、声明证据、偏好、回检、文件柜、目标）；本文把它们对齐到 PRD 的对象模型，并新增 Work、Counterpart、Commitment、Schedule                                                                                                                                                                                                                                                                          |
-| 日期                             | 2026-10-28 起草；2026-11-02 对齐到 PRD v1.86                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 状态                             | 设计稿，待评审；未开始写代码。**正文已对齐 PRD v1.86，是当前的实现方案**；仍待需求方拍板的问题见 §14 与附录 E                                                                                                                                                                                                                                                                                                                                                     |
-| 已确认的决定（2026-10-28，用户） | ① 现有事项保留为 Task，上面新增 Work；② 首批范围含 Work + 工作视图、Counterpart + 人员视图、Commitment、Schedule；③ Commitment 的完成判定把"来源自动核验"整套写全（第一版实现里没有外部来源，见 §8）                                                                                                                                                                                                                                                              |
+| 项目                             | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 文档位置                         | `extensions/nexus-agent-core/docs/implement/`（此后的实现类文档都放这里；已有文档不迁移）                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 依据                             | `extensions/nexus-agent-core/docs/prd/NEXUS_AI_PRD.md` **v1.95**（2026-11-01；含 §0.6 本批范围总表 R-01–R-35、附录 D 数据模型规范与附录 E 的不变量 INV-01–INV-34）；另对照了 `docs/prd/design/` 下五个 HTML 原型（工作、人员、目标、资料库、状态）。起草基线是 v1.57（2026-10-28），到 v1.86、再到 v1.95 的逐项对齐记录见 `extensions/nexus-agent-core/docs/prd/NEXUS_AI_PRD_CHANGE_LOG.md`（该文件只是本地对照用，不进 git）。重点是 §3.1 核心对象及归属，另读了 §0.4 术语、§4.1 导航与 WK / PV、NX-03 / NX-04 / NX-05 / NX-14、§8.1、§10.2 / §10.3 |
+| 前提                             | 之前在插件里完成的是没有 PRD 时按大体功能做的版本（事项、决策授权、声明证据、偏好、回检、文件柜、目标）；本文把它们对齐到 PRD 的对象模型，并新增 Work、Counterpart、Commitment、Schedule                                                                                                                                                                                                                                                                                                                                                             |
+| 日期                             | 2026-10-28 起草；2026-11-02 先对齐 PRD v1.86，再对齐 PRD v1.95                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 状态                             | 设计稿，待评审；未开始写代码。**正文已对齐 PRD v1.95，是当前的实现方案**；PRD 已答复附录 E 原有的大部分问题，仍待需求方确认的只剩 §14 与附录 E.1 列出的几项                                                                                                                                                                                                                                                                                                                                                                                          |
+| 已确认的决定（2026-10-28，用户） | ① 现有事项保留为 Task，上面新增 Work；② 首批范围含 Work + 工作视图、Counterpart + 人员视图、Commitment、Schedule；③ Commitment 的完成判定把"来源自动核验"整套写全（第一版实现里没有外部来源，见 §8）                                                                                                                                                                                                                                                                                                                                                 |
 
 ## 目录
 
@@ -17,6 +17,7 @@
   - [0.2 现有实现和 PRD 最大的差别](#02-现有实现和-prd-最大的差别)
   - [0.3 本文做什么、不做什么](#03-本文做什么不做什么)
   - [0.4 最重要的十条设计规则](#04-最重要的十条设计规则)
+  - [0.5 本批范围与降级（PRD §0.6，R-01–R-35）](#05-本批范围与降级prd-06r-01r-35)
 - [1. 整体结构：谁依赖谁](#1-整体结构谁依赖谁)
 - [2. PRD 对象与现有实现的映射](#2-prd-对象与现有实现的映射)
 - [3. 命名与分层纪律（在现有纪律上增补）](#3-命名与分层纪律在现有纪律上增补)
@@ -32,11 +33,15 @@
     - [4.2.7 work_prerequisites（工作前置事实，INV-17）](#427-work_prerequisites工作前置事实inv-17)
     - [4.2.8 work_controls（WK-04 工作级控制，INV-22）](#428-work_controlswk-04-工作级控制inv-22)
     - [4.2.9 task_ext（Task 的补充标记）](#429-task_exttask-的补充标记)
+    - [4.2.10 context_scopes（最小范围记录，R-08）](#4210-context_scopes最小范围记录r-08)
+    - [4.2.11 task_adoptions（版本采用记录，R-06 最小版）](#4211-task_adoptions版本采用记录r-06-最小版)
+    - [4.2.12 completion_presentations 与 window_evaluation_requests（R-04 / R-05）](#4212-completion_presentations-与-window_evaluation_requestsr-04--r-05)
   - [4.3 Counterpart 组（stage7-0002）](#43-counterpart-组stage7-0002)
     - [4.3.1 counterparts](#431-counterparts)
     - [4.3.2 名称、关系、角色](#432-名称关系角色)
     - [4.3.3 counterpart_endpoints（IdentityEndpoint）](#433-counterpart_endpointsidentityendpoint)
     - [4.3.4 identity_links（IdentityLink：端点 ⇄ 人员）](#434-identity_linksidentitylink端点--人员)
+    - [4.3.5 unresolved_mentions（待确认人员的提及，R-31）](#435-unresolved_mentions待确认人员的提及r-31)
   - [4.4 Commitment 组（stage7-0003）](#44-commitment-组stage7-0003)
     - [4.4.1 commitments](#441-commitments)
     - [4.4.2 commitment_events](#442-commitment_events)
@@ -48,6 +53,7 @@
     - [4.5.3 schedule_triggers（触发记录、去重与派发槽）](#453-schedule_triggers触发记录去重与派发槽)
     - [4.5.4 goal_briefing_policies（目标信策略，最小版）](#454-goal_briefing_policies目标信策略最小版)
   - [4.6 其他](#46-其他)
+  - [4.7 数值基线（limit_policy_version = launch-1，R-16）](#47-数值基线limit_policy_version--launch-1r-16)
 - [5. 工作视图（WorkView）与状态推导](#5-工作视图workview与状态推导)
   - [5.1 Task 状态映射：taskPhase()](#51-task-状态映射taskphase)
   - [5.2 deriveWorkState()：WK-02 逐条落地（6 行）](#52-deriveworkstatewk-02-逐条落地6-行)
@@ -61,13 +67,17 @@
   - [6.4 副作用：承诺结束后的方案收尾（CD-04 有界收尾）](#64-副作用承诺结束后的方案收尾cd-04-有界收尾)
   - [6.5 多 Work 引用与解除关联](#65-多-work-引用与解除关联)
   - [6.6 级联矩阵（WK-04，INV-33）](#66-级联矩阵wk-04inv-33)
+  - [6.7 周期性义务（R-28）](#67-周期性义务r-28)
+  - [6.8 多人责任（R-10）](#68-多人责任r-10)
 - [7. 人员 / 协作方（Counterpart）与身份](#7-人员--协作方counterpart与身份)
   - [7.1 一句话规则](#71-一句话规则)
   - [7.2 一个人是怎么进来的](#72-一个人是怎么进来的)
   - [7.3 名称解析（resolveName()）](#73-名称解析resolvename)
   - [7.4 身份关联的生命周期（对应 ER-01–ER-05）](#74-身份关联的生命周期对应-er-01er-05)
-  - [7.5 删除、合并与拆分的保护](#75-删除合并与拆分的保护)
+  - [7.5 停用、合并与拆分的保护（R-32）](#75-停用合并与拆分的保护r-32)
   - [7.6 更正身份、"这不是一个人"与类型更正（2026-11-02，对应原型人员页「···」菜单）](#76-更正身份这不是一个人与类型更正2026-11-02对应原型人员页菜单)
+  - [7.7 待确认人员与提及消歧（R-31）](#77-待确认人员与提及消歧r-31)
+  - [7.8 本人配对与决定渠道（R-13 / R-15）](#78-本人配对与决定渠道r-13--r-15)
 - [8. 来源自动核验（NX-14 / ER-04 / OC-03）](#8-来源自动核验nx-14--er-04--oc-03)
   - [8.1 三步，缺一不可](#81-三步缺一不可)
   - [8.2 引擎入口与函数](#82-引擎入口与函数)
@@ -91,6 +101,7 @@
   - [11.3 工作详情](#113-工作详情)
   - [11.4 人员页](#114-人员页)
   - [11.5 组件与文件落点](#115-组件与文件落点)
+  - [11.5a 资料库与状态页的本批边界（只列和本文对象有关的）](#115a-资料库与状态页的本批边界只列和本文对象有关的)
   - [11.6 与现有"目标"页的衔接](#116-与现有目标页的衔接)
 - [12. 迁移、兼容与开关](#12-迁移兼容与开关)
   - [12.1 迁移顺序](#121-迁移顺序)
@@ -105,32 +116,32 @@
   - [13.2 测试分层](#132-测试分层)
   - [13.3 验收场景（对应 PRD AT）](#133-验收场景对应-prd-at)
 - [14. 待决问题（建议的默认值已写在括号里，评审时请确认或改）](#14-待决问题建议的默认值已写在括号里评审时请确认或改)
-- [附录 A. PRD 追溯（对照 PRD v1.86）](#附录-a-prd-追溯对照-prd-v186)
+- [附录 A. PRD 追溯（对照 PRD v1.95）](#附录-a-prd-追溯对照-prd-v195)
 - [附录 B. 关系图（ER）](#附录-b-关系图er)
 - [附录 C. 走一遍例子：「帮我盯住李明周三交报价表」](#附录-c-走一遍例子帮我盯住李明周三交报价表)
-- [附录 D. PRD 变更总结（v1.57 → v1.86）](#附录-d-prd-变更总结v157--v186)
-- [附录 E. 需与需求方确认、澄清的问题（对照 PRD v1.86，2026-10-29）](#附录-e-需与需求方确认澄清的问题对照-prd-v1862026-10-29)
+- [附录 D. PRD 变更总结（v1.57 → v1.86 → v1.95）](#附录-d-prd-变更总结v157--v186--v195)
+- [附录 E. 需与需求方确认、澄清的问题（对照 PRD v1.95，2026-11-02）](#附录-e-需与需求方确认澄清的问题对照-prd-v1952026-11-02)
   - [E.0 怎么用这份清单](#e0-怎么用这份清单)
-  - [E.1 汇总表](#e1-汇总表)
-  - [E.2 逐条说明](#e2-逐条说明)
-  - [E.3 旧版 §14 待决问题 Q1–Q11 对照 v1.86 的状态](#e3-旧版-14-待决问题-q1q11-对照-v186-的状态)
-  - [E.4 PRD 自身的矛盾、缺口与表述不清（供需求方修订 PRD 时参考）](#e4-prd-自身的矛盾缺口与表述不清供需求方修订-prd-时参考)
+  - [E.1 原问题 R-01 – R-41 在 PRD v1.95 里的答案](#e1-原问题-r-01--r-41-在-prd-v195-里的答案)
+  - [E.2 仍待需求方确认的问题](#e2-仍待需求方确认的问题)
+  - [E.3 研发自决项（不需要问需求方，按默认做）](#e3-研发自决项不需要问需求方按默认做)
+  - [E.4 需要在别的设计文档里跟进的 PRD 变化](#e4-需要在别的设计文档里跟进的-prd-变化)
   - [E.5 原型（docs/prd/design/*.html）自身的不一致](#e5-原型docsprddesignhtml自身的不一致)
   - [E.6 PRD 要求、但原型没有覆盖的界面](#e6-prd-要求但原型没有覆盖的界面)
-  - [E.7 影响后续开发的问题：阻塞关系与"不回答时的默认做法"](#e7-影响后续开发的问题阻塞关系与不回答时的默认做法)
-  - [E.8 建议的讨论顺序](#e8-建议的讨论顺序)
-  - [E.9 原型更新（nexus update html，2026-10-30）逐页变化与本文的关系](#e9-原型更新nexus-update-html2026-10-30逐页变化与本文的关系)
-  - [E.10 五个原型页面的功能与本文覆盖度（2026-11-02）](#e10-五个原型页面的功能与本文覆盖度2026-11-02)
+  - [E.7 开发步骤与剩余待确认问题的关系](#e7-开发步骤与剩余待确认问题的关系)
+  - [E.8 原型更新（nexus update html，2026-10-30）逐页变化与本文的关系](#e8-原型更新nexus-update-html2026-10-30逐页变化与本文的关系)
+  - [E.9 五个原型页面的功能与本文覆盖度（2026-11-02，按 PRD v1.95 更新）](#e9-五个原型页面的功能与本文覆盖度2026-11-02按-prd-v195-更新)
 
 ## 0. 先读这一节
 
 ### 0.0 本文的状态与阅读方式
 
-本文以 PRD v1.86 为准。起草时的基线是 v1.57，两者之间的差异已经逐条并入正文相应章节，变更记录单独放在与 PRD 同目录的 `docs/prd/NEXUS_AI_PRD_CHANGE_LOG.md`（本文不再保留“差异附录”）。几点说明：
+本文以 PRD v1.95 为准。起草时的基线是 v1.57，两者之间的差异已经逐条并入正文相应章节，变更记录单独放在与 PRD 同目录的 `docs/prd/NEXUS_AI_PRD_CHANGE_LOG.md`（本文不再保留“差异附录”；该变更记录只供本地查看，不进 git）。几点说明：
 
-- **待决事项**集中在两处：§14（需要需求方在写代码前拍板的 Q-1…Q-n，每条带建议默认值）和附录 E（对照 PRD 与 HTML 原型发现的、需要需求方澄清的问题 R-xx）。带“待 R-xx”的地方，意思是按括号里的默认值先做，需求方改了再调。
-- **`user_accept`（用户验收）是本文自造的标准类型，不是 PRD 概念**，PRD 只在某些约定里说“需用户验收时等待该决定”。它在 §4.4、§5.2、§6、§13 和附录 C 里出现，是否保留取决于附录 E 的 R-03。
-- **HTML 原型**（`docs/prd/design/`）的逐页对照记录在附录 E.5 / E.6 / E.9 / E.10；原型与 PRD 字面不一致的地方，本文默认取原型的交互、PRD 的数据语义，并在对应 R-xx 里写明。
+- **PRD v1.95 的 §0.6 已经把“本批做什么、推迟什么、明确不支持什么”写成唯一总表（R-01–R-35）**，本文附录 E 原来的大部分问题由它回答；总表在本文的落点见 §0.5。
+- **待决事项**集中在两处：§14（需要需求方在写代码前拍板的 Q-1…Q-n，每条带建议默认值）和附录 E（PRD v1.95 之后仍没有答案的少数问题，编号沿用 R-xx，新增的接续 R-42 起）。带“待 R-xx”的地方，意思是按括号里的默认值先做，需求方改了再调。
+- **“用户验收”现在是 PRD 概念**：v1.95 的 OC-03 / R-03 用 `criterion_source = user_confirmation`（用户确认标准）表达，本文原来自造的 `user_accept` 已全部改为它，不再有“待 R-03”。
+- **HTML 原型**（`docs/prd/design/`）的逐页对照记录在附录 E.5 / E.6 / E.8 / E.9；原型与 PRD 字面不一致的地方，本文默认取原型的交互、PRD 的数据语义，并在对应 R-xx 里写明。
 
 ### 0.1 一句话
 
@@ -160,6 +171,29 @@ PRD 把"用户要的一件事"拆成四层：**Work**（要什么结果）→ **
 8. **所有写入带 `owner_id`、版本号，向前兼容。** 已发布表不改，只新增表（沿用现有纪律）；新表全部 `STRICT`。
 9. **Agent 能写的只有"记录用户说的话"。** Agent 不能确认身份、不能把委派写成"对方已接受"（除非给出依据）、不能结案或取消承诺、不能暂停或停止工作——这些是用户在控制台（或用户明确说出后由服务端审计）才能做的事。
 10. **每个新能力一个独立开关，默认关。** `worksEnabled`、`counterpartsEnabled`、`commitmentsEnabled`、`schedulesEnabled`，依赖关系见 §12.4。
+
+### 0.5 本批范围与降级（PRD §0.6，R-01–R-35）
+
+PRD v1.95 §0.6 说明：本批是**单用户 / 自部署插件**批次，采用最小方案——**本批无规则自动批准；版本化只做最小版；查询与清理用现有受控机制适配；CP（成功指标）只交付事件字段**。正文、数据模型和不变量仍保留完整产品契约，只有总表明确列出的能力降级。下表是总表对本文的影响（R 编号沿用 PRD；“落点”指本文哪里已经按它写）。
+
+| R                              | 本批做什么 / 不做什么（摘要）                                                                                                                                                          | 本文落点                     |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| R-01 / R-17                    | 逐项审批、动作幂等照做；批次批准、规则自动批准暂缓，旧规则只保留历史并隐藏额度 UI                                                                                                      | §2 决策行；§6.3；INV-24 说明 |
+| R-02                           | 四个启用模板（`meeting_arranged` / `requested_delivery_received` / `usable_file_delivered` / `user_confirmed_delivery`）；预订、签署两个键只登记不启用；`legacy_task_success` 只读历史 | §4.4.3                       |
+| R-03 / R-09 / R-26             | 用户确认标准（`user_confirmation`）可用但不能代替必需来源证据；`accepted + user_report` 受接受依据策略约束；进展与核验分维                                                             | §4.4.3；§5.2；§9             |
+| R-04 / R-05                    | 硬窗口持久评估（60 秒内开始、5 分钟有界收尾）；呈现事实 `completion_presentations`；不做控制台已读埋点                                                                                 | §4.2.12；§5.2；§6.4          |
+| R-06                           | 业务 Work 修订：整个 Work 置“待采用”，用后继 Task 继续；只存最小采用记录；同 Task 改版、逐字段兼容、跨工作接手不支持                                                                   | §4.2.1；§4.2.11              |
+| R-07 / R-16                    | 受控请求（问答 / 清理 / 窗口评估）+ 持久尝试，不建独立 Job 表；数值上限见 §4.7                                                                                                         | §4.2.12；§4.7                |
+| R-08 / R-20                    | 稳定 `scope_id` + 语义版本（最小范围记录）；迁移默认 `legacy_default` 待核对，不虚填达成事实                                                                                           | §4.2.10；§12.2               |
+| R-10 / R-32                    | 多人分责 = 一名负责人或多条独立承诺；停用 / 合并 / 纠错 / 遗忘级联                                                                                                                     | §6.8；§7.5                   |
+| R-11 / R-21 / R-34             | 阻塞原因码、次级标识、五类状态文案                                                                                                                                                     | §5.2                         |
+| R-12 / R-29 / R-30             | 人员列表按范围过滤；三列枚举；阶段顺序                                                                                                                                                 | §9                           |
+| R-13 / R-14 / R-31             | 本人配对、身份映射不得升级为 `source_verified`、提及消歧                                                                                                                               | §4.3.4；§4.3.5；§7.7；§7.8   |
+| R-15 / R-18 / R-27             | IM 私聊决定矩阵；导航映射；多决定可找回                                                                                                                                                | §10；§11                     |
+| R-19 / R-22–R-25 / R-33 / R-35 | CP 字段、资料库分享关闭、Status 只显示真实记录、主机配置、目标进展采用、模拟标记                                                                                                       | §4.2.1；§11；§14             |
+| R-28                           | 周期义务最多 12 期，每期一条独立承诺，检查不产生义务                                                                                                                                   | §4.4.1；§6.7                 |
+
+读法：表里“暂缓”的能力，**入口和派发保持关闭，数据结构仍按完整契约留位**（例如 `rules` 不建表，但 AP 逐项审批的字段照常存在）。任何暂缓项不得因原型画了、枚举里有而被默认启用。
 
 ## 1. 整体结构：谁依赖谁
 
@@ -196,26 +230,31 @@ flowchart TD
 
 "处理"一列只用四个词：**保留**（不改，直接复用）、**新增**（新表和新模块）、**适配**（旧表不改，加视图或转换函数）、**暂缓**（本批不做，留接口）。
 
-| PRD 对象（§3.1 / §10.2）   | 现有实现                                                                                         | 差距                                                                          | 处理                                                                                                                                                                                                                                    |
-| -------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Work                       | 没有；`nexus_tasks` 同时承担"一件事"和"一次执行"                                                 | 缺稳定的结果身份、约定版本、关联、达成 / 结束事实、前置、拆合沿袭、工作级控制 | **新增** `works` + `work_versions` + `task_work_owner` + `work_links` + `work_events` + `work_lineage` + `work_outcome_events` + `work_terminal_events` + `work_prerequisites` + `work_controls`；老事项按 1:1 自动包一个 Work（§12.2） |
-| WorkView                   | 任务列表里的 `status` 过滤                                                                       | 缺 WK-02 五类主状态、"其他步骤进行中"、尚未安排跟进等推导                     | **新增** `deriveWorkState()`（纯函数）+ `work-view` 查询（§5）                                                                                                                                                                          |
-| Context                    | `nexus_tasks.entities_json`、会话 key；没有模式 / 客户 / 项目标签                                | 缺 Personal / Executive 与客户项目标签                                        | **暂缓** ContextProfile 表：`works` / `work_versions` / `commitments` 各存必填的 `context_mode` 与语义版本，客户 / 项目标签先用 `context_label`（INV-04）                                                                               |
-| Goal                       | `goals`、`goal_entries`、`goal_links`（kind=task / vault_file / preference / watch）、指标、回看 | Goal→Task 是直接关联，PRD 是 Goal→Work（`GoalWorkLink`，Personal 专属）       | **适配**：`goal_work_links` 为唯一写源；`goal_links(kind=task)` 退化为兼容影子（§4.2.3）；`goals` 已满足一层子目标、无 `paused`（INV-06）                                                                                               |
-| Decision（用户确认的选择） | 无同名对象；`decisions` 表是**审批决定**（动作授权）                                             | 名字相同、含义不同                                                            | 审批 `decisions` **保留**；PRD Decision 记录 **暂缓**（`commitments.decision_ref` 留空位，§14 Q4）                                                                                                                                      |
-| Counterpart                | 没有；`entities_json` 里有零散人名                                                               | 缺稳定 ID、自身份、端点、关联、参与人角色、关系                               | **新增** `counterparts` + `owner_identity` + `counterpart_names` / `relations` / `endpoints` / `identity_links` + 两张参与人链接表（§4.3、§7）                                                                                          |
-| Commitment                 | 没有；`claims`（声明）是"某个事实是否成立"，不是"某人答应交付"                                   | 缺责任人、责任版本、标准、期限、沟通与接受、生命周期、独立核验、证据归属      | **新增** `commitments` + 责任版本快照 + 事件 + 合同 / 评估 + 证据归属（§4.4、§6）；`claims` 保留，只作为 Task 内部的完成门槛                                                                                                            |
-| Task                       | `nexus_tasks` + `nexus_task_steps` + `nexus_task_sessions`                                       | 缺主 Work 关联、PRD §8.1 十个执行状态、来源 Schedule / 触发键                 | **保留** 并 **适配**：`taskPhase()` 把现有 11 个 status 映射成 §8.1 状态（§5.1）；主 Work 走 `task_work_owner`；`task_ext` 补"部分完成 / 阻塞 / 后继"标记                                                                               |
-| Run                        | 没有独立表；`action_executions`、`run_triggers` 近似                                             | 缺"每次尝试"的统一记录                                                        | **适配**：Run 视为 `run_triggers` + `action_executions` 的组合读取；本批不新建表                                                                                                                                                        |
-| Schedule                   | `watches`（只服务 Task / claim 的回检）+ 宿主 cron job；Goal 回看周期是 `goal_review_plans`      | 缺方案、执行主 Work 与业务归属、`once`、占槽、覆盖状态                        | **新增** `schedules` + `schedule_triggers` + `delegation_plans` + `goal_briefing_policies`；`watches` 作为其执行器保留（§4.5）；Goal 回看提醒 **保留**，不并入                                                                          |
-| Specialist subtask         | 无                                                                                               | —                                                                             | **暂缓**                                                                                                                                                                                                                                |
-| Deliverable                | `vault_files` / `vault_versions` / `vault_links`                                                 | 缺"验证后"标记与 Work 关联                                                    | **适配**：Work 经 `work_links(target_kind='artifact')` 引用文件版本；验证标记沿用现有 `vault_*` 的 kind / 状态；Deliverable 表本身 **暂缓**                                                                                             |
-| OutcomeContract            | `nexus_task_completion_claims`（完成门槛）+ `goal_json`                                          | 缺模板、版本、逐标准评估                                                      | **新增（最小版）**：`outcome_contract_versions`（Work 与 Commitment 各自引用）+ `criterion_assessments`；引用 Commitment 的标准复用其唯一当前 `commitment_assessments`，Work 不另判（§4.4）；模板写在代码里                             |
-| EvidenceAttribution        | `evidence`、`claim_evidence_links`                                                               | 缺主体 / 端点 / 映射版本 / 三步判定                                           | **新增** `evidence_attributions`，引用已有 `evidence.id`（§8）                                                                                                                                                                          |
-| AttentionItem（待处理）    | 无统一模型；各页自己算                                                                           | —                                                                             | **暂缓**：工作页的"待你处理"由 WorkView 直接给出                                                                                                                                                                                        |
-| DelegationPlan             | 无                                                                                               | 缺跟进方案草案、接受 / 终止规则、有界收尾                                     | **新增** `delegation_plans`（`plan_owner_type` = commitment / goal / work；draft → accepted → ended / revoked；同一 Commitment 至多一个 accepted；CD-03 交接、CD-04 有界收尾字段，§4.5、§6.4）                                          |
-| TaskControl                | 无；`nexus_task_update` 可直接改状态                                                             | 缺暂停 / 恢复 / 停止的范围化、可叠加控制                                      | **新增** `work_controls`（§4.2.8）                                                                                                                                                                                                      |
-| PersonView                 | 无                                                                                               | —                                                                             | **新增** 查询（§9），不落表                                                                                                                                                                                                             |
+| PRD 对象（§3.1 / §10.2）                  | 现有实现                                                                                         | 差距                                                                                                              | 处理                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Work                                      | 没有；`nexus_tasks` 同时承担"一件事"和"一次执行"                                                 | 缺稳定的结果身份、约定版本、关联、达成 / 结束事实、前置、拆合沿袭、工作级控制                                     | **新增** `works` + `work_versions` + `task_work_owner` + `work_links` + `work_events` + `work_lineage` + `work_outcome_events` + `work_terminal_events` + `work_prerequisites` + `work_controls`；老事项按 1:1 自动包一个 Work（§12.2）                                                                          |
+| WorkView                                  | 任务列表里的 `status` 过滤                                                                       | 缺 WK-02 五类主状态、"其他步骤进行中"、尚未安排跟进等推导                                                         | **新增** `deriveWorkState()`（纯函数）+ `work-view` 查询（§5）                                                                                                                                                                                                                                                   |
+| Context                                   | `nexus_tasks.entities_json`、会话 key；没有模式 / 客户 / 项目标签                                | 缺 Personal / Executive 与客户项目标签；v1.95 要求稳定 `scope_id` 与语义版本（R-08）                              | **适配（最小版）**：新增 `context_scopes`（scope_id、context_mode、scope_kind、parent、label、semantic_version、active / archived，§4.2.10）；`works` / `work_versions` / `commitments` 引用 scope，名称不是身份；完整 ContextProfile 服务 **暂缓**（INV-04）                                                    |
+| Goal                                      | `goals`、`goal_entries`、`goal_links`（kind=task / vault_file / preference / watch）、指标、回看 | Goal→Task 是直接关联，PRD 是 Goal→Work（`GoalWorkLink`，Personal 专属）                                           | **适配**：`goal_work_links` 为唯一写源；`goal_links(kind=task)` 退化为兼容影子（§4.2.3）；`goals` 已满足一层子目标、无 `paused`（INV-06）                                                                                                                                                                        |
+| Decision（用户确认的选择）                | 无同名对象；`decisions` 表是**审批决定**（动作授权）                                             | 名字相同、含义不同                                                                                                | 审批 `decisions` **保留**；PRD 的 Decision / DecisionObjectLink：v1.95 §0.6 既没列入也没排除，**默认仍暂缓**（`commitments.decision_ref` 留空位），见 §14 Q4 与附录 E 的 R-43                                                                                                                                    |
+| Counterpart                               | 没有；`entities_json` 里有零散人名                                                               | 缺稳定 ID、自身份、端点、关联、参与人角色、关系；v1.95 增加状态（active / inactive / merged）、本人配对、提及消歧 | **新增** `counterparts`（`lifecycle` 含 `inactive`、停用原因与墓碑）+ `owner_identity` + `counterpart_names` / `relations` / `endpoints` / `identity_links` + 两张参与人链接表 + `unresolved_mentions`（§4.3、§7）                                                                                               |
+| Commitment                                | 没有；`claims`（声明）是"某个事实是否成立"，不是"某人答应交付"                                   | 缺责任人、责任版本、标准、期限、沟通与接受、生命周期、独立核验、证据归属                                          | **新增** `commitments` + 责任版本快照 + 事件 + 合同 / 评估 + 证据归属（§4.4、§6）；`claims` 保留，只作为 Task 内部的完成门槛                                                                                                                                                                                     |
+| Task                                      | `nexus_tasks` + `nexus_task_steps` + `nexus_task_sessions`                                       | 缺主 Work 关联、PRD §8.1 十个执行状态、来源 Schedule / 触发键                                                     | **保留** 并 **适配**：`taskPhase()` 把现有 11 个 status 映射成 §8.1 状态（§5.1）；主 Work 走 `task_work_owner`；`task_ext` 补"部分完成 / 阻塞 / 后继"标记                                                                                                                                                        |
+| Run                                       | 没有独立表；`action_executions`、`run_triggers` 近似                                             | 缺"每次尝试"的统一记录                                                                                            | **适配**：Run 视为 `run_triggers` + `action_executions` 的组合读取；本批不新建表                                                                                                                                                                                                                                 |
+| Schedule                                  | `watches`（只服务 Task / claim 的回检）+ 宿主 cron job；Goal 回看周期是 `goal_review_plans`      | 缺方案、执行主 Work 与业务归属、`once`、占槽、覆盖状态                                                            | **新增** `schedules` + `schedule_triggers` + `delegation_plans` + `goal_briefing_policies`；`watches` 作为其执行器保留（§4.5）；Goal 回看提醒 **保留**，不并入                                                                                                                                                   |
+| Specialist subtask                        | 无                                                                                               | —                                                                                                                 | **暂缓**                                                                                                                                                                                                                                                                                                         |
+| Deliverable                               | `vault_files` / `vault_versions` / `vault_links`                                                 | 缺"验证后"标记与 Work 关联                                                                                        | **适配**：Work 经 `work_links(target_kind='artifact')` 引用文件版本；验证标记沿用现有 `vault_*` 的 kind / 状态；Deliverable 表本身 **暂缓**                                                                                                                                                                      |
+| OutcomeContract                           | `nexus_task_completion_claims`（完成门槛）+ `goal_json`                                          | 缺模板、版本、逐标准评估；v1.95 固定六个模板键（启用四个）、`criterion_source` 三类、窗口字段                     | **新增（最小版）**：`outcome_contract_versions`（Work 与 Commitment 各自引用，含 `window_end_at` / `window_policy` / `accepted_basis_policy`）+ `criterion_assessments`；引用 Commitment 的标准用 `criterion_source = commitment_verification` 复用其唯一当前 `commitment_assessments`；模板写在代码里（§4.4.3） |
+| EvidenceAttribution                       | `evidence`、`claim_evidence_links`                                                               | 缺主体 / 端点 / 映射版本 / 三步判定                                                                               | **新增** `evidence_attributions`，引用已有 `evidence.id`（§8）                                                                                                                                                                                                                                                   |
+| AttentionItem（待处理）                   | 无统一模型；各页自己算                                                                           | v1.95 R-27 要求多个决定可找回、按优先级排序、各自独立消费                                                         | **暂缓**统一表：工作页“待你处理”由 WorkView 直接给出**列表**（每条带 `decision_request_id`），不做一键批次批准（§11.2）                                                                                                                                                                                          |
+| DelegationPlan                            | 无                                                                                               | 缺跟进方案草案、接受 / 终止规则、有界收尾                                                                         | **新增** `delegation_plans`（`plan_owner_type` = commitment / goal / work；draft → accepted → ended / revoked；同一 Commitment 至多一个 accepted；CD-03 交接、CD-04 有界收尾字段，§4.5、§6.4）                                                                                                                   |
+| TaskControl                               | 无；`nexus_task_update` 可直接改状态                                                             | 缺暂停 / 恢复 / 停止的范围化、可叠加控制                                                                          | **新增** `work_controls`（§4.2.8）                                                                                                                                                                                                                                                                               |
+| PersonView                                | 无                                                                                               | —                                                                                                                 | **新增** 查询（§9），不落表                                                                                                                                                                                                                                                                                      |
+| ContextScope（范围记录）                  | 无                                                                                               | 见上 Context 行                                                                                                   | **新增** `context_scopes`（§4.2.10）                                                                                                                                                                                                                                                                             |
+| TaskAdoption（采用记录）                  | 无                                                                                               | R-06：业务 Work 修订后需要“整个 Work 待采用 + 后继 Task”的最小记录                                                | **新增** `task_adoptions`（§4.2.11），不建 `TaskPlanVersion` / 逐字段兼容表                                                                                                                                                                                                                                      |
+| CompletionPresentation / WindowEvaluation | 无                                                                                               | R-04 / R-05：呈现事实与硬窗口的持久评估请求                                                                       | **新增** `completion_presentations`、`window_evaluation_requests`（§4.2.12）                                                                                                                                                                                                                                     |
+| SystemJob（SJ-01 – SJ-03）                | 宿主 cron、各自的清理脚本                                                                        | R-07：本批只要“受控请求 + 持久尝试”，不要独立 Job 表                                                              | **适配**：问答 / 清理 / 窗口评估三类受控请求沿用现有受控机制，记录 `request_id` / `job_type`；回填、目标信、记忆整理、共享观察 **关闭**                                                                                                                                                                          |
+| UnresolvedMention                         | 无                                                                                               | R-31：文档 / 会议里只有名字、没有账号的提及                                                                       | **新增** `unresolved_mentions`（§4.3.5）                                                                                                                                                                                                                                                                         |
 
 ## 3. 命名与分层纪律（在现有纪律上增补）
 
@@ -223,7 +262,7 @@ flowchart TD
 
 新增约定：
 
-1. **表名。** 属于 Task 聚合的表以 `nexus_task` 开头（已有）；本批新表不带 `nexus_` 前缀，按"一个概念一组前缀"：`work*`、`counterpart*`、`identity_*`、`commitment*`、`schedule*`。没有 `work_` 前缀的例外：`task_work_owner`、`goal_work_links`（属 Goal 侧）、`evidence_attributions`、`criterion_assessments`、`outcome_contract_versions`、`delegation_plans`、`task_ext`、`store_flags`。
+1. **表名。** 属于 Task 聚合的表以 `nexus_task` 开头（已有）；本批新表不带 `nexus_` 前缀，按"一个概念一组前缀"：`work*`、`counterpart*`、`identity_*`、`commitment*`、`schedule*`。没有 `work_` 前缀的例外：`task_work_owner`、`goal_work_links`（属 Goal 侧）、`evidence_attributions`、`criterion_assessments`、`outcome_contract_versions`、`delegation_plans`、`task_ext`、`store_flags`、`context_scopes`、`task_adoptions`、`completion_presentations`、`window_evaluation_requests`、`unresolved_mentions`、`migration_snapshots`。
 2. **目录。** 代码按概念分目录：`src/work/`（service、derive、view、backfill）、`src/commitment/`、`src/counterpart/`、`src/schedule/`；存储层放 `src/store/` 下 `work-ledger.ts`、`commitment-ledger.ts`、`counterpart-ledger.ts`、`schedule-ledger.ts`（沿用 `*-ledger.ts`）；RPC 在 `src/*-rpc.ts`；工具在 `src/tools/`。
 3. **接口命名。** RPC：`nexus.work.*`、`nexus.person.*`（人员视图）、`nexus.counterpart.*`、`nexus.commitment.*`、`nexus.schedule.*`、`nexus.delegation.*`。Agent 工具：`nexus_work_*`、`nexus_commitment_*`、`nexus_counterpart_*`、`nexus_schedule_*`，与目标工具一样登记为 `catalogMode: "direct-only"`（它们是直接工具，不出现在 exec / 代码模式里，提示里要说明，见 G4 试用教训）。
 4. **模型可见文字全英文**，界面文字走 `i18n.ts` 中英两套（沿用 `i18n.test.ts` 的检查）。"工作 / 人员 / 承诺事项 / 跟进"为中文界面的固定词；英文界面用 Work / People / Commitment / Follow-up。
@@ -253,7 +292,15 @@ CREATE TABLE works (
   outcome_text TEXT,                    -- 当前约定的结果一句话；改动产生新的 work_versions 行并记 work_events
   original_result_id TEXT NOT NULL,     -- 原请求结果的稳定 ID：CP 指标分母去重；拆合 / 接手后仍指向原结果（INV-32）
   context_mode TEXT NOT NULL,           -- personal|executive：每个 Work 恰有一个主用途（INV-04）；Executive Work 不得有任何 Goal 边（INV-05）
-  context_label TEXT,                   -- 客户 / 项目标签，仅用于筛选；不授权
+  primary_context_id TEXT NOT NULL,     -- 主用途所在范围 context_scopes.id（R-08）；名称不是身份，不复制可独立修改的 label；不授权
+  context_semantic_version INTEGER NOT NULL DEFAULT 1,   -- 绑定的范围语义版本；改变模式 / 客户归属 = 语义修订，走 R-06
+  context_origin TEXT NOT NULL DEFAULT 'explicit',       -- explicit|inherited|legacy_default（R-20：迁移时没有可靠模式字段）
+  context_review TEXT NOT NULL DEFAULT 'none',           -- none|pending|confirmed：legacy_default 为 pending，首次新的执行 / 披露前就地确认
+  entry_kind TEXT NOT NULL DEFAULT 'user_request',       -- CP 字段（R-19）：入口类别 user_request|schedule_check|escalated|migrated
+  accepted_at INTEGER,                  -- CP：原请求被接受为 Work 的时间
+  escalation_ref TEXT,                  -- CP：由哪个即时问答 / 请求升级而来
+  exclusion_reason TEXT,                -- CP：不计入原请求分母的理由（只记录，不据此删除）
+  migrated_outcome TEXT,                -- 仅迁移历史：旧事项的终局 succeeded|failed|cancelled；只读，不等于达成事实（R-42）
   current_work_version INTEGER NOT NULL DEFAULT 1,   -- 指向 work_versions 的当前版本，版本检查更新
   origin TEXT NOT NULL,                 -- migrated|user|agent
   request_ref TEXT,                     -- 去重：来源消息 id / 分句哈希（WK-01 重投不重复创建）
@@ -264,6 +311,11 @@ CREATE TABLE works (
   archived_at INTEGER, deleted_at INTEGER,
   PRIMARY KEY (owner_id, id),
   CHECK (context_mode IN ('personal','executive')),
+  CHECK (context_origin IN ('explicit','inherited','legacy_default')),
+  CHECK (context_review IN ('none','pending','confirmed')),
+  CHECK (context_origin <> 'legacy_default' OR context_review <> 'none'),
+  CHECK (migrated_outcome IS NULL OR migrated_outcome IN ('succeeded','failed','cancelled')),
+  CHECK (migrated_outcome IS NULL OR origin = 'migrated'),
   CHECK (origin IN ('migrated','user','agent')),
   CHECK (lifecycle IN ('live','archived','deleted','purging')),
   CHECK (hidden IN (0,1)),
@@ -276,6 +328,7 @@ CREATE INDEX works_list ON works(owner_id, lifecycle, updated_at DESC);
 CREATE TABLE work_versions (            -- 不可变修订：只追加，不改写（INV-04、INV-21）
   owner_id TEXT NOT NULL, work_id TEXT NOT NULL, work_version INTEGER NOT NULL,
   context_mode TEXT NOT NULL,           -- 本版本的主用途；必须与 TaskPlanVersion 绑定的一致
+  context_scope_id TEXT NOT NULL,       -- 本版本的范围（R-08）
   context_semantic_version INTEGER NOT NULL DEFAULT 1,
   contract_version INTEGER NOT NULL,    -- 结果约定版本（outcome_contract_versions）
   outcome_text TEXT,
@@ -290,7 +343,14 @@ CREATE TABLE work_versions (            -- 不可变修订：只追加，不改�
 
 **没有任何执行状态列，也没有 `primary_goal_id`。** `lifecycle` 只管 Work 这条记录本身的可见性；Work 的 Goal 关联只存在于 `goal_work_links`（§4.2.3），`works` 里没有 `goal_id`，页面上的"所属目标"是读取时的只读投影（INV-05）。
 
-**版本化只做最小版**（待决问题 Q-A 的默认值）：`work_versions` 记录每次对结果、结果约定或主用途的修订；`TaskPlanVersion` 和 `WorkTaskCompatibility` **本批不建表**，Task 现有计划不版本化。Work 修订时，对所有未终止的主归属 Task 在 `work_events` 里写一条 `version_changed`（payload 列出受影响 Task），由 `deriveWorkState()` 把这些 Task 视为"待确认兼容"（§5.2 的 `compat_pending`）；旧 Run 和回执仍绑定它们产生时的版本，不被改写。真实 Provider 接入前再补完整的三张表，补的时候只加表、不改 `work_versions` 的列。
+**版本化只做最小版（PRD R-06 已确认）**：`work_versions` 记录每次对结果、结果约定或主用途的修订；`TaskPlanVersion` 和 `WorkTaskCompatibility` **本批不建表**。规则如下：
+
+- **标题 / 展示元数据修订**（OC-04 场景 1）：直接记 `work_versions`，不重跑、不改执行 / 标准 / 停止依据。
+- **任何业务修订**（期限、标准、来源、执行范围、主用途）：该 Work **所有未终结 Task** 的“版本采用资格”整体置 `pending`，隔离新的业务执行与外部提交；本批**不判断哪些未变字段可以继续**。`pending` 只是采用资格，由 `task_adoptions`（§4.2.11）表达，对 Task 编排按现有投影当作 blocked，**不新增 Task 生命周期，不改写旧 Run / 回执**；已提交或未知效果保留原动作和原版本，只允许原有的有界核对。
+- **用户明确接受当前版本后**：安全终止 / 隔离旧 Task，创建 `successor_task_id` 与新的不可变执行快照（`task_adoptions` 一行），**不在原 `task_id` 上换计划版本续跑**；并发再次修订会让资格重新 `pending`，旧确认不能清除新阻塞；新动作仍需独立批准。范围内未修订的失败重试可沿用同 Task 的新 Run。
+- **已终态 Task / Run** 保留原范围历史，不写逐标准 compatible / incompatible；复用旧成果时按整份成果版本和当前用途做有界核对并留下采用依据，无法证明新版标准满足就重新核验 / 生成。
+- **已知不支持**（要给用户明确说明，不宣称完整 OC-04）：细粒度迁移（期限 / 金额只影响部分依赖）、原 Task 改版续跑、活动执行跨用途迁移、已提交 / 未知动作与既有成果 / 责任 / 计划的协同改版、跨工作活跃接手；5.8 的“运行中改期 / 跨工作接手”全链路不在本批。
+- `deriveWorkState()` 里原来的“待确认兼容”（`compat_pending`）改称 `adoption_pending`（§5.2）；`work_events` 仍写一条 `version_changed`，payload 列出被置 pending 的 Task。
 
 #### 4.2.2 `task_work_owner` 与 `work_links`（WorkObjectLink）
 
@@ -427,7 +487,8 @@ CREATE TABLE work_outcome_events (
   work_id TEXT NOT NULL, original_result_id TEXT NOT NULL,
   work_version INTEGER NOT NULL, contract_version INTEGER NOT NULL, scope_ref TEXT,    -- 约定与执行范围
   event_type TEXT NOT NULL,            -- achieved|withdrawn|reinstated|superseded
-  basis TEXT NOT NULL DEFAULT 'evidence',        -- evidence|migration（迁移出的完成，CP 指标排除，见 §12.2）
+  basis TEXT NOT NULL,                 -- source_verified|user_report|mixed（PRD WorkOutcomeEvent.basis；R-09：仅 user_report 时受 accepted_basis_policy 约束，不冒充来源核验）
+  provenance TEXT NOT NULL DEFAULT 'live',       -- live|legacy_backfill（用户对迁移历史的明确补记，保存变更来源与时间；CP 指标排除，不伪造旧完成时间，R-42）
   assessment_refs_json TEXT NOT NULL,  -- 所引 Assessment ID / 版本及逐标准结论；只存引用和最小快照，不复制履约裁决
   previous_event_id TEXT,              -- 前一有效事件；compare-and-set
   reason TEXT, recorded_at INTEGER NOT NULL,
@@ -436,7 +497,8 @@ CREATE TABLE work_outcome_events (
   stat_correction_ref TEXT,
   PRIMARY KEY (owner_id, id),
   CHECK (event_type IN ('achieved','withdrawn','reinstated','superseded')),
-  CHECK (basis IN ('evidence','migration')),
+  CHECK (basis IN ('source_verified','user_report','mixed')),
+  CHECK (provenance IN ('live','legacy_backfill')),
   CHECK (previous_event_id IS NOT NULL OR event_type = 'achieved'),     -- 只有链上第一条可以没有前驱，且必须是 achieved
   FOREIGN KEY (owner_id, work_id) REFERENCES works(owner_id, id)
 ) STRICT;
@@ -445,6 +507,7 @@ CREATE UNIQUE INDEX work_outcome_notify ON work_outcome_events(owner_id, notify_
 ```
 
 - **有效事件指针、`first_achieved_at`、`current_completed_at` 都从事件链投影**：`first_achieved_at` 固定为第一次 `achieved` 的 `recorded_at`；撤回（`withdrawn` / `superseded`）后 `current_completed_at` 立即清空，`reinstated` 再设。链上"前一有效事件"的唯一索引保证并发时只有一个后继胜出，输家重读后重试。
+- **依据类型（R-03 / R-09 / R-26）**：`basis` 按各必要标准的 `criterion_source` 汇总——全部来自独立证据或承诺核验为 `source_verified`；全部来自用户确认为 `user_report`；混合为 `mixed`。用户报告可以让个人行动、用户明确要求验收的成果达成，**不能替代必需的来源证据**（标准里要求 `independent_evidence` 的，用户确认补不上），也不改变 CP 里“核验成功”与“用户确认完成”分开报告的口径。进展（Task 数、Schedule 次数、参考项）不进入必要标准分母。
 - **达成与结果通知同一事务**：写 `achieved` / `reinstated` 事件时，在同一事务里写 Outbox 行（`notify_key` 去重）；通知不重复、也不丢。
 - Work 的停止快照优先：Work 已有未被 `reopen` 的 `work_terminal_events` 时，达成事件只能限定在停止前已可达成的范围（`scope_ref`），不能把已停止的 Work 显示为后来完成（INV-20）。
 
@@ -462,11 +525,14 @@ CREATE TABLE work_terminal_events (
   stop_scope_json TEXT,                -- 所选停止范围（Task / Schedule / 方案）与继续分支检查
   inherit_scope_json TEXT,             -- 兼容后续版本时继承的范围
   recorded_at INTEGER NOT NULL,
+  window_evaluation_id TEXT,           -- reason='window_ended' 时必填：对应 window_evaluation_requests.id（R-04）
+  close_deadline_at INTEGER,           -- 有界收尾的截止时间（硬窗口 5 分钟或更短的执行安全界限）；之后仍未知的外部效果保留 unknown 标识
   reopened_at INTEGER, reopen_basis TEXT, new_boundary_id TEXT,   -- reopen：明确依据和新执行边界；只允许从 NULL 设置一次
   PRIMARY KEY (owner_id, id),
   CHECK (result_at_close IN ('met_all','partial','not_met','stopped_before_completion','unknown')),
   CHECK (reason IN ('stop','accept_partial','window_ended','unrecoverable')),
   CHECK (reason NOT IN ('stop','accept_partial') OR decision_ref IS NOT NULL),
+  CHECK (reason <> 'window_ended' OR window_evaluation_id IS NOT NULL),
   CHECK ((reopened_at IS NULL) = (reopen_basis IS NULL)),
   FOREIGN KEY (owner_id, work_id) REFERENCES works(owner_id, id)
 ) STRICT;
@@ -548,6 +614,109 @@ CREATE TABLE task_ext (
 ) STRICT;
 ```
 
+#### 4.2.10 `context_scopes`（最小范围记录，R-08）
+
+PRD 的 Context 在本批只要“稳定 ID + 语义版本”的最小记录，不做完整 ContextProfile 服务。
+
+```sql
+CREATE TABLE context_scopes (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,          -- id 即 scope_id：同一所有者内稳定、不透明；同名标签可各有不同 ID
+  context_mode TEXT NOT NULL,                        -- personal|executive
+  scope_kind TEXT NOT NULL,                          -- mode（每个模式的默认根）|project|client
+  parent_scope_id TEXT,                              -- project / client 归属某个模式根（或其下的 client）
+  label TEXT NOT NULL,                               -- 用户语言标签；不是身份、不要求唯一；改名保持 ID
+  semantic_version INTEGER NOT NULL DEFAULT 1,       -- 改变模式或客户归属才 +1，走 CR / R-06；改名、归档不 +1
+  status TEXT NOT NULL DEFAULT 'active',             -- active|archived：归档不扩大可见性
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, archived_at INTEGER,
+  PRIMARY KEY (owner_id, id),
+  CHECK (context_mode IN ('personal','executive')),
+  CHECK (scope_kind IN ('mode','project','client')),
+  CHECK ((scope_kind = 'mode') = (parent_scope_id IS NULL)),
+  CHECK (status IN ('active','archived')),
+  CHECK ((status = 'archived') = (archived_at IS NOT NULL))
+) STRICT;
+CREATE UNIQUE INDEX context_scope_root ON context_scopes(owner_id, context_mode) WHERE scope_kind = 'mode';
+```
+
+- **每个模式一个默认根范围**（`scope_kind='mode'`），在 `worksEnabled` 的迁移里建好；项目 / 客户挂在对应模式下。用户输入新标签只产生**候选**，选择已有范围才复用 ID，**不能按同名静默合并**。
+- `works.primary_context_id` / `work_versions.context_scope_id` / `commitments.context_scope_id` 引用它；Task 与 Work 的继承仍按 INV-04；其他表**不复制可独立改的 label**（原来的 `works.context_label` 取消，列表上的客户 / 项目标签从 scope 读）。
+- 改变模式或客户归属是**语义修订**：Work 走 R-06（停旧用途、明确接受新用途、必要时另建 Work），旧授权不迁移。
+
+#### 4.2.11 `task_adoptions`（版本采用记录，R-06 最小版）
+
+```sql
+CREATE TABLE task_adoptions (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  work_id TEXT NOT NULL, work_version INTEGER NOT NULL, contract_version INTEGER NOT NULL,
+  task_id TEXT NOT NULL,                  -- 这条记录对应的 Task（首次执行前必须已有一行）
+  predecessor_task_id TEXT,               -- 修订后的后继链：successor 指回被取代的 Task
+  snapshot_hash TEXT NOT NULL,            -- 不可变执行快照的哈希（计划、范围、资源上限）
+  dependency_versions_json TEXT NOT NULL, -- 当时采用的依赖版本：责任版本、标准版本、范围语义版本等
+  accept_request_id TEXT, accepted_at INTEGER,   -- 用户接受当前版本的请求与时间；确认只是接受依据，不替代权限 / 批准 / 预留
+  isolation_generation INTEGER NOT NULL,  -- 隔离代次：每次修订 +1，旧代次的派发与外部提交被拒
+  adoption_check TEXT NOT NULL,           -- passed|failed|stale（派发和外部提交前重新比较当前版本）
+  state TEXT NOT NULL,                    -- pending|adopted|quarantined|superseded
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id), UNIQUE (owner_id, task_id),
+  CHECK (adoption_check IN ('passed','failed','stale')),
+  CHECK (state IN ('pending','adopted','quarantined','superseded')),
+  CHECK (state <> 'adopted' OR (accept_request_id IS NOT NULL AND accepted_at IS NOT NULL AND adoption_check = 'passed')),
+  FOREIGN KEY (owner_id, work_id) REFERENCES works(owner_id, id)
+) STRICT;
+CREATE INDEX task_adoptions_work ON task_adoptions(owner_id, work_id, work_version);
+```
+
+- **只存 Task 级一行，不存逐字段兼容**。Work 修订后：未终结 Task 的 `state` 置 `pending`（或其 `work_version` 落后当前版本即视为 pending）；用户在“工作级修订卡”上接受后，旧 Task 隔离 / 终止，后继 Task 创建时同事务写新行 `state='adopted'`，`predecessor_task_id` 指向旧 Task。
+- **派发与外部提交前**比较当前 `works.current_work_version` / 约定版本 / 隔离代次，不一致则拒绝并把行置 `stale`；并发再次修订把后继行回到 `pending`，旧确认无效。
+- 这张表**不是 Task 生命周期**：`nexus_tasks` 一行不改；Task 的编排投影（`taskPhase()`）读它，把 `pending` 当作 blocked（reason `dependency_version_pending`）。
+- Commitment 产生 C.v2（改期、换人、改标准）时同理：所有直接依赖旧责任版本的当前方案 / 计划整体标 `dependency_version_pending`（不允许未变字段继续）；用户接受新范围后安全结束旧方案 / 计划并按新版本创建后继，沿既有“同一 Commitment 至多一个 accepted 方案”规则，不开双份跟进（§6.6）。
+
+#### 4.2.12 `completion_presentations` 与 `window_evaluation_requests`（R-04 / R-05）
+
+```sql
+CREATE TABLE completion_presentations (   -- 完成结论已呈现给用户的事实（1 个 achieved / reinstated 事件可有 N 条）
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  outcome_event_id TEXT NOT NULL, work_version INTEGER NOT NULL, contract_version INTEGER NOT NULL,
+  presentation_kind TEXT NOT NULL,        -- channel_submitted（渠道取得 submitted 回执）|chat_published（聊天回复已持久化并可对用户获取）
+  channel TEXT, channel_message_id TEXT, outbox_ref TEXT,
+  delivery_state TEXT NOT NULL,           -- submitted|delivered|failed|unknown
+  occurred_at INTEGER NOT NULL,
+  dedupe_key TEXT NOT NULL,
+  correction_state TEXT NOT NULL DEFAULT 'none',   -- none|required|sent|retrying：事件被撤回时置 required；迟到的 submitted 也触发
+  correction_outbox_ref TEXT,
+  PRIMARY KEY (owner_id, id), UNIQUE (owner_id, dedupe_key),
+  CHECK (presentation_kind IN ('channel_submitted','chat_published')),
+  CHECK (delivery_state IN ('submitted','delivered','failed','unknown')),
+  CHECK (correction_state IN ('none','required','sent','retrying'))
+) STRICT;
+
+CREATE TABLE window_evaluation_requests ( -- 硬窗口的持久评估请求（job_type=window_evaluation，R-07 受控请求）
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,         -- request_id
+  job_type TEXT NOT NULL DEFAULT 'window_evaluation',
+  work_id TEXT NOT NULL, contract_version INTEGER NOT NULL,
+  window_end_at INTEGER NOT NULL, window_tz TEXT NOT NULL,
+  state TEXT NOT NULL,                              -- pending|wrapping_up|done|superseded|failed
+  attempt_id TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+  started_at INTEGER, close_deadline_at INTEGER,    -- close_deadline_at = 开始时间 + min(5 分钟, 执行安全界限)，持久保存
+  result TEXT,                                      -- achieved|window_ended|superseded_noop
+  outcome_event_id TEXT, terminal_event_id TEXT,    -- 二选一，由同一 CAS 写入
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id), UNIQUE (owner_id, work_id, contract_version, window_end_at),
+  CHECK (job_type = 'window_evaluation'),
+  CHECK (state IN ('pending','wrapping_up','done','superseded','failed')),
+  CHECK (result IS NULL OR result IN ('achieved','window_ended','superseded_noop')),
+  CHECK (NOT (outcome_event_id IS NOT NULL AND terminal_event_id IS NOT NULL)),
+  FOREIGN KEY (owner_id, work_id) REFERENCES works(owner_id, id)
+) STRICT;
+CREATE INDEX window_eval_due ON window_evaluation_requests(owner_id, state, window_end_at) WHERE state IN ('pending','wrapping_up');
+```
+
+- **呈现事实（R-05）**：渠道取得 `submitted` 回执即算“可能已呈现”（不等于已读）；聊天里明确说“完成”的回复在持久化并可被用户取到时记 `chat_published`，服务端草稿不算。**只要有任何一条记录，事件被 `withdrawn` 时必须创建一次更正事项并通知**；派发与撤回的竞态用同一个 `outcome_event_id` 和 Outbox 顺序校验，迟到的 `submitted` 同样触发（`correction_state='required'`）。更正通知失败可重试、持续可见（`retrying`），不能清掉更正义务。
+- **本批不做控制台浏览埋点**：没有记录不能证明用户没在控制台看到。因此只要完成事实曾对用户可查询，就按保守口径创建更正事项；只有在事务内被纠正、从未对外可读也未派发的结论才可以和最新结果合并。
+- **窗口来源（R-04）**：唯一业务来源是 Work 当前 `outcome_contract_versions` 上的 `window_end_at` / `window_tz` / `window_policy`（§4.4.3）；`works` 上如果缓存同名字段只能是可重建索引。`Commitment.due_at`、`DelegationPlan.review_or_end_at` 只约束自己，**不能自动成为 Work 窗口**。
+- **登记与执行**：接受 `end_at_window` 时，**原子**写一行 `window_evaluation_requests`（以 work / 约定版本 / 窗口去重），由服务端持久定时队列执行（可共用调度时钟但不建业务 Schedule，不依赖页面读取或任何 Schedule tick）。正常服务下到期后 **60 秒内开始**；重启恢复所有未处理到期项，故障期间显示“窗口已过，等待核对”，不伪造已结束。
+- **到期评估**：先校验当前版本、停止快照与权威标准；已达成就提交 `achieved`；否则隔离该窗口下未来执行，给已提交的尝试**最多 5 分钟**有界收尾（执行安全界限更短取更短，持久写 `close_deadline_at`）。没有活动尝试则立即评估；到界限仍未知的外部效果保留 unknown 标识和独立核对，**不无限延期、不重发**。最后用唯一结果评估服务以 CAS 原子写 `work_terminal_events(reason='window_ended', window_evaluation_id=…)`，与 `achieved` **互斥**；定时重复、重启或用户同时停止不会产生冲突终态。普通业务失败或 Schedule `ended` 不代写这个事件；窗口之后新交付不自动翻转已结束的 Work（窗口关闭前可证已履行的迟到证据走显式复核）。
+
 ### 4.3 Counterpart 组（stage7-0002）
 
 #### 4.3.1 `counterparts`
@@ -559,17 +728,20 @@ CREATE TABLE counterparts (
   display_name TEXT NOT NULL,          -- 用户通常怎么称呼；不是主键，不要求唯一
   confirmation TEXT NOT NULL,          -- stated|confirmed|proposed
   origin TEXT NOT NULL,                -- user|agent|review_batch|system（system 仅用于自身份行）
-  lifecycle TEXT NOT NULL DEFAULT 'live',   -- live|archived|merged|deleted
+  lifecycle TEXT NOT NULL DEFAULT 'live',   -- live|inactive|merged|deleted：对应 PRD 的 active / inactive / merged（R-32）；deleted 只表示遗忘后的最小墓碑
+  inactive_reason TEXT,                -- lifecycle='inactive' 时必填：用户选择停用的原因（不是遗忘）
   merged_into TEXT,                    -- lifecycle='merged' 时指向保留者
+  merge_tx_id TEXT,                    -- 合并事务 ID：别名历史、影响清单与回滚依据
   context_json TEXT,                   -- {label?: 客户 / 项目标签}；不授权
   revision INTEGER NOT NULL,
-  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, archived_at INTEGER,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, inactive_at INTEGER, merged_at INTEGER,
   PRIMARY KEY (owner_id, id),
   CHECK (kind IN ('person','organization','team')),
   CHECK (confirmation IN ('stated','confirmed','proposed')),
   CHECK (origin IN ('user','agent','review_batch','system')),
-  CHECK (lifecycle IN ('live','archived','merged','deleted')),
-  CHECK ((lifecycle = 'merged') = (merged_into IS NOT NULL)),
+  CHECK (lifecycle IN ('live','inactive','merged','deleted')),
+  CHECK ((lifecycle = 'inactive') = (inactive_at IS NOT NULL AND inactive_reason IS NOT NULL)),
+  CHECK ((lifecycle = 'merged') = (merged_into IS NOT NULL AND merged_at IS NOT NULL)),
   CHECK (origin <> 'agent' OR confirmation <> 'confirmed')      -- Agent 不能自己把人员标为"已确认"
 ) STRICT;
 CREATE INDEX counterparts_list ON counterparts(owner_id, lifecycle, display_name);
@@ -581,6 +753,8 @@ CREATE TABLE owner_identity (          -- 自身份：每个所有者恰有一�
   FOREIGN KEY (owner_id, self_counterpart_id) REFERENCES counterparts(owner_id, id)
 ) STRICT;
 ```
+
+**状态（R-32）。** `lifecycle` 的 `live / inactive / merged` 就是 PRD 的 active / inactive / merged。**自身份不能停用或合并**（写入层拒绝：该 `id` 出现在 `owner_identity` 里时，任何改成 `inactive` / `merged` / `deleted` 的写入都失败）。停用 = 普通界面的“停用人员档案”，**不是遗忘**：保留原 ID 和最小墓碑，退出可选联系人列表，撤销当前身份复用 / 收件资格，隔离相关未来动作；详见 §7.5。
 
 **自身份。** 初始化时（`counterpartsEnabled` 打开的迁移里）为所有者建一条 `kind='person'`、`confirmation='confirmed'`、`origin='system'` 的 Counterpart，并写入 `owner_identity`；校验 `kind='person'`。"由我负责"的 Commitment 用自身份 ID 作责任人，**不得**用 `owner_id` 代替（INV-01、INV-08）；"由我负责"与"由其负责"用同一条查询规则。自身份不出现在"待确认人员"，不能被删除或合并。
 
@@ -653,7 +827,7 @@ CREATE UNIQUE INDEX commitment_participant_once ON commitment_participant_links(
 ```sql
 CREATE TABLE counterpart_endpoints (
   owner_id TEXT NOT NULL, id TEXT NOT NULL,
-  endpoint_type TEXT NOT NULL,         -- email|shared_mailbox|calendar|doc_account|im|phone|manual|other（共享邮箱是端点类型，INV-34）
+  endpoint_type TEXT NOT NULL,         -- email|shared_mailbox|calendar|doc_account|im|telegram_user|whatsapp_jid|phone|manual|other（共享邮箱是端点类型，INV-34；telegram_user / whatsapp_jid 是 R-13 的本人配对端点）
   provider TEXT NOT NULL,              -- email|gmail|calendar|notion|jira|manual|…
   connector_account TEXT,              -- 所有者的哪个连接账号看到的
   workspace TEXT,                      -- 租户 / 工作区；不同工作区的同一服务商主体不得混同
@@ -661,11 +835,12 @@ CREATE TABLE counterpart_endpoints (
   handle TEXT,                         -- 地址 / 句柄（邮箱、@用户名）
   id_strength TEXT NOT NULL,           -- strong|weak（NULL subject id ⇒ weak）
   observed_at INTEGER NOT NULL,
+  visible_scope_ids_json TEXT NOT NULL DEFAULT '[]', scope_set_version INTEGER NOT NULL DEFAULT 1,   -- R-12：端点可见的 scope_id 集合与版本；一个技术端点可有多条明确用途关联，不由一条确认推导其他用途
   valid_from INTEGER, valid_to INTEGER,
   source_ref TEXT,
   created_at INTEGER NOT NULL,
   PRIMARY KEY (owner_id, id),
-  CHECK (endpoint_type IN ('email','shared_mailbox','calendar','doc_account','im','phone','manual','other')),
+  CHECK (endpoint_type IN ('email','shared_mailbox','calendar','doc_account','im','telegram_user','whatsapp_jid','phone','manual','other')),
   CHECK (id_strength IN ('strong','weak')),
   CHECK (id_strength = 'weak' OR provider_subject_id IS NOT NULL)
 ) STRICT;
@@ -684,10 +859,13 @@ CREATE TABLE identity_links (
   owner_id TEXT NOT NULL, id TEXT NOT NULL,
   counterpart_id TEXT NOT NULL, endpoint_id TEXT NOT NULL,
   status TEXT NOT NULL,                -- candidate|confirmed|source_verified|disputed|stale|revoked（ER-02）
-  basis_kind TEXT NOT NULL,            -- user_confirmed|user_statement|adapter_directory|calendar_participant|doc_mention_id|name_similarity|email_pattern|domain_match|voice_match|model_score
+  basis_kind TEXT NOT NULL,            -- owner_pairing|user_confirmed|user_statement|adapter_directory|calendar_participant|doc_mention_id|name_similarity|email_pattern|domain_match|voice_match|model_score
   basis_json TEXT NOT NULL,            -- 可回查依据：来源记录 ID、适配器名与版本、用户确认的原话 / 时间
   scope_kind TEXT NOT NULL,            -- task|project|account：复用范围（ER-03 默认只绑定当前批次 / 任务）
-  scope_ref TEXT,                      -- scope_kind='task' 时为 task_id / commitment_id；'project' 时为项目标签
+  scope_ref TEXT,                      -- scope_kind='task' 时为 task_id / commitment_id；'project' 时为 context_scopes.id（不再用标签文字）
+  pairing_event_id TEXT, binding_version INTEGER,   -- basis_kind='owner_pairing' 时必填（R-13）：配对事件与绑定版本；账号与主体 ID 在端点上，确认时间在 confirmed_at
+  purpose_scope TEXT,                  -- 用途范围（如 owner_decision_channel）；不扩大到其他用途
+  visible_scope_ids_json TEXT NOT NULL DEFAULT '[]', scope_set_version INTEGER NOT NULL DEFAULT 1,   -- R-12：这条关联在哪些范围可见（与端点的可见范围分别绑定）
   confirmed_by TEXT, confirmed_at INTEGER,
   valid_from INTEGER NOT NULL, valid_to INTEGER,
   version INTEGER NOT NULL,            -- 每次变更 +1；承诺 / 证据归属引用"当时使用的映射版本"
@@ -695,13 +873,14 @@ CREATE TABLE identity_links (
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
   PRIMARY KEY (owner_id, id),
   CHECK (status IN ('candidate','confirmed','source_verified','disputed','stale','revoked')),
-  CHECK (basis_kind IN ('user_confirmed','user_statement','adapter_directory','calendar_participant','doc_mention_id','name_similarity','email_pattern','domain_match','voice_match','model_score')),
+  CHECK (basis_kind IN ('owner_pairing','user_confirmed','user_statement','adapter_directory','calendar_participant','doc_mention_id','name_similarity','email_pattern','domain_match','voice_match','model_score')),
   CHECK (scope_kind IN ('task','project','account')),
   -- 姓名 / 邮箱格式 / 域名 / 声音 / 模型分只能产生候选（ER-02）
   CHECK (basis_kind NOT IN ('name_similarity','email_pattern','domain_match','voice_match','model_score') OR status IN ('candidate','disputed','stale','revoked')),
   -- confirmed 必须有确认人和时间；source_verified 必须来自适配器目录映射
   CHECK (status <> 'confirmed' OR (confirmed_by IS NOT NULL AND confirmed_at IS NOT NULL)),
-  CHECK (status <> 'source_verified' OR basis_kind = 'adapter_directory'),
+  CHECK (status <> 'source_verified' OR basis_kind = 'adapter_directory'),   -- 枚举保留，但 R-14：本批没有任何写入路径可把身份映射提升到 source_verified
+  CHECK (basis_kind <> 'owner_pairing' OR (pairing_event_id IS NOT NULL AND binding_version IS NOT NULL AND purpose_scope IS NOT NULL)),
   FOREIGN KEY (owner_id, counterpart_id) REFERENCES counterparts(owner_id, id),
   FOREIGN KEY (owner_id, endpoint_id) REFERENCES counterpart_endpoints(owner_id, id)
 ) STRICT;
@@ -709,10 +888,41 @@ CREATE INDEX identity_links_cp ON identity_links(owner_id, counterpart_id, statu
 CREATE INDEX identity_links_ep ON identity_links(owner_id, endpoint_id, status);
 ```
 
+- **R-14（身份映射的核验上限）**：本批新建 / 更新的跨来源 link 只允许 `candidate / confirmed / disputed / stale / revoked`；`source_verified` 保留枚举但**没有可调用的提升路径**，适配器或模型自称权威也不行（测试：伪造提升被拒绝）；旧导入值无可验证依据就降为待核对。这只限制**身份映射**，不关闭 Commitment / Work 的 `source_verified` **业务证据**核验——它们仍用有效的 `confirmed` 映射加真实来源证据按 ER-04 / OC-03 判定，身份确认不等于履约。
+- **R-13（本人配对）**：只有已认证的 Nexus 所有者完成挑战 / 配对、且适配器给出准确的平台发送主体，才写一条 `endpoint_type ∈ {telegram_user, whatsapp_jid}` 的端点，并连到 `owner_identity.self_counterpart_id`，link 为 `confirmed` / `basis_kind='owner_pairing'`，保存 `pairing_event_id`、绑定版本、账号与主体 ID、确认时间、用途范围。重复配对幂等，不另建一个“我”；Telegram bot ID 是投递代理、WhatsApp 的关联设备 / 服务号码若属于运行代理，**都不能当作所有者本人**；证明不了就保持待确认，**不接收敏感决定**（§7.8）。
 - **只有 `confirmed` / `source_verified`、未过期、未被矛盾、用途匹配的 link 参与自动归属**（ER-02）；`candidate / disputed / stale / revoked` 永远不参与，也不用于自动选收件人。
 - link 的任何变更（确认、纠正、解除、过期）都 `version + 1` 并新建一行（旧行置 `superseded` 语义由 `supersedes_id` 表达，旧行状态改为 `stale` 或 `revoked`），旧版本行保留，因为证据归属引用的是"当时的映射版本"。
 - "关联同一 `counterpart_id` 不会扩大 AP-03 的端点白名单"：外发规则代码一律按**准确地址**匹配，不查 identity_links；测试里加一条"identity_links 变更不改变任何 grant 的可用性"。
 - 合并 / 拆分 Counterpart（ER-05）：不改旧 link 行；合并 = 把被合并者的 link 以新版本指向保留者，被合并者 `lifecycle='merged'`；拆分 = 用户选定端点 / 承诺迁往新人员，各自写新版本。两者先产出"影响清单"（受影响端点、承诺、依赖这些映射的草稿 / 收件人批准），用户确认后在一个事务里执行，并使依赖的批准和自动核验失效（§7.4）。
+
+#### 4.3.5 `unresolved_mentions`（待确认人员的提及，R-31）
+
+文档、会议纪要、邮件里只有名字、没有账号的“小王”，先落成**提及**，不立刻变成人员。
+
+```sql
+CREATE TABLE unresolved_mentions (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,           -- id 即 mention_id，持久
+  scope_id TEXT NOT NULL,                             -- context_scopes.id：提及出现的范围
+  source_record_id TEXT NOT NULL, source_version TEXT NOT NULL,   -- 来源记录及其版本
+  fragment_locator TEXT NOT NULL,                     -- 提及片段在来源里的位置
+  raw_name TEXT NOT NULL,                             -- 原称呼
+  group_key TEXT,                                     -- 同一来源内确属同一提及的重复展示可分组；不同会议的同名默认不同组
+  candidates_json TEXT,                               -- [{counterpart_id, basis:'endpoint_exact'|'scoped_link'|'name_guess'}]：只来自当前获准可见的已有人员与有效范围关联
+  state TEXT NOT NULL DEFAULT 'open',                 -- open|resolved|dismissed|stale
+  resolved_counterpart_id TEXT, resolve_scope TEXT,   -- resolve_scope：this_time_only（默认）|this_scope|account
+  resolved_link_id TEXT,                              -- 解析时写入的 identity_links.id（scope_kind 与 resolve_scope 对应）
+  created_at INTEGER NOT NULL, resolved_at INTEGER,
+  PRIMARY KEY (owner_id, id),
+  UNIQUE (owner_id, scope_id, source_record_id, source_version, fragment_locator),
+  CHECK (state IN ('open','resolved','dismissed','stale')),
+  CHECK (resolve_scope IS NULL OR resolve_scope IN ('this_time_only','this_scope','account')),
+  CHECK ((state = 'resolved') = (resolved_counterpart_id IS NOT NULL AND resolve_scope IS NOT NULL))
+) STRICT;
+```
+
+- 候选**只来自当前获准可见的已有人员**及有效范围关联；姓名相似只显示“仅按名字推测”，已有准确端点依据的另列；**不读取未经授权的通讯录**来补候选。
+- 确认默认是“仅本次”（`this_time_only`）：只写一条 `scope_kind='task'` 的 link，**不会**让同名的另一场会议自动归到这个人；要扩大到本范围 / 账号，用户必须明确选择。
+- 来源版本变了（`source_version` 不再是当前版）→ 未决提及置 `stale`，重新提取后按 `fragment_locator` 对不上的不复用旧确认。
 
 ### 4.4 Commitment 组（stage7-0003）
 
@@ -728,7 +938,10 @@ CREATE TABLE commitments (
   ambiguity_json TEXT,                   -- 未解决的歧义（候选人、原因）；解决后清空并记 commitment_events
   responsibility_version INTEGER NOT NULL DEFAULT 1,   -- 当前责任版本：更换责任人或实质修改范围 / 期限时 +1；旧版本快照进 4.4.2
   context_mode TEXT NOT NULL,            -- personal|executive：Commitment 自有主用途（INV-04）
+  context_scope_id TEXT NOT NULL,        -- context_scopes.id（R-08）
   context_semantic_version INTEGER NOT NULL DEFAULT 1,
+  period_request_id TEXT, period_key TEXT, period_index INTEGER,   -- R-28：周期性义务的逐期 Commitment；一次请求最多 12 期，request_id + period_key 幂等
+  period_start INTEGER, period_end INTEGER, period_tz TEXT,        -- 该期的起止（UTC 毫秒）与 IANA 时区；due_at 仍是该期的交付期限
   origin_kind TEXT NOT NULL,             -- task_run|system_job_run|native_record：创建来源三选一（INV-27）
   origin_ref_id TEXT NOT NULL,           -- 准确 ID；native_record 为用户陈述 / 审阅行 / 连接器记录的 ID
   origin_source_json TEXT,               -- 来源片段与审阅 / 原件版本、创建 / 确认依据；创建后不变（触发器禁止 UPDATE）
@@ -763,6 +976,8 @@ CREATE TABLE commitments (
   CHECK (context_mode IN ('personal','executive')),
   CHECK (origin_kind IN ('task_run','system_job_run','native_record')),
   CHECK (due_state IN ('known','pending','none')),
+  CHECK ((period_key IS NULL) = (period_request_id IS NULL)),
+  CHECK (period_key IS NULL OR (period_index BETWEEN 1 AND 12 AND period_start IS NOT NULL AND period_end IS NOT NULL AND period_tz IS NOT NULL)),
   CHECK ((due_state = 'known') = (due_at IS NOT NULL AND due_tz IS NOT NULL)),
   CHECK (communication_state IN ('draft','submitted','confirmed','unknown','failed')),
   CHECK (acceptance_state IN ('unknown','accepted','declined','needs_clarification')),
@@ -783,6 +998,7 @@ CREATE TABLE commitments (
 CREATE INDEX commitments_cp ON commitments(owner_id, responsible_counterpart_id, lifecycle) WHERE responsible_counterpart_id IS NOT NULL;
 CREATE INDEX commitments_unresolved ON commitments(owner_id, responsible_raw) WHERE responsible_counterpart_id IS NULL;
 CREATE INDEX commitments_due ON commitments(owner_id, lifecycle, due_at);
+CREATE UNIQUE INDEX commitments_period ON commitments(owner_id, period_request_id, period_key) WHERE period_key IS NOT NULL;
 
 CREATE TABLE commitment_responsibility_versions (   -- 旧责任版本的快照：旧的接受 / 沟通事实仍绑定旧版本，不当作新版已传达或已接受
   owner_id TEXT NOT NULL, commitment_id TEXT NOT NULL, responsibility_version INTEGER NOT NULL,
@@ -835,16 +1051,24 @@ CREATE TABLE outcome_contract_versions (   -- OC-01/02/04：不可变版本；�
   owner_id TEXT NOT NULL, id TEXT NOT NULL,
   subject_kind TEXT NOT NULL,          -- work|task|commitment
   subject_id TEXT NOT NULL, version INTEGER NOT NULL,
-  template_id TEXT NOT NULL,           -- 代码内模板 id，如 'legacy_task_success'、'commitment_deliverable'、'user_accept'
+  template_id TEXT NOT NULL,           -- 六个注册键之一：meeting_arranged|requested_delivery_received|usable_file_delivered|user_confirmed_delivery（本批启用）|reservation_confirmed|approval_or_signature_obtained（只登记、不得用于新执行）；另有只读历史键 legacy_task_success（R-02）
   template_version INTEGER NOT NULL,
   params_json TEXT NOT NULL,           -- 用户特定参数：时间窗口、必要交付物、收件人等
-  criteria_json TEXT NOT NULL,         -- [{id, text, required, kind, evidence_kinds, freshness_ms}]
+  criteria_json TEXT NOT NULL,         -- [{id, text, required, kind, criterion_source, evidence_kinds, freshness_ms}]；criterion_source = independent_evidence|commitment_verification|user_confirmation（OC-03）
+  window_end_at INTEGER, window_tz TEXT,          -- 结果窗口（R-04）：Work 窗口的唯一业务来源；IANA 时区
+  window_policy TEXT NOT NULL DEFAULT 'none',     -- none（日期缺失）|remind_only（普通期望交付期限，默认）|end_at_window（明确接受“到此结束”才可用）
+  accepted_basis_policy TEXT NOT NULL DEFAULT 'source_only',   -- source_only|user_report_allowed（R-09）：模板要求“责任方已接受”时，是否允许用户口头报告满足该标准；默认 source_only
   provenance TEXT NOT NULL,            -- user|agent_proposed|template_default|migration
   accepted_by_user INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL, superseded_at INTEGER,
   PRIMARY KEY (owner_id, id), UNIQUE (owner_id, subject_kind, subject_id, version),
   CHECK (subject_kind IN ('work','task','commitment')),
   CHECK (provenance IN ('user','agent_proposed','template_default','migration')),
+  CHECK (template_id IN ('meeting_arranged','requested_delivery_received','usable_file_delivered','user_confirmed_delivery','reservation_confirmed','approval_or_signature_obtained') OR (template_id = 'legacy_task_success' AND provenance = 'migration')),
+  CHECK (window_policy IN ('none','remind_only','end_at_window')),
+  CHECK ((window_policy = 'none') = (window_end_at IS NULL)),
+  CHECK (window_end_at IS NULL OR window_tz IS NOT NULL),
+  CHECK (accepted_basis_policy IN ('source_only','user_report_allowed')),
   CHECK (accepted_by_user IN (0,1))
 ) STRICT;
 
@@ -885,16 +1109,30 @@ CREATE INDEX criterion_assessments_cur ON criterion_assessments(owner_id, contra
 
 标准的 `kind` 取值（`criteria_json[].kind`）：
 
-| kind                                                      | 含义                                        | 由谁判定                                                                       |
-| --------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------ |
-| `task_completed`                                          | 指定主归属 Task 已 `completed` 且过完成门槛 | 推导函数（读 Task 事实）                                                       |
-| `commitment_verified`                                     | 指定必需 Commitment 为 `verified_complete`  | 复用该 Commitment 的唯一当前 Assessment，Work 不另判；`manual_override` 不满足 |
-| `deliverable_ready`                                       | 指定文件 / 交付物已生成并通过验证标记       | 推导函数（读文件柜事实）                                                       |
-| `user_accept`（本文自造，非 PRD 概念，待 R-03）           | 用户明确验收                                | 用户（用户验收记录，以 `user` 评估者写入 `criterion_assessments`）             |
-| `presence` / `field_match` / `text_contains` / `deadline` | 证据层的客观检查（§8.2）                    | 核验引擎                                                                       |
-| `needs_judgement`                                         | 无法客观衡量，保留用户审阅                  | 用户                                                                           |
+| kind                                                                | 含义                                                     | 由谁判定                                                                                                                                                                                    |
+| ------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_completed`                                                    | 指定主归属 Task 已 `completed` 且过完成门槛              | 推导函数（读 Task 事实）                                                                                                                                                                    |
+| `commitment_verified`                                               | 指定必需 Commitment 为 `verified_complete`               | 复用该 Commitment 的唯一当前 Assessment，Work 不另判；`manual_override` 不满足                                                                                                              |
+| `deliverable_ready`                                                 | 指定文件 / 交付物已生成并通过验证标记                    | 推导函数（读文件柜事实）                                                                                                                                                                    |
+| `user_confirmation`（`criterion_source = user_confirmation`，R-03） | 用户明确确认当前成果满足约定；个人行动可由本人报告已完成 | 用户；以 `assessor='user'` 写入 `criterion_assessments`，保存确认人 / 请求 / 时间 / 标准版本 / 成果引用。**不能覆盖必需的来源证据标准**；用户沉默、已读、泛泛说“好的”、Agent 自述完成都不算 |
+| `presence` / `field_match` / `text_contains` / `deadline`           | 证据层的客观检查（§8.2）                                 | 核验引擎                                                                                                                                                                                    |
+| `needs_judgement`                                                   | 无法客观衡量，保留用户审阅                               | 用户                                                                                                                                                                                        |
 
-模板登记为**代码常量**（`src/work/contract-templates.ts`），首批三个：`legacy_task_success`（迁移用：Task 达到 `succeeded` 且现有完成门槛通过）、`commitment_deliverable`（责任人在期限内交付满足指定标准的物品）、`user_accept`（用户明确验收）。模板不含授权，不含执行步骤（OC-01）。完整模板库和用户自存模板属后续（OC-05），本批不做。
+模板登记为**代码常量**（`src/work/contract-templates.ts`），PRD 的合法注册键共**六个**（R-02），本批只启用其中四个：
+
+| 模板键                           | 本批         | 典型场景                                                         | 说明                                                                                                                         |
+| -------------------------------- | ------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `meeting_arranged`               | 启用         | 创建 / 更新日历事件                                              | 要求与会者接受或服务预约时另加证据标准；事件创建本身不能履行它们                                                             |
+| `requested_delivery_received`    | 启用         | 跟进别人交付（原型的“李明交报价表”）                             | ER 归属 + 获准来源的消息 / 文件版本 + 内容核对；“收到”“会处理”、已发提醒都不算；明确要求用户验收或无法客观核验时仍须用户确认 |
+| `usable_file_delivered`          | 启用         | 把可用文件交给指定接收者                                         | 已验证资产 / 版本 / 哈希 + 渲染 / 打开 / 公式检查；仅所有者请求可由资料库 / 聊天交付完成                                     |
+| `user_confirmed_delivery`        | 启用（兜底） | 普通整理、草稿、基于用户材料的分析、个人事务、SC-04 纪念事项准备 | 默认必要标准是 `user_confirmation`；有成果时同时核对版本可用；**不能替代对外付款 / 预订 / 签署或他人履约证据**               |
+| `reservation_confirmed`          | 只登记       | 订票、订房                                                       | 完整目标规范保留；本批不得用于新执行，不得声称来源核验完成                                                                   |
+| `approval_or_signature_obtained` | 只登记       | 审批、签署                                                       | 同上；无法核验的预订 / 签署只能“准备材料”，须明确**原结果尚未完成**                                                          |
+| `legacy_task_success`            | **只读历史** | 迁移出的老事项                                                   | 不创建新约定，**不据此产生新的达成事件**（§12.2）；AT-241 要求新建约定拒绝禁用 / 未知 / `legacy_task_success`                |
+
+不能把原预订结果自动改名为 `user_confirmed_delivery` 来隐藏未履约标准；用户另行接受“准备预约材料”这一限定结果后，才按新约定评估。原型里的“模板 `commitment_deliverable`”对应 `requested_delivery_received`，原 `user_accept` 对应 `criterion_source = user_confirmation`。模板不含授权，不含执行步骤（OC-01）。完整模板库和用户自存模板属后续（OC-05），本批不做。
+
+**窗口与接受依据（本批新增字段）**：`window_end_at / window_tz / window_policy` 是 Work 结果窗口的唯一业务来源（R-04）；`Commitment.due_at` 与 `DelegationPlan.review_or_end_at` 只约束自身。“提醒”“复核”“履约迟到”“结果硬结束”四件事要在“完成意味着……”里分别写清。`accepted_basis_policy` 默认 `source_only`；用户在约定时明确允许口头报告，才可用“你记录：对方已接受”满足**接受**标准——它不满足其他交付标准，也不改变 Commitment 的 `source_verified` 判定（R-09）。
 
 #### 4.4.4 `evidence_attributions`（EvidenceAttribution）
 
@@ -1001,7 +1239,8 @@ CREATE TABLE schedules (
   executor_ref TEXT,                     -- watches.id（executor_kind='watch'）
   status TEXT NOT NULL,                  -- active|paused|blocked|ended|cancelled
   pause_source TEXT,                     -- user|work_control|system
-  block_reason TEXT,
+  block_reasons_json TEXT,               -- status='blocked' 时必填非空数组：[{code, ref, actor}]，code 见 §5.2 的 reason_code 表（R-11）
+  last_manual_trigger_at INTEGER,        -- “运行一次”冷却：两次被接受的手动触发至少相隔 5 分钟（R-16）
   stop_reason TEXT, ended_at INTEGER,    -- ended / cancelled 才有
   coverage_state TEXT NOT NULL DEFAULT 'on_plan',  -- on_plan|degraded|unavailable（CS-04）；与 status 独立
   coverage_note TEXT,
@@ -1020,7 +1259,7 @@ CREATE TABLE schedules (
   CHECK (coverage_state IN ('on_plan','degraded','unavailable')),
   CHECK ((status IN ('ended','cancelled')) = (ended_at IS NOT NULL AND stop_reason IS NOT NULL)),
   CHECK (status <> 'paused' OR pause_source IS NOT NULL),
-  CHECK (status <> 'blocked' OR block_reason IS NOT NULL),
+  CHECK (status <> 'blocked' OR (block_reasons_json IS NOT NULL AND json_array_length(block_reasons_json) > 0)),
   CHECK (created_via IN ('plan','migration')),
   FOREIGN KEY (owner_id, work_id) REFERENCES works(owner_id, id)
 ) STRICT;
@@ -1032,9 +1271,10 @@ CREATE INDEX schedules_plan ON schedules(owner_id, plan_id);
 
 - **Schedule 与方案的一致性**（INV-10）：写入时校验 `schedules.work_id = delegation_plans.work_id`，且 `owner_type / owner_ref` 与方案的 `plan_owner_type / plan_owner_id` 一致；`work_id` 创建后不可更新。"业务归属"（谁是为了什么而检查）与"执行主 Work"（谁承载这次执行）是两件事，查询不能混用。
 - **只有"迁移来的旧回检"可以没有方案**（`legacy_watch`），用户给它挂上承诺后才升级为合规 Schedule（新建后继行，`replaces_schedule_id` 指向旧行，并走方案确认）。新建的计划必须有 `plan_id`，且 `owner_ref` 存在、同 `owner_id`、未取消或删除。
-- 最小间隔 15 分钟在 `cadence_json` 校验（ledger 层，直接拒绝而不是静默提升，这样 CS-01 的"不虚设实时覆盖"可测）。`schedule_kind='once'` 的计划到点只触发一次，触发后进入 `ended`（`stop_reason='once_dispatched'`），不伪造履行。
+- 最小间隔 15 分钟在 `cadence_json` 校验（ledger 层，直接拒绝而不是静默提升，这样 CS-01 的"不虚设实时覆盖"可测）。`schedule_kind='once'` 的计划到点只触发一次，触发后进入 `ended`（`stop_reason='dispatched_once'`；超过最晚派发窗口则 `missed_window`，不自动改成即时任务，R-16），不伪造履行。
 - `status` 与 `coverage_state` 分开：`active` 只表示"允许到期触发"，不证明观察成功。
 - ended / cancelled 是终态：**不能回到 active**。需要继续只能新建后继行，并重新走方案确认（NX-05，INV-10）。
+- **阻塞与暂停是两件事（R-11）**：`blocked` 同时存非空 `block_reasons_json` 与恢复前置，`paused` 是独立的暂停状态，`ended / cancelled` 是终态，不能泛化成 blocked；`DelegationPlan.status` 仍只有 draft / accepted / ended / revoked，**没有 blocked 生命周期**。原因事实由受影响对象 / `work_prerequisites` 保存，Work 和方案只聚合引用；恢复前重新检查权限、版本、时效和预算，不重放旧外部动作。
 - 暂停：用户暂停写 `pause_source='user'`；工作级暂停写 `'work_control'`，恢复工作时只恢复由该控制创建的那些（WK-04）；系统不得因重连自动恢复手动暂停。
 
 #### 4.5.3 `schedule_triggers`（触发记录、去重与派发槽）
@@ -1098,7 +1338,39 @@ CREATE TABLE store_flags (            -- 一次性任务（回填、对账版本
 ) STRICT;
 ```
 
+```sql
+CREATE TABLE migration_snapshots (    -- R-20：迁移先保存“版本化映射 + 来源快照”，再幂等回填
+  owner_id TEXT NOT NULL, migration_key TEXT NOT NULL,     -- 如 'works_backfill_v1'
+  mapping_version INTEGER NOT NULL,                        -- 映射规则版本（旧字段 → 新字段）
+  source_hash TEXT NOT NULL,                               -- 迁移时来源数据的哈希（对账用）
+  source_summary_json TEXT NOT NULL,                       -- 来源计数 / 范围；不复制正文
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, migration_key, mapping_version)
+) STRICT;
+```
+
 **不落表的对象**：WorkView、PersonView、`overdue`、RT-02 计数、Task 的 §8.1 状态（`taskPhase()`）。第一版单用户本机数据量小，直接查询；如果工作页的首屏 P95 超过 RT-01 的 5 秒预算，再加 `work_view_cache`（带评估版本和来源对象版本，WK-03），这一步不改任何权威表。
+
+### 4.7 数值基线（`limit_policy_version = launch-1`，R-16）
+
+PRD 把此前“要求有上限但没写数”的项目补成了本批默认值。这些数字**集中放在服务端配置（`src/config/limits.ts`）**，计划 / 请求 / 账本保存实际采用的版本和上限，界面从同一配置读取，不得硬编码原型里的数字；产品硬限、服务商限制、来源授权和约定窗口同时适用，取最严格者；降低上限只停止新预留，不重置已耗或未知预留。
+
+| 项目                               | 默认值                                                                                                                             | 超限 / 迟到行为                                                               |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 即时问答（interactive_query）      | 90 秒执行墙钟、读取 10 次、元数据 200 条、邮件正文 20 封、解析 30 页 / 10 张、模型 20,000 token，不生成独立文件                    | 停止新增读取，交付有用部分，提议升级 Work；用户接受才升级，已耗沿 INV-26 带入 |
+| 小工作默认资源包（每 Work 含沿袭） | 读取 40 次、100 页、20 张、邮件正文 100 封、元数据 1,000 条、100,000 token、活动执行 30 分钟                                       | 各维度分别限制；预估超出时在同一计划里接受适配规模，不先跑到限                |
+| 单 Work 可接受扩额硬上限           | 读取 400、1,000 页、200 张、邮件 1,000 封、元数据 10,000、1,000,000 token、活动执行 8 小时                                         | 超过提示缩小范围；不能靠拆分 / 接手换 ID 规避                                 |
+| 账号每日硬限                       | 读取 1,000、2,000 页、400 张、邮件 2,000 封、元数据 20,000、2,000,000 token、活动执行 12 小时                                      | 原子预留；越过有效时间记漏查，不默认成功                                      |
+| 并发与队列                         | 2 个活动执行槽 + 保护通道；同账号浏览器写操作最多 1 个；待派发队列 100 项；排队最多等 30 分钟                                      | 满队列记录未派发与时效缺口，不无限建 Task                                     |
+| 同步轻量 CRUD                      | 令牌桶 120 次 / 分钟，突发 20；单请求最多 100 条、5 秒                                                                             | 返回明确 retry_after；大批量改受控作业                                        |
+| 方案收尾（CD-04）                  | 自 `end_requested_at` 起最多 30 分钟（更短取更短）；Work 硬窗口收尾最多 5 分钟                                                     | 到界隔离剩余业务执行并结束方案，未知效果保留                                  |
+| 一次性最晚派发                     | 默认约定时刻后 1 小时，最多可延至 24 小时                                                                                          | 超窗 `missed_window`，不自动改即时任务                                        |
+| 周期合并补跑有效期                 | min(相邻周期间隔, 24 小时)                                                                                                         | 多个漏跑合一个逻辑触发，超窗只留覆盖缺口                                      |
+| 无期限“直到…”                      | 默认 30 天复核，单次最长 180 天                                                                                                    | 到期停止并复核，续期须明确接受新窗口                                          |
+| 手动“运行一次”冷却                 | 两次被接受的触发至少 5 分钟（`last_manual_trigger_at`）                                                                            | 同 `trigger_id` 去重；仍受 15 分钟轮询下限约束                                |
+| 日界                               | 账号 `quota_timezone`（缺失用 UTC 并显示），按该时区 00:00 – 次日 00:00，保存 UTC 边界 / `day_bucket_id`；改时区从当前桶关闭后生效 | 夏令时日 23 / 25 小时；冷却和时长按 UTC elapsed                               |
+
+未启用的作业类型配额为 0，启用前必须采用这张表或显式修订的有界配置。计量口径：一次来源读取 = 一次适配器请求 / 分页调用 / 浏览器导航；重试也计；缓存命中不计来源请求但仍计实际解析的内容和模型用量；邮件按独立 message / version 计，附件另计页 / 张；模型 token 按服务端输入 + 输出实际量计，调用前预留输入和最大输出。
 
 ## 5. 工作视图（WorkView）与状态推导
 
@@ -1136,7 +1408,7 @@ type WorkFacts = {
   outcome?: { current?: OutcomeEvent; firstAchievedAt?: number }; // 有效 achieved / reinstated 事件（未被 withdrawn / superseded）
   terminal?: TerminalEvent; // 最近一条 reopened_at 为空的结束事实（含 result_at_close）
   prerequisites: PrereqFact[]; // 状态为 pending 的 work_prerequisites
-  tasks: TaskFact[]; // 经 task_work_owner 的主归属 Task：phase、是否 required、有效待决审批、controlPaused、compatPending
+  tasks: TaskFact[]; // 经 task_work_owner 的主归属 Task：phase、是否 required、有效待决审批、controlPaused、adoptionPending
   refTasks: TaskFact[]; // output_dependency 引用的别人的 Task 输出（仅 required 才进入判定）
   commitments: CommitmentFact[]; // 仅 role='required' 的；含 lifecycle / verification / resolutionBasis / dueAt / acceptance / currentAssessment
   schedules: ScheduleFact[]; // 执行主 Work 为本 Work 的 + 通过方案承载的：status / coverage / stopReason
@@ -1146,8 +1418,9 @@ type WorkFacts = {
 };
 type WorkState = {
   primary: "done" | "ended_incomplete" | "needs_you" | "blocked" | "in_progress";
-  flags: Flag[]; // other_steps_running | partial_result | unknown_effect | coverage_degraded | evidence_gap | manual_close | remediation_open …
-  reasons: Reason[]; // 机器可读：{code, objectKind, objectId}
+  blockedKind?: "paused" | "reconciling" | "blocked_reason"; // R-34：第四类按真实首要原因细分显示，不得统称“需要用户处理”
+  flags: Flag[]; // R-21 的四个次级标识：partial_result | unknown_effect | coverage(on_plan|degraded|unavailable) | other_branch_running；另有信息性标记 evidence_gap | manual_close | remediation_open | adoption_pending
+  reasons: Reason[]; // 机器可读：{code, objectKind, objectId, actor}；阻塞类 code 取自 R-11 的 reason_code 表（见本节后面）
   nextStep: NextStep; // 机器可读，界面再翻译成人话
   evaluationVersion: number; // 评估规则版本（改规则时 +1，缓存按它失效）
 };
@@ -1159,20 +1432,50 @@ type WorkState = {
 
 1. **done（已完成）**：存在有效的 `achieved` / `reinstated` 事件，**且**没有适用的、`result_at_close='stopped_before_completion'` 的结束快照（停止快照优先，INV-20）。
    - Task 全部 `completed` 只是"可能的证据"：只有合同含 `task_completed` 标准，且该标准被评估为 `met`，才会促成达成事件。
-   - 手动结案（`resolution_basis='manual_override'`）的 Commitment **不满足** `commitment_verified` 标准；若用户希望"手动结案也算完成"，须在合同里加 `user_accept` 标准并给出用户验收（规则 3：手动结案≠核验完成；`user_accept` 为本文自造，待 R-03）。
-   - 不相关的未解决义务（参考关联）不阻断。迁移出的完成（`basis='migration'`）同样显示为已完成，但 CP 指标排除它们（§12.2）。
+   - 手动结案（`resolution_basis='manual_override'`）的 Commitment **不满足** `commitment_verified` 标准；若用户希望"手动结案也算完成"，须在合同里加 `criterion_source = user_confirmation` 的标准并给出用户确认（规则 3：手动结案≠核验完成；PRD R-03 已确认这条路径，但用户确认**不能覆盖必需的来源证据**）。
+   - 不相关的未解决义务（参考关联）不阻断。迁移出的老事项**不凭空算已完成**：它没有达成事件，显示为“历史已结束，原因未记录”（见 §12.2，待 R-42）；用户明确补记后才有 `provenance='legacy_backfill'` 的达成事件，CP 指标排除它。
 2. **ended_incomplete（已结束，未完成）**：必要标准未满足，没有有效继续分支（见下），**并且**存在以下任一结果级终止事实：
-   - 一条有效的 `work_terminal_events`（`stop` 用户停止工作 / `accept_partial` 以部分结果结束 / `unrecoverable` 已审不可恢复终止 / `window_ended` 约定窗口结束且未满足）；
-   - 或必需 Task 全为终态、必需 Commitment 仍未解决、主归属 Schedule 因约定到期而 `ended`（`stop_reason ∈ {agreed_end, expired}`），且无其他继续分支——这时由 Schedule 结束的同一路径写一条 `window_ended` 终止事实，不靠每次读取时推断。
+   - 一条有效的 `work_terminal_events`（`stop` 用户停止工作 / `accept_partial` 以部分结果结束 / `unrecoverable` 已审不可恢复终止 / `window_ended` 约定的**硬窗口**结束且未满足——只由 §4.2.12 的窗口评估服务写入）；
+   - 或必需 Task 全为终态、必需 Commitment 仍未解决、主归属 Schedule 因约定到期而 `ended`（`stop_reason ∈ {agreed_end, expired}`），且无其他继续分支——PRD 的“典型组合”把它直接判为已结束（未完成）。**注意 R-04 同时规定“Schedule ended 不代写 `window_ended`”**，两条放在一起，本文的做法是：这种情况**只在推导里读 Schedule 自己的结束事实**（reason `follow_up_ended`），**不写** `work_terminal_events`；真正的硬窗口走窗口评估服务。这两条的衔接 PRD 没说清，列为 R-44（§14）。
    - 展示：原因、`result_at_close`、可用部分、未解义务；不计入核验成功；未知外部效果仍醒目。
 3. **needs_you（待你处理）**：未整体终止，且存在以下任一项：
    - **Work 自身**有 `pending` 且 `actor='user'` 的前置请求（必要输入、结果确认、`reconnect_source` 等），**即使没有任何 Task**；
    - 必需 Task 为 `waiting_input` / `waiting_approval`（审批有效）；
-   - 必需依赖有**用户可处理的决定**（承诺责任人未解析且已有候选、证据归属 `ambiguous` 要集中消歧、证据与标准冲突要用户裁定、待确认的 `draft` 方案、`compatPending` 的 Task 要用户确认继续采用）。
+   - 必需依赖有**用户可处理的决定**（承诺责任人未解析且已有候选、证据归属 `ambiguous` 要集中消歧、证据与标准冲突要用户裁定、待确认的 `draft` 方案、`adoption_pending` 的 Task 要用户在“工作级修订卡”上接受当前版本、来源连接失效等**用户可操作的前置**）。
+   - **R-34 / R-40：用户可操作的请求优先落第 3 类**。例如来源连接已失效，只有用户能重新授权——这是一个有 `actor='user'` 的前置请求（`kind='reconnect_source'`，reason `source_auth_expired`），按本行归“待你处理”，而不是第 4 行；同一个原因如果暂时没有用户动作（系统自愈中、邮件结果正在系统核对），才归第 4 行并显示“核对中 · 暂无需操作”，**不造审批按钮**。
      若同时有别的分支在运行，加 flag `other_steps_running`，**只阻塞对应分支，不把 Work 判为整体暂停**。
 4. **blocked（阻塞／暂停／待核对）**：前三项都不满足，且任一为真：必需依赖 `blocked` / 暂停（Task 阻塞、**有效的工作级暂停**、Schedule `paused` / `blocked`）；Work 有 `pending` 且 `actor='system'` 的前置（系统、权限、来源未就绪，如 `permission` / `source`）；关键效果未知（`unknownEffects` 非空且影响必需标准）；只剩未解义务但没有可用执行或有效观察路径（"尚未安排跟进"）。
 5. **in_progress（进行中）**：前四项都不满足，且存在可推进 / 已排队的有效执行、`active` 且覆盖不是 `unavailable` 的持续 Schedule，或**持有有效派发凭据的首次规划**（`first_plan_request_id` 租约未过期）。等待对方回复必须有对应的有效观察路径。
-6. **兜底（blocked，reason=`no_branch`）**：Work 没有任何必需分支、前置或派发凭据（刚创建、尚未安排执行），归"阻塞／暂停／待核对"并写明"尚未安排执行"。
+6. **兜底（blocked，reason=`no_branch`）**：Work 没有任何必需分支、前置或派发凭据（刚创建、尚未安排执行），归"阻塞／暂停／待核对"并写明"尚未安排执行"。需要用户补充时，先建立一条准确的前置请求，下一次评估就进入第 3 行；不虚报“继续中”或“已完成”。
+
+**归档不参与推导。** `archived / hidden` 是独立的可见性属性，已归档的 Work 照样推导五类状态，列表上显示“已归档 + 当前状态”；归档不停止执行、不解决待处理、不让原请求从 CP 分母消失。
+
+**状态文案（R-34）。** 五个主分类固定为：已完成、已结束（未完成）、待你处理、阻塞/暂停/待核对、继续中。第 4 类按真实首要原因显示“已暂停”“核对中”或“受阻：具体原因”（同色可细分），**不得统称“需要用户处理”**；“已结束”不能省略“未完成”，Task 执行完成不代替此状态。列表、详情、返回视图用同一文案和同一状态依据；颜色只作辅助。邮件结果正在系统核对而没有用户动作时显示“核对中 · 暂无需操作”。
+
+**次级标识（R-21）。** 四个，独立组合，不改主状态，也不把完成数量 / 计划数量当覆盖：
+
+| 标识                                          | 显示                                   | 出现条件                                       |
+| --------------------------------------------- | -------------------------------------- | ---------------------------------------------- |
+| `partial_result`                              | 已有部分成果                           | 仅存在可用的部分结果时                         |
+| `unknown_effect`                              | 外部结果待核对                         | 仅存在未解决的关键效果未知时                   |
+| `coverage = on_plan / degraded / unavailable` | 按计划检查 / 检查覆盖不足 / 暂无法检查 | 仅适用于已接受的持续检查                       |
+| `other_branch_running`                        | 其他步骤进行中                         | 主状态**不是**继续中、但仍有其他真实运行的分支 |
+
+**阻塞原因表（R-11）。** Work 不存 blocked 控制状态，按上面的规则推导；`reasons[].code` 取下表（`Schedule.block_reasons_json` 也用同一套码）。多个原因同时保留，**主原因顺序**：事故隔离 → 未知效果 → 用户暂停 → 权限 / 准入 → 版本 → 其他前置 / 资源；有效的用户决定按第 3 行优先显示。可处理者记录到具体请求，不统一写“管理员处理”。
+
+| reason_code                      | 谁可处理                         | 用户文案与解除条件                                                                           |
+| -------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `source_auth_expired`            | 用户                             | “来源连接已失效，请重新连接”；验证原获准账号与范围后解除                                     |
+| `permission_missing`             | 用户（组织限制时当前产品不支持） | “缺少此操作的授权”；取得有效许可或停止该路径，不提供绕过企业管控的方案                       |
+| `browser_not_ready`              | 系统自愈，必要时用户             | “Agent 浏览器暂不可用”；恢复主机 / 会话；需要登录时由用户完成                                |
+| `prerequisite_missing`           | 用户或系统，按具体前置指定       | “还缺少：{具体信息}”；该前置经验证满足                                                       |
+| `dependency_version_pending`     | 系统；需要新范围时用户           | “要求已变化，需确认后续安排”；有效的采用或后继路径建立（§4.2.11）                            |
+| `effect_unknown_needs_reconcile` | 系统核对；必要时用户 / 支持      | “操作结果待核对，暂不重复提交”；取得明确效果或受控补救依据                                   |
+| `quota_exhausted`                | 用户或系统，按已披露的重置周期   | “本次额度已用完，已保留部分成果”；合法追加资源或周期额度恢复；生命周期额度不自动重置         |
+| `paused_by_user`                 | 用户                             | “已暂停，等待你恢复”；显式恢复且前置仍有效。此码描述暂停控制，**不把 Schedule 写成 blocked** |
+| `incident_hold`                  | 用户 / 支持处理，系统验证        | “相关操作已停止，正在处理异常”；事故解除依据生效后仍需有效执行授权                           |
+
+方案层的聚合：accepted 方案的必要未来触发路径**全部**因前置受阻且没有可推进的收尾 Task，显示“跟进受阻”；部分受阻显示覆盖不足；全部 paused 显示已暂停；全部正常派发完毕显示正在收尾或按 CD-04 结束。**不能用“所有 Schedule 非 active”判 blocked。**
 
 **有效继续分支** = 任一必需 Task 为 `running` / `queued` / `accepted`，任一主归属 Schedule 为 `active` 且覆盖不是 `unavailable`，或持有有效派发凭据的首次规划。
 
@@ -1180,27 +1483,30 @@ type WorkState = {
 
 **逐行验收矩阵**（直接对应 PRD 与 AT-227–AT-230，写成表格驱动测试 `derive.test.ts`）：
 
-| 输入组合                                                                                     | 期望                                                                                                                                                                      |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 有有效 `achieved` 事件，无停止快照                                                           | done                                                                                                                                                                      |
-| 有效 `achieved` 事件已被 `withdrawn`（例如 Commitment 核验被否定）                           | 不是 done；按 2–6 继续判，并显示需重新核验及原完成时间                                                                                                                    |
-| 已有 `stopped_before_completion` 的结束快照，之后另一件 Work 让共享 Commitment 履行          | 仍是 ended_incomplete；最多显示"后来履行"，快照不改，也不恢复旧任务和计划                                                                                                 |
-| 一个 Task `waiting_approval`，另一个 `running`                                               | needs_you + `other_steps_running`                                                                                                                                         |
-| Work 自身有待补输入，没有任何 Task                                                           | needs_you                                                                                                                                                                 |
-| 所有 Task `completed`，必需 Commitment `waiting`，主 Schedule 因约定到期 `ended`，无其他分支 | ended_incomplete（`window_ended`）                                                                                                                                        |
-| 只读 Task 全部结束，从未安排跟进，也没有结束事实，必需 Commitment 未解决                     | blocked（reason `no_follow_up`，"尚未安排跟进"）                                                                                                                          |
-| 单次"检查并告知"，Task `completed`，合同要求"报告"                                           | done（参考的交付义务未解不阻断）                                                                                                                                          |
-| 同上，但合同要求"实际交付"                                                                   | 不是 done；按 3–6 继续判                                                                                                                                                  |
-| 必需 Commitment 手动结案，合同无 `user_accept`                                               | 不是 done；有 `accept_partial` 或 `stop` 终止事实且无继续分支 → ended_incomplete（带 `manual_close`）                                                                     |
-| 检查 Task `completed`（无新回复），Schedule `active`，Commitment `waiting`                   | in_progress                                                                                                                                                               |
-| Schedule `paused`（用户），必需依赖                                                          | blocked（原因：你暂停了跟进）                                                                                                                                             |
-| 工作级暂停叠加了另一条控制，恢复其中一条                                                     | 仍 blocked，直到最后一条被解除（INV-22）                                                                                                                                  |
-| 合同读取失败                                                                                 | blocked（reason `unknown_input`），不得 done                                                                                                                              |
-| 最近一条终止事实已 `reopened_at`                                                             | 忽略它，重新判                                                                                                                                                            |
-| Work 没有任何分支、前置、派发凭据                                                            | blocked（`no_branch`，"尚未安排执行"）                                                                                                                                    |
-| 首次规划已持有有效派发凭据                                                                   | in_progress                                                                                                                                                               |
-| Work 已满足 done，另有一条待决的事故补救审批（原型：周报 v2 更正邮件）                       | 仍是 done，加 flag `remediation_open`；补救决定进待处理，RT-02 计数按主状态仍计入"已完成"（口径待确认，见 R-36）                                                          |
-| 必需依赖是已过期的来源连接，只有用户能重新授权                                               | PRD 字面是第 4 行 blocked（说明谁可处理）；原型已改为 needs_you，默认按原型：由 `connection_expired` 创建 `actor='user'`、`kind='reconnect_source'` 的前置请求（见 R-40） |
+| 输入组合                                                                                     | 期望                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 有有效 `achieved` 事件，无停止快照                                                           | done                                                                                                                                                                                |
+| 有效 `achieved` 事件已被 `withdrawn`（例如 Commitment 核验被否定）                           | 不是 done；按 2–6 继续判，并显示需重新核验及原完成时间                                                                                                                              |
+| 已有 `stopped_before_completion` 的结束快照，之后另一件 Work 让共享 Commitment 履行          | 仍是 ended_incomplete；最多显示"后来履行"，快照不改，也不恢复旧任务和计划                                                                                                           |
+| 一个 Task `waiting_approval`，另一个 `running`                                               | needs_you + `other_steps_running`                                                                                                                                                   |
+| Work 自身有待补输入，没有任何 Task                                                           | needs_you                                                                                                                                                                           |
+| 所有 Task `completed`，必需 Commitment `waiting`，主 Schedule 因约定到期 `ended`，无其他分支 | ended_incomplete（`window_ended`）                                                                                                                                                  |
+| 只读 Task 全部结束，从未安排跟进，也没有结束事实，必需 Commitment 未解决                     | blocked（reason `no_follow_up`，"尚未安排跟进"）                                                                                                                                    |
+| 单次"检查并告知"，Task `completed`，合同要求"报告"                                           | done（参考的交付义务未解不阻断）                                                                                                                                                    |
+| 同上，但合同要求"实际交付"                                                                   | 不是 done；按 3–6 继续判                                                                                                                                                            |
+| 必需 Commitment 手动结案，合同无 `user_confirmation` 标准                                    | 不是 done；有 `accept_partial` 或 `stop` 终止事实且无继续分支 → ended_incomplete（带 `manual_close`）                                                                               |
+| 检查 Task `completed`（无新回复），Schedule `active`，Commitment `waiting`                   | in_progress                                                                                                                                                                         |
+| Schedule `paused`（用户），必需依赖                                                          | blocked（原因：你暂停了跟进）                                                                                                                                                       |
+| 工作级暂停叠加了另一条控制，恢复其中一条                                                     | 仍 blocked，直到最后一条被解除（INV-22）                                                                                                                                            |
+| 合同读取失败                                                                                 | blocked（reason `unknown_input`），不得 done                                                                                                                                        |
+| 最近一条终止事实已 `reopened_at`                                                             | 忽略它，重新判                                                                                                                                                                      |
+| Work 没有任何分支、前置、派发凭据                                                            | blocked（`no_branch`，"尚未安排执行"）                                                                                                                                              |
+| 首次规划已持有有效派发凭据                                                                   | in_progress                                                                                                                                                                         |
+| Work 已满足 done，另有一条待决的事故补救审批（原型：周报 v2 更正邮件）                       | 仍是 done，加信息性标记 `remediation_open`；补救决定进待处理；RT-02 计数按主状态仍计入“已完成”——**PRD v1.95 没有回答这个共存口径**，仍是 R-36                                       |
+| Work 在 R-06 修订后，所有未终结 Task 的采用资格 `pending`                                    | 用户可处理（修订卡）→ needs_you，`adoption_pending`；用户已接受但后继 Task 尚未建立 → blocked（`dependency_version_pending`）                                                       |
+| Work 有硬窗口，到点前未达成，窗口评估已写 `window_ended`                                     | ended_incomplete；评估已启动但还没写入时显示“窗口已过，等待核对”（blocked，核对中），不伪造已结束                                                                                   |
+| 迁移出的老事项（`migrated_outcome='succeeded'`，无任何达成事件）                             | 不是 done；显示“历史已结束，原因未记录”，不计入已完成（待 R-42）                                                                                                                    |
+| 必需依赖是已过期的来源连接，只有用户能重新授权                                               | needs_you（R-34 / R-40：用户可操作请求优先落第 3 类）：由 `source_auth_expired` 创建 `actor='user'`、`kind='reconnect_source'` 的前置请求；同一原因若暂时没有用户动作，才是 blocked |
 
 ### 5.3 展示字段：我要的结果 / 当前进展 / 下一步
 
@@ -1227,6 +1533,8 @@ type WorkState = {
 | 接受     | `unknown` / `accepted` / `declined` / `needs_clarification`                        | 用户；Agent 只能在**有依据**时写（依据是用户转述或获准来源记录引用，用户转述标 `user_report`）；服务端拒绝无依据的 `accepted` | 只对当前责任版本有效；不从沉默、已读、"收到"、同域或上下级推断                                                                                      |
 | 生命周期 | `open` / `waiting` / `resolved` / `cancelled`                                      | 见 §6.2                                                                                                                       | `open` = 待安排、补齐或用户决定；`waiting` = 在等外部回复 / 交付                                                                                    |
 | 核验     | `unverified` / `verified_complete` / `verified_exception` / `conflicting_evidence` | 核验引擎、用户（经手动覆盖不改核验值）                                                                                        | 与生命周期独立；`verified_exception` ≠ resolved                                                                                                     |
+
+**接受依据（R-09）**：`acceptance_state` 与履约核验独立。用户明确说“他口头答应了”，可以记 `accepted` + `acceptance_basis_kind='user_report'`，绑定当前责任版本；人员视图写“你记录：对方已接受”，只有存在有效的检查路径才进一步显示“正在检查交付”。若模板要求“责任方已接受”，须看合同的 `accepted_basis_policy`（默认 `source_only`；用户在约定时明确允许才是 `user_report_allowed`），口头报告只满足**接受**标准，不满足其他交付标准，也不改变 `source_verified`。责任 / 期限等实质版本变化不自动沿用旧接受依据。
 
 四条线之间的 CHECK 只做必要的蕴含（§4.4.1）。**其余的耦合都由 ledger 的转换函数集中处理**，每个转换写一条 `commitment_events`。更换责任人或实质改范围 / 期限时，`responsibility_version + 1`，沟通与接受**随版本重置**（§4.4.1）。
 
@@ -1262,7 +1570,7 @@ type WorkState = {
 
 承诺进入 `resolved` 或 `cancelled`，按下面的顺序处理**业务归属是这条承诺**的方案（判据是方案的 `plan_owner_type='commitment' AND plan_owner_id=C`，**不是**"有没有别的 Work 引用同一 Schedule"）：
 
-1. **登记结束请求**：在同一事务里给方案写 `end_requested_at` / `end_reason`（`commitment_resolved` 或 `commitment_cancelled`）和有界收尾窗口 `wrapup_until`；方案**仍是 `accepted`**，继续占着 §4.5.1 的名额，界面显示"正在结束"。
+1. **登记结束请求**：在同一事务里给方案写 `end_requested_at` / `end_reason`（`commitment_resolved` 或 `commitment_cancelled`）和有界收尾窗口 `wrapup_until`（**自 `end_requested_at` 起最多 30 分钟**，已有步骤或执行窗口更短时取更短，R-16；Work 硬结果窗口的收尾是另一回事，最多 5 分钟，见 §4.2.12；不再给“含外发核对”的 24 小时占位）；方案**仍是 `accepted`**，继续占着 §4.5.1 的名额，界面显示"正在结束"。
 2. **隔离未来派发**：同一事务里把属于该方案的 Schedule 的 `next_due_at` 之后的派发门关上；迟到的触发记 `schedule_triggers.outcome='quarantined'`，不建 Task。
 3. **在途检查在已审窗口内收尾**：已派发且仍在窗口内的检查 Task 允许跑完，产出只读证据，不触发新的外发。
 4. **置 ended**：窗口结束或在途检查全部终态后，方案置 `ended`（`end_reason` 保留），Schedule 置 `ended`（resolved，`stop_reason='commitment_resolved'`）或 `cancelled`（cancelled，`stop_reason='commitment_cancelled'`）。
@@ -1284,34 +1592,56 @@ type WorkState = {
 
 PRD 把所有跨对象的暂停、停止、结案、到期、删除、拆合收在**一张矩阵**里，各模块只保留业务校验，不另定义扩大范围的隐式级联。落地方式：每个事件对应一个 ledger 函数，**先在一个事务里原子提交直接对象的控制 / 生命周期事实和一条持久影响事件**；跨对象的取消和清理由可恢复的幂等任务完成，完成前显示"正在停止 / 清理"及剩余对象；网关据权威围栏立即阻止旧提交。主归属对象可控制自己剩余的执行，引用方只触发依赖重评，不取得控制权；外部取消 / 退款 / 撤回仍是新 Action，须准确授权；所有行保留已提交或未知的事实及额度占用。
 
-| 事件及目标                                  | 直接对象先提交                                        | 对其他对象的处理（读取时重评，除非写明）                                                                                                                      |
-| ------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 暂停 / 恢复 Work W                          | `work_controls`（叠加；恢复只解除所选一条）           | 按 WK-02 显示暂停或必要决定；恢复时重验前置                                                                                                                   |
-| 停止 Work W                                 | `work_terminal_events`（`result_at_close`、停止范围） | 结束 W 的主归属 Schedule 和方案（§6.4）、对主归属 Task 走取消路径；**不碰** Commitment；后续 C 履行不自动改为已完成                                           |
-| 停止 W1 并明确由 W2 接手（CD-03）           | W1 终止事实（快照保留）                               | W2 接受准确增补范围，写 `handoff_result` 关联和方案的 `handoff_from_work_id`；接手失败不恢复 W1                                                               |
-| 仅暂停 / 恢复 / 取消 Task 或 Run            | 对应 `work_controls`（scope=task/run）或 Task 取消    | 只重评本 Work 与实际输出依赖；不是整体工作控制                                                                                                                |
-| Work 达成撤回 / C 核验被否定                | `work_outcome_events`（`withdrawn`）                  | 清有效达成指针；按当前事实显示"需重新核验"及原完成时间；指标和通知按 CP-03 / WK-02 更正                                                                       |
-| 来源核验履行 C                              | C 的原子核验提交                                      | 引用它的标准只复用唯一当前 Assessment；其他独立标准未满足则 Work 继续；业务归属为 C 的方案按 §6.4 收尾                                                        |
-| 手动结案 C                                  | C `resolved(manual_override)`                         | 全部引用按 `manual_override` 重评，不判履行成功；业务归属为 C 的方案收尾                                                                                      |
-| 取消 C                                      | C `cancelled`                                         | 全部引用重评为未满足 / 取消原因，不自动取消 Work；方案收尾                                                                                                    |
-| 单独暂停 / 恢复 Schedule S                  | `work_controls`（scope=schedule）或 S 状态            | 重评执行主 Work 与实际依赖覆盖，不改其他 Work 的控制                                                                                                          |
-| 停止 / 取消 Schedule S                      | S `cancelled`                                         | 执行主 Work 和实际义务依赖显示覆盖变化                                                                                                                        |
-| Schedule 到期 / 一次性派发完成              | S `ended`                                             | 按原结果重评；可以是已结束未完成（写 `window_ended` 终止事实），不伪造履行                                                                                    |
-| 解除 Goal G—Work W 关联                     | `goal_work_links` 失活 + `end_basis`                  | 工作不自动停止或完成；移除主身份但保留参考边须明确区分；依赖该关联的方案按 §6.5 处理                                                                          |
-| 解除 Work W—Commitment C 结果引用           | `work_links` 失活                                     | 仅解除参考关系，不改结果；若属必要标准，须先接受结果范围修订或保留缺口，**不靠删边制造成功**                                                                  |
-| 重开 C                                      | C 回到 `open/waiting`                                 | 依当前标准和结果事件重评：已停止的 Work 不重开，已完成的 Work 必要时追加 `withdrawn`                                                                          |
-| 修订 C 的责任人 / 期限 / 标准               | `responsibility_version + 1` 或新 `contract_version`  | 标记相关约定和采用待迁移（`compatPending`）；展示或通知"完成被撤回 / 标准被替代"的真实原因                                                                    |
-| 身份映射争议 / 撤销或端点变化               | `identity_links` 新版本（§7.4）                       | 重评实际依赖和结果有效性（INV-34、INV-18、INV-19），不扩大到无关人员或结果                                                                                    |
-| 来源授权撤销 / 准入或许可范围变化（INV-16） | 来源状态                                              | `denied` / `revoked` / `review_required` / `unknown` 或新许可范围不再覆盖原用途时，立即阻断受影响能力，显示真实缺口和允许的下一步；没有权限本身不等于业务失败 |
-| Goal 完成 / 停止追求                        | `goals` 状态                                          | 关联 Personal Work 不自动完成或停止；停止条件含该目标事件的已接受计划按约结束，其余只提示（§10.2 `previewGoalImpact`）                                        |
-| 删除 Work W                                 | `works.lifecycle='deleted'`                           | 先处置活跃执行和计划，再按明确范围删除；保留必要沿袭和审计标记                                                                                                |
-| 删除 C                                      | `commitments` 软删除                                  | 先展示全部有效引用的影响；解除后标"依赖缺失"，**不能显示履行**                                                                                                |
-| 删除 Goal G                                 | `goals.lifecycle='deleted'`                           | 独立 Work 保留，解除 Goal 关联并重评覆盖；目标专属计划和目标信策略停止                                                                                        |
-| 删除 Task / Run / Schedule / 成果           | 对应对象                                              | 只重评实际依赖；删除执行记录前先停对应活跃执行                                                                                                                |
-| 拆分 Work / Task                            | 后继 Task + `work_lineage`                            | 预览明确结果和字段，保存沿袭；预算沿用不重领                                                                                                                  |
-| 合并重复 Work / 兼容 Task                   | `work_lineage(merge)`                                 | 仅同一结果 / 兼容用途，保留主 ID、别名、原请求；不合并不同结果                                                                                                |
+| 事件及目标                                  | 直接对象先提交                                                             | 对其他对象的处理（读取时重评，除非写明）                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 暂停 / 恢复 Work W                          | `work_controls`（叠加；恢复只解除所选一条）                                | 按 WK-02 显示暂停或必要决定；恢复时重验前置                                                                                                                                                                                                                                                                                                       |
+| 停止 Work W                                 | `work_terminal_events`（`result_at_close`、停止范围）                      | 结束 W 的主归属 Schedule 和方案（§6.4）、对主归属 Task 走取消路径；**不碰** Commitment；后续 C 履行不自动改为已完成                                                                                                                                                                                                                               |
+| 停止 W1 并明确由 W2 接手（CD-03）           | W1 终止事实（快照保留）                                                    | W2 接受准确增补范围，写 `handoff_result` 关联和方案的 `handoff_from_work_id`；接手失败不恢复 W1                                                                                                                                                                                                                                                   |
+| 仅暂停 / 恢复 / 取消 Task 或 Run            | 对应 `work_controls`（scope=task/run）或 Task 取消                         | 只重评本 Work 与实际输出依赖；不是整体工作控制                                                                                                                                                                                                                                                                                                    |
+| Work 达成撤回 / C 核验被否定                | `work_outcome_events`（`withdrawn`）                                       | 清有效达成指针；按当前事实显示"需重新核验"及原完成时间；指标和通知按 CP-03 / WK-02 更正                                                                                                                                                                                                                                                           |
+| 来源核验履行 C                              | C 的原子核验提交                                                           | 引用它的标准只复用唯一当前 Assessment；其他独立标准未满足则 Work 继续；业务归属为 C 的方案按 §6.4 收尾                                                                                                                                                                                                                                            |
+| 手动结案 C                                  | C `resolved(manual_override)`                                              | 全部引用按 `manual_override` 重评，不判履行成功；业务归属为 C 的方案收尾                                                                                                                                                                                                                                                                          |
+| 取消 C                                      | C `cancelled`                                                              | 全部引用重评为未满足 / 取消原因，不自动取消 Work；方案收尾                                                                                                                                                                                                                                                                                        |
+| 单独暂停 / 恢复 Schedule S                  | `work_controls`（scope=schedule）或 S 状态                                 | 重评执行主 Work 与实际依赖覆盖，不改其他 Work 的控制                                                                                                                                                                                                                                                                                              |
+| 停止 / 取消 Schedule S                      | S `cancelled`                                                              | 执行主 Work 和实际义务依赖显示覆盖变化                                                                                                                                                                                                                                                                                                            |
+| Work 结果硬窗口到期                         | `window_evaluation_requests` 评估（§4.2.12）                               | 达成则写 `achieved`，否则隔离该窗口后续执行、有界收尾（≤5 分钟）后写 `window_ended`；保留未知效果标识，不伪造成功；**不因窗口到期解决 C**，引用方显示覆盖变化；其他独立用途的计划不隐式终止                                                                                                                                                       |
+| Schedule 到期 / 一次性派发完成              | S `ended`（`stop_reason`：`dispatched_once` / `missed_window` / 到期原因） | 按原结果重评；可以显示已结束未完成（推导读取 Schedule 自己的结束事实，**不代写** `window_ended`，R-04；衔接见 R-44），不伪造履行；已派发的检查可在原有效窗口内完成                                                                                                                                                                                |
+| 解除 Goal G—Work W 关联                     | `goal_work_links` 失活 + `end_basis`                                       | 工作不自动停止或完成；移除主身份但保留参考边须明确区分；依赖该关联的方案按 §6.5 处理                                                                                                                                                                                                                                                              |
+| 解除 Work W—Commitment C 结果引用           | `work_links` 失活                                                          | 仅解除参考关系，不改结果；若属必要标准，须先接受结果范围修订或保留缺口，**不靠删边制造成功**                                                                                                                                                                                                                                                      |
+| 停用 Counterpart（非自身份，R-32）          | `counterparts.lifecycle='inactive'` + 最小墓碑                             | 当前参与边失活（历史版本不改）；撤销当前身份复用 / 收件资格并隔离依赖它的未来执行；**未解决的 C 经新责任版本把 `responsible_counterpart_id` 置空**，保留前任历史和待确认原因，不宣称履行；已解决的 C 保留历史；依赖该责任 / 端点的计划按 `dependency_version_pending` 阻塞，换责任人须沿原接受流程，**不静默指派他人**；不自动删除（遗忘另走 FG） |
+| 合并 Counterpart / 身份纠错（R-32）         | 合并事务（别名历史）/ `identity_links` 新版本                              | 只有同一真实主体才能合并；当前引用重定向，**独立 Commitment 不合并**，端点权限不取并集；原尝试 / 效果的身份版本不改；纠错则隔离相关证据并重评权威核验；受影响依赖阻塞，恢复须有效版本                                                                                                                                                             |
+| 重开 C                                      | C 回到 `open/waiting`                                                      | 依当前标准和结果事件重评：已停止的 Work 不重开，已完成的 Work 必要时追加 `withdrawn`                                                                                                                                                                                                                                                              |
+| 修订 C 的责任人 / 期限 / 标准               | `responsibility_version + 1` 或新 `contract_version`                       | 标记相关约定和采用待迁移（`adoptionPending`）；展示或通知"完成被撤回 / 标准被替代"的真实原因                                                                                                                                                                                                                                                      |
+| 身份映射争议 / 撤销或端点变化               | `identity_links` 新版本（§7.4）                                            | 重评实际依赖和结果有效性（INV-34、INV-18、INV-19），不扩大到无关人员或结果                                                                                                                                                                                                                                                                        |
+| 来源授权撤销 / 准入或许可范围变化（INV-16） | 来源状态                                                                   | `denied` / `revoked` / `review_required` / `unknown` 或新许可范围不再覆盖原用途时，立即阻断受影响能力，显示真实缺口和允许的下一步；没有权限本身不等于业务失败                                                                                                                                                                                     |
+| Goal 完成 / 停止追求                        | `goals` 状态                                                               | 关联 Personal Work 不自动完成或停止；停止条件含该目标事件的已接受计划按约结束，其余只提示（§10.2 `previewGoalImpact`）                                                                                                                                                                                                                            |
+| 删除 Work W                                 | `works.lifecycle='deleted'`                                                | 先处置活跃执行和计划，再按明确范围删除；保留必要沿袭和审计标记                                                                                                                                                                                                                                                                                    |
+| 删除 C                                      | `commitments` 软删除                                                       | 先展示全部有效引用的影响；解除后标"依赖缺失"，**不能显示履行**                                                                                                                                                                                                                                                                                    |
+| 删除 Goal G                                 | `goals.lifecycle='deleted'`                                                | 独立 Work 保留，解除 Goal 关联并重评覆盖；目标专属计划和目标信策略停止                                                                                                                                                                                                                                                                            |
+| 删除 Task / Run / Schedule / 成果           | 对应对象                                                                   | 只重评实际依赖；删除执行记录前先停对应活跃执行                                                                                                                                                                                                                                                                                                    |
+| 拆分 Work / Task                            | 后继 Task + `work_lineage`                                                 | 预览明确结果和字段，保存沿袭；预算沿用不重领                                                                                                                                                                                                                                                                                                      |
+| 合并重复 Work / 兼容 Task                   | `work_lineage(merge)`                                                      | 仅同一结果 / 兼容用途，保留主 ID、别名、原请求；不合并不同结果                                                                                                                                                                                                                                                                                    |
 
 每一行配一个事务边界和一正一反测试（§13.3 的 INV 映射表给出编号）：正例证明直接对象和影响事件原子出现，反例证明在跨对象清理未完成时，旧提交被围栏拦住、界面显示"正在处理"而不是已完成。
+
+### 6.7 周期性义务（R-28）
+
+“每周五交周报”表示**每期分别履行的责任**，不是一条 Commitment 被周期检查后反复 `resolved / open`。
+
+- 用户接受**有限日期范围**及负责人 / 交付标准后，本批在**同一个 Work 内一次生成可审阅的逐期 Commitment**：每期独立 ID，各有 `due_at` / `period_tz` / `period_start` / `period_end` / `period_index` 与标准；**单次最多 12 期**。
+- 创建用 `period_request_id + period_key` 幂等（`commitments_period` 唯一索引），重试不复制责任。
+- 不得擅自截取“无限委托”的前 12 期并声称完整接受；超过范围时明确请求较短窗口。没有期限的请求提出有限期方案。
+- 各期独立接受 / 核验 / 取消：某期交付不完成后续期次；同一文件只有明确满足多个期次的标准才被多期引用。
+- 持续检查（Schedule）另经方案接受，受 §4.7 资源和时效约束；**检查本身不产生义务**。无限自动生期、未来期次自动迁移在本批已知不支持。
+
+### 6.8 多人责任（R-10）
+
+“小王和小李一起做报价”先在**同一张审阅卡**里确认各自的交付责任，然后只有两种合法形态：
+
+1. 两人各承担一部分：**分别建 Commitment**，Work 里以 AND 必要标准分别引用各自的履约；
+2. 用户明确一人为最终负责人、另一人为参与人（`commitment_participant_links`）：只有负责人承担该 Commitment。
+
+未确认前保留草稿 / 责任歧义（`ambiguity_json`），不凭“共同”复制两份完整交付义务，也不生成多人虚拟身份。“任一人完成即可”的替代责任**本批已知不支持**，提示“请指定一位负责人，其他人可协助，或明确各自需要交付的部分”；不能静默改成两人都必须完成，也不能要求重复提交同一成果。
 
 ## 7. 人员 / 协作方（Counterpart）与身份
 
@@ -1347,22 +1677,20 @@ Agent 永远不能写 `confirmation='confirmed'`（表 CHECK）；也不能创�
 stateDiagram-v2
     [*] --> candidate: 名字/邮箱格式/模型分/共同参会 等线索
     candidate --> confirmed: 用户明确选择"关联所选身份"
-    candidate --> source_verified: 已审适配器返回权威映射
     candidate --> disputed: 用户选"不是同一个人"
     candidate --> revoked: 用户撤销
     confirmed --> stale: 有效期到/账号复用/来源矛盾
-    source_verified --> stale: 同上
     confirmed --> disputed: 来源互相矛盾
     stale --> confirmed: 用户重新确认
     confirmed --> revoked: 用户解除
-    source_verified --> revoked: 来源撤销/用户解除
     disputed --> confirmed: 用户纠正
     disputed --> revoked
 ```
 
 要点：
 
-- **范围。** 用户确认时默认 `scope_kind='task'`（只绑定当前承诺 / 批次）；用户选"在项目 A 中记住此关联"才写 `scope_kind='project'`，卡片说明复用范围和可撤销性。
+- **没有 `source_verified` 节点（R-14）。** 枚举保留，但本批没有任何路径可以把身份映射提升到它；适配器目录映射最高也只是 `confirmed` 的依据之一（`basis_kind='adapter_directory'` 仍需用户确认）。本人配对见 §7.8。
+- **范围。** 用户确认时默认 `scope_kind='task'`（只绑定当前承诺 / 批次）；用户选"在项目 A 中记住此关联"才写 `scope_kind='project'`（`scope_ref` 是 `context_scopes.id`，不是标签文字），卡片说明复用范围和可撤销性。
 - **复用。** 自动归属只使用同时满足下列条件的 link：状态 `confirmed`/`source_verified`；`valid_from ≤ 事件时间 < valid_to`；`scope` 与当前上下文匹配；未被更新的 link 矛盾。新端点、冲突或过期只对受影响关联再确认。
 - **变更触发重新校验（ER-05）。** 以下事件发生时，`identityRevalidate(linkId)` 在同一事务里：把受影响 link 标 `stale`（或 `revoked`）、使依赖它的 `evidence_attributions` 置 `superseded_at` 并重新评估、使依赖这些映射的草稿 / 收件人批准失效（调用 Stage 2 的批准失效接口）、暂停受影响的自动核验，并对已因这些归属 `resolved(source_verified)` 的承诺重开并写原因（`commitment_events.reopened`），不自动重发、不重新分配：
   改名 / 离职 / 地址或句柄变更 / 账号复用 / 共享账号 / 来源互相矛盾 / 用户纠正或撤销 / 连接断开。
@@ -1371,23 +1699,23 @@ stateDiagram-v2
 - **不授权。** 确认 link 不发消息、不改外部负责人、不增 OAuth 范围、不读新来源；外发规则只按准确地址匹配（§4.3.4）。
 - **导出 / 遗忘 / 删除。** counterparts、names、roles、relations、endpoints、links 及使用历史纳入现有导出与遗忘范围（§12.5）。
 
-### 7.5 删除、合并与拆分的保护
+### 7.5 停用、合并与拆分的保护（R-32）
 
-删除、合并、拆分 Counterpart 前，接口先返回**影响清单**（`dryRun:true`），用户确认后在一个事务里执行，**不会静默扩大范围**：
+停用、合并、拆分 Counterpart 前，接口先返回**影响清单**（`dryRun:true`），用户确认后在一个事务里执行，**不会静默扩大范围**：
 
 `{ endpoints, openCommitments, verifiedCommitments, links, pendingOutbound, dependentApprovals, dependentRules, dependentSchedules }`
 
-**删除人员＝停用档案**（对应原型的删除弹窗和 PV-03"不静默删除未解义务"；R-32 请需求方确认，下面是默认做法）。删除的是人员档案和身份关联，不是事项或工作：
+**普通界面的“删除人员”本批命名为“停用人员档案”**（PRD R-32 已确认；对应原型的删除弹窗和 PV-03"不静默删除未解义务"）：先显示受影响的端点、未解决责任、执行 / 批准和历史引用；**这不是遗忘**。停用的是人员档案和身份关联，不是事项或工作：
 
-| 类别                   | 处理                                                                                                                                                                                                                                                                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 会停止                 | 联系方式与别名不再可用于发送；待发给此人的消息失效，不会发出；收件人名单含此人的自动批准规则暂停，新地址不继承这条规则；依赖此人身份的检查与自动核验暂停                                                                                                                                                                 |
-| 会留下，但不再当作此人 | 未解决事项（`open`/`waiting`）的 `responsible_counterpart_id` 置空、`responsible_raw` 取删除时的称呼，变为"待确认是谁"，写 `responsible_changed` 并使责任版本 +1（沟通、接受随版本重置），不删除、不改派；已核验的事项重新评估，归属依据不足时标证据缺口，必要时重开；已发出去或结果未知的消息只按原范围核对，不自动重发 |
-| 不受影响               | 关联工作、事项原文、来源历史；其他人员的规则、检查和已交付内容                                                                                                                                                                                                                                                           |
+| 类别                   | 处理                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 会停止                 | 联系方式与别名不再可用于发送；待发给此人的消息失效，不会发出；此人当前的收件资格撤销（本批没有规则自动批准，旧规则只保留历史，新地址不继承）；依赖此人身份的检查与自动核验暂停                                                                                                                                                                                                                                                                                                                |
+| 会留下，但不再当作此人 | 未解决事项（`open`/`waiting`）的 `responsible_counterpart_id` 置空、`responsible_raw` 取删除时的称呼，变为"待确认是谁"，写 `responsible_changed` 并使责任版本 +1（沟通、接受随版本重置），不删除、不改派；已解决的事项保留历史，**不无条件重写核验**（若事后确认认错了人，走 §7.6 的更正再重评）；相关计划按 `dependency_version_pending` 阻塞，停止旧方案或换责任人须沿原接受流程，**不静默指派其他人**；Work 的参与边失活，历史版本不改；已发出去或结果未知的消息只按原范围核对，不自动重发 |
+| 不受影响               | 关联工作、事项原文、来源历史；其他人员的规则、检查和已交付内容                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
-- 软删除：`lifecycle='deleted'`，名称和端点对界面隐藏；**已解决的历史事项仍指向原 `counterpart_id`**（显示"已删除的人员"），所以档案行不物理删除。彻底清除走遗忘流程，再按现有 purge 协议清理 names / endpoints / links / participant links / relations，承诺里的 `responsible_raw` 与快照按遗忘范围处理（§12.5）。
-- 自身份（`owner_identity`）不能删除也不能合并。
-- **合并**：被合并者 `lifecycle='merged'`、`merged_into` 指向保留者；联系方式关联以新版本指向保留者（§4.3.4）；承诺的责任人改指保留者，因为是同一个人，**不升责任版本**，只写 `responsible_changed`；别名取并集；两边关系、同一事项重复出现、同一联系方式挂在两边等冲突，列在影响清单里由用户逐项选择，不自动取舍。合并不能静默撤销，回退靠拆分。
+- 停用：`lifecycle='inactive'`（写 `inactive_reason` / `inactive_at`），保留最小墓碑和原 `counterpart_id`，退出可选联系人列表；**已解决的历史事项仍指向原 `counterpart_id`**（显示"已停用的人员"），所以档案行不物理删除。`lifecycle='deleted'` 只在**遗忘**之后出现：彻底清除走遗忘流程，再按现有 purge 协议清理 names / endpoints / links / participant links / relations，承诺里的 `responsible_raw` 与快照按遗忘范围处理（§12.5）。
+- 自身份（`owner_identity`）不能停用、删除，也不能合并。
+- **合并**：**只有同一真实主体才能合并**；被合并者 `lifecycle='merged'`、`merged_into` / `merge_tx_id` 指向保留者；**两个人各自独立的 Commitment 不合并**，端点授权也不取并集；联系方式关联以新版本指向保留者（§4.3.4）；承诺的责任人改指保留者，因为是同一个人，**不升责任版本**，只写 `responsible_changed`；别名取并集；两边关系、同一事项重复出现、同一联系方式挂在两边等冲突，列在影响清单里由用户逐项选择，不自动取舍。合并不能静默撤销，回退靠拆分。
 - **拆分**：见 §4.3.4 末条，用户选定端点和承诺迁往新档案。
 
 ### 7.6 更正身份、"这不是一个人"与类型更正（2026-11-02，对应原型人员页「···」菜单）
@@ -1419,6 +1747,21 @@ stateDiagram-v2
 三种去向都**不**创建 `identity_links`、不向任何地址发消息、也不把"没有这个人"当成承诺已完成或已取消。
 
 **测试**：更正后历史归属不被追溯改写；拆分或迁移端点后任何 `action_grants` 的可用性不变（规则 6）；选去向 3 后同一称呼不再出现、撤销后恢复；组织类新档案不能带"下属"关系；两个标签页同时更正同一个人时，后到者因 `revision` 不符被拒绝并要求重看。
+
+### 7.7 待确认人员与提及消歧（R-31）
+
+来源里只有名字的提及落 `unresolved_mentions`（§4.3.5）。规则：
+
+1. `mention_id` 绑定 `owner_id / scope_id / source_record_id / source_version / 片段位置 / 原称呼`；同一来源内确属同一提及的重复展示可分组，**不同会议里同名的“小王”默认不同组**，不能只按姓名或项目标签合一。
+2. 候选只来自**当前获准可见的已有人员**及有效范围关联；姓名相似仅标“仅按名字推测”，已有准确端点依据的另列；不读未经授权的通讯录。
+3. 用户确认默认“**仅本次**”：只写 `scope_kind='task'` 的 link；选“在本范围记住”才扩大，且卡片写明复用范围和可撤销性。
+4. 未确认的提及不进入人员列表，也不参与自动归属；`proposed` 人员只出现在“待确认人员”分组。
+
+### 7.8 本人配对与决定渠道（R-13 / R-15）
+
+- **配对**：已认证的所有者完成挑战 / 配对 + 适配器给出准确发送主体，才建立 `telegram_user` / `whatsapp_jid` 端点并连到 `self_counterpart_id`（§4.3.4）；重复配对幂等；bot ID、运行代理的设备 / 号码不是所有者。
+- **决定渠道（R-15）**：没配对成功的渠道**不接收敏感决定**。IM 里只在**私聊**接受：接受方案、`user_confirmation` 标准的确认等内部决定（带 `decision_request_id`，只消费该请求）；**AP 审批在 IM 里不被消费**——要批准外发等动作，仍需在控制台逐项走 AP 校验；群聊决定本批已知不支持。
+- 解绑保留历史，不删除曾经的配对记录。
 
 ## 8. 来源自动核验（NX-14 / ER-04 / OC-03）
 
@@ -1457,7 +1800,7 @@ async function verifyCommitment(input: VerifyInput, deps: VerifyDeps): Promise<V
 1. **取候选证据。** 来自 `evidence_attributions` 中尚未 `superseded` 的行，加上本次触发新读到的 `SourceEvidence[]`（适配器返回，§8.4）。
 2. **`resolveIdentity(evidence, commitment)`**——步骤①。
    - 取证据来源字段里的**发送者 / 作者端点**（`actor_role ∈ {submitter, author}`）；`forwarded_mention` / `signature_mention` / 正文提到的名字一律 `unmatched/unknown`（表 CHECK 兜底）。
-   - 用 `counterpart_endpoints` 找端点，用 `identity_links` 取**事件时间有效**、`confirmed/source_verified`、范围匹配的 link；链到 `commitment.counterpart_id` → `matched`；链到别人 → `unmatched`；多个并存或 link 冲突 → `ambiguous`；没有 link → `unknown`；用户在手动证据上声明 → `user_declared`。
+   - 用 `counterpart_endpoints` 找端点，用 `identity_links` 取**事件时间有效**、`confirmed`（`source_verified` 枚举保留但本批无提升路径，R-14）、范围匹配的 link；链到 `commitment.counterpart_id` → `matched`；链到别人 → `unmatched`；多个并存或 link 冲突 → `ambiguous`；没有 link → `unknown`；用户在手动证据上声明 → `user_declared`。
    - 代理交付：若承诺标准允许代理人（`params.allow_proxy`），记录 `submitted_by_counterpart`，仍保留原责任人，不合并两个人。
 3. **`assessRelevance(evidence, commitment)`**——步骤②。检查：证据所属上下文 / 项目与承诺一致；外部记录的线程 / 对象与方案里的预期来源引用一致；事件时间在 `[承诺创建时刻, 当前]` 且晚于任何已知的"旧版本"；不是同一外部记录的重复。输出 `relevant / irrelevant / unknown`。
 4. **`assessCriteria(evidence, contract)`**——步骤③。对合同每条**必需**标准产生 `met / not_met / insufficient_evidence / conflicting_evidence`：
@@ -1484,7 +1827,7 @@ async function verifyCommitment(input: VerifyInput, deps: VerifyDeps): Promise<V
 interface EvidenceSourceAdapter {
   readonly id: string; // "manual" | "gmail" | …
   readonly version: string; // 写入 mapping_refs / 依据，以便追溯
-  /** 解析某个端点（按事件时间）。适配器说"权威映射"时返回 directory 依据，引擎才可能产生 source_verified link。 */
+  /** 解析某个端点（按事件时间）。适配器返回的 directory 依据只能作为 `confirmed` link 的依据之一、仍需用户确认；**本批不产生 `source_verified` 的身份 link**（R-14），业务证据的 `source_verified`（Commitment 核验）不受此限。 */
   resolveEndpoint(q: {
     account: string;
     handle?: string;
@@ -1541,18 +1884,31 @@ type SourceEvidence = {
 
 ### 9.2 列表（PV-01）
 
-每行：显示名、`kind` 标识（组织 / 团队 / 共享邮箱不能伪装成自然人）、上下文标签和"明确关系"（来自 `counterpart_relations`，没有就不显示，不推断）、**由其负责**的三个数：未解决 / 已知逾期 / 待确认（`acceptance_state IN ('unknown','needs_clarification','declined')`，或 `verification IN ('verified_exception','conflicting_evidence')`）。沟通状态与接受状态分开显示，不合并成一个“已委派”。
+每行：显示名、`kind` 标识（组织 / 团队 / 共享邮箱不能伪装成自然人）、范围标签（读 `context_scopes.label`）和"明确关系"（来自 `counterpart_relations`，没有就不显示，不推断）、**由其负责**的三个数：未解决 / 已知逾期 / 待确认（`acceptance_state IN ('unknown','needs_clarification','declined')`，或 `verification IN ('verified_exception','conflicting_evidence')`）。沟通状态与接受状态分开显示，不合并成一个“已委派”。
 
-- **收录范围**：`confirmation IN (stated, confirmed)` 且存在至少一条未撤销的"获准关联"——指向其的 Commitment（任意生命周期），或 参与人链接表（`work_participant_links` / `commitment_participant_links`）（stated / confirmed）。不要求导入全量联系人。
+- **范围过滤（R-12）**：一个人可同时有 Personal 和 Executive 的端点。列表**默认只取当前浏览范围内**的责任和关联角色；没有当前模式时用最近一次明确选择的模式，首次默认 Personal；界面给一个**临时的“显示其他模式”**筛选，它只改展示，**不授予任何跨域检索、发送或执行权限**。详情页不泄漏隐藏端点、别名、客户名称，也不显示其他模式的责任数量。
+- **收录范围**：`lifecycle='live'`（已停用 / 已合并的人员不在可选列表，历史事项仍显示原档案名）、`confirmation IN (stated, confirmed)` 且存在至少一条未撤销的"获准关联"——指向其的 Commitment（任意生命周期），或 参与人链接表（`work_participant_links` / `commitment_participant_links`）（stated / confirmed）。不要求导入全量联系人。
 - **筛选**：姓名 / 别名搜索；客户 / 项目标签；明确关系（下属 / 同事 / 客户 / 供应商）；责任状态（有逾期 / 有待确认 / 有证据缺口 / 全部）。
 - **排序**：按"需要关注的责任"：先逾期数，再待确认数，再最早到期；不使用模型置信度，不做任何绩效排名。
-- **"待确认人员"分组**：`responsible_counterpart_id IS NULL` 的承诺，按 `responsible_raw`（小写 / 去空白后）归并，每组显示数量并回到原承诺；`confirmation='proposed'` 的候选也在此分组下，**提供"确认 / 不是 / 暂不"入口**。不虚构联系人，不预勾合并。
+- **"待确认人员"分组**：`responsible_counterpart_id IS NULL` 的承诺，按 `responsible_raw`（小写 / 去空白后）归并，每组显示数量并回到原承诺；`unresolved_mentions`（§4.3.5）也列在这里，显示来源称呼 / 上下文，明确“尚未绑定真实人员”，不能据此开放发送；`confirmation='proposed'` 的候选也在此分组下，**提供"确认 / 不是 / 暂不"入口**。不虚构联系人，不预勾合并。
 - **同名未对齐者分开**：两个 `display_name` 相同的 counterpart 并列显示并带上下文标签。
 
 ### 9.3 详情（PV-02）
 
 - 默认标签"由其负责"：`responsible_counterpart_id = X` 且 `lifecycle IN (open, waiting)`；次级标签"与其相关"（参与人链接表（`work_participant_links` / `commitment_participant_links`） 里 participant / approver / recipient，以及 Work 级角色）和"历史"（resolved / cancelled）。**由用户负责而此人仅为收件人 / 参与人的事项不混入"由其负责"。**
 - 每项先展示：要交付什么（`requirement_text`）、绝对期限与时区（或"待定"/"无"）、沟通情况与接受情况（各带依据，用户报告单独标注）、生命周期 + 核验 + 证据缺口、当前跟进覆盖（关联 Schedule 的 `status` + `coverage_state`）、下一步；可展开来源与身份依据（"此人如何关联"，列出 link、端点和依据）；可打开关联 Work。
+- **三列（R-29）**：每条责任同时显示沟通、接受、核验三列，**不用业务进展替代枚举**；只有确实不适用的维度可以写“不适用”，不能用“—”隐藏缺失事实。
+
+| 维度 | 枚举与固定文案                                                                                                                                                                          |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 沟通 | `draft` 未发送；`submitted` 已受理，送达未确认；`confirmed` 渠道已确认（仅适配器确实证明送达时显示“已送达”，不等于已读）；`unknown` 发送结果未知；`failed` 发送失败                     |
+| 接受 | `unknown` 尚未确认接受；`accepted` 已接受；`declined` 已拒绝；`needs_clarification` 需要澄清。`basis=user_report` 附“你记录”；本人明确承诺可显示“你已确认承担”并保依据                  |
+| 核验 | `unverified` 未核验；`verified_complete` 已核验完成；`verified_exception` 已核验存在例外（展开具体结论）；`conflicting_evidence` 证据冲突。手动结案另列原因，不伪造 `verified_complete` |
+
+“已接受新期限”必须展示该期限 / 责任版本及对应接受依据；旧版接受只在历史里显示。“已揽收 / 运输中 / 本周未交”等业务观察只有实际来源 / 时间支持时才另列，未观察到不等于未交。
+
+- **阶段顺序（R-30）**：从当前生命周期 / 权威核验 / 真实决定推导，**按此顺序取第一个满足的**：已取消 → 有效已核验完成 → 手动结案（未核验完成）→ 有用户可处理请求：**等待你决定** → 尚需发送真实委派且未发送：**尚未发送委派** → 尚待责任方接受：**等待对方回应** → 有有效交付观察路径：**正在检查交付** → 其余：**待安排跟进 / 跟进受阻**（并说明原因）。`unknown / failed` 的发送结果在“尚未发送”等阶段仍保留；对本人责任不虚构“给本人发送委派”或“等待本人外部回应”；草稿等用户批准时，无论责任人是本人还是别人，阶段都是“等待你决定”。
+- **“截止已过”是并存标识**，不盖住有效的用户决定；接受未知时写“要求截止已过，接受尚未确认”。已取消 / 已完成的行也不隐藏结果未知 / 证据冲突；核验撤回后按当前事实重新归类。人员阶段不覆盖 Work 主状态，也不能只靠一个阶段字段丢掉三列依据。
 - **计数去重**：同一 Commitment 被多个 Work 引用，在本人员列表只算一次，并列出关联 Work。顶部分别说明"X 位同事 / Y 项义务 / Z 件工作"，三个数不互相代替。
 - **隐私**：来源撤销或身份未确认的残留资料，不暴露姓名、正文或数量；局部覆盖说明只依据仍可披露的信息。
 
@@ -1580,9 +1936,9 @@ type SourceEvidence = {
 
 **三种面板各自要在服务端核对什么**（原型里是前端文案，实现时必须是服务端重新核对）：
 
-- **催办**：负责人仍是此人，且是当前责任版本（原型显示"事项 v2"）；收件地址已验证，且属于这件事所在的项目；接受状态为"待确认"时邮件不写成"逾期"；当日是否已有同类提醒（原型"今天 09:00 已按规则自动发过一次"，该提示依赖自动批准规则，见 R-01、R-17、R-37）。催办是单次外发，批准后"不会开始持续跟进"，也不替换当前方案。
+- **催办**：负责人仍是此人，且是当前责任版本（原型显示"事项 v2"）；收件地址已验证，且属于这件事所在的项目；接受状态为"待确认"时邮件不写成"逾期"；当日是否已有同类提醒（原型"今天 09:00 已按规则自动发过一次"：**本批没有规则自动批准（R-01 / R-17），这条提示不出现**，只按实际已发 / 待发的动作去重）。催办是单次外发，批准后"不会开始持续跟进"，也不替换当前方案。
 - **继续跟进**：方案必须同时写出"看什么／在哪看／多久看／何时结束／通知你"和"不会做什么"（不自动催办、不把没回复当成已接受或已交付），对应 `plan_json` 的来源、频率、结束、通知、不会做什么、覆盖限制；开始之前界面不显示"在跟进"。已有方案时只给"查看／修改／恢复"，不新建第二份。
-- **委派新工作**：发送是一个需要批准的外发动作，跟进方案是一个需要接受的方案，两者同屏确认、可分开选择（原型"只发送这一封"）；新委派不使用自动提醒规则；不把没有回复当成已接受。**两个决定的先后和失败回退见 R-37。**
+- **委派新工作**：发送是一个需要批准的外发动作，跟进方案是一个需要接受的方案，两者同屏确认、可分开选择（原型"只发送这一封"）；新委派不使用自动提醒规则；不把没有回复当成已接受。**两个决定的先后和失败回退——PRD v1.95 没有回答，仍是 R-37；默认：两个决定独立，发送失败不影响方案接受，方案接受失败不撤回已批准的发送。**
 
 ## 10. 接口：RPC、Agent 工具与权限
 
@@ -1592,29 +1948,38 @@ type SourceEvidence = {
 2. 所有写操作带 `expectedRevision`（乐观并发），冲突返回当前版本让前台提示；创建类带 `idempotencyKey` 或 `request_ref`（WK-01 重投不重复创建）。
 3. 所有读接口按 `owner_id` 与 `lifecycle` 过滤，不返回已删除 / 清除中的对象。
 4. 新接口全部受独立开关控制（§12.4），开关关闭时 RPC 返回统一的"功能未启用"，工具不注册。
+5. **渠道决定矩阵（R-15）**：用户的内部决定（接受方案、确认 `user_confirmation` 标准、确认人员、选择修订后的采用）可以在 **IM 私聊**里做，必须带 `decision_request_id`，一次只消费该请求；**AP 审批（外发、写入外部系统）在 IM 里不被消费**，必须回控制台逐项走 AP 校验；群聊里的决定、没有完成本人配对（§7.8）的渠道发来的决定，本批一律不接收。
+6. **受控请求（R-07）**：即时问答、遗忘 / 删除、到期清理、窗口评估执行前登记持久 `request_id / job_type`，保存范围、预算、`attempt_id`、幂等键和状态；聊天只是入口，不允许裸工具调用或事后补审计。
 
 ### 10.2 控制台 RPC（`nexus.*`）
 
-| 方法                                                                                                  | 作用                                                                                                                                                                  | 说明                                                                                                                                                                                                       |
-| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `nexus.work.list` / `.get`                                                                            | 工作列表 / 详情（含 WorkView、关联对象摘要、最近事件）                                                                                                                | 过滤：主状态、上下文、目标、关键字、是否隐藏                                                                                                                                                               |
-| `nexus.work.counts`                                                                                   | RT-02 五类计数 + 各类前 N 条                                                                                                                                          | 工作页顶部、导航角标                                                                                                                                                                                       |
-| `nexus.work.create`                                                                                   | 手动新建 Work（用户在工作页"新建工作"）                                                                                                                               | 去重 `request_ref`；不创建 Task                                                                                                                                                                            |
-| `nexus.work.update`                                                                                   | 改标题 / 结果文字 / 上下文标签 / 隐藏 / 归档                                                                                                                          | 隐藏与归档**只改可见性**，不动后台工作                                                                                                                                                                     |
-| `nexus.work.setGoal`                                                                                  | 设主 Goal / 清除 / 增删参考 Goal                                                                                                                                      | 唯一写源是 `goal_work_links`，并同步 `goal_links` 影子（§4.2.3）；Executive Work 一律拒绝                                                                                                                  |
-| `nexus.work.link` / `.unlink`                                                                         | 关联 / 解除 Commitment、Task 输出引用、文件                                                                                                                           | 角色 `required` / `reference` / `coordination` / `handoff_result` / `output_dependency`；解除可能让 Work 失去必要依赖，按 §6.5 的提交边界先出预览；Task 主归属不可转移（`task_work_owner` 不变），只能拆合 |
-| `nexus.work.control`                                                                                  | `pause` / `resume` / `stop_follow_up` / `stop_work` / `end_partial` / `close_with_reason`（作用于选定 Commitment） / `reopen`                                         | 先 `dryRun:true` 取影响预览，再确认；对应 WK-04 逐条（§6.6、§10.4）                                                                                                                                        |
-| `nexus.work.merge` / `.split`                                                                         | TI-04 的合并 / 拆分                                                                                                                                                   | 预览 → 确认；写 `work_lineage` 与事件；**Task 的主归属不转移**，新 Work 通过 `work_links` 引用原 Task 输出；不丢历史、不改 `original_result_id` 的语义（INV-32）                                           |
-| `nexus.work.delete`                                                                                   | 删除 Work                                                                                                                                                             | 先处置活动 Task / Schedule；披露共享引用影响；接入 purge（§12.5）                                                                                                                                          |
-| `nexus.counterpart.*`                                                                                 | `list/get/create/update/archive/merge/split/delete`（delete = 停用档案，§7.5），`name.*`、`relation.*`、`role.*`、`endpoint.*`、`link.*`（候选 / 确认 / 纠正 / 解除） | `link.confirm` 带范围选项；变更先 `dryRun` 影响清单（含 `previewGoalImpact` 之外的承诺、待发消息、依赖的审批 / 规则 / 计划）                                                                               |
-| `nexus.counterpart.correct` / `.notPerson`                                                            | 更正身份（改资料／联系方式挂错／类型更正）；“这不是一个人”选去向（组织／我负责／忽略称呼）                                                                            | 仅用户；`dryRun:true` 先取影响清单；`revision` 并发校验（§7.6）                                                                                                                                            |
-| `nexus.person.list` / `.get`                                                                          | 人员视图（PV-01 / PV-02）                                                                                                                                             | 只读投影                                                                                                                                                                                                   |
-| `nexus.commitment.list` / `.get` / `.create` / `.update`                                              | 行动台账：按模式 / 上下文 / 对应人员 / 截止日期 / 核验筛选                                                                                                            | 更新带变更说明；`update` 不能直接写 `lifecycle`                                                                                                                                                            |
-| `nexus.commitment.communication` / `.acceptance`                                                      | 记录“已传达”（沟通）与“对方接受 / 拒绝 / 要求澄清”（接受，必带依据；用户报告单独标）                                                                                  | 两条线独立，只对当前责任版本有效；`accepted` 无依据被拒（§4.4.1）                                                                                                                                          |
-| `nexus.commitment.resolve` / `.cancel` / `.restore` / `.reopen`                                       | 手动结案（必填原因，`manual_override`）、取消、恢复、重开                                                                                                             | 先 `dryRun` 取影响（引用它的 Work、将停止的检查）；`source_verified` 只能由核验引擎的原子提交写入（§6.2）                                                                                                  |
-| `nexus.commitment.evidence.add` / `.reassess`                                                         | 添加证据 / 重新评估                                                                                                                                                   | 触发 `verifyCommitment`                                                                                                                                                                                    |
-| `nexus.delegation.propose` / `.confirm` / `.reject` / `.end` / `.resolveCarrier`                      | 跟进方案：草案、**用户接受并开始**、拒绝、结束（含 CD-04 有界收尾）、解析由哪件工作承载（§9.5）                                                                       | `confirm` 原子完成：校验前置 → 方案置 `accepted` → 建 Schedule（及执行器）→ 写承载关联 → 回执；Commitment ID + 当前方案版本 compare-and-set，重复点击去重                                                  |
-| `nexus.schedule.list` / `.get` / `.update` / `.pause` / `.resume` / `.stop` / `.runOnce` / `.history` | 查看 / 编辑 / 暂停 / 停止 / 单次运行 / 触发历史                                                                                                                       | `.stop` 把状态置 `cancelled`；`.resume` 不能恢复 ended / cancelled；改频率 / 范围按方案变更重新接受（INV-10）                                                                                              |
+| 方法                                                                                                  | 作用                                                                                                                                                                                                             | 说明                                                                                                                                                                                                            |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nexus.work.list` / `.get`                                                                            | 工作列表 / 详情（含 WorkView、关联对象摘要、最近事件）                                                                                                                                                           | 过滤：主状态、上下文、目标、关键字、是否隐藏                                                                                                                                                                    |
+| `nexus.work.counts`                                                                                   | RT-02 五类计数 + 各类前 N 条                                                                                                                                                                                     | 工作页顶部、导航角标                                                                                                                                                                                            |
+| `nexus.work.create`                                                                                   | 手动新建 Work（用户在工作页"新建工作"）                                                                                                                                                                          | 去重 `request_ref`；不创建 Task                                                                                                                                                                                 |
+| `nexus.work.update`                                                                                   | 改标题 / 结果文字 / 所属范围（`context_scopes`，语义变化走修订）/ 隐藏 / 归档                                                                                                                                    | 隐藏与归档**只改可见性**，不动后台工作                                                                                                                                                                          |
+| `nexus.work.setGoal`                                                                                  | 设主 Goal / 清除 / 增删参考 Goal                                                                                                                                                                                 | 唯一写源是 `goal_work_links`，并同步 `goal_links` 影子（§4.2.3）；Executive Work 一律拒绝                                                                                                                       |
+| `nexus.work.link` / `.unlink`                                                                         | 关联 / 解除 Commitment、Task 输出引用、文件                                                                                                                                                                      | 角色 `required` / `reference` / `coordination` / `handoff_result` / `output_dependency`；解除可能让 Work 失去必要依赖，按 §6.5 的提交边界先出预览；Task 主归属不可转移（`task_work_owner` 不变），只能拆合      |
+| `nexus.work.control`                                                                                  | `pause` / `resume` / `stop_follow_up` / `stop_work` / `end_partial` / `close_with_reason`（作用于选定 Commitment） / `reopen`                                                                                    | 先 `dryRun:true` 取影响预览，再确认；对应 WK-04 逐条（§6.6、§10.4）                                                                                                                                             |
+| `nexus.work.merge` / `.split`                                                                         | TI-04 的合并 / 拆分                                                                                                                                                                                              | 预览 → 确认；写 `work_lineage` 与事件；**Task 的主归属不转移**，新 Work 通过 `work_links` 引用原 Task 输出；不丢历史、不改 `original_result_id` 的语义（INV-32）                                                |
+| `nexus.work.delete`                                                                                   | 删除 Work                                                                                                                                                                                                        | 先处置活动 Task / Schedule；披露共享引用影响；接入 purge（§12.5）                                                                                                                                               |
+| `nexus.counterpart.*`                                                                                 | `list/get/create/update/deactivate/reactivate/merge/split`（界面的“删除”= `deactivate` 停用档案，§7.5；遗忘另走 FG 流程），`name.*`、`relation.*`、`role.*`、`endpoint.*`、`link.*`（候选 / 确认 / 纠正 / 解除） | `link.confirm` 带范围选项；变更先 `dryRun` 影响清单（含 `previewGoalImpact` 之外的承诺、待发消息、依赖的审批 / 规则 / 计划）                                                                                    |
+| `nexus.counterpart.correct` / `.notPerson`                                                            | 更正身份（改资料／联系方式挂错／类型更正）；“这不是一个人”选去向（组织／我负责／忽略称呼）                                                                                                                       | 仅用户；`dryRun:true` 先取影响清单；`revision` 并发校验（§7.6）                                                                                                                                                 |
+| `nexus.scope.list` / `.create` / `.rename` / `.archive`                                               | 范围记录（R-08，§4.2.10）                                                                                                                                                                                        | 新标签只给候选，不按同名合并；改名保持 ID；改模式 / 客户归属 = 语义修订                                                                                                                                         |
+| `nexus.work.contract.accept`                                                                          | 接受结果约定（含 `window_policy`、`accepted_basis_policy`）                                                                                                                                                      | `end_at_window` 时**同事务**登记 `window_evaluation_requests`（§4.2.12）；带 `expectedRevision`                                                                                                                 |
+| `nexus.work.contract.confirmCriterion`                                                                | 用户确认某条 `user_confirmation` 标准（R-03）                                                                                                                                                                    | 保存确认人 / 请求 / 时间 / 标准版本 / 成果引用；不能覆盖来源证据标准；可在 IM 私聊用 `decision_request_id` 完成                                                                                                 |
+| `nexus.work.acceptRevision`                                                                           | 工作级修订卡：接受当前版本（R-06）                                                                                                                                                                               | 一个事务里：隔离旧 Task、建后继 Task + `task_adoptions`；并发再次修订则失败重读；卡片列出保留成果、未完成范围、已提交 / 未知效果                                                                                |
+| `nexus.commitment.generatePeriods`                                                                    | 周期义务：一次生成最多 12 期的逐期 Commitment（R-28）                                                                                                                                                            | `request_id + period_key` 幂等；超出范围拒绝并提示缩短窗口                                                                                                                                                      |
+| `nexus.mention.list` / `.resolve` / `.dismiss`                                                        | 待确认人员的提及（R-31，§4.3.5）                                                                                                                                                                                 | 默认 `this_time_only`；候选只来自获准可见的已有人员                                                                                                                                                             |
+| `nexus.identity.pairOwner` / `.unpair`                                                                | 本人配对 / 解绑（R-13，§7.8）                                                                                                                                                                                    | 仅用户；重复配对幂等；解绑保留历史                                                                                                                                                                              |
+| `nexus.person.list` / `.get`                                                                          | 人员视图（PV-01 / PV-02）                                                                                                                                                                                        | 只读投影；默认当前范围，`includeOtherModes` 仅临时展示（R-12），不授予权限                                                                                                                                      |
+| `nexus.commitment.list` / `.get` / `.create` / `.update`                                              | 行动台账：按模式 / 上下文 / 对应人员 / 截止日期 / 核验筛选                                                                                                                                                       | 更新带变更说明；`update` 不能直接写 `lifecycle`                                                                                                                                                                 |
+| `nexus.commitment.communication` / `.acceptance`                                                      | 记录“已传达”（沟通）与“对方接受 / 拒绝 / 要求澄清”（接受，必带依据；用户报告单独标）                                                                                                                             | 两条线独立，只对当前责任版本有效；`accepted` 无依据被拒（§4.4.1）                                                                                                                                               |
+| `nexus.commitment.resolve` / `.cancel` / `.restore` / `.reopen`                                       | 手动结案（必填原因，`manual_override`）、取消、恢复、重开                                                                                                                                                        | 先 `dryRun` 取影响（引用它的 Work、将停止的检查）；`source_verified` 只能由核验引擎的原子提交写入（§6.2）                                                                                                       |
+| `nexus.commitment.evidence.add` / `.reassess`                                                         | 添加证据 / 重新评估                                                                                                                                                                                              | 触发 `verifyCommitment`                                                                                                                                                                                         |
+| `nexus.delegation.propose` / `.confirm` / `.reject` / `.end` / `.resolveCarrier`                      | 跟进方案：草案、**用户接受并开始**、拒绝、结束（含 CD-04 有界收尾）、解析由哪件工作承载（§9.5）                                                                                                                  | `confirm` 原子完成：校验前置 → 方案置 `accepted` → 建 Schedule（及执行器）→ 写承载关联 → 回执；Commitment ID + 当前方案版本 compare-and-set，重复点击去重                                                       |
+| `nexus.schedule.list` / `.get` / `.update` / `.pause` / `.resume` / `.stop` / `.runOnce` / `.history` | 查看 / 编辑 / 暂停 / 停止 / 单次运行 / 触发历史                                                                                                                                                                  | `.stop` 把状态置 `cancelled`；`.runOnce` 受 5 分钟冷却（`last_manual_trigger_at`）和 15 分钟轮询下限约束，同 `trigger_id` 去重；`.resume` 不能恢复 ended / cancelled；改频率 / 范围按方案变更重新接受（INV-10） |
 
 ### 10.3 Agent 工具
 
@@ -1664,6 +2029,8 @@ type SourceEvidence = {
 | 路由            | `view=tasks` / `view=task&task=ID`      | 新增 `view=works` / `view=work&work=ID` / `view=people` / `view=person&person=ID`；`view=task&task=ID` **保留**并重定向到所属 Work 的详情（定位到该 Task 区块），老书签、老回执链接继续有效 |
 | 页面标题 / 文案 | "事项""任务"                            | 全部用"工作"；Task 在详情内称"步骤"或"任务"（见 §11.3）；按钮用"暂停工作""停止工作"（WK-01）；`i18n.ts` 增 `work.*` 键，保留旧键避免回归                                                    |
 
+**R-18 导航决定**：本批**不新建 Nexus Chat 页面**，“Chat”入口跳到已配置的 OpenClaw 宿主聊天，携带经校验的**工作引用而非敏感正文**；宿主不支持深链时打开聊天并给一个可复制的工作引用。控制台默认路由是 `works`，**返回视图和“待你处理”都完整放在工作首页**；宿主聊天只通过回复 / 卡片 / 控制台链接呈现同一个问题，不要求改造宿主首页。旧页面映射：事项 → **工作**，文件 → **资料库**，目标 → **目标**，偏好 → **设置**，回执 → **状态**（Status）。旧路由继续有效（`view=tasks` / `view=task` 重定向）。原型的全量双栏改版不是本批必需。
+
 `route.ts` 的 `NexusRoute` 联合类型增加四个成员，`parseRoute` / `toParams` / URL 路径解析各加一支；`route.test.ts` 补测试。
 
 ### 11.2 工作页（首页）
@@ -1671,20 +2038,21 @@ type SourceEvidence = {
 自上而下：
 
 1. **计数条（RT-02）**：已完成 · 已结束（未完成） · 待你处理 · 阻塞/暂停/待核对 · 继续中，五类互斥合计 = 工作总数；点击切换筛选。
-2. **"待你处理"**：`primary=needs_you` 的工作，按等待最久排序；每条一行：我要的结果、当前进展一句话、下一步按钮（打开决定 / 补充 / 选择责任人 / 安排跟进）。若同时有"其他步骤进行中"，行内显示小标记。
+2. **"待你处理"（R-27）**：`primary=needs_you` 的工作，按等待最久排序；每条一行：我要的结果、当前进展一句话、下一步按钮（打开决定 / 补充 / 选择责任人 / 安排跟进）。若同时有"其他步骤进行中"，行内显示小标记。**同一个 Work 有多个待决定时，都要能找回**（每个带自己的 `decision_request_id`，按优先级排序，各自独立消费）；**本批没有“一键批次批准”**。AttentionItem 不建表，这个列表由 WorkView 直接给出。
 3. **其他分组**：阻塞 / 暂停 / 待核对，继续中，已结束，已完成（后两组默认折叠，列表分页）。
-4. **筛选与搜索**：上下文标签、目标、关键字；隐藏的工作默认不显示，但页脚提示"有 N 件隐藏的工作仍在后台运行"。
+4. **筛选与搜索**：范围（项目 / 客户，读 `context_scopes`）、目标、关键字；隐藏的工作默认不显示，但页脚提示"有 N 件隐藏的工作仍在后台运行"。
 5. 空状态：说明"直接在对话里说你要的事，不需要先建工作"。
 
 ### 11.3 工作详情
 
-头部三行："我要的结果 / 当前进展 / 下一步"，主状态徽标，flag（其他步骤进行中、未知外部效果、证据缺口、覆盖降级、手动结案）。下面按需展开的区块：
+头部三行："我要的结果 / 当前进展 / 下一步"，主状态徽标（文案按 R-34，§5.2），次级标识（R-21：已有部分成果、外部结果待核对、按计划检查 / 检查覆盖不足 / 暂无法检查、其他步骤进行中；另有证据缺口、手动结案等信息性标记）。**“完成意味着……”**一行写清完成标准，并把提醒、复核、履约迟到、结果硬结束分开说明（OC-02）。下面按需展开的区块：
 
 - **步骤（Task）**：沿用现有任务详情的全部内容（步骤、决策、执行回执、声明与证据、观察），作为"步骤"区块的每个 Task 一节，不重做。
 - **承诺事项**：该 Work 关联的 Commitment 台账（必需 / 仅参考分开）；每项：谁负责、交付什么、期限、沟通 / 接受（分开显示）、生命周期+核验、证据缺口、跟进覆盖；操作：补充事实、添加证据、结案、取消、纠正责任人。
 - **跟进**：关联 Schedule：状态、下次检查、覆盖状态、停止条件、触发历史；待确认的方案（`delegation_plans.status='draft'`）以"开始 / 修改 / 暂不"面板呈现；入口与承载解析见 §9.5。
 - **关联**：主目标 / 参考目标（`goal_work_links`）、文件、引用的其他 Work 的 Task 输出（`output_dependency`）。偏好不作为 Work 的关联对象（PRD 无此关联）。
 - **历史**：`work_events` 时间线 + 控制记录。
+- **修订卡（R-06）**：业务修订后顶部出现一张工作级卡：“原执行已暂停提交；确认后按新要求重新安排”，列出保留成果、未完成范围、已提交 / 未知效果；确认调 `nexus.work.acceptRevision`。
 - **控制**：暂停工作 · 停止跟进 · 停止工作 · 以部分结果结束 · 删除；每个先弹影响预览。
 
 ### 11.4 人员页
@@ -1693,7 +2061,13 @@ type SourceEvidence = {
 
 ### 11.5 组件与文件落点
 
-`browser/` 下新增：`works-view.ts`、`work-detail-view.ts`、`commitment-card.ts`、`people-view.ts`、`person-detail-view.ts`、`schedule-panel.ts`、`work-dialogs.ts`；沿用 `dialog.ts`、`filters.ts`、`sanitize.ts`；`page.ts` 的导航表增加两项；`style.ts` 增样式。样式沿用现有变量。每个视图配 `*.test.ts`（沿用 `goals-view.test.ts` 的 DOM 测试风格）。
+`browser/` 下新增：`works-view.ts`、`work-detail-view.ts`、`commitment-card.ts`、`people-view.ts`、`person-detail-view.ts`、`schedule-panel.ts`、`work-dialogs.ts`、`revision-card.ts`（R-06 修订卡）、`mention-resolver.ts`（R-31）；沿用 `dialog.ts`、`filters.ts`、`sanitize.ts`；`page.ts` 的导航表增加两项；`style.ts` 增样式。样式沿用现有变量。每个视图配 `*.test.ts`（沿用 `goals-view.test.ts` 的 DOM 测试风格）。
+
+### 11.5a 资料库与状态页的本批边界（只列和本文对象有关的）
+
+- **资料库（R-22 / R-23）**：分享能力**整体关闭**——没有分享弹窗、公开链接、分享记录表；所有者在已认证的控制台打开 / 下载准确版本可用，宿主聊天可引用受认证的资产入口（不是可外传的链接）。迁移环境里若有有效旧公开链接，必须先撤销或保留真实的到期 / 撤销能力直到失效。因此原 R-38（发给指定客户的披露语义）本批不适用。`inbox` 在资料库里是“待整理输入”集合，不是 Attention Inbox；敏感标记及其模型读取限制必须保留。
+- **状态（R-24 / R-25）**：Status 只显示**真实记录**——执行、批准、检查、清理、问题、资源；不显示虚构的批准记录或公开链接；主机配置显示实际配置和最后观测，不宣称“休眠中持续执行”或“无外部监测的实时离线通知”。容量数字来自 §4.7 的集中配置，不能用原型数字。
+- **目标（R-33）**：目标进展来自用户**明确采用**的获准 Work 证据；Goal 不直接读外部来源，不按关联 Work 的完成比例判达成（NX-03）。
 
 ### 11.6 与现有"目标"页的衔接
 
@@ -1703,22 +2077,22 @@ type SourceEvidence = {
 
 ### 12.1 迁移顺序
 
-1. 发布 `stage7-0001` … `0004` 四个纯加表的迁移（含索引）。老版本代码遇到它们不受影响（只加表）。
+1. 发布 `stage7-0001` … `0004` 四个纯加表的迁移（含索引；`context_scopes`、`task_adoptions`、`completion_presentations`、`window_evaluation_requests`、`unresolved_mentions`、`migration_snapshots` 按所属组并入这四个迁移，不再另起编号）。老版本代码遇到它们不受影响（只加表）。
 2. 新代码启动，`worksEnabled=false` 时与现在行为**完全相同**。
 3. 用户打开 `worksEnabled` → 触发一次**回填**（§12.2）→ 之后新任务自动带 Work。
 4. 其余三个开关按依赖逐个打开（§12.4）。
 
 ### 12.2 回填：`backfillWorks()`（幂等，可中断重跑）
 
-放 `src/work/backfill.ts`；完成后在 `store_flags` 写 `works_backfill_v1`。内部以"每个 Task 一个事务"推进，崩溃后重跑只处理仍缺主关联的 Task。
+放 `src/work/backfill.ts`。**先写 `migration_snapshots`**（映射规则版本 + 来源哈希，R-20），再回填；完成后在 `store_flags` 写 `works_backfill_v1`。纯记录 / 问答型的老事项**不强制回填为 Work**——是否构成工作仍守 WK-01，不能把存量每行 Task 都当成新的业务请求（回填只给 `nexus_tasks` 里确有任务语义的行包 Work，规则版本写进映射）。内部以"每个 Task 一个事务"推进，崩溃后重跑只处理仍缺主关联的 Task。
 
 对每个 `nexus_tasks`（`status` 不在 `deleted` / `purging`，且无 `task_work_owner` 行）：
 
-1. `work_id = "w_" + task.id`（**确定性**，重跑不会重复建）；`title = task.title`；`request_text` 取 `goal_json` 中的目标文字；`outcome_text` 同；`origin='migrated'`；`context_mode='personal'`（迁移的老事项没有 Executive 标记）；`original_result_id = "r_" + work_id`；`created_at / updated_at` 取 Task 的；同时写 `work_versions` 第 1 版和一行 `outcome_contract_versions(template='legacy_task_success', provenance='migration')`。
+1. `work_id = "w_" + task.id`（**确定性**，重跑不会重复建）；`title = task.title`；`request_text` 取 `goal_json` 中的目标文字；`outcome_text` 同；`origin='migrated'`；`context_mode='personal'`、`primary_context_id` = Personal 的默认根范围、`context_origin='legacy_default'`、`context_review='pending'`（R-20：这是保守的存储默认，**不声称内容确属个人**，不新增跨来源权限，不自动重启后台工作；用户在**首次新的执行 / 披露前**就地确认用途，历史浏览不逐条弹窗；若有可靠的旧上下文字段则保留准确范围、`context_origin='explicit'`）；`original_result_id = "r_" + work_id`；`created_at / updated_at` 取 Task 的；同时写 `work_versions` 第 1 版和一行 `outcome_contract_versions(template_id='legacy_task_success', provenance='migration')`（**只读历史**，R-02：不据此产生新的达成事件）；同时按旧 Task 的终局写 `works.migrated_outcome`。
 2. 写 `task_work_owner(task_id → work_id)`（创建后不变，INV-02）。老事项不带 `work_links` 主关联行。
 3. 若 `goal_links(kind='task', ref_id=task.id)` 存在 → 写 `goal_work_links(role='primary')`（`work_version=1`），`goal_links` 行保留作影子。
 4. 若该 Task 有活动 `watches`（状态 `pending_schedule/scheduled/firing`）→ 为每个建一行 `schedules(owner_type='legacy_watch', owner_ref=watch.id, executor_kind='watch', executor_ref=watch.id, created_via='migration', schedule_kind 取自 watch 是否循环, status=active, cadence_json 取自 watch 的 expect/下次检查, work_id=上面的 Work)`，不要求方案（INV-10 的 `legacy_watch` 例外）；已 `satisfied/exhausted/cancelled` 的 watch 建 `ended/cancelled` 的 Schedule（`stop_reason` 取 `satisfied/exhausted/cancelled`）以保留历史。
-5. **已完成的老事项**（`status='succeeded'` 且完成门槛通过）：追加一条 `work_outcome_events(event_type='achieved', basis='migration', business_fulfilled_at=Task 的完成时间)`，使其在工作页显示“已完成”。**迁移出的完成不进入 CP 指标**（首次达成耗时、成功率等按 `basis='evidence'` 过滤），避免历史数据污染口径（INV-19、INV-32）。用户撤销这类完成时，按“迁移记录”措辞追加 `withdrawn`，不称“核验被推翻”。
+5. **已完成的老事项**（`status='succeeded'` 且完成门槛通过）：**不写达成事件**，只设 `works.migrated_outcome='succeeded'`。工作页显示“历史已结束，原因未记录”，不计入“已完成”、不计 CP——与目标侧 `legacy_unknown` 同口径（R-20）。原因：PRD 规定 `legacy_task_success` “不据此产生新的达成事件”，而 INV-19 又要求“已完成”必须有有效达成事件；两者合起来的保守解读就是**迁移历史不冒充核验过的完成**。用户可以明确**补记**“已完成”：追加 `work_outcome_events(basis='user_report', provenance='legacy_backfill')`，保存变更来源与时间，**不伪造旧完成时间**；这类事件 CP 排除。这个默认做法是本文自己的解读，PRD 没有直接说，待 R-42 确认（若需求方要求迁移的成功直接显示“已完成”，改成写 `provenance='legacy_backfill'` 的达成事件即可，表结构不用动）。
 6. 已结束但未成功的老事项（`failed` / `cancelled` 且用户已看过）：不凭空写结束事实；它们按 §5.2 第 4–6 行自然落在“阻塞 / 已结束”之一，由用户决定是否写 `work_terminal_events`。
 7. 写 `work_events(created, actor=system, payload.migrated=true)`。
 
@@ -1741,18 +2115,18 @@ type SourceEvidence = {
 
 ### 12.5 删除、清除与导出的接入
 
-| 对象             | 现有机制                                         | 新增处理                                                                                                                                                                                                                                                                                                                                                         |
-| ---------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 删除 / 清除 Task | `purge_runs` 协议（`purging` → 逐项清理 → 回执） | 清除步骤增加：该 Task 作为输出被引用的 `work_links(output_dependency)` 标 `ended`（引用方下次评估显示依赖缺口，不在这里跨 Work 写事件）；`task_work_owner` 行保留审计标记；若其主 Work 因此既无 Task 又无必需 Commitment / Schedule，则 Work 自动归档（不自动删，避免用户重要记录消失）；`task_ext` 行随 Task 清理；`schedule_triggers.task_id` 置空保留触发记录 |
-| 删除 Work        | 无                                               | 新增 `work-purge`：先要求处置活动 Task / Schedule；披露被引用情况；独占的 Task 走 Task 清除；共享的 Commitment / 文件只解除关联；写回执                                                                                                                                                                                                                          |
-| 清除 Goal        | `goal_purge_*`                                   | 增一步：该 Goal 的 `goal_work_links` 全部置 `ended_at`（`end_basis='goal_deleted'`）；目标专属方案和目标信策略（`goal_briefing_policies`）停止；独立 Work 保留并重评覆盖（§6.6）                                                                                                                                                                                 |
-| 删除 Counterpart | 无                                               | 见 §7.5：日常“删除”是**停用档案**（先出影响清单，自身份不可删）；只有按遗忘范围发起清除时，names / endpoints / links / 参与人链接 / relations 才物理清理，承诺里的 `responsible_raw` 与责任版本快照按遗忘范围决定是否脱敏                                                                                                                                        |
-| 导出 / 遗忘      | 现有导出清单                                     | 清单增加：works、work_links、work_events、commitments 及事件 / 证据归属 / 评估、counterparts 及其附属表、schedules / triggers / delegation_plans；遗忘按 FG 范围**使用阻止**先生效                                                                                                                                                                               |
-| 敏感度           | Goal 有 `sensitivity`                            | Work / Commitment 继承所属 Goal 的敏感度时，Agent 工具只返回标题（沿用目标做法）；单独的敏感度标记 Work 本批不加                                                                                                                                                                                                                                                 |
+| 对象                    | 现有机制                                         | 新增处理                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 删除 / 清除 Task        | `purge_runs` 协议（`purging` → 逐项清理 → 回执） | 清除步骤增加：该 Task 作为输出被引用的 `work_links(output_dependency)` 标 `ended`（引用方下次评估显示依赖缺口，不在这里跨 Work 写事件）；`task_work_owner` 行保留审计标记；若其主 Work 因此既无 Task 又无必需 Commitment / Schedule，则 Work 自动归档（不自动删，避免用户重要记录消失）；`task_ext` 行随 Task 清理；`schedule_triggers.task_id` 置空保留触发记录 |
+| 删除 Work               | 无                                               | 新增 `work-purge`：先要求处置活动 Task / Schedule；披露被引用情况；独占的 Task 走 Task 清除；共享的 Commitment / 文件只解除关联；写回执                                                                                                                                                                                                                          |
+| 清除 Goal               | `goal_purge_*`                                   | 增一步：该 Goal 的 `goal_work_links` 全部置 `ended_at`（`end_basis='goal_deleted'`）；目标专属方案和目标信策略（`goal_briefing_policies`）停止；独立 Work 保留并重评覆盖（§6.6）                                                                                                                                                                                 |
+| 停用 / 删除 Counterpart | 无                                               | 见 §7.5：日常“删除”是**停用档案**（R-32，不是遗忘）（先出影响清单，自身份不可删）；只有按遗忘范围发起清除时，names / endpoints / links / 参与人链接 / relations 才物理清理，承诺里的 `responsible_raw` 与责任版本快照按遗忘范围决定是否脱敏                                                                                                                      |
+| 导出 / 遗忘             | 现有导出清单                                     | 清单增加：works、work_links、work_events、context_scopes、task_adoptions、completion_presentations、commitments 及事件 / 证据归属 / 评估、counterparts 及其附属表（含 unresolved_mentions）、schedules / triggers / delegation_plans；遗忘按 FG 范围**使用阻止**先生效                                                                                           |
+| 敏感度                  | Goal 有 `sensitivity`                            | Work / Commitment 继承所属 Goal 的敏感度时，Agent 工具只返回标题（沿用目标做法）；单独的敏感度标记 Work 本批不加                                                                                                                                                                                                                                                 |
 
 ### 12.6 对账与自检：`nexus.work.integrity`
 
-只读诊断 RPC（也在测试里调用），报告：Task 无主 Work / 多个主 Work；Schedule 无主 Work；`goal_links(task)` 影子与 `goal_work_links` 的 primary 不一致；`work_links` 指向不存在对象；`commitments.responsible_counterpart_id` 指向已停用的人员却仍有 open 承诺；同一 Commitment 出现两个 accepted 方案；Schedule 的 `work_id` 与所属方案不一致；一个 Commitment 有多于一个当前 Assessment；`work_outcome_events` 链出现分叉；承诺 `resolved(source_verified)` 却没有任何有效 attribution；`identity_links` 作为依据但已 `stale/revoked` 的有效 attribution。**只报告，不自动修**（自动修会掩盖写入层 bug）。
+只读诊断 RPC（也在测试里调用），报告：Task 无主 Work / 多个主 Work；Schedule 无主 Work；`goal_links(task)` 影子与 `goal_work_links` 的 primary 不一致；`work_links` 指向不存在对象；`commitments.responsible_counterpart_id` 指向已停用的人员却仍有 open 承诺；同一 Commitment 出现两个 accepted 方案；Schedule 的 `work_id` 与所属方案不一致；一个 Commitment 有多于一个当前 Assessment；`work_outcome_events` 链出现分叉；承诺 `resolved(source_verified)` 却没有任何有效 attribution；`identity_links` 作为依据但已 `stale/revoked` 的有效 attribution。**只报告，不自动修**（自动修会掩盖写入层 bug）。；v1.95 增加：`window_evaluation_requests` 到期未处理或 `wrapping_up` 超过 `close_deadline_at`；`completion_presentations` 指向不存在的事件或事件已撤回却 `correction_state='none'`；未终结 Task 没有 `task_adoptions` 行，或 `adopted` 行的 `work_version` 落后于当前版本；`unresolved_mentions` 的来源版本已过期仍为 `open`；`counterparts.lifecycle='inactive'` 却仍有当前有效的 `confirmed` link 或 accepted 方案；周期 Commitment 同一 `period_request_id` 超过 12 期
 
 ### 12.7 兼容性清单
 
@@ -1771,16 +2145,16 @@ type SourceEvidence = {
 
 每片独立可合入、可回退（新表只增不改，开关默认关）。"规模"是相对大小：S ≈ 半天到一天，M ≈ 两三天，L ≈ 一周左右（含测试与文档，仅供排期参考）。
 
-| 片                            | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 规模  | 前置                       |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | -------------------------- |
-| **W0 准备**                   | 确定 ID 前缀与 `newId` 约定；`createTaskWithWork()` 入口梳理（找出所有 Task 创建点）；`derive` 的类型与测试骨架；配置开关与 manifest 文案；本文评审通过                                                                                                                                                                                                                                                                                                                             | S     | —                          |
-| **W1 Work 核心 + 工作视图**   | stage7-0001 迁移（`works` / `work_versions` / `task_work_owner` / `work_links` / `goal_work_links` / 结果达成与结束事实 / `work_prerequisites` / `work_controls`）；`work-ledger`（创建 / 更新 / 关联 / 事件 / 控制 / 合并拆分 / 软删除）；`taskPhase()`；`deriveWorkState()`（6 行）+ 表格测试；`backfillWorks()`（含 `basis=migration` 达成事件）；`nexus.work.*` RPC；`nexus_task_create` 自动带 Work；工作页 + 工作详情（嵌入现有任务详情）；路由重定向；`nexus.work.integrity` | **L** | W0                         |
-| **W2 Commitment + 行动台账**  | stage7-0002 与 stage7-0003 迁移一并发布（承诺的外键指向 `counterparts` / 自身份，迁移编号顺序固定；0002 的表在 W2 只建表、写自身份，业务逻辑留给 W3）：stage7-0003（commitments / 责任版本 / events / 最小合同 / `commitment_assessments` / 证据归属表建好，引擎先不接）；`commitment-ledger`（转换函数、影响预览、副作用 §6.4）；`nexus.commitment.*`；`nexus_commitment_*` 工具；工作详情"承诺事项"区块；WK-02 里接入承诺事实                                                     | **L** | W1                         |
-| **W3 人员 + 身份 + 人员视图** | 0002 的表已随 W2 建好（含自身份 `owner_identity`、两张参与人链接表）；`counterpart-ledger`（人员 / 名称 / 关系 / 端点 / link 状态机 / 更正身份 / 合并拆分 / 停用档案的影响清单）；`resolveName()`；`nexus.counterpart.*` / `nexus.person.*`；`nexus_counterpart_*` 工具；人员页（列表 + 详情 + 待确认人员 + 记录一项交代）；承诺责任人解析与"待确认人员"                                                                                                                            | **L** | W2                         |
-| **W4 Schedule + 跟进方案**    | stage7-0004 迁移；`schedule-ledger`（状态机、触发键去重、15 分钟下限、时区 / 夏令时）；`legacy_watch` 回填；执行器适配（`executor_kind='watch'` 复用现有 watcher 与 `run_triggers`）；`delegation_plans`（接受事务、承载解析 §9.5、CD-03 接手、CD-04 有界收尾）与 `nexus.delegation.*`；`goal_briefing_policies`；`nexus_schedule_*`；工作详情"跟进"区块；WK-04 控制全套；承诺结束 → 停止仅为它服务的检查（§6.4）                                                                   | **L** | W2（承诺作主归属）；W1     |
-| **W5 来源自动核验**           | `verifyCommitment()` 三步引擎；`resolveIdentity / assessRelevance / assessCriteria`；`EvidenceSourceAdapter` 接口、`manual` 来源与测试用 `fixture` 适配器；重评估 / 重开 / 映射变更失效（§7.4）；`evidence_attributions` 与 `criterion_assessments` 写入；Work 里的证据缺口 flag                                                                                                                                                                                                    | **L** | W2、W3，W4（定时检查触发） |
-| **W6 对齐与收尾**             | Goal 页"关联工作"、指标口径切换、`goal_links` 影子对账；Agent 协议提示 `work-prompt.ts`（及是否做技能，Q7）；评测场景文档（参照 G4 的 S1–S13）；Mac 预设版本号 +1；安装与演示文档、状态文档、README 更新                                                                                                                                                                                                                                                                            | M     | W1–W5                      |
-| **W7 暂缓项（另立文档）**     | PRD Decision 记录；RV 批量审阅；NX-15 文档内容理解；真实连接器适配器（邮件 / 日历）；通知出口与完整定时回看；Context 管理；Specialist subtask；待处理（IN）统一收件箱                                                                                                                                                                                                                                                                                                               | —     | —                          |
+| 片                            | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 规模  | 前置                       |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | -------------------------- |
+| **W0 准备**                   | 确定 ID 前缀与 `newId` 约定；`createTaskWithWork()` 入口梳理（找出所有 Task 创建点）；`derive` 的类型与测试骨架；配置开关与 manifest 文案；本文评审通过                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | S     | —                          |
+| **W1 Work 核心 + 工作视图**   | stage7-0001 迁移（`works` / `work_versions` / `task_work_owner` / `work_links` / `goal_work_links` / 结果达成与结束事实 / `work_prerequisites` / `work_controls`）；`work-ledger`（创建 / 更新 / 关联 / 事件 / 控制 / 合并拆分 / 软删除）；`taskPhase()`；`deriveWorkState()`（6 行）+ 表格测试；`backfillWorks()`（先写 `migration_snapshots`；迁移完成的老事项不写达成事件，设 `migrated_outcome`，待 R-42）；`context_scopes`（两个默认根）、`task_adoptions`、`completion_presentations`、`window_evaluation_requests` 四张表及其账本函数（窗口评估服务可晚于 W4 接入，但表和登记在 W1 就位）；`nexus.work.*` RPC；`nexus_task_create` 自动带 Work；工作页 + 工作详情（嵌入现有任务详情）；路由重定向；`nexus.work.integrity` | **L** | W0                         |
+| **W2 Commitment + 行动台账**  | stage7-0002 与 stage7-0003 迁移一并发布（承诺的外键指向 `counterparts` / 自身份，迁移编号顺序固定；0002 的表在 W2 只建表、写自身份，业务逻辑留给 W3）：stage7-0003（commitments / 责任版本 / events / 最小合同 / `commitment_assessments` / 证据归属表建好，引擎先不接）；`commitment-ledger`（转换函数、影响预览、副作用 §6.4）；`nexus.commitment.*`；`nexus_commitment_*` 工具；工作详情"承诺事项"区块；WK-02 里接入承诺事实                                                                                                                                                                                                                                                                                                   | **L** | W1                         |
+| **W3 人员 + 身份 + 人员视图** | 0002 的表已随 W2 建好（含自身份 `owner_identity`、两张参与人链接表）；`counterpart-ledger`（人员 / 名称 / 关系 / 端点 / link 状态机 / 更正身份 / 合并拆分 / 停用档案的影响清单）；`resolveName()`；`nexus.counterpart.*` / `nexus.person.*`；`nexus_counterpart_*` 工具；人员页（列表 + 详情 + 待确认人员 + 记录一项交代；R-12 范围过滤、R-29 三列、R-30 阶段顺序）；`unresolved_mentions` 与消歧卡（R-31）；停用 / 合并（R-32）；本人配对（R-13）；承诺责任人解析与"待确认人员"                                                                                                                                                                                                                                                  | **L** | W2                         |
+| **W4 Schedule + 跟进方案**    | stage7-0004 迁移；`schedule-ledger`（状态机、触发键去重、15 分钟下限、时区 / 夏令时）；`legacy_watch` 回填；执行器适配（`executor_kind='watch'` 复用现有 watcher 与 `run_triggers`）；`delegation_plans`（接受事务、承载解析 §9.5、CD-03 接手、CD-04 有界收尾）与 `nexus.delegation.*`；`goal_briefing_policies`；`nexus_schedule_*`；工作详情"跟进"区块；WK-04 控制全套；承诺结束 → 停止仅为它服务的检查（§6.4）                                                                                                                                                                                                                                                                                                                 | **L** | W2（承诺作主归属）；W1     |
+| **W5 来源自动核验**           | `verifyCommitment()` 三步引擎；`resolveIdentity / assessRelevance / assessCriteria`；`EvidenceSourceAdapter` 接口、`manual` 来源与测试用 `fixture` 适配器；重评估 / 重开 / 映射变更失效（§7.4）；`evidence_attributions` 与 `criterion_assessments` 写入；Work 里的证据缺口 flag                                                                                                                                                                                                                                                                                                                                                                                                                                                  | **L** | W2、W3，W4（定时检查触发） |
+| **W6 对齐与收尾**             | Goal 页"关联工作"、指标口径切换、`goal_links` 影子对账；Agent 协议提示 `work-prompt.ts`（及是否做技能，Q7）；评测场景文档（参照 G4 的 S1–S13）；Mac 预设版本号 +1；安装与演示文档、状态文档、README 更新                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | M     | W1–W5                      |
+| **W7 暂缓项（另立文档）**     | PRD Decision 记录；RV 批量审阅；NX-15 文档内容理解；真实连接器适配器（邮件 / 日历）；通知出口与完整定时回看；Context 管理；Specialist subtask；待处理（IN）统一收件箱                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | —     | —                          |
 
 建议先做 **W1 → W2 → W3**：这三片合起来用户就能得到"工作 + 人员"两个入口和承诺台账（"交代给某人的事做完没有"），这是你最关心的价值；W4 / W5 再补"自动盯着"和"自动核验"。
 
@@ -1798,107 +2172,133 @@ type SourceEvidence = {
 
 **INV → 测试映射（PRD 附录 E，每条至少一个正例和一个反例；覆盖写入、并发、重试、投影重建）**。失败返回约束 ID 与安全原因（不含对象内容）。“暂缓”指本批只留接口，不写测试。
 
-| INV                                   | 落点                             | 正例                                            | 反例                                                                                              |
-| ------------------------------------- | -------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 01 所有者与自身份                     | §4.3.1 `owner_identity`          | 每个所有者恰一个 person 自身份                  | 第二个自身份被拒；自身份不可删除 / 合并                                                           |
-| 02 Task 主归属                        | §4.2.2 `task_work_owner`         | 创建 Task 同事务写归属                          | 改归属被触发器拒；Task 无归属不能提交                                                             |
-| 03 计划与尝试绑定                     | §4.2.1 / Q12 最小版              | Run 固定创建时的 Task 与计划                    | **本批最小版**：计划版本化暂缓，仅测“Run 不可改绑 Task”                                           |
-| 04 主上下文                           | §4.2.1 `context_mode` + 语义版本 | Work 版本与 Commitment 各有一个主用途           | 两个主用途；Task 与其 Work 版本用途不一致                                                         |
-| 05 Goal 关联范围                      | §4.2.3 `goal_work_links`         | Personal Work 至多一个 primary                  | Executive Work 建 Goal 边被拒；第二个 primary 被拒                                                |
-| 06 Goal 层级与状态                    | 现有 `goals`                     | 一层子目标、无环                                | 孙目标 / 环被拒；`paused` 不存在                                                                  |
-| 07 关联唯一写源                       | §4.2.2、§4.3.2                   | 投影可由唯一源重建                              | 绕过唯一源写投影被拒；`work.integrity` 报不一致                                                   |
-| 08 责任人与参与人                     | §4.4.1、§4.3.2                   | 责任人 0..1、可为空                             | 参与人表写 responsible 副本被拒；协调人改派承诺被拒                                               |
-| 09 引用不授控制                       | §4.2.2 `work_links`、§6.6        | 多 Work 引用同一 C / Task 输出                  | 引用方控制被引用的 Task 被拒；`output_dependency` 成环被拒                                        |
-| 10 跟进资格与业务归属                 | §4.5.1 / §4.5.2                  | 接受事务同时保存至少一条绑定 Schedule           | 同 C 第二个 accepted 方案被拒（含暂停 / 收尾中）；Schedule 的 Work 或归属与方案不一致被拒         |
-| 11 活跃计划关联完整性                 | §4.5.1                           | 有有效 `goal_work_links` / 结果引用时可派发     | 关联被解除后不能再派发、只能收尾                                                                  |
-| 12 触发与任务幂等                     | §4.5.3 `slot_open`               | 同次重投复用 Task                               | 同 Schedule 第二个未终结 Task 被拒；once 触发前不建延后 Task                                      |
-| 13–14 稳定动作 / 审批批次             | 现有 `action_executions`         | —                                               | 暂缓（沿用现有表，本批不改）                                                                      |
-| 15 权限网关不可替代                   | 沿用决策 / 授权（Stage 2）       | 外发走既有审批                                  | 改变 link / 关系 / 参与人不改变任何 grant 可用性                                                  |
-| 16 撤销与准入变化                     | §6.6、§8                         | 来源撤销后立即阻断读取                          | 连接恢复不自动清手动控制或证明覆盖恢复                                                            |
-| 17 状态维度独立                       | §5.2                             | 事实打乱顺序结果相同                            | Task completed 不写 Commitment；无“设置展示状态”接口                                              |
-| 18 唯一履约判定                       | §4.4.1、§4.4.3                   | 核验、当前 Assessment、resolved 同一事务        | 并发两个评估只一个提交成功（`verification_commit_version`）；`source_verified` 无 Assessment 被拒 |
-| 19 结果达成与时间                     | §4.2.5                           | `achieved` → 撤回清 `current_completed_at`      | 无有效事件不能显示“已完成”；`first_achieved_at` 不被改写；通知同一事务写 Outbox 且幂等            |
-| 20 停止快照优先                       | §4.2.6                           | 停止后另一 Work 让共享 C 履行，仍是已结束未完成 | 无关升版不清停止；接手失败不回滚原停止                                                            |
-| 21 版本采用与迟到回执                 | §4.2.1 / Q12                     | 旧回执固定原版本                                | **本批最小版**：Task 计划采用依据暂缓；测 Work 修订后旧引用不被改写                               |
-| 22 控制叠加                           | §4.2.8                           | 两条控制叠加，解除其一仍暂停                    | 解除时误解除另一条被拒                                                                            |
-| 23–24 资源 / 自动批准额度             | 暂缓                             | —                                               | 暂缓；方案沿袭字段保留                                                                            |
-| 25 系统作业                           | Q14                              | `origin_kind='system_job_run'` 仅保留枚举       | 暂缓表；创建被拒并给原因                                                                          |
-| 26 问答升级承接                       | 暂缓                             | —                                               | 暂缓                                                                                              |
-| 27 承诺创建来源                       | §4.4.1                           | 三选一并固定来源                                | 创建后改 `origin_*` 被触发器拒；重复提取不改来源                                                  |
-| 28–31 会话 / 待处理 / 成果 / 删除保留 | 暂缓（31 的删除部分见 §12.5）    | —                                               | 暂缓；删除按 §12.5 测                                                                             |
-| 32 结果指标与更正                     | §4.2.5 `original_result_id`      | 接手 / 重试不新生原请求                         | CP 指标排除 `basis='migration'`；原分母不消失                                                     |
-| 33 解除与级联                         | §6.6                             | 每行矩阵：直接对象与影响事件原子出现            | 跨对象清理未完成时旧提交被围栏拦住，界面显示“正在处理”，不伪造完成                                |
-| 34 身份与端点                         | §4.3                             | 共享邮箱是端点；confirmed 且用途匹配才用于归属  | 姓名 / 域名 / 声音只能是候选；`kind='shared_mailbox'` 的 Counterpart 被拒                         |
+| INV                                   | 落点                                | 正例                                                                                                         | 反例                                                                                                                                                                                    |
+| ------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 01 所有者与自身份                     | §4.3.1 `owner_identity`             | 每个所有者恰一个 person 自身份；重复本人配对幂等                                                             | 第二个自身份被拒；自身份不可停用 / 删除 / 合并；bot ID 当本人被拒（R-13）                                                                                                               |
+| 02 Task 主归属                        | §4.2.2 `task_work_owner`            | 创建 Task 同事务写归属                                                                                       | 改归属被触发器拒；Task 无归属不能提交                                                                                                                                                   |
+| 03 计划与尝试绑定                     | §4.2.11 `task_adoptions`            | 每个 Task 最多一个已激活不可变快照；实质修改建后继 Task；Run 固定创建时的 Task 与快照                        | **本批最小版**：原地改 Run 计划、绑定别的 Task 的快照、并发有效 Run 被拒；完整 `TaskPlanVersion` 暂缓                                                                                   |
+| 04 主上下文                           | §4.2.10 `context_scopes` + 语义版本 | Work 版本与 Commitment 各绑定一个 `scope_id`；改名保持 ID                                                    | 两个主用途；Task 与其 Work 版本用途不一致；同名标签被静默合并                                                                                                                           |
+| 05 Goal 关联范围                      | §4.2.3 `goal_work_links`            | Personal Work 至多一个 primary                                                                               | Executive Work 建 Goal 边被拒；第二个 primary 被拒                                                                                                                                      |
+| 06 Goal 层级与状态                    | 现有 `goals`                        | 一层子目标、无环                                                                                             | 孙目标 / 环被拒；`paused` 不存在                                                                                                                                                        |
+| 07 关联唯一写源                       | §4.2.2、§4.3.2                      | 投影可由唯一源重建                                                                                           | 绕过唯一源写投影被拒；`work.integrity` 报不一致                                                                                                                                         |
+| 08 责任人与参与人                     | §4.4.1、§4.3.2                      | 责任人 0..1、可为空                                                                                          | 参与人表写 responsible 副本被拒；协调人改派承诺被拒                                                                                                                                     |
+| 09 引用不授控制                       | §4.2.2 `work_links`、§6.6           | 多 Work 引用同一 C / Task 输出                                                                               | 引用方控制被引用的 Task 被拒；`output_dependency` 成环被拒                                                                                                                              |
+| 10 跟进资格与业务归属                 | §4.5.1 / §4.5.2                     | 接受事务同时保存至少一条绑定 Schedule                                                                        | 同 C 第二个 accepted 方案被拒（含暂停 / 收尾中）；Schedule 的 Work 或归属与方案不一致被拒                                                                                               |
+| 11 活跃计划关联完整性                 | §4.5.1                              | 有有效 `goal_work_links` / 结果引用时可派发                                                                  | 关联被解除后不能再派发、只能收尾                                                                                                                                                        |
+| 12 触发与任务幂等                     | §4.5.3 `slot_open`                  | 同次重投复用 Task                                                                                            | 同 Schedule 第二个未终结 Task 被拒；once 触发前不建延后 Task                                                                                                                            |
+| 13–14 稳定动作 / 审批批次             | 现有 `action_executions`            | 逐项审批、动作幂等                                                                                           | 本批批次对象 / 批准关闭：拒绝批量消费（INV-14 说明）；IM 消费 AP 批准被拒（R-15）                                                                                                       |
+| 15 权限网关不可替代                   | 沿用决策 / 授权（Stage 2）          | 外发走既有审批                                                                                               | 改变 link / 关系 / 参与人不改变任何 grant 可用性                                                                                                                                        |
+| 16 撤销与准入变化                     | §6.6、§8                            | 来源撤销后立即阻断读取                                                                                       | 连接恢复不自动清手动控制或证明覆盖恢复                                                                                                                                                  |
+| 17 状态维度独立                       | §5.2                                | 事实打乱顺序结果相同                                                                                         | Task completed 不写 Commitment；无“设置展示状态”接口                                                                                                                                    |
+| 18 唯一履约判定                       | §4.4.1、§4.4.3                      | 核验、当前 Assessment、resolved 同一事务                                                                     | 并发两个评估只一个提交成功（`verification_commit_version`）；`source_verified` 无 Assessment 被拒                                                                                       |
+| 19 结果达成与时间                     | §4.2.5、§4.2.12                     | `achieved` → 撤回清 `current_completed_at`；`basis` 按标准来源区分                                           | 无有效事件不能显示“已完成”；`first_achieved_at` 不被改写；通知同一事务写 Outbox 且幂等；用户确认不能替代必需来源标准；窗口评估与 `achieved` 互斥（CAS）；已呈现的完成被撤回必有更正事项 |
+| 20 停止快照优先                       | §4.2.6                              | 停止后另一 Work 让共享 C 履行，仍是已结束未完成                                                              | 无关升版不清停止；接手失败不回滚原停止                                                                                                                                                  |
+| 21 版本采用与迟到回执                 | §4.2.1、§4.2.11                     | 旧回执固定原版本；Work 修订后所有未终结 Task 整体 `pending`，接受后建后继 Task                               | **本批最小版（R-06）**：无采用依据提交旧日期效果、原地改旧计划被拒；并发再次修订令旧确认失效；不要求逐标准兼容记录                                                                      |
+| 22 控制叠加                           | §4.2.8                              | 两条控制叠加，解除其一仍暂停                                                                                 | 解除时误解除另一条被拒                                                                                                                                                                  |
+| 23–24 资源 / 自动批准额度             | §4.7；INV-24 说明                   | 资源上限原子预留                                                                                             | **本批规则与额度执行关闭**：启用 / 消费历史规则被拒；方案沿袭字段保留                                                                                                                   |
+| 25 系统作业                           | §4.2.12；Q14                        | 受控 request / attempt 作为逻辑 Job / Run，类型限问答、遗忘 / 删除、到期清理、窗口评估；同时最多一个有效尝试 | 并发有效 JobRun、裸工具调用、Job 外发被拒；`origin_kind='system_job_run'` 仍只保留枚举                                                                                                  |
+| 26 问答升级承接                       | 暂缓                                | —                                                                                                            | 暂缓                                                                                                                                                                                    |
+| 27 承诺创建来源                       | §4.4.1                              | 三选一并固定来源                                                                                             | 创建后改 `origin_*` 被触发器拒；重复提取不改来源                                                                                                                                        |
+| 28–31 会话 / 待处理 / 成果 / 删除保留 | 暂缓（31 的删除部分见 §12.5）       | —                                                                                                            | 暂缓；删除按 §12.5 测                                                                                                                                                                   |
+| 32 结果指标与更正                     | §4.2.1 CP 字段、§4.2.5              | 接手 / 重试不新生原请求；有效达成 / 撤回 / 恢复链与时间可取                                                  | `provenance='legacy_backfill'` 的事件排除出 CP；原分母不消失；聚合报表本批未实施，不记通过                                                                                              |
+| 33 解除与级联                         | §6.6                                | 每行矩阵：直接对象与影响事件原子出现                                                                         | 跨对象清理未完成时旧提交被围栏拦住，界面显示“正在处理”，不伪造完成                                                                                                                      |
+| 34 身份与端点                         | §4.3                                | 共享邮箱是端点；confirmed 且用途匹配才用于归属                                                               | 姓名 / 域名 / 声音只能是候选；`kind='shared_mailbox'` 的 Counterpart 被拒；**R-14：伪造把身份映射提升到 `source_verified` 被拒**                                                        |
 
 ### 13.3 验收场景（对应 PRD AT）
 
-| 编号 | 场景                                  | 通过标准                                                                                                                                                            | 对应 PRD                               |
-| ---- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| V1   | 老用户升级                            | 打开 `worksEnabled` 后，所有老事项各成一件工作，详情里原步骤 / 决策 / 证据一字不少；老链接可打开                                                                    | AT-149–AT-154（前台命名与对象）；§12.2 |
-| V2   | "帮我盯住李明周三交报价表"            | 一件 Work + 一个人员（李明，`stated`）+ 一条 Commitment（责任人李明、周三 17:00 带时区、标准含"指定项目"）；**没有**因此建任何 Task 或 Schedule；人员页能看到这一条 | AT-81–AT-86；§3.1 示例                 |
-| V3   | 同名两个"小王"                        | 人员列表并列显示，不自动合并；承诺保持"待确认人员"直到用户选择                                                                                                      | PV-01；ER-02                           |
-| V4   | 用户停止工作                          | 预览列出将取消的 Task / Schedule 和**保留**的 Commitment；确认后 Work 为"已结束（未完成）"，承诺仍 waiting                                                          | WK-04；AT-24                           |
-| V5   | 提醒已发、方案没到                    | Work 仍 in_progress（有 active Schedule）或 needs_you，不是 done；Commitment 仍 waiting                                                                             | §3.1 示例；AT-24                       |
-| V6   | 手动结案                              | 注明原因；`resolution_basis=manual_override`，`verification` 不变；Work 不显示"已完成"                                                                              | NX-04；AT-161–AT-166                   |
-| V7   | 两小时后返回，十件工作                | 五类计数互斥合计 10；"待你处理"置顶；组合同 AT-227–AT-230                                                                                                           | RT-02；WK-02                           |
-| V8   | 夹具适配器：邮箱=李明，附件含指定条目 | 引擎 `verified_complete` → `resolved(source_verified)`；同邮箱发空附件 → `verified_exception` 且不结案；同名但无 link → 保留候选、请求消歧                          | ER-04；AT-81–AT-86                     |
-| V9   | 改邮箱 link（账号复用）               | 受影响 attribution 重评估；此前因它结案的承诺重开并写原因；依赖该映射的草稿批准失效；不自动重发                                                                     | ER-05                                  |
-| V10  | 承诺被另一件 Work 引用                | 结案前展示影响；人员列表只计一次；两处状态一致                                                                                                                      | AT-19；PV-02                           |
-| V11  | Schedule 到期                         | `ended` + `stop_reason`；Commitment 不变；Work 按 §5.2 变"已结束（未完成）"或"尚未安排跟进"；不自动复活                                                             | NX-05；AT-23/24                        |
-| V12  | Agent 越权尝试                        | 让 Agent 确认身份 / 结案 / 取消 / 暂停被拒，且给出用户可见的"请在工作详情里操作"                                                                                    | §6.3；规则 9                           |
+| 编号 | 场景                                  | 通过标准                                                                                                                                                                                       | 对应 PRD                               |
+| ---- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| V1   | 老用户升级                            | 打开 `worksEnabled` 后，所有老事项各成一件工作，详情里原步骤 / 决策 / 证据一字不少；老链接可打开                                                                                               | AT-149–AT-154（前台命名与对象）；§12.2 |
+| V2   | "帮我盯住李明周三交报价表"            | 一件 Work + 一个人员（李明，`stated`）+ 一条 Commitment（责任人李明、周三 17:00 带时区、标准含"指定项目"）；**没有**因此建任何 Task 或 Schedule；人员页能看到这一条                            | AT-81–AT-86；§3.1 示例                 |
+| V3   | 同名两个"小王"                        | 人员列表并列显示，不自动合并；承诺保持"待确认人员"直到用户选择                                                                                                                                 | PV-01；ER-02                           |
+| V4   | 用户停止工作                          | 预览列出将取消的 Task / Schedule 和**保留**的 Commitment；确认后 Work 为"已结束（未完成）"，承诺仍 waiting                                                                                     | WK-04；AT-24                           |
+| V5   | 提醒已发、方案没到                    | Work 仍 in_progress（有 active Schedule）或 needs_you，不是 done；Commitment 仍 waiting                                                                                                        | §3.1 示例；AT-24                       |
+| V6   | 手动结案                              | 注明原因；`resolution_basis=manual_override`，`verification` 不变；Work 不显示"已完成"                                                                                                         | NX-04；AT-161–AT-166                   |
+| V7   | 两小时后返回，十件工作                | 五类计数互斥合计 10；"待你处理"置顶；组合同 AT-227–AT-230                                                                                                                                      | RT-02；WK-02                           |
+| V8   | 夹具适配器：邮箱=李明，附件含指定条目 | 引擎 `verified_complete` → `resolved(source_verified)`；同邮箱发空附件 → `verified_exception` 且不结案；同名但无 link → 保留候选、请求消歧                                                     | ER-04；AT-81–AT-86                     |
+| V9   | 改邮箱 link（账号复用）               | 受影响 attribution 重评估；此前因它结案的承诺重开并写原因；依赖该映射的草稿批准失效；不自动重发                                                                                                | ER-05                                  |
+| V10  | 承诺被另一件 Work 引用                | 结案前展示影响；人员列表只计一次；两处状态一致                                                                                                                                                 | AT-19；PV-02                           |
+| V11  | Schedule 到期                         | `ended` + `stop_reason`；Commitment 不变；Work 按 §5.2 变"已结束（未完成）"或"尚未安排跟进"；不自动复活                                                                                        | NX-05；AT-23/24                        |
+| V12  | Agent 越权尝试                        | 让 Agent 确认身份 / 结案 / 取消 / 暂停被拒，且给出用户可见的"请在工作详情里操作"                                                                                                               | §6.3；规则 9                           |
+| V13  | 新建约定与模板                        | 只接受四个启用键；`reservation_confirmed` / `approval_or_signature_obtained` / 未知键 / `legacy_task_success` 新建被拒；假供应商预约不得产生真实核验完成；普通整理走 `user_confirmed_delivery` | R-02；AT-241                           |
+| V14  | 用户确认标准                          | `user_confirmation` 可让个人行动 / 用户验收的成果达成，`basis=user_report`；必需来源证据标准未满足时用户确认不能让 Work 完成；撤回有记录                                                       | R-03；AT-242–243                       |
+| V15  | 硬窗口到期                            | 到期 60 秒内开始评估；已达成则 `achieved`，否则 ≤5 分钟收尾后 `window_ended`，二者互斥；重启后补评估；故障期间显示“窗口已过，等待核对”                                                         | R-04；AT-244–245                       |
+| V16  | 完成后被撤回                          | 曾向用户呈现（渠道 submitted / 聊天已发布）则必有一次更正事项并通知；迟到的 submitted 也触发；未曾外露的事务内纠正才可合并                                                                     | R-05；AT-246                           |
+| V17  | 口头接受与多人责任                    | “他口头答应了”记 `accepted + user_report`，显示“你记录”；`source_only` 下不满足接受标准；“小王和小李一起做”要求分责或指定负责人，“任一人完成即可”被提示不支持                                  | R-09 / R-10；AT-247–248                |
+| V18  | 阻塞原因                              | 九个 reason_code 各有谁可处理与解除条件；Schedule `paused` 不写成 `blocked`；用户可操作的请求落“待你处理”；系统核对中显示“核对中 · 暂无需操作”，不造审批按钮                                   | R-11 / R-21 / R-34；AT-249–250、AT-282 |
+| V19  | 业务修订（最小版本化）                | 修订后该 Work 所有未终结 Task 整体 `pending`，旧 Run 不被改写；用户接受后建后继 Task + `task_adoptions`；并发再次修订令旧确认失效；原 Task 原地换计划被拒                                      | R-06；AT-256–258                       |
+| V20  | 范围与迁移                            | 同名标签不合并；迁移重跑不重复；无模式的老事项标 `legacy_default` + `pending` 且不重启执行；改 Executive 先解除活动 Goal 边；老事项完成显示“历史已结束，原因未记录”（待 R-42）                 | R-08 / R-20；AT-259、AT-265–267        |
+| V21  | 本人配对与身份映射                    | 配对成功才能在 IM 私聊做内部决定；bot 号不当本人；`source_verified` 提升被拒；IM 不消费 AP 批准；群聊决定不接收                                                                                | R-13–R-15；AT-261–263                  |
+| V22  | 周期义务                              | “每周五交周报”在同一 Work 内生成 ≤12 期独立 Commitment，重试不重复；超范围要求缩短窗口；某期交付不完成后续期                                                                                   | R-28；AT-270                           |
+| V23  | 停用 / 合并 / 提及                    | 停用后未解 C 经新责任版本置空、相关计划 `dependency_version_pending`、不静默改派；自身份不可停用；合并只限同一主体且独立 C 不合并；不同会议的同名“小王”不自动同组，确认默认仅本次              | R-31 / R-32；AT-271–272、AT-280        |
+| V24  | 人员页三列与阶段                      | 沟通 / 接受 / 核验三列固定文案；阶段按 R-30 顺序；“截止已过”并存不盖住“等待你决定”；默认当前范围，“显示其他模式”不授予权限                                                                     | R-12 / R-29 / R-30；AT-260、AT-278–279 |
 
 ## 14. 待决问题（建议的默认值已写在括号里，评审时请确认或改）
 
-Q1. **没有任何分支的新 Work 算哪一类？**（默认：阻塞，原因"尚未安排执行"；备选：待你处理。）PRD WK-01 允许 Work 先于 Task 存在，但 WK-02 的五行没有直接覆盖这种情况。
-Q2. **"以部分结果结束"的实现。**（默认：Task 走取消路径 + `task_ext.partial`；备选：给 `nexus_tasks.status` 增加 `partial` 值，需要破例改"已发布表不加枚举"的纪律，见 Q6。）
-Q3. **手动结案是否可以默认算工作完成。**（默认：不算，合同要加 `user_accept` 标准才行；个人事务类 Work 是否默认带 `user_accept`，等 W1 试用后看。）
-Q4. **PRD "决策（Decision）" 记录何时做。**（默认：本批不做；界面用语上把现有"审批决定"称为"批准"，避免与未来的"决策"重名；`commitments.decision_ref` 留空位。）
-Q5. **跟进方案的确认入口。**（默认：只在工作详情的方案面板 / 现有决定面板；备选：允许在聊天里通过 `ask_user` 卡片确认，由服务端核对消息引用——体验更顺，但要先验证宿主能给出不可伪造的"用户点击"信号。）
-Q6. **能否给 `nexus_tasks.status` 增加枚举值。**（默认：不加；`partial` / `blocked` 放 `task_ext`。）
-Q7. **要不要像目标那样做 Agent 技能（work / follow-up）。**（默认：W6 先写协议提示，试用后看是否需要技能；G4 教训：创建类对话不要让模型读技能，直接给引导。）
-Q8. **现有"进行中事项"提示列表。**（默认：保留，但按 Work 聚合——提示里列的是"待你处理 / 继续中"的 Work 标题和其下 Task 的 id，限定条数与长度；避免一件 Work 的三个 Task 占三行。）
-Q9. **多用户。**（默认：仍用 `owner_id="local"` 占位，PRD 的 `tenant_id` 在引入真实账号时统一替换；新表已全部带 `owner_id`。）
-Q10. **"首页"指什么。**（默认：控制台的"工作"页就是首页，"人员"与之并列；是否还需要把两者聚合在一个更靠前的总览页，等 W1 / W3 试用后再定。）
-Q11. **Counterpart 与现有 `entities_json` 里的人名。**（默认：不回填，不猜测；老事项里零散的人名保持原样，用户在需要时手动建人员。）
+PRD v1.95 回答了本文原来大部分问题。下表是 Q1–Q15 的当前状态；**仍待需求方确认的只剩 R-36、R-37、R-42、R-43、R-44**（见下表后的清单与附录 E.2），其余是研发自决项。
 
-Q12. **版本化做到哪一步。**（默认：最小版——Work 修订走 `work_versions`，Task 计划暂不版本化、不建 `WorkTaskCompatibility`，等真实 Provider 接入前再补；完整引入的代价是 Task 表结构和每个执行入口都要改。对应 INV-03、INV-21；澄清问题 R-06。）
-Q13. **结果达成事件与结束事实是否本批必做。**（默认：必做——WK-02 第 1、2 行已经依赖 `work_outcome_events` / `work_terminal_events`，CP 指标（首次达成、撤回）也靠它们；“约定窗口”由谁写、何时写见 R-03、R-04。）
-Q14. **SystemJob 本批做不做。**（默认：不做，只在 `commitments.origin_kind` 里预留 `system_job_run`；不做时“清理 / 遗忘”由谁执行见 R-07。）
-Q15. **Context 的最小做法。**（默认：`context_mode` 必填 + 语义版本，`ContextProfile` 表暂缓；“项目”范围键见 R-08、R-12。）
+| 编号 | 问题                                 | 当前状态（对照 PRD v1.95）                                                                                                                        |
+| ---- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Q1   | 没有任何分支的新 Work 算哪一类       | **已回答**：WK-02 第 6 行兜底（阻塞 / 暂停 / 待核对，“尚未安排执行”）；需要用户补充时先建前置请求，下次评估进第 3 行                              |
+| Q2   | "以部分结果结束"的实现               | **研发自决**：`accept_partial` 是独立的 `work_terminal_events` 原因；Task 走取消路径，`task_ext.partial` 只作展示字段                             |
+| Q3   | 手动结案是否默认算工作完成           | **已回答（R-03）**：不算；合同要有 `criterion_source = user_confirmation` 的标准，且用户确认不能覆盖必需来源证据                                  |
+| Q4   | PRD "决策（Decision）"记录何时做     | **仍待确认 → R-43**：§0.6 既没列入也没排除；默认不做，`commitments.decision_ref` 留位                                                             |
+| Q5   | 跟进方案的确认入口                   | **已回答（R-15）**：IM 私聊可做内部决定（接受方案、`user_confirmation`），带 `decision_request_id`；AP 审批不在 IM 消费；需先完成本人配对（§7.8） |
+| Q6   | 能否给 `nexus_tasks.status` 加枚举值 | **研发自决**：不加；PRD 也说 Task 不新增 scheduled / delayed 状态                                                                                 |
+| Q7   | 要不要做 Agent 技能                  | **研发自决**：W6 先写协议提示，试用后再看                                                                                                         |
+| Q8   | 现有"进行中事项"提示列表             | **研发自决**：按 Work 聚合，限定条数与长度                                                                                                        |
+| Q9   | 多用户                               | **仍有效**：本批是单用户 / 自部署，`owner_id="local"` 占位                                                                                        |
+| Q10  | "首页"指什么                         | **已回答（R-18）**：默认路由 `works`，待你处理与返回视图都在工作首页；不新建 Chat 页                                                              |
+| Q11  | `entities_json` 里的人名             | **研发自决**：不回填；ER-02 也禁止凭姓名推定身份                                                                                                  |
+| Q12  | 版本化做到哪一步                     | **已回答（R-06）**：最小版，整个 Work 待采用 + 后继 Task + `task_adoptions`（§4.2.11）                                                            |
+| Q13  | 结果达成 / 结束事实是否本批必做      | **已回答（R-04 / R-19）**：必做；窗口由合同字段 + 持久评估请求写入                                                                                |
+| Q14  | SystemJob 本批做不做                 | **已回答（R-07）**：不建独立表，用受控 request / attempt；回填、目标信、记忆整理、共享观察关闭                                                    |
+| Q15  | Context 的最小做法                   | **已回答（R-08）**：`context_scopes` 最小范围记录（§4.2.10）                                                                                      |
 
-> **对照 PRD v1.86 的状态**：Q1 已被 WK-02 第 6 行兜底行回答，与默认值一致；其余各条的最新状态见**附录 E.3**。新发现、需要和需求方讨论的问题见**附录 E**（R-01–R-41；E.4 PRD 自身问题、E.5 原型自身不一致、E.6 原型未覆盖界面、E.7 阻塞关系）。
+**仍待需求方确认的问题**（详见附录 E.2）：
 
-## 附录 A. PRD 追溯（对照 PRD v1.86）
+1. **R-36 完成之后又出现“事故补救”决定**：主状态、计数和待处理列表怎么放？默认：主状态保持“已完成”，加信息性标记 `remediation_open`，补救决定进待处理列表，计数仍按主状态。
+2. **R-37 催办 / 继续跟进 / 委派合并面板**里“发送催办”（AP 审批）和“接受跟进方案”（CD 接受）两个决定的先后与失败回退。默认：两个决定独立；发送失败不影响方案接受，方案接受失败不撤回已批准的发送。
+3. **R-42 迁移出的“已成功”老事项算不算“已完成”**：PRD 说 `legacy_task_success` “不据此产生新的达成事件”，但“已完成”又必须有达成事件。默认：不写事件，显示“历史已结束，原因未记录”，用户可补记。
+4. **R-43 PRD Decision 记录是否在本批范围**。默认：不在。
+5. **R-44 Schedule 因约定到期 ended，是否直接等于“已结束（未完成）”**：WK-02 典型组合说是，R-04 又说 Schedule ended 不代写 `window_ended`。默认：只在推导里读 Schedule 自己的结束事实，不写终止事件。
+
+> **对照 PRD v1.95 的状态**：附录 E 的原有问题 R-01–R-41 中，R-01–R-35、R-39–R-41 已由 PRD 回答（R-38 因分享关闭不再适用），R-36、R-37 仍待确认；本轮新增 R-42–R-44。
+
+## 附录 A. PRD 追溯（对照 PRD v1.95）
 
 “状态”列：**覆盖** = 本文有对应的表 / 规则 / 测试；**部分** = 只做最小版或只留接口；**暂缓** = 本批不做，已留外键位置。
 
-| PRD 条款                                                                                      | 本文位置                                | 状态                                                                                                                                 |
-| --------------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| §3.1 对象表、数量规则、持久化边界                                                             | §2、§4.2、§4.5、§5                      | 覆盖（Context、Specialist subtask、Deliverable 验证标记按 §2 暂缓 / 适配）                                                           |
-| §10.1 记录规范（owner、版本、UTC + IANA）                                                     | §4.1                                    | 覆盖（`tenant_id` 暂以 `owner_id` 占位，Q9）                                                                                         |
-| PRD 附录 D.3 Work / WorkVersion / WorkObjectLink / GoalWorkLink / WorkPrerequisite            | §4.2.1–§4.2.3、§4.2.7                   | 覆盖；Task 计划版本化为最小版（Q12）                                                                                                 |
-| PRD 附录 D.3 WorkOutcomeEvent / WorkTerminalEvent                                             | §4.2.5、§4.2.6、§5.2                    | 覆盖                                                                                                                                 |
-| PRD 附录 D.3 Counterpart / IdentityEndpoint / IdentityLink / 参与人链接 / EvidenceAttribution | §4.3、§4.4.4、§7、§8                    | 覆盖                                                                                                                                 |
-| PRD 附录 D.3 Commitment（责任版本、沟通 / 接受、origin、当前 Assessment） / OutcomeContract   | §4.4、§6                                | 覆盖（模板库最小版）                                                                                                                 |
-| PRD 附录 D.3 Schedule / DelegationPlan / ScheduleTrigger / TaskControl                        | §4.5、§4.2.8、§10.4                     | 覆盖                                                                                                                                 |
-| PRD 附录 D.4 跟进承载解析、动作与账本协议                                                     | §9.5、§10.2                             | 覆盖                                                                                                                                 |
-| §10.2 PersonView                                                                              | §9                                      | 覆盖                                                                                                                                 |
-| §10.3 服务约定                                                                                | §10                                     | 覆盖；“上下文初始化”“批次批准”“网关动作”不在本批                                                                                     |
-| WK-01                                                                                         | §10.3 `nexus_task_create`、§12.3、§11.2 | 覆盖（TI 意图识别、多归属消歧由 Agent 协议 + 对话处理，W6）                                                                          |
-| WK-02（6 行）                                                                                 | §5.2、§5.4                              | 覆盖，逐行验收矩阵                                                                                                                   |
-| WK-03                                                                                         | §4.6、§5.5                              | 覆盖（第一版不缓存，缓存规则已写）                                                                                                   |
-| WK-04 与级联矩阵（INV-33）                                                                    | §6.6、§10.4                             | 覆盖                                                                                                                                 |
-| RT-01 / RT-02                                                                                 | §5.4、§11.2                             | RT-02 覆盖；RT-01 的“离开期间”摘要不在本批                                                                                           |
-| PV-01 – PV-03                                                                                 | §7.5、§7.6、§9                          | 覆盖（含更正身份、停用档案、承载解析）                                                                                               |
-| NX-03（目标与目标信）                                                                         | §4.2.3、§4.5.4、§11.6                   | 覆盖 Goal / Work 关系与目标信策略存放；简报与回看沿用现有                                                                            |
-| NX-04                                                                                         | §4.4、§6                                | 覆盖 Commitment 生命周期、沟通 / 接受分离、核验、手动结案、行动台账；RV-01 – RV-04 批量审阅与 Decision 暂缓                          |
-| NX-05 / CD-01 – CD-05                                                                         | §4.5、§6.4、§10.2                       | Schedule 状态机、方案、占槽、15 分钟下限、时区、CD-03 接手、CD-04 有界收尾；CS-01 – CS-05 覆盖降级仅记录状态与原因，完整策略档位暂缓 |
-| NX-14 / ER-01 – ER-05                                                                         | §4.3、§7、§8                            | 覆盖                                                                                                                                 |
-| OC-01 – OC-05                                                                                 | §4.4.3                                  | 最小版（版本、逐标准评估、手动覆盖标记）；模板库与用户存模板暂缓                                                                     |
-| SJ-01 – SJ-03（系统作业，INV-25）                                                             | §4.4.1 `origin_kind`                    | 暂缓，仅留枚举（Q14）                                                                                                                |
-| §8.1 Task 状态                                                                                | §5.1                                    | 以映射函数覆盖                                                                                                                       |
-| 附录 E INV-01 – INV-34                                                                        | §13.2 映射表                            | 见映射表；INV-13/14/23/24/26/28–30 暂缓                                                                                              |
-| AT-19 / 23 / 24 / 81–86 / 161–166 / 227–230                                                   | §13.3                                   | 对应验收场景                                                                                                                         |
+| PRD 条款                                                                                                          | 本文位置                                | 状态                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| §0.6 本批范围总表 R-01–R-35                                                                                       | §0.5、§4.7 及各章                       | 覆盖（暂缓项入口关闭、字段留位）                                                                                                     |
+| §3.1 对象表、数量规则、持久化边界                                                                                 | §2、§4.2、§4.5、§5                      | 覆盖（Context 为最小范围记录；Specialist subtask、Deliverable 验证标记按 §2 暂缓 / 适配）                                            |
+| §10.1 记录规范（owner、版本、UTC + IANA）                                                                         | §4.1                                    | 覆盖（`tenant_id` 暂以 `owner_id` 占位，Q9）                                                                                         |
+| PRD 附录 D.3 Work / WorkVersion / WorkObjectLink / GoalWorkLink / WorkPrerequisite                                | §4.2.1–§4.2.3、§4.2.7、§4.2.10、§4.2.11 | 覆盖；版本化为 R-06 最小版（整体 pending + 后继 Task + `task_adoptions`）                                                            |
+| PRD 附录 D.3 WorkOutcomeEvent / WorkTerminalEvent / CompletionPresentation / 窗口评估                             | §4.2.5、§4.2.6、§4.2.12、§5.2           | 覆盖（basis = source_verified / user_report / mixed；窗口 60 秒 / 5 分钟）                                                           |
+| PRD 附录 D.3 Counterpart / IdentityEndpoint / IdentityLink / 参与人链接 / EvidenceAttribution / UnresolvedMention | §4.3、§4.4.4、§7、§8                    | 覆盖（active / inactive / merged；owner_pairing；身份映射不提升 source_verified）                                                    |
+| PRD 附录 D.3 Commitment（责任版本、沟通 / 接受、origin、当前 Assessment、周期字段） / OutcomeContract             | §4.4、§6                                | 覆盖（六个模板键、启用四个；`criterion_source` 三类）                                                                                |
+| PRD 附录 D.3 Schedule / DelegationPlan / ScheduleTrigger / TaskControl                                            | §4.5、§4.2.8、§10.4                     | 覆盖                                                                                                                                 |
+| PRD 附录 D.4 跟进承载解析、动作与账本协议                                                                         | §9.5、§10.2                             | 覆盖                                                                                                                                 |
+| §10.2 PersonView                                                                                                  | §9                                      | 覆盖                                                                                                                                 |
+| §10.3 服务约定                                                                                                    | §10                                     | 覆盖；“上下文初始化”“批次批准”“网关动作”不在本批                                                                                     |
+| WK-01                                                                                                             | §10.3 `nexus_task_create`、§12.3、§11.2 | 覆盖（TI 意图识别、多归属消歧由 Agent 协议 + 对话处理，W6）                                                                          |
+| WK-02（6 行）                                                                                                     | §5.2、§5.4                              | 覆盖，逐行验收矩阵                                                                                                                   |
+| WK-03                                                                                                             | §4.6、§5.5                              | 覆盖（第一版不缓存，缓存规则已写）                                                                                                   |
+| WK-04 与级联矩阵（INV-33）                                                                                        | §6.6、§10.4                             | 覆盖                                                                                                                                 |
+| RT-01 / RT-02                                                                                                     | §5.4、§11.2                             | RT-02 覆盖；RT-01 的“离开期间”摘要不在本批                                                                                           |
+| PV-01 – PV-03、R-10 / R-12 / R-29 / R-30                                                                          | §6.8、§7.5–§7.8、§9                     | 覆盖（含更正身份、停用档案、承载解析、范围过滤、三列与阶段顺序）                                                                     |
+| NX-03（目标与目标信）                                                                                             | §4.2.3、§4.5.4、§11.6                   | 覆盖 Goal / Work 关系与目标信策略存放；简报与回看沿用现有                                                                            |
+| NX-04                                                                                                             | §4.4、§6                                | 覆盖 Commitment 生命周期、沟通 / 接受分离、核验、手动结案、行动台账；RV-01 – RV-04 批量审阅与 Decision 暂缓                          |
+| NX-05 / CD-01 – CD-05                                                                                             | §4.5、§6.4、§10.2                       | Schedule 状态机、方案、占槽、15 分钟下限、时区、CD-03 接手、CD-04 有界收尾；CS-01 – CS-05 覆盖降级仅记录状态与原因，完整策略档位暂缓 |
+| NX-14 / ER-01 – ER-05                                                                                             | §4.3、§7、§8                            | 覆盖                                                                                                                                 |
+| OC-01 – OC-05                                                                                                     | §4.4.3                                  | 最小版（版本、逐标准评估、手动覆盖标记）；模板库与用户存模板暂缓                                                                     |
+| SJ-01 – SJ-03（系统作业，INV-25）                                                                                 | §4.2.12、§10.1、§4.4.1 `origin_kind`    | 部分：受控 request / attempt（R-07），不建独立表；`system_job_run` 仍只留枚举                                                        |
+| 周期性义务 NX-04 / R-28                                                                                           | §4.4.1、§6.7                            | 覆盖（≤12 期，逐期独立 Commitment）                                                                                                  |
+| §8.1 Task 状态                                                                                                    | §5.1                                    | 以映射函数覆盖                                                                                                                       |
+| 附录 E INV-01 – INV-34                                                                                            | §13.2 映射表                            | 见映射表；INV-14 / 24 本批规则与批次关闭，INV-23 / 26 / 28–30 暂缓                                                                   |
+| AT-241 – AT-282（本批新增验收）                                                                                   | §13.3 V13–V24                           | 按组对应；具体编号以 PRD 附录为准                                                                                                    |
+| AT-19 / 23 / 24 / 81–86 / 161–166 / 227–230                                                                       | §13.3                                   | 对应验收场景                                                                                                                         |
 
 ## 附录 B. 关系图（ER）
 
@@ -1963,12 +2363,14 @@ erDiagram
 5. **助手给方案**：`nexus_schedule_propose` → `delegation_plans(draft, plan_owner_type=commitment)`：周一至周三每天 09:00 检查指定邮箱线程，至匹配交付或周三 18:00 后一天；通知规则；"不会自动催他"；缺口：未接入邮件来源（`gaps_json`）。承载 Work 由 §9.5 的解析给出（这里是新建的那件）。
 6. **用户点"开始"**：`nexus.delegation.confirm` 校验缺口 → 邮件来源未就绪，**不称活跃**：方案保持 `draft`，面板写明缺什么；Work 仍是 blocked。用户改选"手动收件"（`executor_kind=check_task`，由用户在收到后上传文件）或稍后接入邮件。
 7. **周二李明发来一个空附件**（用户上传到文件柜，并在 Commitment 上添加证据）：`evidence_attributions(actor_role=user_declared, identity=user_declared)`；引擎算出 `presence` 满足但 `text_contains` 无法读取内容 → `insufficient_evidence`；承诺 `verification=unverified`；Work 仍 blocked / needs_you（"证据不足，请确认内容"）。
-8. **周三 16:30 用户确认内容齐全**，点"按此证据手动结案"并写原因 → Commitment `resolved(manual_override)`，`verification` 保持 `unverified`（真实值）；此时**不会**自动写整件 Work 的终止事实。Work 因合同无 `user_accept`，仍不是 done；只要没有别的继续分支，它显示"阻塞 / 待核对：已手动结案，未经来源核验"，用户可再选"以部分结果结束"→ 写 `work_terminal_events(accept_partial)` → "已结束（未完成）"。如果用户本来就想让"自己确认"算完成，应在建 Work 时（或此刻）给合同加 `user_accept` 并点验收 → `work_outcome_events(achieved)` → done。这是 Q3 / R-03 要确认的点。
+8. **周三 16:30 用户确认内容齐全**，点"按此证据手动结案"并写原因 → Commitment `resolved(manual_override)`，`verification` 保持 `unverified`（真实值）；此时**不会**自动写整件 Work 的终止事实。Work 因合同无 `user_confirmation` 标准，仍不是 done；只要没有别的继续分支，它显示"阻塞 / 待核对：已手动结案，未经来源核验"，用户可再选"以部分结果结束"→ 写 `work_terminal_events(accept_partial)` → "已结束（未完成）"。如果用户本来就想让"自己确认"算完成，应在建 Work 时（或此刻）给合同加 `user_accept` 并点验收 → `work_outcome_events(achieved)` → done。这是 Q3 / R-03 要确认的点。
 9. **如果有邮件来源（夹具模拟）**：李明的邮箱经 `identity_links(confirmed, scope=project)` 对应到他；邮件含附件且文本含 A、B → 步骤①②③全过 → 一次原子核验提交：当前 Assessment、`verified_complete`、`resolved(source_verified)` 同时出现；业务归属为这条承诺的方案按 CD-04 收尾（已派发且仍在窗口内的检查先收尾，期间方案仍占名额），然后 Schedule 置 `ended(commitment_resolved)`；Work 追加 `achieved` 事件 → done。
 
-## 附录 D. PRD 变更总结（v1.57 → v1.86）
+## 附录 D. PRD 变更总结（v1.57 → v1.86 → v1.95）
 
-起草本文时依据的是 PRD v1.57，现已按 v1.86 改写正文。下表只列影响实现的主要变化和它们落在本文哪里；逐条记录（共 28 项，含理由和优先级）见与 PRD 同目录的 `NEXUS_AI_PRD_CHANGE_LOG.md`。
+起草本文时依据的是 PRD v1.57，先按 v1.86 改写正文，再按 v1.95（2026-11-01）更新。下表只列影响实现的主要变化和它们落在本文哪里；逐条记录见与 PRD 同目录的 `NEXUS_AI_PRD_CHANGE_LOG.md`（仅本地查看，不进 git）。
+
+**v1.57 → v1.86**
 
 | PRD 的主要变化                                                                           | 对实现的影响                                                   | 本文位置             |
 | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------- |
@@ -1981,406 +2383,140 @@ erDiagram
 | 新增跨对象级联矩阵（暂停、停止、结案、删除、拆合等逐行规定）                             | 每个动作对应一个事务和一正一反测试                             | §6.6、§10.4          |
 | 个人长期目标与目标信、系统作业等新概念                                                   | 目标信策略留最小表；系统作业本批只留枚举                       | §4.5.4、§14          |
 
-## 附录 E. 需与需求方确认、澄清的问题（对照 PRD v1.86，2026-10-29）
+**v1.86 → v1.95**
+
+| PRD 的主要变化                                                                                                                                      | 对实现的影响                                                                                                 | 本文位置                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------- |
+| 新增 §0.6 “R-01–R-35 唯一本批范围总表”：单用户 / 自部署批次，无规则自动批准，版本化最小版，受控请求代替 SystemJob 表，CP 只交付字段                 | 暂缓项入口关闭、字段留位；本文附录 E 原有问题大部分有了答案                                                  | §0.5、§14、附录 E       |
+| 结果约定：六个模板键（启用四个）、`criterion_source` 三类（独立证据 / 承诺核验 / 用户确认）、窗口字段、接受依据策略                                 | 本文自造的 `user_accept` 改为 `user_confirmation`；合同表加窗口与策略列                                      | §4.4.3、§5.2            |
+| WorkOutcomeEvent 的 `basis` = 来源核验 / 用户报告 / 混合；呈现事实 CompletionPresentation；硬窗口的持久评估请求                                     | 新增 `completion_presentations`、`window_evaluation_requests`；`basis` 取值改；`window_ended` 只由评估服务写 | §4.2.5、§4.2.6、§4.2.12 |
+| 阻塞原因表与 Schedule `blocked` 的写源；五类状态文案；四个次级标识；用户可操作请求优先落“待你处理”                                                  | `block_reasons_json`；推导加原因码与文案规则                                                                 | §4.5.2、§5.2            |
+| R-06 最小版本化：整个 Work 待采用 + 后继 Task + 最小采用记录；已知不支持清单                                                                        | 新增 `task_adoptions`；`compat_pending` 改 `adoption_pending`                                                | §4.2.1、§4.2.11         |
+| R-08 最小范围记录；R-20 迁移默认 `legacy_default` + 待核对                                                                                          | 新增 `context_scopes`；`works` 取消 `context_label`                                                          | §4.2.10、§12.2          |
+| 人员：状态 active / inactive / merged、“停用人员档案”、合并规则、本人配对、身份映射不得提升 `source_verified`、待确认提及、范围过滤、三列与阶段顺序 | 人员表改状态与列；新增 `unresolved_mentions`；端点 / 关联新增列                                              | §4.3、§7.4–§7.8、§9     |
+| 多人责任（一名负责人或多条独立承诺）；周期义务（≤12 期，逐期独立 Commitment）                                                                       | 新增周期列与唯一索引；新规则小节                                                                             | §4.4.1、§6.7、§6.8      |
+| R-16 数值基线（`limit_policy_version = launch-1`）                                                                                                  | 新增集中配置与数值表                                                                                         | §4.7                    |
+| R-15 渠道决定矩阵、R-18 导航、R-22 分享关闭、R-24 / R-25 Status 与主机、R-27 多决定、R-33 目标进展采用                                              | 新增 RPC 与界面说明；资料库、状态、目标页另立文档处理                                                        | §10、§11                |
+| 级联矩阵新增三行：Work 硬窗口到期、停用 Counterpart、合并 Counterpart / 身份纠错                                                                    | 每行一个事务和一正一反测试                                                                                   | §6.6                    |
+| 不变量只改说明，不增减条数：INV-03、06、14、19、21、24、25、32、34                                                                                  | 测试映射表对应更新                                                                                           | §13.2                   |
+| 验收新增 AT-241 – AT-282                                                                                                                            | 新增验收场景 V13 – V24                                                                                       | §13.3                   |
+
+## 附录 E. 需与需求方确认、澄清的问题（对照 PRD v1.95，2026-11-02）
 
 ### E.0 怎么用这份清单
 
-设计文档正文已对齐 PRD v1.86（逐项记录见 `NEXUS_AI_PRD_CHANGE_LOG.md`），那是研发自己对齐的事；本附录回答"**PRD 本身还没说清、或者说了但落到表结构/规则时会出现多种做法**"，这些要请需求方拍板或澄清。每条都写了：
-
-- **PRD 依据**：条款或不变量编号，方便对着原文讨论；
-- **问题**：PRD 没定的是什么；
-- **影响**：不定会卡住哪张表、哪条规则或哪个验收；
-- **候选与研发建议**：给出 2–3 个选项，并标出研发倾向的默认值（需求方不表态时按它走，进入评审记录）；
-- **谁定**：需求方（产品语义）、研发（实现方式）、共同。
-
-编号 R-nn。**优先级**：P0＝不定就不能开始改 DDL 或写关键规则；P1＝能先按建议默认写，但上线前必须确认；P2＝可后置，不影响本批。
-
-PRD 里显式写 TBD 的只有 CP-01 能力矩阵中的**具名获准供应商**（航空/旅行/接送、预约/排期服务商、财务只读适配器，PRD 称"明确能力缺口"），那是商务与集成范围问题，与对象模型无关，本附录不展开。下面都是**阅读后推断出的**空缺，如与 PRD 作者意图不符，以需求方口径为准。
-
-**2026-10-30 增补**：需求方提供了五个 HTML 原型（`docs/prd/design/`：工作、人员、目标、资料库、Status），本附录据此扩充三处——①新增 R-22–R-35（原型与 PRD 或既有决定对不上、或 PRD 没定而原型替它定了的地方）；②汇总表加"类型"一列，把问题分成范围待决／PRD 缺口／PRD 不清或不一致／数值缺口／原型差异／迁移；③新增 E.4（PRD 自身的矛盾与不清楚）、E.5（原型自身的不一致）、E.6（原型没覆盖的界面）、E.7（影响开发的阻塞关系和默认做法）。核对基准是 Mac 上当前的 `NEXUS_AI_PRD.md` v1.86；本设计不修改该文件。
-
-**2026-10-30 晚增补**：原型随提交 `8d8983a58c3` 更新。新增 R-36–R-40；重写 R-22；更新 R-24、R-27、R-32、R-34 的依据和建议；E.5、E.6 按新原型重核（E.5 的第 3 项已修正）；新增 E.9 记录这次更新的逐页变化。
-
-### E.1 汇总表
-
-**类型**说明：**范围待决**＝做不做、做到哪（需求方定）；**PRD 缺口**＝PRD 没写，落到表结构/规则时有多种做法；**PRD 不清/不一致**＝PRD 两处或多处写法对不上，或一句话有多种读法；**数值缺口**＝PRD 要求"有上限"但没给数；**原型差异**＝HTML 原型（`docs/prd/design/`）与 PRD 或本设计对不上；**迁移**＝旧数据口径。
-
-| 编号 | 主题                                                                 | 类型                  | PRD / 原型依据                                                     | 优先级 | 谁定   | 关联               |
-| ---- | -------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------ | ------ | ------ | ------------------ |
-| R-01 | 本批范围：暂缓对象（审批包、额度账本、关注项、删除保留）的底线行为   | 范围待决              | PRD 附录 D.3、INV-13/14/23/24/28/29/30/31                          | P0     | 需求方 | PRD 附录 D.3、R-24 |
-| R-02 | 结果约定模板的覆盖面与"无模板"兜底                                   | PRD 缺口              | OC-01/02                                                           | P0     | 需求方 | §5.2、§4.2.1、R-35 |
-| R-03 | 用户能否"我确认办完了"算完成（手动结案与 met 的关系）                | PRD 不清              | WK-02、OC-03、WK-04                                                | P0     | 需求方 | 旧 Q3、§5.2、R-26  |
-| R-04 | "约定窗口"来源，谁在何时写 WorkTerminalEvent                         | PRD 缺口              | WK-02 行 2、CD-04、SJ-01                                           | P0     | 共同   | §4.2.6、§14 Q13    |
-| R-05 | "已向用户呈现过完成结论"如何判定                                     | PRD 不清              | WK-02 完成/撤回通知、INV-19                                        | P1     | 共同   | §4.2.5             |
-| R-06 | 版本化范围                                                           | 范围待决              | OC-04、INV-03/21                                                   | P0     | 需求方 | §14 Q12            |
-| R-07 | SystemJob 范围，及不做时"清理/遗忘"由谁执行                          | 范围待决              | SJ-01–03、FG、INV-25/31                                            | P1     | 需求方 | §14 Q14、R-24      |
-| R-08 | Context 的最小做法与"项目"范围键                                     | PRD 缺口              | CR、ER-03、INV-04                                                  | P1     | 共同   | §14 Q15、R-12      |
-| R-09 | `user_report` 类接受依据的地位                                       | PRD 不清              | NX-04、PV-02                                                       | P1     | 需求方 | §4.4.1、R-29       |
-| R-10 | 多人共同负责怎么表达                                                 | PRD 缺口              | NX-04、INV-08                                                      | P1     | 需求方 | §4.3.1、§4.3.2     |
-| R-11 | 阻塞原因代码表与"blocked"挂在哪一层                                  | PRD 不一致            | WK-02 行 4/6、NX-05、OC-04                                         | P1     | 共同   | §5.2、§4.5         |
-| R-12 | 一个人跨"个人/事务"模式的端点与展示                                  | PRD 不清              | ER-01、PV-01、CR                                                   | P1     | 需求方 | §4.3               |
-| R-13 | 渠道（Telegram/WhatsApp）账号与自身份端点                            | PRD 缺口              | ER-01、CH-02–04                                                    | P1     | 共同   | §4.3.1、部署文档   |
-| R-14 | `source_verified` 本批可达性                                         | 范围待决              | ER-02                                                              | P2     | 需求方 | §4.3               |
-| R-15 | 哪些"决定"可以在 IM 里完成                                           | PRD 不清              | CD-02/03、AP、CH-03                                                | P1     | 需求方 | 旧 Q5              |
-| R-16 | 未给出数值的上限与窗口（一张表）                                     | 数值缺口              | WK-01、SJ-02、NX-05、CD-02/04、RB                                  | P1     | 需求方 | R-24               |
-| R-17 | 自动批准额度本批是否生效                                             | 范围待决              | INV-24、CD-03；**原型 Status 已展示**                              | P1     | 需求方 | R-01、R-24         |
-| R-18 | 导航、首页与现有控制台页面的去向                                     | PRD 不清 + 原型差异   | 4.1、IN-01；原型导航栏                                             | P1     | 需求方 | 旧 Q10、§11.1      |
-| R-19 | 指标（CP）本批产出到哪一步                                           | 范围待决              | CP-02–05、AT-155–160                                               | P2     | 需求方 | §4.2.5             |
-| R-20 | 旧数据与现有目标的迁移口径                                           | 迁移                  | NX-03、INV-05/06                                                   | P1     | 共同   | §4.2.3、§12        |
-| R-21 | WK-02 "其他运行标识"的集合与文案                                     | PRD 缺口              | WK-02 首段、CS-04                                                  | P2     | 需求方 | §5.2、R-34         |
-| R-22 | 资料库"分享"（发给指定客户／私有／公开链接）本批做不做               | 范围待决 + 原型差异   | NX-08；原型资料库；文件库设计 §1.3                                 | P0     | 需求方 | R-15、R-23         |
-| R-23 | 资料库里"成果""上传输入"的边界、版本操作、与现有文件库的关系         | PRD 不清 + 原型差异   | 4.1、NX-08；原型资料库                                             | P1     | 共同   | R-22               |
-| R-24 | Status 页本批做到哪（对象缺口很大）                                  | 范围待决 + 原型差异   | 4.1、RB-05、SJ、ES-05；原型 Status                                 | P0     | 需求方 | R-01、R-07、R-17   |
-| R-25 | Status 与工作页对"云端 Agent 主机"的假设 vs 本机 Mac 部署            | PRD/原型 vs 部署      | RT-02、BR；原型 Status                                             | P1     | 需求方 | 部署文档 §16       |
-| R-26 | "完成标准"的展示状态与 OC-03 评估结论的对应                          | 原型差异              | OC-03；原型工作页                                                  | P1     | 共同   | R-03               |
-| R-27 | 一件工作同时有多个待你决定时怎么展示                                 | 原型差异              | IN-01、AP、WK-02 行 3；原型工作页                                  | P1     | 共同   | —                  |
-| R-28 | 周期性承诺（"每周五交周报"）                                         | PRD 缺口 + 原型差异   | NX-04、NX-05；原型人员页                                           | P1     | 需求方 | R-09               |
-| R-29 | 人员视图"沟通/接受/核验"的展示值与枚举的对应                         | 原型差异              | NX-04、PV-02；原型人员页                                           | P1     | 共同   | R-09               |
-| R-30 | 人员视图"阶段"的优先级，以及"我"的承诺怎么归阶段                     | 原型差异              | PV-01/02；原型人员页                                               | P2     | 共同   | R-29               |
-| R-31 | "待确认人员"的分组键、候选来源与"是此人"的范围选择                   | PRD 缺口 + 原型差异   | PV-01、ER-02/03；原型人员页                                        | P1     | 共同   | R-08、R-12         |
-| R-32 | 删除/合并人员的后果（WK-04 没有这一行）                              | PRD 缺口 + 原型差异   | PV-03、INV-08/34、WK-04；原型人员页                                | P1     | 需求方 | R-31               |
-| R-33 | 目标"来源事实"进展由谁写入                                           | PRD 不清 + 原型差异   | NX-03；原型目标页                                                  | P1     | 共同   | R-20               |
-| R-34 | 工作状态文案与展示粒度                                               | 原型差异              | WK-02、RT-02；原型工作页                                           | P2     | 需求方 | R-21               |
-| R-35 | 原型示例依赖的真实能力（预订、购买、物流、日历、邮件）               | 原型差异              | CP-01、SC-01/02；原型各页示例                                      | P2     | 需求方 | R-02               |
-| R-36 | 事故补救决定与"已完成"并存（主状态、计数、待处理列表）               | PRD 不清 + 原型差异   | WK-02 行 1、ES-05、术语表"事故补救"；原型工作页 w10、Status 事故卡 | P1     | 共同   | R-24、R-27         |
-| R-37 | 催办／继续跟进／委派合并面板的服务端语义（核对项、先后、失败回退）   | PRD 缺口 + 原型差异   | PRD 附录 D.4、CD-02/03、AP、NX-04；原型人员页                      | P1     | 共同   | R-01、R-17、§9.5   |
-| R-38 | 发给指定客户：发件邮箱、收件人身份与"来源允许披露"                   | 原型差异              | ER-01–05、AP、US-09；原型资料库分享弹窗                            | P1     | 需求方 | R-22、R-08         |
-| R-39 | 目标页"完成／删除目标"弹窗要列出的范围（计划、在途检查、目标信策略） | PRD 缺口 + 原型差异   | NX-03、级联矩阵；原型目标页                                        | P1     | 共同   | R-07、§4.5.4       |
-| R-40 | "连接过期、只有用户能处理"算待你处理还是阻塞                         | PRD 不一致 + 原型差异 | WK-02 行 3/4/6；原型工作页 w7                                      | P1     | 需求方 | R-34、§4.2.7       |
-| R-41 | 更正身份与“这不是一个人”的默认做法（是否追溯、去向 3 的显示）        | PRD 不清 + 原型差异   | PV-03、ER-05；原型人员页「···」                                    | P1     | 共同   | R-31、R-32、§7.6   |
-
-### E.2 逐条说明
-
-#### A. 范围与分期（先定，决定"做不做"）
-
-**R-01 暂缓对象的底线行为（P0，需求方）**
-
-- _PRD 依据_：PRD 附录 D.3 列出 Deliverable/DeliverableVersion、ApprovalBundle、Action/ActionAttempt、DeliveryDestination、AttentionItem、资源与自动批准额度账本、删除与保留；INV-13/14/23/24/28/29/30/31 规定它们的约束。本设计把这些标为"暂缓"，但 PRD 把"审批、额度、删除"当作 P0 底线，而不是可选项。
-- _问题_：暂缓不等于没有要求。哪些底线要在本批用**现有机制**满足？
-- _影响_：决定 `work_links` 等新表要给哪些对象留外键、命名；决定验收 AT 里哪些场景可以降级。
-- _候选_：(a) 本批不开放任何"规则自动批准"，所有外发/修改/付款都走现有逐项审批 → INV-24 额度不用实现；沿用 `action_executions` 作 ActionAttempt 近似；删除/清除沿用现有路径。(b) 同时实现简化额度账本（Work 上的计数器）。(c) 完整实现。
-- _研发建议_：(a)。并要求需求方明确确认"本批无规则自动批准"。
-- _补充（2026-10-30）_：原型 Status 页已经展示"按规则批准"的记录、规则版本和额度进度条，说明设计方默认有规则自动批准；选 (a) 则这些区块本批为空，见 R-24。
-
-**R-06 版本化范围（P0，需求方）**：即 §14 的 **Q12**。补充说明：PRD OC-04 的大表（展示变化／期限变化／影响执行中任务／影响已终态任务／增减标准／主上下文变化／已提交动作）每一行都依赖 TaskPlanVersion 和 WorkTaskCompatibility；最小版只能覆盖第 1、4、5 行，其余行需要额外规则（见 E.2 D 组）。需求方需要知道"最小版"意味着**哪些 OC-04 场景本批会被标为已知不支持**，建议在验收里把这些行明确写成"已知不支持"。
-
-**R-07 SystemJob 范围（P1，需求方）**：即 §14 的 **Q14**。补充：即使不建 SystemJob 表，PRD 仍要求"遗忘/删除/到期清理"有执行主体和回执（SJ-01 表第 5 行、SJ-03 末段"强制到期清理不能用通用暂停绕过期限"），以及"交互式只读问答"需要有受控主体（WK-01：不存在裸工具读取）。需求方需确认：本批这两类是**沿用现有路径**（聊天内直接执行，记在现有审计里）可接受，还是必须有 `system_job` 记录。建议：沿用现有路径，但在审计里补 `request_id` 与 `job_type` 字段，为以后迁入 SystemJob 留位置。
-
-**R-19 指标（CP）本批产出到哪一步（P2，需求方）**
-
-- _PRD 依据_：CP-02–05、AT-155–160：首次达成耗时 vs 当前有效耗时、撤回扣原周分子、北极星用户数、每子配置 ≥100 真请求、95% 区间、`report_as_of` 去重与发布快照。
-- _问题_：这些是**上线运营口径**，需要真实用户队列和报表。本插件当前是单用户/自部署，既无队列也无报表。
-- _候选_：(a) 只保证**事件字段可取**（`first_achieved_at`、`current_completed_at`、原请求去重键、入口类别、升级/排除理由），不做任何聚合与报表；(b) 提供一个本地只读导出脚本。
-- _研发建议_：(a)，(b) 视需要。
-
-#### B. 对象语义（PRD 说了边界，没说怎么落）
-
-**R-02 结果约定模板的覆盖面与"无模板"兜底（P0，需求方）**
-
-- _PRD 依据_：OC-01/02 只定义了 5 个模板：`meeting_arranged`、`requested_delivery_received`、`usable_file_delivered`、`reservation_confirmed`、`approval_or_signature_obtained`。它们对应的场景是 SC-01–SC-03、SC-05–SC-08（模板表的场景列）。**SC-04（关系/偏好、纪念事项准备）没有对应模板**。
-- _问题_：(1) 本批要实现几个模板？`reservation_confirmed` 依赖具名供应商，PRD 自己标了 TBD（CP-01）。(2) 不属于这 5 类的普通工作（调研、整理、写草稿）用什么约定？PRD WK-02 第 6 行提到"结果约定不完整但尚无有效补充请求"会落到"阻塞/待核对"，但没说**有没有一个通用兜底模板**。
-- _影响_：决定 `outcome_contract_versions.template` 的合法值，决定这类 Work 能不能走到"已完成"。设计里现在写的 `legacy_task_success` 只是迁移用。
-- _候选_：(a) 本批实现 3 个（`usable_file_delivered`、`requested_delivery_received`、`meeting_arranged`），其余不实现；无模板的 Work 最高只能到"已交付报告/待你确认"，不能自动"已完成"。(b) 再加一个通用 `user_confirmed_delivery`（用户确认交付）模板作兜底，与 R-03 联动。(c) 先全部不做自动完成，仅靠 R-03 的用户确认。
-- _研发建议_：(a)+(b)。
-- _补充（2026-10-30）_：原型里的"牙医复诊预约已完成"依赖 `reservation_confirmed`，该模板需要具名获准供应商（CP-01 仍为 TBD）；本批只有假供应商，见 R-35。
-
-**R-03 "我确认办完了"算不算完成（P0，需求方）** _（旧 §14 Q3 的升级）_
+本附录原来列了 R-01–R-41 共 41 个需要需求方答复的问题。PRD v1.95（2026-11-01）的 §0.6 “唯一本批范围总表”和相关章节**已经回答了其中绝大部分**，所以这里不再逐条展开原来的提问和备选，只做三件事：
+
+1. **E.1** 列出每个原问题现在的答案和落点（已答 / 不再适用 / 仍待确认）；
+2. **E.2** 详细写**仍待需求方确认**的问题（R-36、R-37，以及本轮新发现的 R-42、R-43、R-44），每条给默认做法和不回答时的后果；
+3. **E.3 – E.5** 记录研发自决项、需要在别的设计文档里跟进的变化、原型自身的问题。原型自身的不一致、未覆盖的界面、逐页变化和覆盖度保留在 E.5、E.6、E.8、E.9。
+
+优先级沿用：P0 = 不定就不能开写相关表；P1 = 不定会返工；P2 = 可边做边定。
+
+### E.1 原问题 R-01 – R-41 在 PRD v1.95 里的答案
+
+“已答”表示 PRD 给出了明确做法，本文已按它落地，不需要再问；“本文落点”指改在哪一节。
+
+| 编号 | 原问题                     | PRD v1.95 的答案                                                                                    | 本文落点                             |
+| ---- | -------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| R-01 | 暂缓对象的底线行为         | 已答：逐项审批、动作幂等、原子资源限制、清理与回执必做；批次批准、完整独立对象表可暂缓              | §0.5；§13.2 INV-13/14                |
+| R-02 | 结果约定模板覆盖面         | 已答：六个键，启用四个；预订 / 签署暂缓；`legacy_task_success` 只读；兜底 `user_confirmed_delivery` | §4.4.3                               |
+| R-03 | 用户确认能否算完成         | 已答：`user_confirmation` 标准可用，但不能覆盖必需的来源证据；`user_accept` 取消                    | §4.4.3；§5.2                         |
+| R-04 | 约定窗口谁写               | 已答：合同上的窗口字段；持久评估请求；60 秒内开始，5 分钟有界收尾；与 `achieved` 互斥               | §4.2.12                              |
+| R-05 | 如何判定“已呈现完成”       | 已答：呈现事实表；渠道 submitted 即算；无控制台埋点则保守更正                                       | §4.2.12                              |
+| R-06 | 版本化范围                 | 已答：最小版；已知不支持清单                                                                        | §4.2.1；§4.2.11                      |
+| R-07 | SystemJob 范围             | 已答：受控 request / attempt，不建表；回填、目标信、记忆整理、共享观察关闭                          | §4.2.12；§10.1                       |
+| R-08 | Context 最小做法           | 已答：最小范围记录                                                                                  | §4.2.10                              |
+| R-09 | `user_report` 接受依据     | 已答：可记 accepted + user_report；`accepted_basis_policy` 默认 source_only                         | §4.4.3；§6.1                         |
+| R-10 | 多人共同负责               | 已答：分责或指定一名负责人；“任一人完成即可”不支持                                                  | §6.8                                 |
+| R-11 | 阻塞原因表与写源           | 已答：九个原因码；Schedule 可存 blocked；方案无 blocked                                             | §4.5.2；§5.2                         |
+| R-12 | 跨模式展示                 | 已答：默认按当前范围，临时“显示其他模式”                                                            | §9.2；§4.3.3–4.3.4                   |
+| R-13 | 渠道账号与自身份           | 已答：owner_pairing；bot / 代理号不算本人                                                           | §4.3.4；§7.8                         |
+| R-14 | `source_verified` 可达性   | 已答：身份映射不可提升；业务证据核验不受限                                                          | §4.3.4；§7.4                         |
+| R-15 | IM 里哪些决定可做          | 已答：私聊内部决定可；AP 审批与群聊不可                                                             | §10.1；§7.8                          |
+| R-16 | 数值与窗口                 | 已答：`launch-1` 数值表                                                                             | §4.7                                 |
+| R-17 | 自动批准额度               | 已答：规则与额度执行关闭，历史规则只保留                                                            | §0.5                                 |
+| R-18 | 导航与首页                 | 已答：works 为首页；Chat 跳宿主；不新建 Chat 页                                                     | §11.1                                |
+| R-19 | CP 产出                    | 已答：只交付字段，不做聚合                                                                          | §4.2.1；§4.2.5                       |
+| R-20 | 旧数据迁移口径             | 已答：`legacy_default` + 待核对；`legacy_unknown`；proposed 候选                                    | §12.2；目标侧见 E.4                  |
+| R-21 | 次级标识集合               | 已答：四个                                                                                          | §5.2                                 |
+| R-22 | 资料库分享                 | 已答：本批关闭                                                                                      | §11.5a                               |
+| R-23 | 成果 / 输入边界与版本操作  | 已答：输入 / 成果 / 持久草稿；手动设当前、删除单个版本不支持                                        | §11.5a；文件库设计见 E.4             |
+| R-24 | Status 页范围              | 已答：只显示真实记录                                                                                | §11.5a；Status 设计见 E.4            |
+| R-25 | 云端主机 vs 本机           | 已答：显示实际主机配置与最后观测                                                                    | §11.5a                               |
+| R-26 | 完成标准展示 vs 评估结论   | 已答：核验与进展分维，必要标准分母                                                                  | §4.2.5；§5.2                         |
+| R-27 | 多个待决定                 | 已答：都可找回，按优先级，独立消费                                                                  | §11.2                                |
+| R-28 | 周期性承诺                 | 已答：≤12 期逐期独立 Commitment                                                                     | §6.7                                 |
+| R-29 | 沟通 / 接受 / 核验展示值   | 已答：固定三列枚举文案                                                                              | §9.3                                 |
+| R-30 | 人员阶段优先级             | 已答：固定顺序，逾期并存                                                                            | §9.3                                 |
+| R-31 | 待确认人员分组与范围       | 已答：mention_id；默认仅本次                                                                        | §4.3.5；§7.7                         |
+| R-32 | 删除 / 合并后果            | 已答：停用人员档案；合并规则；级联                                                                  | §7.5；§6.6                           |
+| R-33 | 目标“来源事实”谁写         | 已答：用户明确采用获准 Work 证据                                                                    | §11.5a；目标设计见 E.4               |
+| R-34 | 状态文案                   | 已答：五类固定文案，第四类按原因细分                                                                | §5.2                                 |
+| R-35 | 原型示例依赖的真实能力     | 已答：模拟标记、真实能力清单、准备 / 不可用口径                                                     | 属界面与评测文档，不影响本文数据模型 |
+| R-36 | 补救决定与“已完成”并存     | **仍待确认**                                                                                        | E.2                                  |
+| R-37 | 合并面板的先后与失败回退   | **仍待确认**                                                                                        | E.2                                  |
+| R-38 | 发给指定客户的披露语义     | 不再适用：分享关闭（R-22）                                                                          | —                                    |
+| R-39 | 目标完成 / 删除弹窗范围    | 已答：NX-03 规定完成 / 删除时展示的范围                                                             | §4.5.4；§10.2                        |
+| R-40 | 连接过期算待你处理还是阻塞 | 已答：用户可操作请求优先落第 3 类                                                                   | §5.2                                 |
+| R-41 | 更正身份与“这不是一个人”   | 基本已答（R-32 / ER-05）；§7.6 的默认做法保持                                                       | §7.6                                 |
+
+### E.2 仍待需求方确认的问题
+
+#### R-36 完成之后又出现“事故补救”决定（P1，共同）
+
+- **问题**：一件工作已经满足“已完成”（有效 `achieved` 事件），后来发现需要补救（例如已发出的周报有误，需要发一封更正邮件，要用户批准）。主状态、RT-02 计数、“待你处理”列表分别怎么放？PRD v1.95 的 R-34 只规定第 3 / 4 类之间的取舍，没有回答“已完成 + 待决补救”。
+- **为什么要问**：WK-02 第 1 行（已完成）排在第 3 行（待你处理）前面，按字面这件工作只能是“已完成”，补救决定看不到；但原型把它放进待处理。
+- **默认**：主状态保持“已完成”，加信息性标记 `remediation_open`；补救决定作为独立待决定进“待你处理”列表（R-27 的多决定列表），RT-02 计数仍按主状态。若是“完成被撤回”则走 `withdrawn` + 更正，不属这一条。
+- **不回答的后果**：只影响列表展示与计数口径，不影响表结构。
+
+#### R-37 催办 / 继续跟进 / 委派合并面板的服务端语义（P1，共同）
+
+- **问题**：合并面板里“发送催办 / 委派”（需要 AP 批准）和“接受跟进方案”（CD 接受）是两个决定。谁先谁后？一个失败另一个怎么办？§9.5 已列出各面板服务端必须核对的内容，但 PRD 没规定这两个决定的顺序和失败回退。
+- **默认**：两个决定**独立**——发送失败不影响方案接受，方案接受失败不撤回已批准的发送；开始跟进之前界面不显示“在跟进”；已有方案时只给“查看 / 修改 / 恢复”。
+- **不回答的后果**：只影响人员页面板的交互文案和失败提示。
+
+#### R-42 迁移出的“已成功”老事项算不算“已完成”（P1，需求方）
+
+- **问题**：老事项里 `status='succeeded'` 的，迁移后算“已完成”吗？本文原来的做法是写一条 `basis='migration'` 的达成事件，工作页显示“已完成”，CP 排除。但 PRD v1.95 的 OC 小节规定 `legacy_task_success` “仅可读取迁移历史，不创建新约定、不据此产生新的达成事件”，目标侧又规定旧 completed 缺原因时填 `legacy_unknown`，“不默认 achieved、不计已达成”；而 INV-19 要求“已完成”必须有有效达成事件。
+- **默认（本文已按此写，§12.2）**：**不写达成事件**，设 `works.migrated_outcome='succeeded'`，显示“历史已结束，原因未记录”，不计入“已完成”、不进 CP；用户可明确**补记**已完成（追加 `provenance='legacy_backfill'` 的 `user_report` 达成事件，保存变更来源和时间，不伪造旧完成时间）。
+- **备选**：迁移时直接写 `legacy_backfill` 达成事件并显示“已完成”（CP 排除）。表结构不用改，只改回填步骤。
+- **不回答的后果**：升级后老用户会看到一批“历史已结束”而不是“已完成”；需求方若不接受，改备选即可。
+
+#### R-43 PRD 的 Decision / DecisionObjectLink 是否在本批范围（P1，需求方）
+
+- **问题**：PRD 附录 D.3 有 DecisionRecord 和 DecisionObjectLink 的完整字段，端到端示例（5.8）里“改成周五 17 点”也用 Decision 替代旧 Decision 的期限字段；但 §0.6 的 R-01–R-35 既没把它列入本批，也没明确暂缓。
+- **默认**：本批不做；`commitments.decision_ref` 留位；本批需要的“用户确认”事实都存在各自的记录上（`task_adoptions.accept_request_id`、`criterion_assessments` 的确认人 / 时间、`work_versions.accepted_basis`）。
+- **不回答的后果**：如果需求方要求本批就有 Decision，需要新增 `decision_records`、`decision_object_links` 两张表，并让 R-06 的修订确认、改期确认引用它；§14 Q4。
+
+#### R-44 Schedule 因约定到期 `ended`，是否直接等于“已结束（未完成）”（P1，共同）
+
+- **问题**：WK-02 的“典型组合”写：所有 Task completed、必需 Commitment waiting、Schedule 因约定到期 ended 且无其他分支 → 已结束（未完成）。但第 2 行要求“有适用于当前范围的结果级终止事件”，R-04 又规定“普通业务失败或 Schedule ended 不代写 `window_ended`”。三处合起来，没有硬窗口的 Work 在 Schedule 到期后到底靠什么判“已结束”，PRD 没说清。
+- **默认（本文 §5.2 已按此写）**：推导时读 Schedule 自己的结束事实（`stop_reason ∈ {agreed_end, expired}`，reason `follow_up_ended`）判“已结束（未完成）”，**不写** `work_terminal_events`；有硬窗口的 Work 走窗口评估服务。
+- **备选**：Schedule 到期时由唯一结果评估服务写一条 `work_terminal_events`（`reason` 新增 `agreed_end`），推导只读事件。
+- **不回答的后果**：只影响“已结束”在无硬窗口情形下的事实来源，对用户可见行为相同。
+
+### E.3 研发自决项（不需要问需求方，按默认做）
+
+| 项                                                                  | 默认做法                                                                                                                           |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| “以部分结果结束”的 Task 侧实现（Q2）                                | `accept_partial` 终止事件 + Task 取消路径；`task_ext.partial` 作展示字段                                                           |
+| 不给 `nexus_tasks.status` 加枚举（Q6）                              | 阻塞 / 部分完成放 `task_ext` 和 `task_adoptions`                                                                                   |
+| Agent 技能（Q7）、进行中事项提示（Q8）、`entities_json` 人名（Q11） | W6 先写协议提示；按 Work 聚合；不回填                                                                                              |
+| “核验提交中”过渡态                                                  | WK-02 第 1 行说满足标准但事件未提交时先显示“核验提交中”：作为第 4 类（核对中 · 暂无需操作）的瞬时 reason，不写事件前不显示“已完成” |
+| 老事项是否都包成 Work                                               | 只给确有任务语义的 `nexus_tasks` 行包 Work；纯记录 / 问答型不强制回填（WK-01），规则版本写进 `migration_snapshots`                 |
+| 数值配置的存放                                                      | 集中在 `src/config/limits.ts`，`limit_policy_version` 随计划 / 请求保存                                                            |
 
-- _PRD 依据_：OC-03：手动覆盖要记录原因/时间/未决标准，"不冒充来源核验完成"，CP 与证据核验成功分开报告；NX-04（PV-03 表末行）：手动结案须记录原因及未满足标准，"cancelled 不等于履行"；WK-02 第 1 行要求**全部必要标准 met** 才显示已完成；"需用户验收时仍等待该决定"。
-- _问题_：按字面，用户手动结案**永远到不了"已完成"**，只能到第 2 行"已结束（未完成）"。那么对没有外部证据可核的事务（例如"帮我想想周末安排""提醒我给妈妈打电话"），用户亲自确认"办完了"，算不算 met？PRD 里**没有名为 `user_accept` 的标准类型**，那是本设计起的名字；"需用户验收"只作为某些约定的前置出现，没有说明何时由模板自动加上。
-- _影响_：决定 `criterion_assessments.verifier_type` 的取值、WK-02 第 1 行的输入、WorkOutcomeEvent 的 `basis`、以及个人事务类 Work 是否永远显示"已结束（未完成）"。
-- _候选_：(a) 引入明确标准类型"用户确认"（`criterion_source=user_confirmation`），由用户点击产生，met 的依据标 `user_report`，在完成回执里醒目标注"由你确认，未经来源核验"，指标里单列（与 OC-03 的"手动覆盖单列"一致）。(b) 不引入：个人事务一律停在"待核对/已结束（未完成）"。
-- _研发建议_：(a)；并请需求方确认哪些模板默认带该标准（建议：兜底模板与个人事务类带，对外交付类不带）。
+### E.4 需要在别的设计文档里跟进的 PRD 变化
 
-**R-04 "约定窗口"来源，谁在何时写 WorkTerminalEvent（P0，共同）**
+本文只管 Work / Counterpart / Commitment / Schedule。以下变化落在其他设计文档，需要各自更新：
 
-- _PRD 依据_：WK-02 第 2 行把"约定窗口结束且结果未满足"列为 Work 已结束的一种原因；CD-04 规定方案在"约定截止/复核日"到达时进入有界收尾并置 ended；SJ-01 表里**没有**"窗口到期评估"这一类作业。
-- _问题_：(1) "约定窗口"是 Work 自己的期限、Commitment 的期限、还是 DelegationPlan 的 `review_or_end_at`？三者可以不同。(2) 窗口到了，方案结束（CD-04 已明确）并不等于 Work 结束，PRD 没写**窗口到达后由谁、何时追加 WorkTerminalEvent**：是定时扫描、是下一次读取时懒判定、还是必须用户确认。
-- _影响_：决定是否需要一个窗口到期的定时器、`works` 是否要存 `window_end_at`；决定"期限已过"的 Work 在没有人打开前显示什么。
-- _候选_：(a) 窗口＝Work 结果约定里的期限（OC-02 的"时间窗口/时区"），没有期限则无窗口；到期由 Schedule tick 内的轻量检查写 `window_ended`，若同时有未终结的 Task 则等其收尾后再写（与 CD-04 的有界收尾一致）。(b) 读取时懒判定，不写事件，只显示"窗口已过，待核对"。(c) 到期只提醒，写事件必须用户确认。
-- _研发建议_：(a)。需求方只需确认"窗口＝结果约定的期限"这一点。
-
-**R-05 "已向用户呈现过完成结论"如何判定（P1，共同）**
-
-- _PRD 依据_：WK-02 完成/撤回通知段："只要已向用户呈现或派发过被撤回的完成结论，立即保存同一结果的更正事项并通知；未曾呈现的短暂事务纠正可合并最新结果，仍保留事件。"
-- _问题_：什么算"呈现过"？用户在控制台里看到了、完成通知发到了 Telegram/WhatsApp、还是聊天里 agent 说过"办好了"？目前没有任何"已看到"回执。
-- _影响_：决定撤回时是否必须发更正通知；决定是否要记录"呈现事实"（新字段或表）。
-- _候选_：(a) 以**通知派发**为准：完成 Outbox 消息发出且渠道回执达到 submitted，即视为已呈现；(b) 加上聊天内由 agent 明确回复"已完成"也算（需要记录）；(c) 再加控制台打开 WorkView 的上报（需要前端埋点）。
-- _研发建议_：(a)+(b)，不做 (c)。
-
-**R-09 `user_report` 类接受依据的地位（P1，需求方）**
-
-- _PRD 依据_：NX-04（委派沟通与接受统一语义）：`acceptance_state` 为 unknown/accepted/declined/needs_clarification；用户明确记录的接受依据可标 accepted，但"用户报告单独标为 user_report，不能冒充服务商/对方来源核验"；PV-02 要求界面区分"等待对方回应"与"正在检查交付"。
-- _问题_：用户说"他口头答应了"后，该条在人员视图里属于"已接受"还是仍属"等待对方回应"？它能否满足模板里要求"责任方已接受"的标准？
-- _候选_：(a) 算 accepted（依据标 `user_report`），人员视图显示"你记录：对方已接受"，不进入 `source_verified`，也不满足要求来源证据的标准；(b) 仍留在"等待对方回应"，只在详情里注明用户的说法。
-- _研发建议_：(a)。
-
-**R-10 多人共同负责怎么表达（P1，需求方）**
-
-- _PRD 依据_：INV-08、ER-04：`responsible_counterpart_id` 唯一（可为空）；NX-04："多人各自独立交付时分别记录责任"；对"共同交付/任一人完成即可"没有表述。
-- _问题_：用户说"小王和小李一起把报价做完"，是一条还是两条 Commitment？"两人中任意一人交付即满足"怎么记？
-- _候选_：(a) 一律拆成每人一条（各有各的期限、核验），"共同"只体现在 Work 层把两条都引用为必要标准；(b) 允许一条 + 参与人，责任人为空并标"多人"（与 INV-08 冲突，不建议）；(c) "任一人交付即可"本批不支持，提示用户拆开。
-- _研发建议_：(a)，(c) 作为已知限制写入用户文案。
-
-**R-11 阻塞原因代码表，以及"blocked"挂在哪一层（P1，共同）**
-
-- _PRD 依据_：WK-02 第 4/6 行（系统/权限/来源前置未就绪、暂停、关键效果未知）；NX-05 的 Schedule 状态 `blocked`（"前置缺失"）；OC-04 的"受影响计划 blocked（依赖版本待迁移）"；CD-03/CD-04：方案可 "accepted+blocked"，但 DelegationPlan.status 只有 draft/accepted/ended/revoked。
-- _问题_：(1) "blocked"是 Schedule 的状态、Work 的控制、还是由前置**推导**出来的展示？PRD 的各处写法并不一致。(2) 没有给出原因代码表，界面却要"说明具体原因及谁可处理"。
-- _影响_：决定 `schedules.status` 的取值（是否存 blocked）、是否另设 `block_reason`、`work_prerequisites` 的类型。
-- _候选/建议_：Schedule 存 `blocked` 并带 `block_reason`；方案状态不存 blocked，展示时由"方案 accepted + 其 Schedule 全部非 active"推导。原因代码草案（请需求方增删）：`source_auth_expired`、`permission_missing`、`browser_not_ready`、`prerequisite_missing`、`dependency_version_pending`、`effect_unknown_needs_reconcile`、`quota_exhausted`、`paused_by_user`、`incident_hold`。每个码要配"谁能处理（用户/管理员/系统自愈）"和一句用户文案。
-
-**R-21 WK-02 的"其他运行标识"（P2，需求方）**：WK-02 首段要求"仅一个主状态及必要的部分／未知／覆盖／其他分支运行标识"。建议的标识集合：`partial`、`unknown_effect`、`coverage=on_plan|degraded|unavailable`（CS-04 已给）、`other_branch_running`。请需求方确认文案与是否再加。
-
-#### C. 数值与阈值（PRD 要求"有上限"，但没写数）
-
-**R-16 未给出数值的上限与窗口（P1，需求方）**
-
-PRD 多处写"须定义上限""无上限不启用""明确类型上限"，但没有给数。设计需要常量，下表列出缺口及研发的**起点建议**（只是为了让讨论有靶子，不是推荐定论）：
-
-| 项                                                   | PRD 依据      | PRD 已给                                                          | 缺口                                   | 研发起点建议                                                |
-| ---------------------------------------------------- | ------------- | ----------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------- |
-| 即时问答 interactive_query 每次范围/读取量/时长/资源 | WK-01、SJ-02  | 不得累积成无期限后台工作                                          | 具体上限                               | 单次 ≤90 秒、≤10 次来源读取、不产生文件；超限提示升级为工作 |
-| 各类 SystemJob 每次与账号每日上限                    | SJ-02         | "无上限不启用"；失败恢复合计最多 2 次；运行日志 30 天、审计 90 天 | 每类型数值                             | 若 R-07 选"不做"则无需                                      |
-| 有界收尾窗口                                         | CD-04         | "不无限延长收尾"                                                  | 时长                                   | 单次检查类 30 分钟；含外发核对类 24 小时                    |
-| 一次性计划的最晚派发窗口                             | NX-05、CD-02  | 须确认"迟到处理"                                                  | 默认值                                 | 约定时刻后 1 小时；超窗记为 `missed_window`                 |
-| 周期检查补跑                                         | NX-05         | 至多一次有界合并补跑                                              | 补跑有效期                             | 与该周期的间隔相同，最长 24 小时                            |
-| 无期限"直到…"的默认复核期                            | CD-02         | 无期限建议先 30 天后续期；"不无限直到"                            | 用户坚持更长时的上限                   | 最长 180 天，须再次确认续期                                 |
-| 手动"运行一次"的冷却                                 | NX-05         | 守配额/冷却                                                       | 冷却时长                               | 同一 Schedule 5 分钟                                        |
-| 同步轻量 CRUD 的账号限额                             | SJ-02         | 要有"账号服务限额"                                                | 数值                                   | 沿用现有网关限流                                            |
-| 账号"每日"额度与容量的起止时刻与时区                 | INV-24、RB-04 | 账号每日 20 项自动批准；原型写"明天 00:00 重置"                   | 按哪个时区、几点切日                   | 用户所选时区的 00:00                                        |
-| 账号执行容量与排队（Status 的"今日执行容量 62%"）    | RB-04、RB-05  | 账号总量原子执行；排队不需要用户管理                              | 容量的单位和上限（并发数？时长？）     | 若 R-24 选 (a) 则不做；否则以并发 Run 数计，上限 2          |
-| 资源账本的单位与默认上限（页／张／封／次读取）       | RB-01、RB-05  | 小工作有默认有界额度，80% 提示                                    | 每种单位的默认上限                     | 页 450、邮件 3,000 封、读取 40 次（取自原型示例，仅作靶子） |
-| 通知预算（完成/更正/逾期）                           | ES、NX-06     | "沿用通知预算"                                                    | 未在本次对照范围内阅读，**需单独核对** | —                                                           |
-
-**R-17 自动批准额度本批是否生效（P1，需求方）**：INV-24 规定默认规则期 30 天、每个 Work 及其沿袭累计 10 项、账号每日 20 项；CD-03 说明接手时额度**按 `action_id` 去重记账，不相加**；query→Work 升级时只承接**资源消耗**（`carried_in_usage`），问答本身是只读，不含批准次数。若采纳 R-01 的 (a)（本批无规则自动批准），这一整块可以整体后置。需求方只需回答：**是否认可本批没有任何"规则自动批准"？**
-
-_补充（2026-10-30）_：原型的 Status 页和人员页默认存在规则自动批准——Status 有"向协作方发送待办提醒 · v3 · 有效至 11-20"这条规则、"本工作 8/10、账号今日 7/20"的进度条，以及"后续提醒需要你审阅"的耗尽状态。若采纳 (a)，这些区块本批为空；若需求方认为它们是验收对象，则 R-01 的 (a) 不成立。请与 R-24 一并回答。
-
-#### D. 版本化最小版带来的已知缺口（取决于 R-06 的答案）
-
-若 R-06 选"最小版"，以下 PRD 场景无法完整实现，请需求方确认可以作为已知限制，并在验收（§13.3）里写明：
-
-- OC-04 表第 3 行"影响未开始/进行中的 Task 参数、成功标准、顺序、来源或动作"：只能"终止旧 Task，建后继 Task"，不能在同一 `task_id` 下换计划版本；
-- OC-04 表第 4 行及"更严格约定使旧已完成运行按原范围保留历史完成"：能保留历史，但不会逐标准记录 compatible/incompatible；
-- 责任改期（C.v2）使"受影响计划 blocked（依赖版本待迁移）"：只能整体标 `dependency_version_pending`，不能"未变字段继续"；
-- INV-21（新计划首次执行前必须有当前采用依据）：最小版以"Work 修订时对未终结 Task 一律标 pending，由用户确认后继续"代替。
-
-#### E. 身份、渠道与上下文
-
-**R-08 Context 的最小做法与"项目"范围键（P1，共同）** _（Q-D 的补充）_：ER-03 允许用户选"在项目 A 中记住此关联"，CR 与 INV-04 的"主用途"也以项目/客户为单位，但本批如果不建 ContextProfile 表，"项目 A"就没有稳定的键。候选：范围＝`(context_mode, project_label)`，`project_label` 是用户输入的文字，将来建 ContextProfile 时按 label 迁移并让用户合并重名；或本批只支持 `context_mode` 一层（个人/事务），不支持项目。研发建议前者。
-
-**R-12 一个人跨"个人/事务"模式的端点与展示（P1，需求方）**
-
-- _PRD 依据_：ER-01：稳定 `counterpart_id`、"一个人可以有多个客户/项目角色，角色不授权跨客户访问"、"默认只复用当前模式/客户/项目已确认的关联；跨上下文关联及其可见范围须经用户明确选择"；PV-03："同一人员的不同客户/项目端点不能互相替代"。
-- _问题_：同一 `counterpart_id` 能否同时有个人（Personal）和事务（Executive）两种模式下的端点？人员列表默认是按当前模式过滤，还是显示全部？
-- _候选/建议_：允许；链接与端点各自带范围，人员列表默认只显示**当前模式**可见的责任，另设"显示其他模式"开关，且每次跨模式显示需要用户明确选择，选择可撤销。
-
-**R-13 渠道账号与自身份端点（P1，共同）**
-
-- _PRD 依据_：ER-01：每个 User 恰有一个自身份，"导入本人端点不建第二个'我'"；CH-02–CH-04：Telegram、WhatsApp 的身份绑定（配对）是 P0。
-- _问题_：用户通过配对绑定的 Telegram 账号、WhatsApp 号码，是否**自动**成为自身份的已确认端点？这对"由我负责"的筛选、对"收件人是我自己"的判断都有影响。部署文档里（Linux 方案的 Telegram bot、WhatsApp 关联设备）都会产生这类绑定。
-- _候选/建议_：配对完成即写入自身份端点，`endpoint_type=telegram_user|whatsapp_jid`，状态 confirmed，依据＝配对事件；解绑即标 revoked，不删除历史。
-
-**R-14 `source_verified` 本批可达性（P2，需求方）**：ER-02 要求 `source_verified` 只能来自"已审查适配器返回的权威同主体映射"。目前没有任何已审查适配器声明过这类映射，所以本批所有跨来源关联最多到 `confirmed`。建议在文档里明写"本批只预留枚举"，验收里不测 `source_verified` 的正例。
-
-**R-15 哪些"决定"可以在 IM 里完成（P1，需求方）** _（旧 Q5 的扩展）_
-
-- _PRD 依据_：CD-02："同决定面板可开始/修改/暂不"；4.1 导航 Chat 入口"查看当前工作/结果及所需决定"，未说明是否能在 Chat 里**确认**；Telegram/WhatsApp 作为 P0 渠道（CH-01–CH-04），部署文档也提到某些批准"出于安全原因不能直接点按钮"。
-- _问题_：接受跟进方案（CD-03）、确认用户验收（R-03）、记录用户报告的接受（R-09）、AP 批准，分别能否在 Telegram/WhatsApp 里完成？
-- _候选/建议_：按风险分三档：①只读/内部记录类（接受跟进方案、用户验收、记录接受情况）可在 IM 里用按钮或明确回复完成，服务端核对消息引用；②外发类（发送委派、催办）需要审批，IM 里只显示摘要并给带登录的网页链接；③付款/删除/公开分享不在 IM 里完成。请需求方确认这个分档。
-
-**R-18 导航、首页与现有控制台页面的去向（P1，需求方）** _（旧 Q10 的扩展）_
-
-- _PRD 依据_：4.1 导航共七个入口：Chat、工作、目标、人员、资料库、Status、Settings；IN-01 写"待你处理"位于 Chat 首页，不新增一级模块。原型的导航栏与此一致。本设计 §11.1 却是：工作·人员·目标·偏好·回执·文件，默认落地页为 `works`。
-- _问题_：(1) 首页是 Chat 还是工作页？Chat 在 OpenClaw 里是宿主自带的聊天界面，Nexus 控制台里没有 Chat 页，"待你处理首页"放在哪里？(2) 现有页面的去向：事项→工作；文件→资料库；目标→目标；"回执"（清除回执、审批历史）→Status 的批准记录？"偏好"→Settings？决策、证据现在在事项详情内，是否沿用？
-- _候选/建议_：控制台首页＝工作页，顶部放"待你处理"计数条（对应 IN-01 的数量与入口），Chat 入口跳到 OpenClaw 聊天；回执并入 Status，偏好并入 Settings；决策、证据保持在工作详情内。需求方确认首页含义和这个归并。
-- _影响_：`route.ts`、`page.ts` 导航表、i18n 键；原型的"列表＋详情"双栏布局与现有页面不同，是否整体换版面也要定。
-
-**R-20 旧数据与现有目标的迁移口径（P1，共同）**
-
-- _PRD 依据_：NX-03（个人长期目标与目标信）、INV-05（Goal 只限 Personal；Executive Work 不得有 Goal 边）、INV-06（最多一层子目标、无环、无 paused）。
-- _已核对（2026-10-30，对照 Mac 上 `src/store/schema.ts`、`goal-ledger-common.ts`）_：目标的状态约束是 `CHECK (status IN ('proposed','active','completed'))`，**没有 `paused`**，符合 INV-06；父目标必须是顶层且 active（`parentProblem` 对已有父级的目标返回 `not_top_level`），所以子目标只有一层、无环可能，也符合 INV-06。差异只有一点：现有多一个 `proposed`（助手提议、等用户批准，不能带提醒），PRD 的状态只有进行中/已完成，PRD 摘要写的是创建"说出里程碑和现状就能保存"，没见到"待确认"这个状态，需对照 NX-03 原文确认 `proposed` 是否允许（R-20 的待办）。
-- _问题_：(1) 已有事项（Task）回填为 Work 后，哪些该判为 Executive、哪些 Personal？已有 Task 没有"模式"字段。(2) 已有 Task 挂了目标的，在 Executive Work 上是否保留这条关联。
-- _候选/建议_：回填默认全部 Personal；有目标关联的保持 `primary`；需求方确认"没有模式字段的旧事项默认归个人"是否可接受。
-- _补充（2026-10-30，源码核对）_：现有目标分类是 7 个（health／relationships／finance／career／interests／productivity／something_else），与 NX-03 的 7 类一致，原型只画了 6 类；现有目标表**没有** `completion_reason`，PRD 要求完成时记录 achieved 或 stopped，所以已完成的旧目标需要一个回填默认值（建议 achieved，并允许用户在目标详情里改为"不再追求"）；现有"定期回看提醒"（`snoozed_until`／`nudged_at`）是插件自有机制，与 NX-03 的系统目标信（由 SystemJob 生成）不是同一件事，两者并存还是替换待需求方确认。另外，原型的"休息中（已关闭这个目标的主动提示）"在现有表里最接近 `notify_policy`（off／digest／on），但 `off` 同时是默认值，无法区分"休息中"和"从未开启提示"；若要显示"休息中，自 10-20"，需要新增休息起始时间字段或一种进展类型 `rest`。
-
-#### F. 对照 HTML 原型新增的问题（2026-10-30）
-
-依据：`docs/prd/design/` 下 `nexus-work.html`、`nexus-people.html`、`nexus-goals.html`、`nexus-library.html`、`nexus-status.html` 五个单页原型，逐项对照 PRD v1.86 原文。原型大体忠实于 PRD（人员页的四个阶段名、目标页的"完成原因/休息/目标信/一级子目标"、资料库的上传上限与 30 天回收站都与 PRD 一致），下面只列**对不上**或**PRD 没定、原型替它定了**的地方。原型自身的数据矛盾见 E.5，PRD 要求但原型没画的界面见 E.6。
-
-**R-22 资料库"分享"：发给指定客户，以及私有／公开链接，本批做不做（P0，需求方；2026-10-30 晚按新原型重写）**
-
-- _依据_：PRD NX-08：私有聊天链接要求所有者认证；临时公开文件须批准准确内容，48 小时内到期，可立即撤销；外发动作按 AP 逐项批准。新原型的分享弹窗不再只是"生成链接"，而是三种方式——**发给指定客户**（选发件邮箱、选收件人、写邮件、附上当前版本、记在某件工作里，批准发送 1 封）、**私有链接**（只有你登录后可开，明说"不能当作发给客户的链接"）、**临时公开链接**（"这不是发给指定客户"，最长 48 小时，需单独批准）。但**文件库设计（F1–F3）已确认**："OpenClaw 在用户本机运行，暂时不需要分享功能，v1 页面不出现'分享'入口，也不实现 `nexus_file_export`"。
-- _问题_：(1) 与已确认决定仍然冲突，而且范围更大：发给指定客户是一次真实的外发，需要 Action／审批、收件人身份与披露许可、发件账号（R-38），都落在 R-01 暂缓的对象上。(2) 本机网关只监听 `127.0.0.1`，临时公开链接在没有公网入口时对外打不开，私有链接也只对本机登录有效。(3) 原型把"生成链接"和"发邮件"放在同一个入口，PRD 里它们是两种授权。
-- _影响_：资料库页要不要有分享区块；是否需要 Action／审批、邮件连接和"分享记录"表、过期清理定时器。
-- _候选_：(a) 本批不做分享，隐藏分享区块和 Status 里的公开链接批准项，保留"下载"；(b) 只做私有链接；(c) 做"发给指定客户"（走逐项批准外发、用已有邮件连接、不生成链接），不做公开链接；(d) 全量，前提是部署方案有公网入口且 R-01 的审批对象到位。
-- _研发建议_：(a)。若需求方要保留客户交付，先做 (c) 的最小版：只发给已验证且已允许披露的收件人，批准后发送，审批记录里存版本＋内容哈希＋发件账号＋收件地址。(d) 等部署有公网入口再启用。
-
-**R-23 资料库里"成果"与"上传输入"的边界，以及与现有文件库的关系（P1，共同）**
-
-- _依据_：4.1 写资料库是"打开/下载**已验证**文件及版本"；NX-08 又说资料库登记 Deliverable、也接收上传/导入文件（上传文件在用户明确采用为某 Work 交付物前仍是输入）。原型用 `origin = deliverable | upload` 把两类放在同一个列表里，并提供"用作某件工作的成果…""设为当前""删除此版本""只删除当前版本（不自动切回旧版本）"。现有文件库是一个概念：集合 `vault/inbox`、收藏、敏感标记、版本，没有"成果／输入"之分。
-- _问题_：(1) 资料库是否展示上传输入（4.1 与 NX-08 读法不同）？原型选了展示。(2) 原型里"设为当前版本""删除某个版本""删除当前版本后不自动切回旧版"在 PRD 里**找不到对应条款**（PRD 只说版本分别关联生产者），是原型新增的行为，需确认。(3) 一个正在生成、尚未核验的草稿（原型 `Q3合同核对报告_草稿.xlsx`，版本"生成中"）是否进资料库，与"已验证文件"冲突。(4) 现有文件的"收藏／敏感／收件箱"在新页面里去哪：原型没有这三个概念，PRD 有"固定"。
-- _影响_：决定是否给现有文件加 `origin`、`owner_work_id`、"当前版本指针"字段；已有文件的迁移默认值。
-- _候选/建议_：现有文件一律回填为"上传输入"；成果由新建 Work 的交付自动登记；"收藏"迁移为"固定"；"敏感"保留为内部属性（不在原型里显示，但仍控制是否进模型）；"设为当前版本""删除此版本"先不做，列为已知不支持，等需求方确认。生成中的草稿不进资料库，只在工作详情里显示。
-
-**R-24 Status 页本批做到哪（P0，需求方）**
-
-- _依据_：4.1 写 Status 是"执行/批准/检查历史及账号容量"，RB-05 要求预算账本、预留、排队历史在 Status 展开，PRD 还把"系统处理"（SJ）与异常（ES-05）放进 Status。原型 Status 分五类记录（执行／批准／检查／系统处理／问题）外加"容量与运行环境"总览：账号执行容量与排队、按规则批准及额度（本工作 8/10、账号今日 7/20）、资源账本（页／张发票／封／次读取，已用/预留/估算）、共享读取、日志到期清理、目标信作业、邮件回填、事故四问（发生了什么／已停止什么／还可能发生什么／下一步）、"出了问题"报告入口。
-- _问题_：这页几乎每个区块都依赖**本设计标为"暂缓"或尚不存在**的对象——ApprovalBundle 与规则、额度账本、SystemJob、IncidentRecord、账号容量与排队、共享读取。当前插件只有任务执行记录、逐项审批和回检记录。与 R-01(a)（本批无规则自动批准）、R-07（不建 SystemJob）、R-17（额度不生效）**直接冲突**：这三项若按建议处理，Status 里"按规则批准""自动批准额度""系统处理"三块就没有数据。
-- _影响_：Status 是纯投影页，但投影的源表缺失；要么本批补源表，要么页面分期。
-- _候选_：(a) 本批只做**执行、批准（逐项）、检查**三类的只读投影，用现有表拼出同一个 `RecordView`；隐藏容量、额度、系统处理和"问题"；(b) 在 (a) 之上加"问题"：用户点"出了问题"→ 写一条事故记录，冻结该 Work 的待发审批并停止它的未来检查，其余按 IR 流程人工处理；(c) 全量。
-- _研发建议_：(a)，(b) 视 R-01 的答案而定。请需求方确认：**原型 Status 是目标形态，不是本批验收对象**。
-- _2026-10-30 晚补充_：新原型的事故卡把"成果完成"和"事故补救"分开显示——周报 v2 已重新核验完成，但发给周敏、陈洁的仍是 v1，更正邮件待批准，两者可同时成立；`facts` 多了"工作成果""事故补救"两行；Status 与工作页之间改为按 `#工作id` 深链。事故补救的对象问题见 R-36。
-
-**R-25 "云端 Agent 主机"的假设 vs 本机 Mac 部署（P1，需求方）**
-
-- _依据_：原型 Status 的运行环境写"Agent 主机浏览器 · 云端主机 · 在线"，页头写"你关闭电脑或锁屏，工作仍在 Agent 主机上继续"；PRD RT-02 也写"离开 2 天或用户个人电脑关机不停止 Agent 主机浏览"。但当前自用部署是 Mac 上的 launchd 网关，合盖休眠即离线（部署文档 §16 风险）。
-- _问题_：本批 Status 与工作页的主机文案、"覆盖"判断以哪种主机为准？
-- _候选/建议_：(a) 主机类型做成配置：`local_mac`／`cloud_host`，文案按真实类型显示（本机：显示"这台 Mac · 最近响应 hh:mm"，并提示休眠会暂停检查），不显示"关闭电脑仍继续"；(b) 本批只面向云端主机，Mac 自用只作开发环境。建议 (a)。无论哪种，PRD 要求的"如实报告真实主机/会话状态"不能省。
-
-**R-26 "完成标准"的展示状态与 OC-03 评估结论的对应（P1，共同）**
-
-- _依据_：OC-03 对每个必要标准记录 `met`／`not_met`／`insufficient_evidence`／`conflicting_evidence`；原型每条标准只有四种显示：`ok`、`wait`（等待中）、`todo`（待开始）、`miss`（未完成），进度环显示"已满足数／标准总数"。
-- _问题_：(1) `wait` 与 `todo` 的区别是进度信息，PRD 没有这个维度；(2) `conflicting_evidence` 在原型里没有对应显示，但 PRD 要求冲突和未知"在任何主状态下均可见"；(3) 人员页"手动结案"弹窗说"报价表标准会显示为'手动结案'，不算核验通过"，这是第五种显示，原型的工作页没有；(4) 原型里有些"标准"其实是步骤（"合成材料包 PDF""生成报销单"），PRD 的标准是"请求成功条件"，步骤不应算分母；(5) PRD 区分"必要"与"仅参考"的关联（参考不阻断完成），原型只有一个列表，参考项无处显示。
-- _建议映射_：`met`→ok；`not_met`→已结束时 miss，否则 todo／wait（按是否已有进行中的分支）；`insufficient_evidence`→wait，并在说明里写缺什么；`conflicting_evidence`→新增"证据冲突"；手动结案→新增"手动结案"。进度环文案改为"已满足 x/y 项必要标准"；步骤放到"现在进展"而不是标准列表。需求方确认这个对应，以及仅参考的关联是否单列显示。
-
-**R-27 一件工作同时有多个待你决定（P1，共同）**
-
-- _依据_：原型 `attention` 字段"最多一张"。PRD IN-01："同一 Work 多个待决定不重复计工作"；AP 支持一批分项决定；WK-02 第 3 行允许同时有"必要输入"和"某 Task 等批准"；Status 例子里一次批 10 项外发。
-- _问题_：工作详情和工作列表怎么处理第二个、第三个待决定？
-- _候选/建议_：详情页顶部卡片显示最紧迫的一个，其余折叠为"另有 N 项待你决定"并可展开；列表只显示最紧迫一个的标题。"最紧迫"按到期时间，其次按等待时长。
-- _2026-10-30 晚补充_：新原型把"事故补救"也放进 `attention`（仍是"最多一张"），列表搜索会匹配 attention 标题；首页"你离开期间：N 件需要你处理"按 `state==="action"` 计数，所以已完成工作上的补救决定**不计入**这个件数（见 R-36）。
-
-**R-28 周期性承诺（P1，需求方）**
-
-- _依据_：原型人员页"我"名下有"每周五交 B 客户周报"，期限列显示"每周五 18:00"，核验列显示"本周未交"。PRD 里 Commitment 只有"已知截止日期/时区"，**没有周期性义务的定义**（按"周期性承诺／重复义务／每周五"等检索均无定义）；周期性检查是 Schedule（NX-05），周期简报也是 Schedule（NX-03）。
-- _问题_：这条是一条会反复履行的 Commitment、每周一个实例，还是一个 Schedule？谁在周期点创建下一个实例？"本周未交"是核验结论吗？
-- _候选_：(a) 每个周期实例是一条独立 Commitment，由用户或助理在周期点创建，Schedule 只负责提醒；(b) Commitment 加重复规则、自动生成实例（需要新字段和生成逻辑，PRD 未授权）；(c) 本批不支持，周期性事项只作为 Schedule 提醒。
-- _研发建议_：(c)，需要时用 (a)。原型里这一行改成 Schedule 提醒的样式，或标"后续版本"。
-
-**R-29 人员视图的"沟通／接受／核验"展示值与 NX-04 枚举的对应（P1，共同）**
-
-- _依据_：NX-04 枚举——沟通 `draft/submitted/confirmed/unknown/failed`；接受 `unknown/accepted/declined/needs_clarification`（用户报告另标 `user_report`）；核验 `unverified/verified_complete/verified_exception/conflicting_evidence`。原型的显示值：沟通"—／未发送／已送达"；接受"你已答应／已接受／已接受新期限／待确认／未知／已揽收／—"；核验"未核验／本周未交／未收到／运输中／已核验完成／—"。
-- _对不上的点_：(1) 沟通只有 draft 和 confirmed 有文案，`submitted`（已受理未确认送达）、`unknown`、`failed` 没有，而 NX-04 要求"存在未知项不能用整体'全部已送达'掩盖"；(2) 接受的 `unknown` 同时被写成"待确认"（陈芳、李明第二条）和"未知"（小王），含义是否相同？`declined`、`needs_clarification`、`user_report` 没有文案；(3)"已接受新期限"隐含"接受绑定责任版本"（NX-04 要求新版本独立取证），但文案没有版本信息；(4)"已揽收""运输中""本周未交"是业务进展，不是枚举值，且物流需要有对应来源适配器。
-- _建议_：人员页的三列只显示枚举对应的固定文案（表由研发出，需求方审），业务进展写在"下一步"和证据里；`user_report` 在接受后面加"（你记录）"。
-
-**R-30 人员视图"阶段"的优先级，以及"我"的承诺怎么归阶段（P2，共同）**
-
-- _依据_：PV-02 只列了四个阶段名（尚未发送委派／等待对方回应／正在检查交付／等待你决定）；原型扩成七个（加截止已过、已核验完成、已取消），并让每条承诺只显示一个。
-- _问题_：同时满足多个时取哪个（陈芳那条既"截止已过"又"接受待确认"，PV-01 要求这时写"要求截止已过，接受待确认"，而原型只显示"截止已过"，接受在下方单列）？"我"的承诺"回复王总关于预算的问题"下一步是"草稿已备好，等你确认后发送"，却显示"正在检查交付"，按含义应是"等待你决定"；王总名下的"确认交付时间表"显示"等待你决定"，因为卡在用户批准邮件上，但责任方是王总。
-- _建议_：优先级 已取消／已核验完成 > 截止已过 > 等待你决定 > 尚未发送 > 等待对方回应 > 正在检查交付，且"等待你决定"只在**卡点是用户**时使用；截止已过时额外显示接受状态。请需求方确认顺序。
-
-**R-31 "待确认人员"的分组键、候选来源与"是此人"的范围选择（P1，共同）**
-
-- _依据_：PV-01"获准原始资料中的'小王'可在'待确认人员'分组显示来源称呼/上下文，不能据此归入某个已确认人的数量"；INV-34/ER-02 姓名只是候选；ER-03 用户选"仅本次"或"在项目 A 中记住"。原型每个未解析称呼一张卡，下面列两位候选，一键"是此人"。
-- _问题_：(1) 分组键是什么：同一称呼出现在两次会议是一张卡还是两张（PV-01 要求同名未对齐者分开，建议按"称呼＋来源上下文"）？(2) 候选从哪来：只允许来自用户已有的、有获准关联的人员，且仅按称呼匹配并标明"仅按名字推测"？(3) 原型点"是此人"直接生效，缺少 ER-03 要求的范围选择（仅本次／本项目／本客户）。(4)"都不是／在聊天中告诉我是谁"之后的路径。
-- _建议_：分组键＝（来源称呼，来源上下文）；候选只来自已有人员，并显示匹配依据；点击后弹范围选择，默认"仅本次"。
-
-**R-32 删除／合并人员的后果（P1，需求方）**
-
-- _依据_：PV-03 只写"人员删除/合并先说明身份端点、责任和共享引用影响，不静默删除未解义务"；WK-04 级联矩阵里有删除 Work／Commitment／Goal／Task，**没有删除或合并 Counterpart 这一行**。原型的"删除人员"弹窗：未解决事项变回"待确认是谁"、联系方式与别名被删除、关联工作与历史保留。
-- _问题_：(1) 把责任人置空（`responsible_counterpart_id` 为 NULL，INV-08 允许可空）是否就是 PRD 说的"不静默删除"？(2) 已解决、已核验的历史事项里责任人怎么办：置空会丢掉"是谁交付的"，而核验又依赖该人的端点映射（INV-34），删除后这些核验是否需要重评？(3) 删除人员与"遗忘"（FG）的区别：删除只是不再显示，还是要清除相关记忆和检索投影？(4) 合并重复人员、更正身份、"这不是一个人"三个入口原型只有按钮没有弹窗。
-- _2026-10-30 晚更新_：新原型的"删除人员"弹窗给出了明确范围——**会停止**：联系方式与别名不再可用于发送、依赖此人的待发消息失效、收件名单含此人的规则暂停、依赖其身份的检查与自动核验暂停；**会留下但不再当作此人**：未解决事项变"待确认是谁"（不删除、不改派），已核验的事项**重新评估，归属依据不足时标缺口、必要时重开**，已发出或结果未知的消息只按原范围核对、不自动重发；**不受影响**：关联工作、事项原文和来源历史，其他人员的规则／检查／已交付内容。这与原先"已核验结论不重评"的建议不同，而且更贴合 INV-34（核验依赖该人的端点映射）。
-- _建议（已改）_：采用原型的做法；历史事项保留原 `counterpart_id`（显示"已删除的人员"）；彻底清除走遗忘；把这一行补进 WK-04 矩阵。"合并重复人员""更正身份""这不是一个人"三个入口原型仍然只有按钮没有弹窗，按 ER-05 先展示影响清单、版本化。请需求方确认。
-
-**R-33 目标"来源事实"进展由谁写入（P1，共同）**
-
-- _依据_：NX-03："进展区分用户报告与获准来源事实"；同时"不先做广泛账号读取""系统派生摘要……不因 Goal 存在开启外部读取"。原型目标页有三种进展来源（你记录／来源事实／休息），"来源事实"例如"来自邮件：模考成绩单""来自邮件：报名确认"。
-- _问题_：这些事实是谁、凭什么权限写进目标的？若是某个已获准的 Work 读邮件拿到的证据，要不要用户确认后才写进目标进展？若无 Work，则目标本身不能读邮箱。
-- _建议_：本批只允许"你记录"和"休息"；"来源事实"只能由**已获准 Work 的证据**经用户确认后写入，并保存来源引用。还需核对现有目标进展表是否有来源字段（核对待办，见 R-20）。
-
-**R-34 工作状态文案与展示粒度（P2，需求方）**
-
-- _依据_：WK-02 的五个展示名：已完成／已结束（未完成）／待你处理／阻塞·暂停·待核对／继续中；RT-02 要求"已结束（未完成）"与"已完成"分开计数。原型文案：待你处理／受阻／进行中／已完成／已结束，且"周会改期通知"（只是在核对邮件是否送达、无需用户操作）也着色为"受阻"。
-- _问题_：文案以谁为准？"阻塞／暂停／待核对"三种含义不同（要用户处理、用户或系统暂停、只在核对），合成"受阻"是否可接受？
-- _建议_：主状态沿用原型的五个色块，但标签用 PRD 的完整词（"已结束（未完成）"），"受阻"色块下的副标识区分"暂停"和"核对中"，并与 R-21 的其他运行标识合并处理。
-- _2026-10-30 晚补充_：「客户会前准备」（w7）原来是"受阻 · 只有你能处理"，新版改成"待你处理 · 重新连接 Google 日历"，理由是只有用户能重连。这与 WK-02 行 4 的字面不一致，单列为 R-40；「周会改期通知」（w8）仍是"受阻"。
-
-**R-35 原型示例依赖的真实能力（P2，需求方）**
-
-- _依据_：原型工作页的"深圳出差机票与酒店"（确认购买 ¥1,860，招商银行信用卡尾号 6620）、"牙医复诊预约"（诊所确认 11-02 15:30）、"周年晚餐订位"，人员页的"顺丰运单 SF1234 签收"，Status 的 Gmail／携程／Google 日历连接状态与配额。PRD CP-01 对航空/旅行/预约/接送的**具名获准供应商仍是 TBD**；当前插件只有假供应商，没有任何真实 provider，物流查询也没有适配器。
-- _问题_：这些是"目标形态的示意数据"，还是本批要能跑通的验收场景？
-- _建议_：定为示意数据，验收只用假供应商和"仅准备（prepare_only）"路径；机票购买页的付款路径和支付方式展示依赖 PRD 第 7 章逐笔批准，不得在本批实现真实付款。
-
-**R-36 事故补救决定与"已完成"并存（P1，共同）**
-
-- _依据_：WK-02 行 1（有效 achieved 事件即已完成）；PRD 术语表"事故挂起、补救、结案"——补救是控制疑似损害、核对效果并明确批准可行纠正，"结案或接受残余风险不证明损害消除或义务履行"；ES-05；原型工作页 w10（周报）：主状态"已完成"，同时有一张"事故补救 · 需要你决定"的卡（把更正邮件和 v2 发给周敏、陈洁），带"补救未完成"标签和"结案补救不等于损害已消除"的提示；Status 事故卡 IR-1029-02。
-- _问题_：(1) 已完成的 Work 上挂着一张待批准的外发（更正邮件）——它是 WK-02 的哪一行？按 PRD 它不改变主状态，但原型用的 `attention` 在其他工作里就是"待你处理"。(2) RT-02 五类互斥计数里它算"已完成"还是"待你处理"？原型：计数仍是已完成，"你离开期间 N 件需要你处理"不含它。(3) 补救邮件是新动作还是 v1 的延续？原型写"不继承 v1 的批准"，与 D.4（实质变化＝新 action_id、新批准）一致。(4) 事故记录（IncidentRecord）和补救动作的对象在本设计里不存在（R-24）。
-- _影响_：`deriveWorkState` 的 flags 和 attention 来源；IN-01 的待处理列表是否含已完成工作；Status 事故卡的数据源。
-- _候选／建议_：主状态不变，新增 flag `remediation_open`；补救决定存为一条普通 `decisions`（kind=`remediation`，引用事故编号和被替代的动作），走现有审批；IN-01 列出它，RT-02 计数仍按主状态；事故记录本批只落最小表（编号、触发时间、范围、状态），R-24 选 (a) 时先不做。请需求方确认 (2) 的计数口径。
-
-**R-37 催办／继续跟进／委派合并面板的服务端语义（P1，共同）**
-
-- _依据_：PRD 附录 D.4 跟进承载解析、CD-02/03、AP、NX-04；原型人员页 `openFlow("nudge"|"follow"|"delegate")`。
-- _问题_：(1) 承载解析规则本文原先没有，已补 §9.5。(2) 催办面板"发送前已重新核对"的各项，哪些必须服务端强制（责任版本、收件地址属于该项目、已验证、当日重复提醒）？(3) 委派的"批准发送并开始跟进"是一次点击两个决定：发送失败时跟进要不要开始？发送结果未知时呢？(4) "今天 09:00 已按规则自动发过一次"依赖自动批准规则（R-01(a)、R-17 默认本批不生效），没有规则时这一行从哪来？
-- _影响_：`nexus.delegation.*`、催办接口的事务边界；Action 与 DelegationPlan 的先后顺序；重试与幂等。
-- _候选／建议_：(2) 全部由服务端强制，前端只展示；(3) 先提交发送 Action，**已提交且结果为 submitted／confirmed 才把方案置 confirmed 并启动**，失败或结果未知时方案保持 `proposed` 并写明原因，不静默启动；(4) 没有规则对象时，提示改为"今天已向此人发过 N 封"（来自 Action 记录），不提"按规则"。
-
-**R-38 发给指定客户：发件邮箱、收件人身份与"来源允许披露"（P1，需求方）**
-
-- _依据_：原型资料库分享弹窗：`MAILBOXES`（咨询业务邮箱／客户项目邮箱／个人邮箱，每个上下文有"常用身份"；换用非常用身份时提示"对方看到的是 X 身份，披露会落到该账号的往来里"，并且"不会默认改回"）；`CONTACTS` 里 `verified`（身份已验证）与 `disclose`（allowed／unknown／denied，来源是否允许向其披露）是两个独立标签——"已验证不是外发许可"；还有"允许向 X 披露「上下文」这一次"的按钮。PRD：ER-01–ER-05 身份端点与范围、AP 外发、US-09 与 CL-03（个人／业务披露范围不混淆）。
-- _问题_：(1) 一个所有者的多个邮箱账号如何按上下文选默认？本设计的上下文只有 `context_mode`（R-08）。(2) `disclose` 存在哪：每次发送的一次性授权，还是挂在 IdentityLink 范围（项目／客户）上的持久属性？PRD 有"身份关联范围"（ER-03），没有"披露许可"字段。(3) 在发送弹窗里直接点"是此人"算不算 ER-03 要求的范围选择（仅本次／本项目）？
-- _影响_：发送审批的 `approval_scope`；是否需要 `mail_accounts` 表（账号→上下文→默认发件身份）；`identity_links` 是否增 `disclosure` 列。
-- _候选／建议_：(1) 本批只支持一个发件邮箱，不做账号选择，多账号等 R-08 之后；(2) 披露许可只做**一次性**，随审批记录保存，不写成持久规则，也不进 `identity_links`；(3) 身份确认走 ER-03 的范围选择（默认仅本次），不在弹窗里一键永久。
-
-**R-39 目标页"完成／删除目标"弹窗要列出的范围（P1，共同）**
-
-- _依据_：NX-03 与级联矩阵（"Goal 完成／停止追求""删除 Goal G"）；新原型目标页数据：`schedules[]`（业务归属为本目标的计划，含执行主工作 `host`、`stopOnComplete`、下次检查、在途检查 `checking`）和 `briefing{enabled,next}`（目标信策略）。完成弹窗分"将按约结束／默认继续（可勾选停止）／关联工作／目标信（策略仍启用，完成不会自动关闭）"；删除弹窗分"将停止的后台处理／会保留，只解除关联"，并写明"不会把已删目标的计划偷偷挂到其他工作上"。
-- _问题_：(1) `stopOnComplete` 在数据上是什么——方案结束条件里是否含本目标事件（PRD："仅已接受停止条件明确包含此目标事件的计划按约结束"）？(2) 目标信策略是独立 SystemJob（NX-03），R-07 默认不做 SystemJob，那么"取消目标信策略""隔离未送达的信"在本批对应什么？(3) 弹窗里"目标信策略仍启用，完成不会自动关闭"是要用户知道的事——没有策略对象就无法显示。
-- _影响_：§4.5.4、§10.2；`previewGoalImpact()` 的数据源；完成／删除的单测。
-- _建议_：见 §4.5.4。本批只落 `goal_briefing_policies` 最小表（启用开关＋版本），不实现生成作业；弹窗的"目标信"一行按该表显示。如果 R-07 选"不做"，则弹窗省略这一行，并在 E.6 登记。
-
-**R-40 "连接过期、只有用户能处理"算待你处理还是阻塞（P1，需求方）**
-
-- _依据_：WK-02 行 3（Work 自身有有效的必要输入／结果确认等**用户可处理前置请求**，或必需依赖有真实用户可处理决定）与行 4（Work 自身有尚未就绪的系统／权限／来源前置……说明具体原因及**谁可处理**）；行 6："需要用户补充时先建立准确前置请求，下一次评估进入第 3 行"。原型 w7「客户会前准备」：旧版是"受阻 · 只有你能处理"，新版改成"待你处理 · 重新连接 Google 日历"，并计入"你离开期间 N 件需要你处理"。
-- _问题_：来源连接过期是行 4（权限／来源前置未就绪，说明谁可处理），还是行 3（用户可处理前置请求）？字面读是行 4；原型显然想让它进"待你处理"，这意味着过期时系统要建立一条"重新连接"的前置请求（WorkPrerequisite，§4.2.7）。两种读法对 RT-02 计数和 IN-01 的影响不同。
-- _建议_：按原型走行 3：`connection_expired` 事件创建一条 `work_prerequisites`（kind=`reconnect_source`），Work 进入 needs_you，重新连接后自动关闭该前置并继续；原因代码保留。这与 PRD 字面有出入，请需求方确认；确认前 §5.2 验收矩阵按此默认。
-
-**R-41 更正身份与“这不是一个人”的默认做法（P1，共同；2026-11-02）**
-
-- _依据_：PRD PV-03、ER-05 只要求“先展示影响、不静默改写历史”；原型人员页「···」有“更正身份”“合并重复人员”“这不是一个人”三个按钮，都没有弹窗。
-- _问题_：(1) 联系方式挂错人之后，更正是只对以后生效，还是追溯到“一开始就错”，从而重评已核验的承诺？(2) “这不是一个人”选“忽略这个称呼”后，那些承诺在工作里怎么显示——继续“责任人待定”并算证据缺口，还是需要用户另外处理？(3) 把人员类型从个人改成组织后，已有的“下属”关系和已确认的联系方式关联怎么办？
-- _建议_：(1) 默认只向后；用户明说“一开始就错了”才追溯，并重评受影响的承诺。(2) 继续显示“责任人待定”，计入缺口，不自动取消。(3) 关系撤销、联系方式关联保留但要求重新确认。
-- _不回答时的默认做法_：按建议做，已写进 §7.6。
-
-### E.3 旧版 §14 待决问题 Q1–Q11 对照 v1.86 的状态
-
-| 旧编号                                | 状态                    | 说明                                                                                                                     |
-| ------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Q1 无分支新 Work 算哪类               | **已回答**              | WK-02 第 6 行兜底，与本文默认一致                                                                                        |
-| Q2 "以部分结果结束"的实现             | **部分回答，见 §4.2.6** | WK-02 第 2 行有 `accept_partial` 终止事件，已是独立事实，不再用"取消路径"；`task_ext.partial` 可能仍有用，但作为展示字段 |
-| Q3 手动结案算不算完成                 | **转 R-03**，需求方定   | PRD 倾向"不算 met"，但未说明有无用户确认路径                                                                             |
-| Q4 PRD 决策（Decision）               | **需重新评估**          | v1.86 中 DecisionRecord 与 DecisionObjectLink 已有完整字段（PRD 附录 D.3）；是否本批做仍待定，归 R-01                    |
-| Q5 跟进方案确认入口                   | **转 R-15**             |                                                                                                                          |
-| Q6 能否给 `nexus_tasks.status` 加枚举 | **研发自决**            | 仍建议不加；PRD 说 Task 不新增 scheduled/delayed 状态（NX-05 表），与此一致                                              |
-| Q7 要不要做 Agent 技能                | **研发自决**            |                                                                                                                          |
-| Q8 进行中事项提示列表                 | **研发自决**            |                                                                                                                          |
-| Q9 多用户 `owner_id` 占位             | **仍有效**              | PRD 用 User/所有者；部署文档的多租户方案是"一个用户一个实例"，两者可兼容                                                 |
-| Q10 首页含义                          | **转 R-18**             |                                                                                                                          |
-| Q11 `entities_json` 里的人名          | **研发自决**            | 仍建议不回填；PRD ER-02 也禁止凭姓名推定身份                                                                             |
-
-### E.4 PRD 自身的矛盾、缺口与表述不清（供需求方修订 PRD 时参考）
-
-说明：下表是**阅读 WK、NX-03/04/05/08、PV、OC、CD、SJ、IN、AP/INV、4.1 导航及原型后**发现的，不是对全文的逐句校对；没列出的不代表没有问题。本设计**不修改** `NEXUS_AI_PRD.md`，PRD 由需求方自己改；下表只给出位置和问题，处理方式见对应 R 编号。
-
-| #   | 位置                                                    | 问题                                                                                                                                                                       | 对应 |
-| --- | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
-| 1   | WK-02 第 1 行；OC-03；NX-04                             | 完成要求"全部必要标准 met"且"手动结案不能代替 met"，又说"需用户验收时仍等待该决定"；全文没有"用户验收"这种标准类型，也没说哪些模板带它。个人事务类工作因此无法到达"已完成" | R-03 |
-| 2   | WK-02 第 2 行；CD-04；SJ-01                             | "约定窗口结束且结果未满足"是已结束的原因之一，CD-04 只规定方案结束，SJ-01 的作业类型里没有"窗口到期评估"，没有主体去写这个终止事件                                         | R-04 |
-| 3   | NX-05；OC-04；CD-03；WK-02 第 4 行                      | "blocked"出现在 Schedule 状态、受影响计划、"accepted+blocked"的方案、Task 执行状态四处，而 DelegationPlan 状态集合里没有 blocked；原因代码表也没有                         | R-11 |
-| 4   | WK-02 完成/撤回通知段                                   | "已向用户呈现或派发过完成结论"没有判定标准，也没有"已看到"回执                                                                                                             | R-05 |
-| 5   | NX-04 委派沟通与接受                                    | 用户报告的接受（`user_report`）算 accepted 还是仍待对方回应；能否满足"责任方已接受"类标准                                                                                  | R-09 |
-| 6   | INV-08；NX-04                                           | 责任人 0..1，"多人各自独立交付时分别记录"，没有"共同交付／任一人完成即可"                                                                                                  | R-10 |
-| 7   | WK-01、SJ-02、NX-05、CD-02/04、RB                       | 反复要求"须定义上限""无上限不启用"，但没给数；"账号每日"的起止时刻与时区未见定义（原型写"明天 00:00 重置"）                                                                | R-16 |
-| 8   | OC-01/02                                                | 只有 5 个模板，SC-04 没有对应模板，普通工作（调研、整理）没有兜底模板                                                                                                      | R-02 |
-| 9   | 4.1 资料库一行 vs NX-08                                 | 4.1 写"打开/下载已验证文件及版本"，NX-08 又让资料库接收上传文件并规定上限；资料库是否列出上传输入，两处读法不同                                                            | R-23 |
-| 10  | 4.1 Status 一行 vs SJ（系统处理）、ES-05（事故）、RB-05 | 4.1 只写"执行/批准/检查历史及账号容量"，其他条款又把系统处理、事故、预算账本放进 Status；入口描述不完整                                                                    | R-24 |
-| 11  | NX-04、NX-05                                            | 没有周期性义务（"每周五交周报"）的定义；周期只存在于 Schedule                                                                                                              | R-28 |
-| 12  | PV-03；ER-05；WK-04 级联矩阵                            | PV-03 要求删除/合并人员先说明影响，WK-04 矩阵里没有删除或合并 Counterpart 的行；责任人被删后历史事项的归属没规定                                                           | R-32 |
-| 13  | 4.1 Chat 一行；IN-01                                    | "待你处理"位于 Chat 首页，但 Chat 在 OpenClaw 里是宿主自带的聊天界面，PRD 没说 Nexus 的入口怎样出现在其中                                                                  | R-18 |
-| 14  | CP-01                                                   | 航空/旅行/接送、预约/排期、财务适配器具名供应商仍为 TBD，而 `reservation_confirmed` 等模板、SC-01/02 依赖它们                                                              | R-35 |
-| 15  | ER-02                                                   | `source_verified` 需要"已审查适配器的权威同主体映射"，尚无任何适配器声明过                                                                                                 | R-14 |
-| 16  | WK-02 首段                                              | "必要的部分／未知／覆盖／其他分支运行标识"的集合没有列全                                                                                                                   | R-21 |
+| 文档                        | 需要跟进的 PRD 决定                                                                                                                                                                                                                                |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 目标设计（G1–G4 已实现）    | R-20：`completion_reason`（achieved / stopped；迁移历史 `legacy_unknown`）、proposed 候选、七个分类、休息进展；R-33：进展 `kind = report / rest / source_fact` 与“用户明确采用 Work 证据”；R-39 / NX-03：完成 / 删除前的影响预览；目标信本批不生成 |
+| 文件库设计（F1–F3 已实现）  | R-22：分享整体关闭，旧公开链接先撤销；R-23：输入 / 成果 / 持久草稿、固定 / 敏感 / 集合保留，单版本删除与手动设当前不支持，旧文件按 upload 回填                                                                                                     |
+| Status 页（目前无专门设计） | R-24 / R-25 / R-16：只显示真实记录；主机配置与最后观测；容量数字来自集中配置；批准记录里不虚构规则批准                                                                                                                                             |
+| 渠道与通知                  | R-13 / R-15：配对、IM 私聊决定矩阵；R-05：呈现事实与更正通知                                                                                                                                                                                       |
 
 ### E.5 原型（`docs/prd/design/*.html`）自身的不一致
 
@@ -2402,6 +2538,8 @@ _补充（2026-10-30）_：原型的 Status 页和人员页默认存在规则自
 
 **2026-10-30 晚重核（对照 `8d8983a58c3`）**：第 3 项已修正——工作页 w10 现在也写"17:55 你报告：v1 数据有误""18:40 重新核验"，与 Status 事故一致。第 1、2 项没改，而且 Status 现在用 `#w5`／`#w7`／`#w8` 深链到工作页，把名称不一致显性化（"11-02 上海出差机票"会跳到「深圳出差机票与酒店」）。第 4 项没改，并且人员页新增的规则备注写明"收件人名单含 liming@nexus-consult.com · 新地址不会继承这条规则"，而 Status 里的提醒邮件发给了 li.ming@a-corp.com，两者现在是直接矛盾。第 5–11 项未改。
 
+**PRD v1.95 之后的状态**：第 8 项（目标分类）由 R-20 确认七类全部保留；第 10 项由 R-30 的阶段顺序回答（草稿等用户批准时阶段是“等待你决定”）；第 11 项由 R-18 回答（Chat 跳宿主、Settings 即偏好）；第 9 项仍需设计方在列表上明确标识组织；第 7 项需要目标页的关联工作状态词表扩到五类。第 1、2、4、5、6 项是原型示例数据的矛盾，不影响对象模型，仍需设计方确认。
+
 ### E.6 PRD 要求、但原型没有覆盖的界面
 
 这些界面没有原型，开发时要么先按现有控制台样式做、要么先请设计方补稿。2026-10-30 晚按新原型重核：已补上的在每条末尾标"已补"，详见 E.9。
@@ -2413,40 +2551,22 @@ _补充（2026-10-30）_：原型的 Status 页和人员页默认存在规则自
 - **Status**：容量与排队、规则管理（"查看规则"无下文）、事故卡"补救"之后的完整流程（工作页已有一张补救决定卡，见 R-36）、"出了问题"之后的流程。
 - **未画的一级入口**：Chat（含 IN-01 的"待你处理"首页、即时问答 interactive_query 的呈现）、Settings（渠道配对、来源连接、权限/规则、数据控制、通知路由）；首次使用的背景导入（CB）；"一句话忘掉"的确认卡（FG）。
 
-### E.7 影响后续开发的问题：阻塞关系与"不回答时的默认做法"
+**PRD v1.95 对上面几条的影响**：资料库的“发送 / 分享面板”不再需要（R-22 关闭分享）；Status 的“规则管理”不需要（R-17 规则暂缓）；Chat 与 Settings 的落点由 R-18 回答（Chat 跳宿主聊天，Settings = 偏好）；“更正身份 / 合并 / 这不是一个人”弹窗仍待设计方补稿。
 
-按开发步骤列出：这一步卡在哪些问题上；若需求方到时间点仍没答复，研发按右列默认值先写（进入评审记录，答复后再改）。
+### E.7 开发步骤与剩余待确认问题的关系
 
-| 开发步骤                               | 被哪些问题卡住                                 | 不回答时的默认做法                                                                    | 最晚要答复的时点               |
-| -------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------ |
-| 定 DDL（works、criteria、events）      | R-01、R-02、R-03、R-04、R-06                   | R-01(a)；3 个模板＋"用户确认交付"兜底；窗口＝结果约定期限；版本化最小版               | 写迁移脚本之前                 |
-| Commitment／Counterpart／人员视图      | R-09、R-10、R-12、R-13、R-28、R-29、R-31、R-32 | user_report 算 accepted；多人拆多条；周期性承诺不支持；展示值用固定表；删除＝停用档案 | 做人员页之前                   |
-| Schedule／跟进方案                     | R-11、R-16                                     | 原因代码草案；数值取"研发起点建议"                                                    | 做跟进方案之前                 |
-| 工作页（列表、详情、控制）             | R-26、R-27、R-34、R-21                         | 标准状态按建议映射；多个待决定折叠；完成标签用 PRD 全称                               | 做工作详情之前                 |
-| 资料库页                               | R-22、R-23                                     | 不做分享；现有文件回填为"上传输入"；不做设为当前/删除某版本                           | 做资料库页之前                 |
-| Status 页                              | R-24、R-25、R-17、R-07                         | 只做执行／批准／检查三类只读投影；主机类型做成配置                                    | 做 Status 之前                 |
-| 目标页改动                             | R-20、R-33                                     | `completion_reason` 回填 achieved；进展只允许"你记录"和"休息"                         | 目标页改版之前                 |
-| 导航与路由                             | R-18                                           | 按 PRD 4.1 七个入口；现有页面按 R-18 的建议归并                                       | 动 `route.ts` 之前             |
-| 通知与 IM                              | R-05、R-13、R-15                               | 以通知派发为"已呈现"；配对即写自身份端点；按风险分三档                                | 做 Telegram／WhatsApp 联调之前 |
-| 指标                                   | R-19                                           | 只保证事件字段可取                                                                    | 上线运营前                     |
-| 工作状态推导补充（补救并存、连接过期） | R-36、R-40                                     | 补救并存＝主状态不变＋flag `remediation_open`；连接过期按原型进 needs_you             | 写 `deriveWorkState` 之前      |
-| 催办／继续跟进／委派面板               | R-37、§9.5                                     | 服务端强制核对；发送已提交后才启动方案；无规则时提示改用 Action 记录                  | 做人员页面板之前               |
-| 资料库发送面板                         | R-22、R-38                                     | 本批不做分享；若做，单邮箱、披露许可一次性                                            | 做资料库页之前                 |
-| 目标页完成／删除弹窗                   | R-39、§4.5.4                                   | 最小 `goal_briefing_policies` 表；预览函数与执行共用                                  | 目标页改版之前                 |
+| 开发步骤            | 被哪个问题卡住 | 不回答时的默认做法                                                    |
+| ------------------- | -------------- | --------------------------------------------------------------------- |
+| 迁移脚本（回填）    | R-42           | 老事项成功 = “历史已结束，原因未记录”，用户可补记                     |
+| `deriveWorkState()` | R-36、R-44     | 补救并存 = 主状态不变 + `remediation_open`；Schedule 结束只在推导里读 |
+| 人员页合并面板      | R-37           | 两个决定独立                                                          |
+| 行动台账 / 修订确认 | R-43           | 不做 Decision 记录，用各自记录上的确认字段                            |
 
-### E.8 建议的讨论顺序
+其余开发步骤**不再被需求方问题卡住**，可以按 §13.1 的切片顺序（W1 → W2 → W3）开工。建议先在评审会上过一遍 R-42 和 R-44（影响迁移与推导），R-36、R-37 可以边做边定。
 
-1. **先定范围（30 分钟）**：R-01、R-06、R-07、R-19，再加 **R-22、R-24**（分享与 Status 的范围）。这六条决定后面其他条目哪些需要讨论。
-2. **再定完成语义（45 分钟）**：R-03、R-02、R-04、R-05、**R-26**——这五条决定 WorkOutcomeEvent、WorkTerminalEvent 和工作详情的标准列表能否开工。
-3. **然后是身份与委派（40 分钟）**：R-09、R-10、R-12、R-13，加上原型引出的 **R-28、R-29、R-31、R-32**。
-4. **接着过资料库与目标（20 分钟）**：R-23、R-33、R-20。
-5. **最后过数值与分档（30 分钟）**：R-16、R-15、R-11 的代码表，以及 R-25、R-18、R-27、R-30、R-34、R-35 这类可以会上一次过完的 P2 项。
-6. 其余 P2 项（R-14、R-21）会上过一遍即可；R-20 的源码核对已完成一部分（见该条），剩余部分需要研发在 Mac 上核对后再带去。
-7. 2026-10-30 晚新增：**R-36、R-40** 与工作状态直接相关，放进第 2 步"完成语义"一起过；**R-37、R-38** 放进第 3 步"身份与委派"；**R-39** 放进第 4 步"资料库与目标"。
+### E.8 原型更新（`nexus update html`，2026-10-30）逐页变化与本文的关系
 
-讨论结论按编号回写到本附录，并在设计文档对应章节和 `NEXUS_AI_PRD_CHANGE_LOG.md` 里更新；已定的项在汇总表加一列"结论/日期"。
-
-### E.9 原型更新（`nexus update html`，2026-10-30）逐页变化与本文的关系
+（历史记录；表里写的 R-xx 当时的状态以 E.1 为准。）
 
 对比基线是提交 `902d48a1108`（上一版原型）与 `8d8983a58c3`（更新后），忽略格式化造成的空白差异，五个页面共约 640 行新增、90 行删除。
 
@@ -2460,45 +2580,40 @@ _补充（2026-10-30）_：原型的 Status 页和人员页默认存在规则自
 
 **对 §11（控制台）的实现提示**：工作页路由支持 `#workId` 并在筛选后保持选中（原型的 `ensureSel`）；列表搜索覆盖标题、上下文、摘要和 attention 标题；目标页搜索命中子目标或进展时，列表行显示命中的子目标而不是最新进展；人员页搜索覆盖姓名、组织、别名和承诺标题；各页"当前筛选下没有 X"的空状态统一。
 
-### E.10 五个原型页面的功能与本文覆盖度（2026-11-02）
+### E.9 五个原型页面的功能与本文覆盖度（2026-11-02，按 PRD v1.95 更新）
 
-“本文”指本设计文档（Work、Counterpart、Commitment、Schedule 及其页面）；目标页和资料库的底层分别由《目标设计》（G1–G4 已实现）和《文件库设计》（F1–F3 已实现）负责，Status 页目前没有专门设计。覆盖度分四档：**已覆盖**、**部分**（有，但缺关键点）、**缺**（没有设计）、**冲突**（与已确定的设计相反）。
+“本文”指本设计文档；目标页和资料库的底层分别由《目标设计》和《文件库设计》负责，Status 页目前没有专门设计。覆盖度分四档：**已覆盖**、**部分**（有，但缺关键点）、**缺**（没有设计）、**不做**（PRD 已明确本批不做）。
 
-| 页面   | 功能                                                                    | 覆盖   | 说明                                                                         |
-| ------ | ----------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------- |
-| 工作   | 五分组列表、件数、搜索、状态筛选                                        | 已覆盖 | §11.2；分组名与 PRD 五类的对应见 R-34                                        |
-| 工作   | “你离开期间”摘要与动态里的离开标记                                      | 缺     | 附录 A 已记 RT-01 摘要未覆盖；需要“上次查看”水位，事件按水位标记             |
-| 工作   | 一张待办卡（决定／补充／处理／事故补救），带准确条款、预览和有效期      | 部分   | 一件工作多个待决定见 R-27；补救卡见 R-36；批准内容与有效期走现有决策         |
-| 工作   | 完成标准与进度环                                                        | 已覆盖 | §4.4.3、§5.3                                                                 |
-| 工作   | 持续跟进（跟进什么／怎么检查／下次／覆盖局限）                          | 已覆盖 | §4.5、§11.3                                                                  |
-| 工作   | 暂停、停止（先看影响）、交给其他工作继续                                | 已覆盖 | §10.4；承接规则见 §9.5                                                       |
-| 人员   | 列表分组、待确认人员、确认“是此人”                                      | 已覆盖 | §9.2、R-31                                                                   |
-| 人员   | 关系、联系方式、负责内容、关联工作、来源依据                            | 已覆盖 | §4.3、§9.3；责任版本与沟通／接受拆分见 §4.4.1                                |
-| 人员   | 更正身份、这不是一个人                                                  | 已补   | §7.6                                                                         |
-| 人员   | 合并重复人员                                                            | 部分   | §7.5 有；两个档案的别名、关系、同一事项冲突时怎么办没写                      |
-| 人员   | 删除人员                                                                | 已对齐 | §7.5 改为“停用档案”，影响清单对应原型弹窗的“停止／留下／不受影响”（R-32）    |
-| 人员   | 委派新工作、催办、继续跟进                                              | 已补   | §9.5、R-37                                                                   |
-| 目标   | 一级子目标、进展记录、重命名、重新打开                                  | 已覆盖 | 《目标设计》已实现                                                           |
-| 目标   | 完成原因“已达成／不再追求”                                              | 缺     | 现有 `status` 只有 proposed／active／completed，没有原因字段                 |
-| 目标   | 完成时勾选一起完成的子目标                                              | 待核对 | 现有完成流程是否支持勾选，文档里没写                                         |
-| 目标   | 休息一段时间、恢复提示                                                  | 部分   | 现有 `notify_policy` 可对应；缺“自何时、原因”；静音不暂停已确认计划见 §4.5.4 |
-| 目标   | 目标信（生成、往期、设置）                                              | 缺     | R-07 本批不跑生成作业；§4.5.4 只留最小策略表                                 |
-| 目标   | 进展来源（你记录／来源事实／休息）                                      | 缺     | R-33                                                                         |
-| 目标   | 完成与删除前的影响预览                                                  | 已补   | §4.5.4、§10.2 `previewGoalImpact`                                            |
-| 资料库 | 列表／网格、排序、上下文筛选、搜索、固定、重命名、下载、回收站（30 天） | 已覆盖 | 《文件库设计》；网格视图和排序是界面问题                                     |
-| 资料库 | 按文件类型预览                                                          | 部分   | 文件库设计的预览是文本、图片、PDF 首页；原型还有表格、Word、音频、压缩包     |
-| 资料库 | 成果与“我上传的”两类                                                    | 部分   | 文件库有“产出／收件”标签；两者与 Work 的关系见 R-23                          |
-| 资料库 | 版本“设为当前”“删除此版本”                                              | 缺     | 文件库设计是“替换即新增版本、保留最近 5 个”，没有这两个操作                  |
-| 资料库 | “用作某件工作的成果”                                                    | 缺     | R-23                                                                         |
-| 资料库 | 在线编辑                                                                | 已覆盖 | 都只支持 Markdown 和幻灯片                                                   |
-| 资料库 | 分享（指定客户／私有／临时公开链接／撤销）                              | 冲突   | 文件库已确认本批不做分享，见 R-22、R-38                                      |
-| Status | 检查记录与“覆盖降级”时间线                                              | 部分   | §4.5.3 有触发记录；缺“未检查不等于没变”的展示规则                            |
-| Status | 批准记录（按规则批准／逐项批准／拒绝）                                  | 部分   | 决策与授权已实现；规则版本、额度展示缺                                       |
-| Status | 自动批准额度（账号每日、按工作累计）                                    | 缺     | 没有额度表                                                                   |
-| Status | 账号执行容量、排队、资源使用（上限／已用／预留／估算）                  | 缺     | R-24                                                                         |
-| Status | 运行环境与连接健康                                                      | 缺     | R-24、R-25                                                                   |
-| Status | 系统处理（共享读取、清理、回填、目标信）                                | 缺     | SystemJob 本批不做（Q14）                                                    |
-| Status | 问题记录“四问”与“出了问题”                                              | 部分   | R-36（ES-05）                                                                |
-| Status | 取消邮件回填                                                            | 缺     | 没有回填作业的设计                                                           |
+| 页面   | 功能                                                                  | 覆盖                                 | 说明                                                 |
+| ------ | --------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------- |
+| 工作   | 五分组列表、件数、搜索、状态筛选                                      | 已覆盖                               | §11.2；文案 R-34（§5.2）                             |
+| 工作   | “你离开期间”摘要与动态里的离开标记                                    | 缺                                   | RT-01 摘要未覆盖；需要“上次查看”水位，事件按水位标记 |
+| 工作   | 一张待办卡（决定 / 补充 / 处理 / 事故补救），带准确条款、预览和有效期 | 部分                                 | 多决定见 R-27（§11.2）；补救卡见 R-36（待确认）      |
+| 工作   | 完成标准与进度环                                                      | 已覆盖                               | §4.4.3、§5.3；核验与进展分维（R-26）                 |
+| 工作   | 持续跟进（跟进什么 / 怎么检查 / 下次 / 覆盖局限）                     | 已覆盖                               | §4.5、§11.3                                          |
+| 工作   | 暂停、停止（先看影响）、交给其他工作继续                              | 已覆盖                               | §10.4；承接规则见 §9.5                               |
+| 工作   | 业务修订卡（接受当前版本）                                            | 已覆盖                               | §4.2.11、§11.3（原型未画，先按现有样式做）           |
+| 人员   | 列表分组、待确认人员、确认“是此人”                                    | 已覆盖                               | §9.2、§7.7                                           |
+| 人员   | 关系、联系方式、负责内容、关联工作、来源依据                          | 已覆盖                               | §4.3、§9.3                                           |
+| 人员   | 更正身份、这不是一个人                                                | 已覆盖                               | §7.6                                                 |
+| 人员   | 合并重复人员                                                          | 已覆盖                               | §7.5（R-32：只限同一主体，独立 Commitment 不合并）   |
+| 人员   | 停用人员（原型“删除人员”）                                            | 已覆盖                               | §7.5（R-32）                                         |
+| 人员   | 委派新工作、催办、继续跟进                                            | 已覆盖                               | §9.5；先后与失败回退待 R-37                          |
+| 人员   | 三列与阶段                                                            | 已覆盖                               | §9.3（R-29 / R-30）                                  |
+| 目标   | 一级子目标、进展记录、重命名、重新打开                                | 已覆盖                               | 《目标设计》已实现                                   |
+| 目标   | 完成原因“已达成 / 不再追求”                                           | 已定，待目标设计跟进                 | R-20：`completion_reason`                            |
+| 目标   | 休息一段时间、进展来源（你记录 / 来源事实 / 休息）                    | 已定，待目标设计跟进                 | R-20、R-33                                           |
+| 目标   | 目标信（生成、往期、设置）                                            | 不做（本批不生成）                   | R-07、R-20；本文只留最小策略表 §4.5.4                |
+| 目标   | 完成与删除前的影响预览                                                | 已覆盖                               | §4.5.4、§10.2 `previewGoalImpact`                    |
+| 资料库 | 列表 / 网格、排序、搜索、固定、重命名、下载、回收站                   | 已覆盖                               | 《文件库设计》                                       |
+| 资料库 | 版本“设为当前”“删除此版本”                                            | 不做                                 | R-23                                                 |
+| 资料库 | “用作某件工作的成果”                                                  | 已定，待文件库设计跟进               | R-23                                                 |
+| 资料库 | 分享（指定客户 / 私有 / 临时公开链接 / 撤销）                         | 不做                                 | R-22：整体关闭                                       |
+| Status | 检查记录与“覆盖降级”时间线                                            | 部分                                 | §4.5.3；展示规则“未检查不等于没变”待补               |
+| Status | 批准记录与自动批准额度                                                | 不做（规则 / 额度）                  | R-17：规则暂缓，隐藏额度 UI；历史执行只读            |
+| Status | 账号执行容量、排队、资源使用                                          | 已定，待 Status 设计                 | R-16 / R-24：数字来自 §4.7 集中配置                  |
+| Status | 运行环境与连接健康                                                    | 已定，待 Status 设计                 | R-25                                                 |
+| Status | 系统处理（共享读取、清理、回填、目标信）                              | 不做（回填 / 目标信 / 共享读取关闭） | R-07                                                 |
+| Status | 问题记录“四问”与“出了问题”                                            | 部分                                 | 补救并存待 R-36                                      |
 
-**结论**：工作页和人员页的数据模型基本够用，剩下的是目标页、资料库、Status 三页的缺口。Status 页最大——它几乎全是运行时统计（容量、额度、环境），不在 Work／Commitment 数据模型里，需要先由 R-24 定本批做到哪里。
+**结论**：工作页和人员页的数据模型已经够用，且 PRD v1.95 回答了此前的大部分阻塞问题；剩下的缺口主要在目标页、资料库、Status 三页，它们分别落在各自的设计文档里（E.4）。
