@@ -16,6 +16,8 @@ import { createVaultMaintenanceLedger } from "./vault-maintenance-ledger.js";
 import type { VaultPurgeHooks } from "./vault-maintenance-types.js";
 import { createVaultTextLedger } from "./vault-text-ledger.js";
 import { createWatchLedger } from "./watch-ledger.js";
+import { createWorkBackfill } from "./work-backfill-ledger.js";
+import { createWorkLedger } from "./work-ledger.js";
 
 export function createNexusKernel(
   db: DatabaseSync,
@@ -26,8 +28,14 @@ export function createNexusKernel(
   } = {},
 ) {
   const ledger = createClaimLedger(db, transaction, options.newId ? { newId: options.newId } : {});
+  const work = createWorkLedger(transaction, ledger.internals);
+  const { hooks: workHooks, internals: _workInternals, ...workKernel } = work;
+  const workBackfill = createWorkBackfill(work);
   const tasks = createTaskKernel(db, transaction, {
     checkCompletion: ledger.hooks.checkCompletionInTx,
+    validateWorkInTx: workHooks.validateWorkInTx,
+    attachTaskInTx: workHooks.attachTaskInTx,
+    afterTaskSucceededInTx: workHooks.afterTaskSucceededInTx,
   });
   const preferences = createPreferenceLedger(transaction, ledger.internals);
   const decisions = createDecisionKernel(db, transaction, {
@@ -63,6 +71,8 @@ export function createNexusKernel(
     ...vaultText,
     ...goals,
     ...goalLifecycle.kernel,
+    ...workKernel,
+    ...workBackfill,
   };
 }
 
@@ -79,6 +89,8 @@ type VaultMaintenanceKeys = keyof ReturnType<typeof createVaultMaintenanceLedger
 type VaultTextKeys = keyof ReturnType<typeof createVaultTextLedger>;
 type GoalKeys = keyof ReturnType<typeof createGoalLedger>;
 type GoalLifecycleKeys = keyof ReturnType<typeof createGoalLifecycleLedger>["kernel"];
+type WorkKeys = Exclude<keyof ReturnType<typeof createWorkLedger>, "hooks" | "internals">;
+type WorkBackfillKeys = keyof ReturnType<typeof createWorkBackfill>;
 /** Method names that appear in more than one kernel part (a union of the repeats; `never` when every name is unique). */
 type Dup<K extends readonly unknown[], Seen = never> = K extends readonly [infer H, ...infer R]
   ? Extract<H, Seen> | Dup<R, Seen | H>
@@ -97,6 +109,8 @@ type Overlap = Dup<
     VaultTextKeys,
     GoalKeys,
     GoalLifecycleKeys,
+    WorkKeys,
+    WorkBackfillKeys,
   ]
 >;
 export const NO_METHOD_OVERLAP: [Overlap] extends [never] ? true : never = true;

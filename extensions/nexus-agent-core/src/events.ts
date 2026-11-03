@@ -32,6 +32,14 @@ export const PREFERENCE_CHANGED_EVENT = "preference_changed";
 export const WATCH_CHANGED_EVENT = "watch_changed";
 export const VAULT_CHANGED_EVENT = "vault_changed";
 export const GOAL_CHANGED_EVENT = "goal_changed";
+export const WORK_CHANGED_EVENT = "work_changed";
+
+/** Ids and an action only. Never a title or any text: clients re-read through nexus.work.get / nexus.work.list. */
+export type WorkChangedPayload = {
+  ownerId: string;
+  workId: string;
+  action: string;
+};
 
 /** Ids, an action and a status. Never a title or any goal text: clients re-read through nexus.goal.get / nexus.goal.list. */
 export type GoalChangedPayload = {
@@ -198,6 +206,17 @@ export function createEventBridge(onError: (error: unknown) => void = () => {}) 
       }
       try {
         emitter(VAULT_CHANGED_EVENT, payload, { scope: "operator.read" });
+      } catch (error) {
+        onError(error);
+      }
+    },
+    /** work_changed: a Work was created, edited, linked, controlled, ended or deleted. Best effort after the commit. */
+    workChanged(payload: WorkChangedPayload) {
+      if (!emitter) {
+        return;
+      }
+      try {
+        emitter(WORK_CHANGED_EVENT, payload, { scope: "operator.read" });
       } catch (error) {
         onError(error);
       }

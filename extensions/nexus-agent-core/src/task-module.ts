@@ -1,6 +1,6 @@
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
-// Stage 1 wiring: Task store, tools, prompt hook, RPC and event bridge, all behind `tasksEnabled`.
-// Stage 2 wiring (behind `decisionsEnabled`, which needs `tasksEnabled`): action/decision tools, the decision hook,
+// Stage 1 wiring: Task store, tools, prompt hook, RPC and event bridge, all behind `worksEnabled`.
+// Stage 2 wiring (behind `decisionsEnabled`, which needs `worksEnabled`): action/decision tools, the decision hook,
 // run-trigger ledger, outbox delivery, decision RPC and startup reconciliation.
 import os from "node:os";
 import path from "node:path";
@@ -17,9 +17,8 @@ import {
   DEFAULT_EVIDENCE_CONFIG,
   type EvidenceService,
 } from "./evidence/evidence-service.js";
-import { createGoalRpcHandlers } from "./goal-rpc.js";
+import { registerGoalModule } from "./goal-module.js";
 import { goalTurnContext } from "./goal/goal-hook.js";
-import { createGoalService, type GoalService } from "./goal/goal-service.js";
 import { createPreferenceRpcHandlers } from "./preference-rpc.js";
 import { resolvePrincipal } from "./principal.js";
 import { resolveProcessBootId } from "./process-boot.js";
@@ -58,7 +57,6 @@ import { createTokenLedger } from "./tokens.js";
 import { ACTION_TOOL_NAMES, createActionTools } from "./tools/action-tools.js";
 import { CLAIM_TOOL_NAMES, createClaimTools } from "./tools/claim-tools.js";
 import { createFileTools } from "./tools/file-tools.js";
-import { createGoalTools, GOAL_TOOL_NAMES } from "./tools/goal-tools.js";
 import { createPreferenceTools, PREFERENCE_TOOL_NAMES } from "./tools/preference-tools.js";
 import { createTaskTools, TASK_TOOL_NAMES } from "./tools/task-tools.js";
 import { createWatchTools, WATCH_TOOL_NAMES } from "./tools/watch-tools.js";
@@ -82,6 +80,7 @@ import {
   resolveWatcherExtraTools,
   type WatchRuntime,
 } from "./watch-runtime.js";
+import { registerWorkModule, workProtocols } from "./work-module.js";
 
 export type TaskModuleConfig = {
   ownerId?: string;
@@ -96,7 +95,7 @@ export type TaskModuleConfig = {
   watchersEnabled?: boolean;
   /** Extra tools a re-check turn may use; only web_fetch / web_search are accepted (WATCHER_EXTRA_TOOL_ALLOWLIST). */
   watcherExtraTools?: string[];
-  /** Stage 5: the personal file vault (tools nexus_file_*, RPC nexus.vault.*). Needs tasksEnabled; attaching a file to a claim also needs evidence bytes. */
+  /** Stage 5: the personal file vault (tools nexus_file_*, RPC nexus.vault.*). Needs worksEnabled; attaching a file to a claim also needs evidence bytes. */
   vaultEnabled?: boolean;
   vaultOwnerQuotaBytes?: number;
   vaultMaxFileBytes?: number;
@@ -116,8 +115,10 @@ export type TaskModuleConfig = {
   vaultExtractMaxBytes?: number;
   /** Characters indexed per file (default 2 000 000). */
   vaultExtractMaxChars?: number;
-  /** Stage 6: Goals (tools nexus_goal_*, RPC nexus.goal.*, the console "Goals" page). Needs tasksEnabled. */
+  /** Stage 6: Goals (tools nexus_goal_*, RPC nexus.goal.*, the console "Goals" page). Needs worksEnabled. */
   goalsEnabled?: boolean;
+  /** Slice W1: the Task and Work layers share this one switch (every Task gets a Work; tools nexus_work_*, RPC nexus.work.*). */
+  worksEnabled?: boolean;
   /** Active goals one owner may hold (default 20). */
   goalMaxActivePerOwner?: number;
   evidenceTaskQuotaBytes?: number;
@@ -244,7 +245,7 @@ export function registerTaskModule(
   const workerUrl = resolveStoreWorkerUrl(api.runtimeSource);
   if (!workerUrl) {
     api.logger.error(
-      "nexus-agent-core: tasksEnabled but runtimeSource is unknown; Task store not registered",
+      "nexus-agent-core: worksEnabled but runtimeSource is unknown; Task store not registered",
     );
     return;
   }
@@ -275,6 +276,7 @@ export function registerTaskModule(
           events,
           resolvePrincipal: principalFor,
           completionEnabled: claimsEnabled,
+          worksEnabled: config.worksEnabled === true,
         },
         ctx,
       ),
@@ -599,36 +601,11 @@ export function registerTaskModule(
     }
   }
 
-  // ---- Stage 6: Goals (Goals design). A goal is context for the Agent, never authority. ----
-  let goals: GoalService | undefined;
-  if (config.goalsEnabled === true) {
-    const created = createGoalService({
-      getStore,
-      config: () => ({
-        maxActive:
-          Number.isInteger(config.goalMaxActivePerOwner) && (config.goalMaxActivePerOwner ?? 0) > 0
-            ? (config.goalMaxActivePerOwner as number)
-            : 20,
-      }),
-      onChanged: (event) => events.goalChanged(event),
-      logger: api.logger,
-    });
-    goals = created;
-    api.registerTool(
-      (ctx) =>
-        createGoalTools(
-          { service: created, resolvePrincipal: principalFor, logger: api.logger },
-          ctx,
-        ),
-      { names: [...GOAL_TOOL_NAMES], optional: true },
-    );
-    for (const [method, handler, scope] of createGoalRpcHandlers({
-      service: created,
-      resolvePrincipal: () => principalFor(),
-    })) {
-      api.registerGatewayMethod(method, handler, { scope });
-    }
-  }
+  // ---- Stage 6: Goals (Goals design; goal-module.ts). A goal is context for the Agent, never authority. ----
+  const goals = registerGoalModule({ api, config, getStore, events, principalFor });
+
+  // ---- Slice W1: the Work layer (work-module.ts). Task creation already carries the Work when worksEnabled. ----
+  registerWorkModule({ api, config, getStore, events, principalFor });
 
   // Stage 1 only handles user turns. The watcher branch for cron/heartbeat turns comes in front of this
   // check in Stage 4 (DESIGN section 7.1); Stage 2 adds `requiresToolAuthority` for per-session lockdown.
@@ -662,6 +639,7 @@ export function registerTaskModule(
             ...(watchRuntime ? [NEXUS_WATCH_PROTOCOL] : []),
           ]
         : [NEXUS_TASK_PROTOCOL];
+      protocols.push(...workProtocols(config));
       if (vault) {
         protocols.push(
           evidence

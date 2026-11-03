@@ -1494,7 +1494,7 @@ type WorkState = {
    - 必需 Task 为 `waiting_input` / `waiting_approval`（审批有效）；
    - 必需依赖有**用户可处理的决定**（承诺责任人未解析且已有候选、证据归属 `ambiguous` 要集中消歧、证据与标准冲突要用户裁定、待确认的 `draft` 方案、`adoption_pending` 的 Task 要用户在“工作级修订卡”上接受当前版本、来源连接失效等**用户可操作的前置**）。
    - **R-34 / R-40：用户可操作的请求优先落第 3 类**。例如来源连接已失效，只有用户能重新授权——这是一个有 `actor='user'` 的前置请求（`kind='reconnect_source'`，reason `source_auth_expired`），按本行归“待你处理”，而不是第 4 行；同一个原因如果暂时没有用户动作（系统自愈中、邮件结果正在系统核对），才归第 4 行并显示“核对中 · 暂无需操作”，**不造审批按钮**。
-     若同时有别的分支在运行，加 flag `other_steps_running`，**只阻塞对应分支，不把 Work 判为整体暂停**。
+     若同时有别的分支在运行，加 flag `other_branch_running`，**只阻塞对应分支，不把 Work 判为整体暂停**。
 4. **blocked（阻塞／暂停／待核对）**：前三项都不满足，且任一为真：必需依赖 `blocked` / 暂停（Task 阻塞、**有效的工作级暂停**、Schedule `paused` / `blocked`）；Work 有 `pending` 且 `actor='system'` 的前置（系统、权限、来源未就绪，如 `permission` / `source`）；关键效果未知（`unknownEffects` 非空且影响必需标准）；只剩未解义务但没有可用执行或有效观察路径（"尚未安排跟进"）。
 5. **in_progress（进行中）**：前四项都不满足，且存在可推进 / 已排队的有效执行、`active` 且覆盖不是 `unavailable` 的持续 Schedule，或**持有有效派发凭据的首次规划**（`first_plan_request_id` 租约未过期）。等待对方回复必须有对应的有效观察路径。
 6. **兜底（blocked，reason=`no_branch`）**：Work 没有任何必需分支、前置或派发凭据（刚创建、尚未安排执行），归"阻塞／暂停／待核对"并写明"尚未安排执行"。需要用户补充时，先建立一条准确的前置请求，下一次评估就进入第 3 行；不虚报“继续中”或“已完成”。
@@ -1539,7 +1539,7 @@ type WorkState = {
 | 有有效 `achieved` 事件，无停止快照                                                           | done                                                                                                                                                                                |
 | 有效 `achieved` 事件已被 `withdrawn`（例如 Commitment 核验被否定）                           | 不是 done；按 2–6 继续判，并显示需重新核验及原完成时间                                                                                                                              |
 | 已有 `stopped_before_completion` 的结束快照，之后另一件 Work 让共享 Commitment 履行          | 仍是 ended_incomplete；最多显示"后来履行"，快照不改，也不恢复旧任务和计划                                                                                                           |
-| 一个 Task `waiting_approval`，另一个 `running`                                               | needs_you + `other_steps_running`                                                                                                                                                   |
+| 一个 Task `waiting_approval`，另一个 `running`                                               | needs_you + `other_branch_running`                                                                                                                                                  |
 | Work 自身有待补输入，没有任何 Task                                                           | needs_you                                                                                                                                                                           |
 | 所有 Task `completed`，必需 Commitment `waiting`，主 Schedule 因约定到期 `ended`，无其他分支 | ended_incomplete（`window_ended`）                                                                                                                                                  |
 | 只读 Task 全部结束，从未安排跟进，也没有结束事实，必需 Commitment 未解决                     | blocked（reason `no_follow_up`，"尚未安排跟进"）                                                                                                                                    |

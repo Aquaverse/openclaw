@@ -19,11 +19,39 @@ const SEARCH_ID_MAX = 64;
 const SEARCH_TEXT_MAX = 200;
 const RPC_STEP_LIMIT = 100;
 
-type GatewayRequestHandler = (opts: GatewayRequestHandlerOptions) => Promise<void> | void;
-type Respond = GatewayRequestHandlerOptions["respond"];
+export type GatewayRequestHandler = (opts: GatewayRequestHandlerOptions) => Promise<void> | void;
+export type Respond = GatewayRequestHandlerOptions["respond"];
 
-function reject(respond: Respond, code: string, message: string) {
+export function reject(respond: Respond, code: string, message: string) {
   respond(false, undefined, { code, message });
+}
+
+/** Wraps a handler body: resolves the principal and the store first, and turns any thrown error into `nexus_store_error`. */
+export function createGuard(deps: Pick<TaskRpcDeps, "getStore" | "resolvePrincipal">) {
+  return (
+    run: (args: {
+      principal: Principal;
+      store: TaskStore;
+      params: Record<string, unknown>;
+      respond: Respond;
+    }) => Promise<void>,
+  ): GatewayRequestHandler =>
+    async ({ params, respond }) => {
+      const principal = deps.resolvePrincipal();
+      if (!principal) {
+        reject(respond, "nexus_no_principal", "cannot resolve the owner");
+        return;
+      }
+      try {
+        await run({ principal, store: await deps.getStore(), params: params ?? {}, respond });
+      } catch (error) {
+        reject(
+          respond,
+          "nexus_store_error",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    };
 }
 
 function readStatuses(raw: unknown): TaskStatus[] | undefined | "invalid" {
@@ -59,31 +87,7 @@ function readTimestamp(raw: unknown): number | undefined | "invalid" {
 /** Returns [method, handler, scope] triples; the caller registers them. */
 export function createTaskRpcHandlers(deps: TaskRpcDeps) {
   const now = deps.now ?? Date.now;
-  const guarded =
-    (
-      run: (args: {
-        principal: Principal;
-        store: TaskStore;
-        params: Record<string, unknown>;
-        respond: Respond;
-      }) => Promise<void>,
-    ): GatewayRequestHandler =>
-    async ({ params, respond }) => {
-      const principal = deps.resolvePrincipal();
-      if (!principal) {
-        reject(respond, "nexus_no_principal", "cannot resolve the owner");
-        return;
-      }
-      try {
-        await run({ principal, store: await deps.getStore(), params: params ?? {}, respond });
-      } catch (error) {
-        reject(
-          respond,
-          "nexus_store_error",
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-    };
+  const guarded = createGuard(deps);
 
   return [
     [

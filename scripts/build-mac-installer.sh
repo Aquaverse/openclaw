@@ -849,7 +849,7 @@ NEXUS_PRESET_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_PRESET:-$(read_env_var OPENC
 rm -f "$APP/Contents/Resources/nexus-preset.env"
 if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]; then
   NEXUS_SWITCHES_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_SWITCHES:-$(read_env_var OPENCLAW_INSTALLER_NEXUS_SWITCHES)}"
-  NEXUS_SWITCHES_FOR_BUNDLE="${NEXUS_SWITCHES_FOR_BUNDLE:-tasksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,evidenceBlobsEnabled}"
+  NEXUS_SWITCHES_FOR_BUNDLE="${NEXUS_SWITCHES_FOR_BUNDLE:-worksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,evidenceBlobsEnabled}"
   if [[ ! "$NEXUS_SWITCHES_FOR_BUNDLE" =~ ^[A-Za-z]+(,[A-Za-z]+)*$ ]]; then
     echo "ERROR: OPENCLAW_INSTALLER_NEXUS_SWITCHES must be comma-separated switch names (letters only), got '${NEXUS_SWITCHES_FOR_BUNDLE}'" >&2
     exit 1

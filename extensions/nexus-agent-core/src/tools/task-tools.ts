@@ -34,6 +34,7 @@ export const LIMITS = {
 
 const KIND = /^[a-z][a-z0-9_]{0,39}$/;
 const TASK_ID = /^#?(T[0-9A-Z]{4,16})$/;
+const WORK_ID = /^w_[A-Za-z0-9_]{4,80}$/;
 const NO_SESSION = "(no-session)";
 
 export type TaskToolDeps = {
@@ -45,6 +46,8 @@ export type TaskToolDeps = {
   newId?: () => string;
   /** Stage 3: nexus_task_update may ask for "succeeded"; the store accepts it only when every completion claim is met. */
   completionEnabled?: boolean;
+  /** Work group (slice W1): a created Task gets a Work in the same transaction, or joins the one named by `workId`. */
+  worksEnabled?: boolean;
 };
 
 type ToolContext = { agentId?: string; sessionKey?: string };
@@ -90,6 +93,17 @@ function newTaskId(): string {
 
 export function normalizeTaskId(raw: unknown): string | undefined {
   return typeof raw === "string" ? TASK_ID.exec(raw.trim())?.[1] : undefined;
+}
+
+/** The user's own words for the Work: a text field of the goal when there is one, else the title. */
+function workRequestText(goal: Record<string, unknown>, title: string): string {
+  for (const key of ["text", "goal", "summary", "description", "objective"]) {
+    const value = goal[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim().slice(0, 2000);
+    }
+  }
+  return title;
 }
 
 function taskView(task: TaskRecord) {
@@ -209,11 +223,25 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
             description: "From a previous created:false response, after the user confirmed.",
           }),
         ),
+        ...(deps.worksEnabled
+          ? {
+              workId: Type.Optional(
+                Type.String({
+                  description:
+                    "Only when the user is continuing an EXISTING piece of work (an id like w_ABC123 you were given): the new Task joins that Work. Omit it for a new matter; a Work is created automatically. A Task's Work cannot be changed afterwards.",
+                }),
+              ),
+            }
+          : {}),
       }),
       async execute(_id: string, params: Record<string, unknown>) {
         return withPrincipal(async (principal, store) => {
           const kind = typeof params.kind === "string" ? params.kind : "";
           const title = typeof params.title === "string" ? params.title.trim() : "";
+          const workId = typeof params.workId === "string" ? params.workId.trim() : undefined;
+          if (deps.worksEnabled && workId !== undefined && !WORK_ID.test(workId)) {
+            return fail("invalid_work_id", "workId looks like w_ABC123.");
+          }
           const goal = params.goal;
           const entities = params.entities ?? null;
           if (!KIND.test(kind)) {
@@ -241,7 +269,16 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
           const existing = await store.lookupByKey({ principal, idempotencyKey });
           if (existing) {
             if (existing.fingerprint === fingerprint) {
-              return { ok: true, created: false, replayed: true, ...taskView(existing.task) };
+              const owned = deps.worksEnabled
+                ? await store.workOfTask({ principal, taskId: existing.task.id })
+                : null;
+              return {
+                ok: true,
+                created: false,
+                replayed: true,
+                ...taskView(existing.task),
+                ...(owned ? { workId: owned } : {}),
+              };
             }
             return fail(
               "fingerprint_conflict",
@@ -310,11 +347,29 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
             fingerprint,
             sessionKey,
             now: now(),
+            ...(deps.worksEnabled
+              ? {
+                  work: {
+                    ...(workId ? { workId } : {}),
+                    title,
+                    requestText: workRequestText(goal, title),
+                    origin: "agent" as const,
+                  },
+                }
+              : {}),
           });
           if (created.outcome === "fingerprint_conflict") {
             return fail(
               "fingerprint_conflict",
               "The idempotency key conflicts with another Task; reserve again.",
+            );
+          }
+          if (created.outcome === "work_unusable") {
+            return fail(
+              created.reason === "work_not_live" ? "work_not_live" : "work_not_found",
+              created.reason === "work_not_live"
+                ? "That Work is archived or deleted; do not attach new Tasks to it. Omit workId to start a new Work."
+                : "No such Work. Omit workId to start a new Work.",
             );
           }
           if (created.outcome === "created") {
@@ -325,6 +380,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
             created: created.outcome === "created",
             replayed: created.outcome === "replayed",
             ...taskView(created.task),
+            ...(created.workId ? { workId: created.workId } : {}),
           };
         });
       },

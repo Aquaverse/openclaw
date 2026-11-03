@@ -1,30 +1,33 @@
 {
   "id": "nexus-agent-core",
   "name": "Nexus Agent Core",
-  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). Stage 4: a Preference Store (tools nexus_preference_*, RPC nexus.preference.*), a read-only Control UI tab, and a Watcher for scheduled re-checks (tools nexus_watch_*, RPC nexus.watch.*). Stage 5: a personal file vault (tools nexus_file_*, RPC nexus.vault.*). Stage 6: Goals (tools nexus_goal_*, RPC nexus.goal.*, console Goals page). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see nexus-agent-core-design.md section 13).",
+  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). Stage 4: a Preference Store (tools nexus_preference_*, RPC nexus.preference.*), a read-only Control UI tab, and a Watcher for scheduled re-checks (tools nexus_watch_*, RPC nexus.watch.*). Stage 5: a personal file vault (tools nexus_file_*, RPC nexus.vault.*). Stage 6: Goals (tools nexus_goal_*, RPC nexus.goal.*, console Goals page). Stage 7: the Work layer (tools nexus_work_*, RPC nexus.work.*). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see nexus-agent-core-design.md section 13).",
   "categories": [
     "agent-orchestration"
   ],
   "enabledByDefault": false,
+  "cliCommands": [
+    {
+      "name": "nexus",
+      "description": "Nexus Agent Core maintenance commands",
+      "hasSubcommands": true
+    }
+  ],
   "skills": [
     "./skills"
   ],
   "activation": {
-    "onStartup": true
+    "onStartup": true,
+    "onCommands": ["nexus"]
   },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "tasksEnabled": {
-        "type": "boolean",
-        "default": false,
-        "description": "Enable the Stage 1 Task module: nexus_task_* tools (optional tools, allow them via tools.alsoAllow), nexus.task.* gateway methods, the open-Task prompt list and the nexus.sqlite store. Off by default."
-      },
       "decisionsEnabled": {
         "type": "boolean",
         "default": false,
-        "description": "Enable the Stage 2 decision module (needs tasksEnabled): nexus_action_prepare / nexus_action_authorize / nexus_decision_request / nexus_action_commit (optional tools, allow them via tools.alsoAllow), nexus.decision.* / nexus.execution.* / nexus.grant.* gateway methods, and a FAKE provider. Off by default."
+        "description": "Enable the Stage 2 decision module (needs worksEnabled): nexus_action_prepare / nexus_action_authorize / nexus_decision_request / nexus_action_commit (optional tools, allow them via tools.alsoAllow), nexus.decision.* / nexus.execution.* / nexus.grant.* gateway methods, and a FAKE provider. Off by default."
       },
       "claimsEnabled": {
         "type": "boolean",
@@ -39,7 +42,7 @@
       "preferencesEnabled": {
         "type": "boolean",
         "default": false,
-        "description": "Enable the Stage 4 Preference Store (needs tasksEnabled; confirming a value as the user's stated preference also needs decisionsEnabled): nexus_preference_get / nexus_preference_set / nexus_preference_confirm (optional tools, allow them via tools.alsoAllow) and nexus.preference.* gateway methods. A preference is a default, never authority. Off by default."
+        "description": "Enable the Stage 4 Preference Store (needs worksEnabled; confirming a value as the user's stated preference also needs decisionsEnabled): nexus_preference_get / nexus_preference_set / nexus_preference_confirm (optional tools, allow them via tools.alsoAllow) and nexus.preference.* gateway methods. A preference is a default, never authority. Off by default."
       },
       "watchersEnabled": {
         "type": "boolean",
@@ -154,7 +157,7 @@
       "vaultEnabled": {
         "type": "boolean",
         "default": false,
-        "description": "Enable the Stage 5 personal file vault (needs tasksEnabled): nexus_file_search / nexus_file_get (and nexus_file_attach when evidence bytes are on) as optional tools (allow them via tools.alsoAllow), nexus.vault.* gateway methods, and a file store next to nexus.sqlite. Files are kept on this computer only. Off by default."
+        "description": "Enable the Stage 5 personal file vault (needs worksEnabled): nexus_file_search / nexus_file_get (and nexus_file_attach when evidence bytes are on) as optional tools (allow them via tools.alsoAllow), nexus.vault.* gateway methods, and a file store next to nexus.sqlite. Files are kept on this computer only. Off by default."
       },
       "vaultOwnerQuotaBytes": {
         "type": "integer",
@@ -245,7 +248,12 @@
       "goalsEnabled": {
         "type": "boolean",
         "default": false,
-        "description": "Enable Stage 6 Goals (needs tasksEnabled): nexus_goal_search / nexus_goal_get / nexus_goal_create / nexus_goal_propose / nexus_goal_entry_add / nexus_goal_link / nexus_goal_review (optional tools, allow them via tools.alsoAllow), nexus.goal.* gateway methods and the console Goals page. A goal is context for the Agent, never authority; only the user completes, confirms or deletes one. Off by default."
+        "description": "Enable Stage 6 Goals (needs worksEnabled): nexus_goal_search / nexus_goal_get / nexus_goal_create / nexus_goal_propose / nexus_goal_entry_add / nexus_goal_link / nexus_goal_review (optional tools, allow them via tools.alsoAllow), nexus.goal.* gateway methods and the console Goals page. A goal is context for the Agent, never authority; only the user completes, confirms or deletes one. Off by default."
+      },
+      "worksEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Enable the Nexus Task and Work layers: nexus_task_* and nexus_work_* tools (optional tools, allow them via tools.alsoAllow), nexus.task.* and nexus.work.* gateway methods, the open-Task prompt list and the nexus.sqlite store. Every new Task gets a Work in the same transaction (nexus_task_create accepts an optional workId to join an existing one). A Work's state is derived from its Tasks, requests, controls and outcome facts; nothing sets it directly. Every other Nexus feature switch needs this one. Existing Tasks are moved into Works by the manual command `openclaw nexus data backfill-works` (gateway stopped). Off by default."
       },
       "goalMaxActivePerOwner": {
         "type": "integer",
@@ -287,6 +295,10 @@
       "nexus_goal_entry_add",
       "nexus_goal_link",
       "nexus_goal_review",
+      "nexus_work_search",
+      "nexus_work_get",
+      "nexus_work_update",
+      "nexus_work_link",
       "nexus_spike_probe"
     ]
   },
@@ -379,6 +391,18 @@
       "optional": true
     },
     "nexus_goal_review": {
+      "optional": true
+    },
+    "nexus_work_search": {
+      "optional": true
+    },
+    "nexus_work_get": {
+      "optional": true
+    },
+    "nexus_work_update": {
+      "optional": true
+    },
+    "nexus_work_link": {
       "optional": true
     }
   },

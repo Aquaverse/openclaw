@@ -18,7 +18,7 @@ const runnable =
 
 const PROVIDER = "plugins.entries.nexus-agent-core";
 const SWITCHES = [
-  "tasksEnabled",
+  "worksEnabled",
   "decisionsEnabled",
   "claimsEnabled",
   "preferencesEnabled",
@@ -136,12 +136,12 @@ const writes = (calls: string[]) =>
 const restarts = (calls: string[]) => calls.filter((c) => c.startsWith("gateway restart"));
 
 describe("scripts/mac-nexus-preset.sh", () => {
-  it("first run appends the 29 tools once, keeps what was there, and restarts the gateway exactly once", () => {
+  it("first run appends the 33 tools once, keeps what was there, and restarts the gateway exactly once", () => {
     if (!runnable) {
       return;
     }
     const tools = nexusTools();
-    assert.equal(tools.length, 29);
+    assert.equal(tools.length, 33);
     const box = sandbox();
     // One user entry, plus one Nexus tool already present: it must not be added a second time.
     box.set("tools.alsoAllow", JSON.stringify(["web_search", "nexus_task_get"]));

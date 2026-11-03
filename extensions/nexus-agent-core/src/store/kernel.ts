@@ -3,8 +3,10 @@
 // (DESIGN section 5: there is no overload without a principal). Write paths run in a single sync transaction.
 import type { DatabaseSync } from "node:sqlite";
 import { compareTasks, flattenLeaves, isDuplicate, queryRecall, tokenize } from "../similarity.js";
+import type { WorkSpec } from "../work/types.js";
 import type { CompletionCheck } from "./claim-types.js";
-import { MIGRATIONS, type Migration } from "./schema.js";
+import { MIGRATIONS } from "./migrations.js";
+import type { Migration } from "./schema.js";
 import {
   CLOSED_STATUSES,
   MODEL_SETTABLE_STATUSES,
@@ -118,11 +120,14 @@ export type CreateInput = {
   fingerprint: string;
   sessionKey: string;
   now: number;
+  /** When set (worksEnabled), the same transaction resolves or creates the Task's Work and writes task_work_owner (INV-02). */
+  work?: WorkSpec;
 };
 export type CreateOutcome =
-  | { outcome: "created"; task: TaskRecord }
-  | { outcome: "replayed"; task: TaskRecord }
-  | { outcome: "fingerprint_conflict"; task: TaskRecord };
+  | { outcome: "created"; task: TaskRecord; workId?: string }
+  | { outcome: "replayed"; task: TaskRecord; workId?: string }
+  | { outcome: "fingerprint_conflict"; task: TaskRecord }
+  | { outcome: "work_unusable"; reason: "work_not_found" | "work_not_live" };
 
 export type UpdatePatch = {
   title?: string;
@@ -153,6 +158,19 @@ export type UpdateOutcome =
 export type TaskKernelHooks = {
   /** Runs inside the update transaction; supplied by the claim ledger (Stage 3). */
   checkCompletion?: (owner: string, taskId: string) => CompletionCheck;
+  /** Work group (slice W1), all inside the Task transaction. Validate before the INSERT, attach after it. */
+  validateWorkInTx?: (
+    owner: string,
+    spec: WorkSpec,
+  ) => { ok: true } | { ok: false; reason: "work_not_found" | "work_not_live" };
+  attachTaskInTx?: (
+    owner: string,
+    taskId: string,
+    spec: WorkSpec,
+    now: number,
+  ) => { workId: string; createdWork: boolean };
+  /** A Task just became `succeeded`: the Work re-evaluates its outcome. */
+  afterTaskSucceededInTx?: (owner: string, taskId: string, now: number) => void;
 };
 
 export function createTaskKernel(
@@ -309,9 +327,21 @@ export function createTaskKernel(
           .get(owner, input.idempotencyKey) as Row | undefined;
         if (existing) {
           const task = toTask(existing);
-          return existing.request_fingerprint === input.fingerprint
-            ? { outcome: "replayed" as const, task }
-            : { outcome: "fingerprint_conflict" as const, task };
+          if (existing.request_fingerprint !== input.fingerprint) {
+            return { outcome: "fingerprint_conflict" as const, task };
+          }
+          const owned = db
+            .prepare("SELECT work_id FROM task_work_owner WHERE owner_id = ? AND task_id = ?")
+            .get(owner, task.id) as Row | undefined;
+          return owned
+            ? { outcome: "replayed" as const, task, workId: String(owned.work_id) }
+            : { outcome: "replayed" as const, task };
+        }
+        if (input.work && hooks.validateWorkInTx) {
+          const check = hooks.validateWorkInTx(owner, input.work);
+          if (!check.ok) {
+            return { outcome: "work_unusable" as const, reason: check.reason };
+          }
         }
         db.prepare(
           "INSERT INTO nexus_tasks (id, owner_id, kind, title, status, goal_json, entities_json, " +
@@ -334,7 +364,15 @@ export function createTaskKernel(
           input.now,
         );
         bindSession(owner, input.id, input.sessionKey, input.now);
-        return { outcome: "created" as const, task: toTask(getRow(owner, input.id) as Row) };
+        const attached =
+          input.work && hooks.attachTaskInTx
+            ? hooks.attachTaskInTx(owner, input.id, input.work, input.now)
+            : undefined;
+        return {
+          outcome: "created" as const,
+          task: toTask(getRow(owner, input.id) as Row),
+          ...(attached ? { workId: attached.workId } : {}),
+        };
       });
     },
 
@@ -502,6 +540,9 @@ export function createTaskKernel(
           task.id,
         );
         bindSession(owner, task.id, input.sessionKey, input.now);
+        if (patch.status === "succeeded" && patch.status !== task.status) {
+          hooks.afterTaskSucceededInTx?.(owner, task.id, input.now);
+        }
         return {
           outcome: "updated",
           task: getLive(owner, task.id) as TaskRecord,

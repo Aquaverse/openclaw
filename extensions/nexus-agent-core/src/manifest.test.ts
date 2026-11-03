@@ -11,6 +11,7 @@ import { GOAL_TOOL_NAMES } from "./tools/goal-tools.js";
 import { PREFERENCE_TOOL_NAMES } from "./tools/preference-tools.js";
 import { TASK_TOOL_NAMES } from "./tools/task-tools.js";
 import { WATCH_TOOL_NAMES } from "./tools/watch-tools.js";
+import { WORK_TOOL_NAMES } from "./tools/work-tools.js";
 
 const manifest = JSON.parse(
   fs.readFileSync(path.resolve(import.meta.dirname, "..", "openclaw.plugin.json"), "utf8"),
@@ -29,6 +30,7 @@ describe("openclaw.plugin.json", () => {
     ...WATCH_TOOL_NAMES,
     ...VAULT_TOOL_NAMES,
     ...GOAL_TOOL_NAMES,
+    ...WORK_TOOL_NAMES,
   ];
 
   it("declares every registered tool in contracts.tools", () => {
@@ -74,7 +76,7 @@ describe("openclaw.plugin.json", () => {
 
   it("declares the feature switches", () => {
     for (const key of [
-      "tasksEnabled",
+      "worksEnabled",
       "decisionsEnabled",
       "claimsEnabled",
       "preferencesEnabled",
@@ -84,6 +86,10 @@ describe("openclaw.plugin.json", () => {
     ]) {
       assert.ok(key in manifest.configSchema.properties, key);
     }
+  });
+
+  it("has no separate Task switch: the Task layer follows worksEnabled", () => {
+    assert.equal("tasksEnabled" in manifest.configSchema.properties, false);
   });
 });
 
