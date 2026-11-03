@@ -3,6 +3,7 @@
 import {
   deriveWorkState,
   taskPhase,
+  type CommitmentFact,
   type ControlFact,
   type OutcomeFact,
   type PrereqFact,
@@ -189,6 +190,17 @@ export function createWorkFacts(c: WorkCommon) {
       ),
       "work_id",
     );
+    const commitmentRows = group(
+      inChunks(
+        owner,
+        ids,
+        (m) =>
+          "SELECT l.work_id, c.id, c.lifecycle, c.resolution_basis, c.verification FROM work_links l JOIN commitments c " +
+          `ON c.owner_id = l.owner_id AND c.id = l.target_id WHERE l.owner_id = ? AND l.work_id IN (${m}) ` +
+          "AND l.role = 'required' AND l.target_kind = 'commitment' AND l.ended_at IS NULL",
+      ),
+      "work_id",
+    );
     const goals = new Map(
       inChunks(
         owner,
@@ -308,15 +320,30 @@ export function createWorkFacts(c: WorkCommon) {
         affectsRequired: true,
       }));
 
+      const commitmentFacts: CommitmentFact[] = (commitmentRows.get(work.id) ?? []).map((row) => {
+        const lifecycle = String(row.lifecycle);
+        const open = lifecycle === "open" || lifecycle === "waiting";
+        return {
+          id: String(row.id),
+          // No longer an open obligation to chase: closed one way or the other. Whether that closing fulfils the Work is the
+          // outcome event's business (a manual close or a cancel never does), shown to the user through `needsUser` below.
+          resolved: !open,
+          needsUser:
+            lifecycle === "cancelled" ||
+            (lifecycle === "resolved" && String(row.resolution_basis) === "manual_override") ||
+            (open &&
+              ["verified_exception", "conflicting_evidence"].includes(String(row.verification))),
+        };
+      });
       const facts: WorkFacts = {
         work: { id: work.id, lifecycle: work.lifecycle === "archived" ? "archived" : "live" },
-        // No outcome_contract_versions table until W2: every Work runs on the implicit default contract (version 1).
+        // The contract engine is not wired yet: every Work runs on the implicit default contract (version 1).
         contract: { version: 1 },
         outcome: outcomeFact,
         terminal: terminalFact,
         prerequisites: prereqFacts,
         tasks: taskFacts,
-        commitments: [],
+        commitments: commitmentFacts,
         schedules: [],
         controls: controlFacts,
         unknownEffects: effects,

@@ -5,6 +5,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { createBlobLedger } from "./blob-ledger.js";
 import { createClaimLedger } from "./claim-ledger.js";
+import { createCommitmentLedger } from "./commitment-ledger.js";
 import { createDecisionKernel, type DecisionKernelOptions } from "./decision-kernel.js";
 import { createGoalLedger } from "./goal-ledger.js";
 import { createGoalLifecycleLedger } from "./goal-lifecycle-ledger.js";
@@ -31,6 +32,7 @@ export function createNexusKernel(
   const work = createWorkLedger(transaction, ledger.internals);
   const { hooks: workHooks, internals: _workInternals, ...workKernel } = work;
   const workBackfill = createWorkBackfill(work);
+  const commitments = createCommitmentLedger(transaction, work.internals);
   const tasks = createTaskKernel(db, transaction, {
     checkCompletion: ledger.hooks.checkCompletionInTx,
     validateWorkInTx: workHooks.validateWorkInTx,
@@ -73,6 +75,7 @@ export function createNexusKernel(
     ...goalLifecycle.kernel,
     ...workKernel,
     ...workBackfill,
+    ...commitments,
   };
 }
 
@@ -91,6 +94,7 @@ type GoalKeys = keyof ReturnType<typeof createGoalLedger>;
 type GoalLifecycleKeys = keyof ReturnType<typeof createGoalLifecycleLedger>["kernel"];
 type WorkKeys = Exclude<keyof ReturnType<typeof createWorkLedger>, "hooks" | "internals">;
 type WorkBackfillKeys = keyof ReturnType<typeof createWorkBackfill>;
+type CommitmentKeys = keyof ReturnType<typeof createCommitmentLedger>;
 /** Method names that appear in more than one kernel part (a union of the repeats; `never` when every name is unique). */
 type Dup<K extends readonly unknown[], Seen = never> = K extends readonly [infer H, ...infer R]
   ? Extract<H, Seen> | Dup<R, Seen | H>
@@ -111,6 +115,7 @@ type Overlap = Dup<
     GoalLifecycleKeys,
     WorkKeys,
     WorkBackfillKeys,
+    CommitmentKeys,
   ]
 >;
 export const NO_METHOD_OVERLAP: [Overlap] extends [never] ? true : never = true;

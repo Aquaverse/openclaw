@@ -2,6 +2,7 @@
 // Control UI module sanitises this markup against an allow-list, so every clickable thing is a link to a route or a
 // `<button data-nx-act data-nx-id>` marker, and every value goes through `esc`. Plain functions with no DOM and no SDK.
 // States are written in words (the enum values never reach the screen) and every text is a catalog key.
+import { renderCommitmentSection, type CommitmentLine } from "./commitment-ui.js";
 import { allMessageKeys, DEFAULT_LANG, tr, type Lang, type MsgKey } from "./i18n.js";
 import type { DecisionRecord } from "./store/decision-types.js";
 import type { WorkView } from "./store/work-facts.js";
@@ -50,6 +51,8 @@ export type WorkDetail = WorkView & {
   links: WorkLinkLine[];
   events: WorkEventLine[];
   controls: WorkControlLine[];
+  /** The Commitments this Work cites; absent when commitments are not switched on (the block is then not drawn). */
+  commitments?: readonly CommitmentLine[];
 };
 
 /** The facts the action dialogs are built from (never from the clicked markup). */
@@ -604,6 +607,7 @@ function detailPane(data: WorksPageData, lang: Lang, base: string, withActions: 
     askCard(detail, data, lang, base, withActions) +
     (paused.length > 0 ? section(tr(lang, "work.ctl.activeNoReason"), paused) : "") +
     criteriaSection(detail, lang, base) +
+    renderCommitmentSection(detail.commitments, { lang, now, workId: id, withActions }) +
     (links.length > 0 ? section(tr(lang, "work.sec.links"), links) : "") +
     feed +
     (withActions

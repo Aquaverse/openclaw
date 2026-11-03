@@ -676,3 +676,174 @@ describe("work page", () => {
     assert.ok(f.calls.filter((c) => c.method === "nexus.work.list").length > before);
   });
 });
+
+describe("commitments in the work page", () => {
+  const commitment = (over: Record<string, unknown> = {}) => ({
+    ownerId: "o",
+    id: "cm_one",
+    requirementText: "把合同发给我",
+    responsibleSelf: false,
+    responsibleRaw: "小王",
+    responsibleName: null,
+    dueState: "pending",
+    dueAt: null,
+    communicationState: "draft",
+    acceptanceState: "unknown",
+    acceptanceBasisKind: null,
+    lifecycle: "open",
+    verification: "unverified",
+    resolutionBasis: null,
+    resolutionReason: null,
+    cancelReason: null,
+    nextStep: null,
+    overdue: false,
+    revision: 4,
+    ...over,
+  });
+  const served = (items: unknown[]) => ({
+    "nexus.commitment.list": { items, total: items.length },
+  });
+  const typeInto = (node: HTMLElement | null | undefined, value: string) => {
+    assert.ok(node, "missing field");
+    (node as HTMLInputElement).value = value;
+    node.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+
+  it("shows nothing when commitments are switched off", async () => {
+    const f = mount({ view: "works" });
+    await flush();
+    assert.doesNotMatch(f.container.textContent ?? "", /承诺事项/);
+  });
+
+  it("lists the commitments the work cites", async () => {
+    const f = mount(
+      { view: "works" },
+      served([{ commitment: commitment(), role: "required", linkId: "wl_1" }]),
+    );
+    await flush();
+    assert.match(q(f.container, ".nx-cm")?.textContent ?? "", /把合同发给我/);
+    const asked = f.calls.find((c) => c.method === "nexus.commitment.list");
+    assert.equal(asked?.params?.workId, "w1");
+  });
+
+  it("records a commitment for the work, once, with the request id and the role", async () => {
+    const f = mount(
+      { view: "works" },
+      {
+        ...served([]),
+        "nexus.commitment.create": { outcome: "created", commitment: { id: "cm_new" } },
+      },
+    );
+    await flush();
+    click(f.container, 'button[data-nx-act="cm-new"]');
+    const save = () => dialogButton(f.container, "保存");
+    assert.ok(save()?.disabled, "needs the text and a name");
+    typeInto(q(f.container, ".nx-dialog textarea"), "周五前交报价");
+    typeInto(q(f.container, ".nx-dialog input"), "小李");
+    assert.equal(save()?.disabled, false);
+    save()?.click();
+    await flush();
+    const made = f.calls.find((c) => c.method === "nexus.commitment.create");
+    assert.equal(made?.params?.requirementText, "周五前交报价");
+    assert.deepEqual(made?.params?.responsible, { kind: "name", name: "小李" });
+    assert.deepEqual(made?.params?.due, { kind: "pending" });
+    assert.equal(made?.params?.workId, "w1");
+    assert.equal(made?.params?.workRole, "required");
+    assert.match(String(made?.params?.requestId), /^d[a-z0-9]+$/);
+    assert.equal(q(f.container, ".nx-dialog"), null);
+  });
+
+  it("previews what a hand close reaches and needs a reason", async () => {
+    const f = mount(
+      { view: "works" },
+      {
+        ...served([{ commitment: commitment(), role: "required", linkId: "wl_1" }]),
+        "nexus.commitment.resolve": (params?: Record<string, unknown>) =>
+          params?.dryRun === true
+            ? {
+                outcome: "preview",
+                impact: {
+                  works: [{ workId: "w1", title: "签合同", role: "required" }],
+                  plansToWrapUp: [],
+                },
+              }
+            : { outcome: "applied" },
+      },
+    );
+    await flush();
+    click(f.container, 'button[data-nx-act="cm-resolve"][data-nx-id="cm_one"]');
+    const confirm = () => dialogButton(f.container, "注明原因结案");
+    assert.ok(confirm()?.disabled, "no preview and no reason yet");
+    await flush();
+    assert.match(q(f.container, ".nx-dialog")?.textContent ?? "", /签合同/);
+    assert.ok(confirm()?.disabled, "still needs a reason");
+    typeInto(q(f.container, ".nx-dialog textarea"), "对方口头确认已交付");
+    assert.equal(confirm()?.disabled, false);
+    confirm()?.click();
+    await flush();
+    const applied = f.calls.findLast((c) => c.method === "nexus.commitment.resolve");
+    assert.equal(applied?.params?.dryRun, undefined);
+    assert.equal(applied?.params?.reason, "对方口头确认已交付");
+    assert.equal(applied?.params?.expectedRevision, 4);
+    assert.equal(q(f.container, ".nx-dialog"), null);
+  });
+
+  it("reloads with a notice when the commitment changed underneath", async () => {
+    const f = mount(
+      { view: "works" },
+      {
+        ...served([{ commitment: commitment(), role: "required", linkId: "wl_1" }]),
+        "nexus.commitment.cancel": (params?: Record<string, unknown>) => {
+          if (params?.dryRun === true) {
+            return { outcome: "preview", impact: { works: [], plansToWrapUp: [] } };
+          }
+          throw Object.assign(new Error("stale"), { code: "nexus_revision_conflict" });
+        },
+      },
+    );
+    await flush();
+    click(f.container, 'button[data-nx-act="cm-cancel"][data-nx-id="cm_one"]');
+    await flush();
+    typeInto(q(f.container, ".nx-dialog textarea"), "不需要了");
+    dialogButton(f.container, "取消承诺")?.click();
+    await flush();
+    assert.equal(q(f.container, ".nx-dialog"), null);
+    assert.match(q(f.container, ".nx-notice")?.textContent ?? "", /已经是别的状态/);
+  });
+});
+
+describe("rail pages without function yet", () => {
+  const pages = [
+    ["goals", "提升英语口语表达"],
+    ["people", "人员"],
+    ["library", "资料库"],
+    ["status", "状态"],
+  ] as const;
+
+  for (const [hub, sample] of pages) {
+    it(`shows the ${hub} design as a static page, with no data read and no inner navigation`, async () => {
+      const f = mount({ view: "hub", hub });
+      await flush();
+      const page = q(f.container, ".nexus-page");
+      assert.ok(page?.classList.contains("nx-rail"));
+      assert.ok(q(f.container, ".nx-dz .app"), "the design is mounted");
+      assert.ok((f.container.textContent ?? "").includes(sample));
+      assert.equal(q(f.container, ".nx-dz nav.rail"), null, "the prototype's own rail is gone");
+      assert.equal(q(f.container, ".nx-dz script"), null);
+      assert.equal(f.container.querySelector("[onclick]"), null);
+      assert.deepEqual(
+        f.calls.filter(
+          (c) => c.method.startsWith("nexus.work.") || c.method.startsWith("nexus.task."),
+        ),
+        [],
+      );
+    });
+  }
+
+  it("falls back to the task list for a page it does not know", async () => {
+    const f = mount({ view: "hub", hub: "nowhere" });
+    await flush();
+    assert.equal(q(f.container, ".nx-dz"), null);
+    assert.equal(q(f.container, ".nexus-page")?.classList.contains("nx-rail"), false);
+  });
+});

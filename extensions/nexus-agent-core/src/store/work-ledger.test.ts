@@ -557,7 +557,7 @@ describe("work kernel", () => {
     );
   });
 
-  it("typed links: coordination between Works, role/target mismatches, own Task outputs, commitments not yet available", () => {
+  it("typed links: coordination between Works, role/target mismatches, own Task outputs, a commitment that does not exist", () => {
     const a = created(makeTask({ work: spec("Link A") }));
     const b = created(makeTask({ work: spec("Link B") }));
     const link = k.workLinkAdd({
@@ -644,7 +644,7 @@ describe("work kernel", () => {
         actor: "user",
         now: now(),
       }).outcome,
-      "capability_unavailable",
+      "target_not_found",
     );
     assert.equal(
       k.workLinkAdd({

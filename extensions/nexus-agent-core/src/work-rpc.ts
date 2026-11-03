@@ -334,10 +334,6 @@ export function createWorkRpcHandlers(deps: WorkRpcDeps) {
             reject(respond, "nexus_invalid_params", result.code);
             return;
           }
-          if (result.outcome === "capability_unavailable") {
-            reject(respond, "nexus_not_enabled", `${result.capability} are not available yet`);
-            return;
-          }
           if (result.outcome === "file_already_adopted") {
             reject(
               respond,
@@ -368,10 +364,19 @@ export function createWorkRpcHandlers(deps: WorkRpcDeps) {
             linkId,
             basis: "user_unlinked",
             actor: "user",
+            acknowledgeGap: params.acknowledgeGap === true,
             now: now(),
           });
           if (result.outcome === "not_found") {
             reject(respond, "nexus_not_found", "link not found");
+            return;
+          }
+          if (result.outcome === "gap_ack_required") {
+            reject(
+              respond,
+              "nexus_gap_ack_required",
+              "removing a required commitment can make this work look finished; confirm with acknowledgeGap",
+            );
             return;
           }
           if (result.outcome === "ended") {

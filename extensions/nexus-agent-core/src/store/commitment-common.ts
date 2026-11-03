@@ -1,0 +1,272 @@
+// Commitment kernel, shared part: row mapping, the append-only event writer, responsibility snapshots, the owner's own identity row
+// and the lookups every operation module needs. No transaction is opened here; the modules around it own theirs. Every statement
+// filters on owner_id.
+import type {
+  CommitmentActor,
+  CommitmentImpact,
+  CommitmentRecord,
+  ResponsibleSpec,
+} from "../commitment/types.js";
+import type { Row, WorkCommon } from "./work-ledger-common.js";
+
+export const COMMITMENT_SELECT =
+  "SELECT c.*, cp.display_name AS responsible_name, " +
+  "(oi.self_counterpart_id IS NOT NULL) AS responsible_self FROM commitments c " +
+  "LEFT JOIN counterparts cp ON cp.owner_id = c.owner_id AND cp.id = c.responsible_counterpart_id " +
+  "LEFT JOIN owner_identity oi ON oi.owner_id = c.owner_id AND oi.self_counterpart_id = c.responsible_counterpart_id";
+
+const str = (value: unknown): string | null => (typeof value === "string" ? value : null);
+const num = (value: unknown): number | null =>
+  value === null || value === undefined ? null : Number(value);
+
+export function toCommitment(row: Row, now: number): CommitmentRecord {
+  const lifecycle = String(row.lifecycle) as CommitmentRecord["lifecycle"];
+  const dueAt = num(row.due_at);
+  return {
+    ownerId: String(row.owner_id),
+    id: String(row.id),
+    requirementText: String(row.requirement_text),
+    responsibleCounterpartId: str(row.responsible_counterpart_id),
+    responsibleRaw: str(row.responsible_raw),
+    responsibleName: str(row.responsible_name),
+    responsibleSelf: Number(row.responsible_self) === 1,
+    responsibilityVersion: Number(row.responsibility_version),
+    contextMode: String(row.context_mode) as CommitmentRecord["contextMode"],
+    contextScopeId: String(row.context_scope_id),
+    periodRequestId: str(row.period_request_id),
+    periodKey: str(row.period_key),
+    periodIndex: num(row.period_index),
+    periodStart: num(row.period_start),
+    periodEnd: num(row.period_end),
+    periodTz: str(row.period_tz),
+    originKind: String(row.origin_kind) as CommitmentRecord["originKind"],
+    originRefId: String(row.origin_ref_id),
+    dueState: String(row.due_state) as CommitmentRecord["dueState"],
+    dueAt,
+    dueTz: str(row.due_tz),
+    communicationState: String(row.communication_state) as CommitmentRecord["communicationState"],
+    communicationActionRef: str(row.communication_action_ref),
+    communicationReceiptLevel: str(row.communication_receipt_level),
+    communicationAt: num(row.communication_at),
+    acceptanceState: String(row.acceptance_state) as CommitmentRecord["acceptanceState"],
+    acceptanceBasisKind: str(row.acceptance_basis_kind) as CommitmentRecord["acceptanceBasisKind"],
+    acceptanceBasis: str(row.acceptance_basis),
+    acceptanceAt: num(row.acceptance_at),
+    lifecycle,
+    verification: String(row.verification) as CommitmentRecord["verification"],
+    currentAssessmentId: str(row.current_assessment_id),
+    verificationCommitVersion: Number(row.verification_commit_version),
+    resolutionBasis: str(row.resolution_basis) as CommitmentRecord["resolutionBasis"],
+    resolutionReason: str(row.resolution_reason),
+    resolvedAt: num(row.resolved_at),
+    cancelReason: str(row.cancel_reason),
+    cancelledAt: num(row.cancelled_at),
+    nextStep: str(row.next_step),
+    createdBy: String(row.created_by) as CommitmentRecord["createdBy"],
+    revision: Number(row.revision),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+    overdue: dueAt !== null && dueAt < now && (lifecycle === "open" || lifecycle === "waiting"),
+  };
+}
+
+export const COMMITMENT_EVENT_KINDS = [
+  "created",
+  "edited",
+  "responsible_resolved",
+  "responsible_changed",
+  "due_changed",
+  "standard_changed",
+  "responsibility_versioned",
+  "communication_changed",
+  "acceptance_changed",
+  "lifecycle_changed",
+  "verification_changed",
+  "assessment_committed",
+  "resolved_source_verified",
+  "resolved_manual",
+  "cancelled",
+  "reopened",
+  "evidence_attached",
+  "evidence_reassessed",
+  "linked_to_work",
+  "unlinked_from_work",
+  "follow_up_started",
+  "follow_up_stopped",
+] as const;
+export type CommitmentEventKind = (typeof COMMITMENT_EVENT_KINDS)[number];
+
+export function validTimeZone(tz: unknown): tz is string {
+  if (typeof tz !== "string" || tz.length === 0 || tz.length > 64) {
+    return false;
+  }
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: tz }).resolvedOptions().timeZone !== "";
+  } catch {
+    return false;
+  }
+}
+
+export function createCommitmentCommon(c: WorkCommon) {
+  const { one, all, run, newId } = c;
+
+  const commitmentRow = (owner: string, id: string): Row | undefined =>
+    one(`${COMMITMENT_SELECT} WHERE c.owner_id = ? AND c.id = ?`, owner, id);
+
+  /** Append one timeline entry; `seq` is dense per Commitment. Returns the new event id. */
+  const appendEvent = (
+    owner: string,
+    commitmentId: string,
+    kind: CommitmentEventKind,
+    actor: CommitmentActor,
+    payload: Record<string, unknown>,
+    now: number,
+  ): string => {
+    const seq =
+      Number(
+        (
+          one(
+            "SELECT COALESCE(MAX(seq), 0) AS m FROM commitment_events WHERE owner_id = ? AND commitment_id = ?",
+            owner,
+            commitmentId,
+          ) as Row
+        ).m,
+      ) + 1;
+    const id = newId("ce_");
+    run(
+      "INSERT INTO commitment_events (owner_id, id, commitment_id, seq, kind, actor, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      owner,
+      id,
+      commitmentId,
+      seq,
+      kind,
+      actor,
+      JSON.stringify(payload),
+      now,
+    );
+    return id;
+  };
+
+  /** Every owner has exactly one self identity row (INV-01); created on first use. */
+  const ensureSelf = (owner: string, now: number): string => {
+    const existing = one(
+      "SELECT self_counterpart_id AS id FROM owner_identity WHERE owner_id = ?",
+      owner,
+    );
+    if (existing) {
+      return String(existing.id);
+    }
+    const id = newId("cp_");
+    run(
+      "INSERT INTO counterparts (owner_id, id, kind, display_name, confirmation, origin, lifecycle, revision, created_at, updated_at) " +
+        "VALUES (?, ?, 'person', 'Me', 'confirmed', 'system', 'live', 1, ?, ?)",
+      owner,
+      id,
+      now,
+      now,
+    );
+    run(
+      "INSERT INTO owner_identity (owner_id, self_counterpart_id, created_at) VALUES (?, ?, ?)",
+      owner,
+      id,
+      now,
+    );
+    return id;
+  };
+
+  /**
+   * Turn what the caller said into the two responsibility columns. An Agent may only name an existing, live counterpart whose
+   * identity the user stated or confirmed (design 6.3); a person's own word stays as typed and is never guessed into a record.
+   */
+  const resolveResponsible = (
+    owner: string,
+    spec: ResponsibleSpec,
+    actor: CommitmentActor,
+    now: number,
+  ):
+    | { counterpartId: string | null; raw: string | null }
+    | {
+        problem: "responsible_required" | "counterpart_not_found" | "counterpart_not_confirmed";
+      } => {
+    if (spec.kind === "self") {
+      return { counterpartId: ensureSelf(owner, now), raw: null };
+    }
+    if (spec.kind === "name") {
+      const name = typeof spec.name === "string" ? spec.name.trim() : "";
+      if (name.length === 0) {
+        return { problem: "responsible_required" };
+      }
+      return { counterpartId: null, raw: name };
+    }
+    const cp = one(
+      "SELECT confirmation, lifecycle FROM counterparts WHERE owner_id = ? AND id = ?",
+      owner,
+      spec.counterpartId,
+    );
+    if (!cp || String(cp.lifecycle) !== "live") {
+      return { problem: "counterpart_not_found" };
+    }
+    if (actor === "agent" && !["stated", "confirmed"].includes(String(cp.confirmation))) {
+      return { problem: "counterpart_not_confirmed" };
+    }
+    return { counterpartId: spec.counterpartId, raw: null };
+  };
+
+  /** Keep the previous responsibility version as a snapshot before the live row moves on (design 4.4.2). */
+  const snapshotVersion = (owner: string, row: Row, reason: string, now: number): void => {
+    run(
+      "INSERT INTO commitment_responsibility_versions (owner_id, commitment_id, responsibility_version, responsible_counterpart_id, " +
+        "responsible_raw, requirement_text, due_state, due_at, due_tz, contract_version, communication_state, communication_action_ref, " +
+        "acceptance_state, acceptance_basis, superseded_at, superseded_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      owner,
+      String(row.id),
+      Number(row.responsibility_version),
+      (row.responsible_counterpart_id as string | null) ?? null,
+      (row.responsible_raw as string | null) ?? null,
+      String(row.requirement_text),
+      String(row.due_state),
+      (row.due_at as number | null) ?? null,
+      (row.due_tz as string | null) ?? null,
+      Number(row.contract_version),
+      String(row.communication_state),
+      (row.communication_action_ref as string | null) ?? null,
+      String(row.acceptance_state),
+      (row.acceptance_basis as string | null) ?? null,
+      now,
+      reason,
+    );
+  };
+
+  /** Works that point at this Commitment through an active link (design 6.5). Deleted or purging Works are left out. */
+  const linkedWorks = (owner: string, commitmentId: string): CommitmentImpact["works"] =>
+    all(
+      "SELECT l.id AS link_id, l.work_id, l.role, w.title FROM work_links l JOIN works w ON w.owner_id = l.owner_id AND w.id = l.work_id " +
+        "WHERE l.owner_id = ? AND l.target_kind = 'commitment' AND l.target_id = ? AND l.ended_at IS NULL " +
+        "AND w.lifecycle IN ('live','archived') ORDER BY w.updated_at DESC",
+      owner,
+      commitmentId,
+    ).map((row) => ({
+      workId: String(row.work_id),
+      title: String(row.title),
+      role: String(row.role) as "required" | "reference",
+      linkId: String(row.link_id),
+    }));
+
+  const impactOf = (owner: string, commitmentId: string): CommitmentImpact => ({
+    works: linkedWorks(owner, commitmentId),
+    // Follow-up plans arrive with slice W4: until then no plan can be owned by a commitment.
+    plansToWrapUp: [],
+  });
+
+  return {
+    commitmentRow,
+    appendEvent,
+    ensureSelf,
+    resolveResponsible,
+    snapshotVersion,
+    linkedWorks,
+    impactOf,
+  };
+}
+
+export type CommitmentCommon = ReturnType<typeof createCommitmentCommon>;

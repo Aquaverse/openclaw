@@ -104,7 +104,7 @@ ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer
 ```
 
 - 产物：`dist/OpenClaw.app`、`dist/OpenClaw-<version>-Install.dmg`。
-- `OPENCLAW_INSTALLER_NEXUS_SWITCHES` 不写时默认打开：`tasksEnabled, decisionsEnabled, claimsEnabled, preferencesEnabled, watchersEnabled, vaultEnabled, evidenceBlobsEnabled`。**目标（`goalsEnabled`）不在默认列表里**，要用就写进开关列表，或装好后手动 `config set`（4.4）。
+- `OPENCLAW_INSTALLER_NEXUS_SWITCHES` 不写时默认打开：`worksEnabled, decisionsEnabled, claimsEnabled, preferencesEnabled, watchersEnabled, vaultEnabled, goalsEnabled, evidenceBlobsEnabled`（目标已在默认列表里，承诺层没有独立开关、跟随 `worksEnabled`；预设版本 `NEXUS_PRESET_VERSION` 因尚未正式发布没有再升）。想少开哪个，用 `OPENCLAW_INSTALLER_NEXUS_SWITCHES` 覆盖，或装好后手动 `config set`（4.4）。
 - 临时签名的代价：别的 Mac 首次打开会提示"无法验证开发者"（右键 → 打开一次）；**每次重新构建后，系统权限（TCC）授权不保留**，需要重新授权（屏幕录制、辅助功能等，见 `platforms/mac/permissions`）。
 - 想带默认在线模型 / llama.cpp 兜底 / LiteLLM 路由时才打开对应开关；`installer.env` 里的模型地址和 key 会**明文**打进安装包，自用也别把这个 dmg 发给别人。
 - 想先看是否已装过：已装过的机器**预设只在每个预设版本应用一次**（标记文件 `~/.openclaw/.nexus-preset-applied`），重新打包不会改变已有配置，见 4.4 和 10.2。

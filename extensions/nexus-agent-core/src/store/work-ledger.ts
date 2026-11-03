@@ -80,7 +80,22 @@ export function createWorkLedger(
       ).map((row) => String(row.s)),
     );
     const counted = tasks.filter((row) => !superseded.has(String(row.id)));
-    const met = counted.length > 0 && counted.every((row) => String(row.status) === "succeeded");
+    // Required Commitments count too: only a source-verified resolution fulfils one. A manual close or a cancel never does, so a
+    // Work that depends on such a Commitment cannot become "done" by that route (design 5.2, 6.2).
+    const required = all(
+      "SELECT c.id, c.lifecycle, c.resolution_basis FROM work_links l JOIN commitments c ON c.owner_id = l.owner_id AND c.id = l.target_id " +
+        "WHERE l.owner_id = ? AND l.work_id = ? AND l.role = 'required' AND l.target_kind = 'commitment' AND l.ended_at IS NULL",
+      owner,
+      workId,
+    );
+    const met =
+      (counted.length > 0 || required.length > 0) &&
+      counted.every((row) => String(row.status) === "succeeded") &&
+      required.every(
+        (row) =>
+          String(row.lifecycle) === "resolved" &&
+          String(row.resolution_basis) === "source_verified",
+      );
     const events = all(
       "SELECT * FROM work_outcome_events WHERE owner_id = ? AND work_id = ? AND original_result_id = ?",
       owner,
@@ -118,11 +133,23 @@ export function createWorkLedger(
       eventType,
       JSON.stringify({
         criteria: [
-          {
-            kind: "task_completed",
-            taskIds: counted.map((row) => String(row.id)),
-            gate: "completion_check",
-          },
+          ...(counted.length > 0
+            ? [
+                {
+                  kind: "task_completed",
+                  taskIds: counted.map((row) => String(row.id)),
+                  gate: "completion_check",
+                },
+              ]
+            : []),
+          ...(required.length > 0
+            ? [
+                {
+                  kind: "commitment_verified",
+                  commitmentIds: required.map((row) => String(row.id)),
+                },
+              ]
+            : []),
         ],
       }),
       head ? String(head.id) : null,
@@ -662,7 +689,8 @@ export function createWorkLedger(
     syncGoalShadow,
   };
   const { workSetGoal } = createWorkGoalOps(deps);
-  const { workLinkAdd, workLinkEnd, workPrereqAdd, workPrereqResolve } = createWorkLinkOps(deps);
+  const { workLinkAdd, linkAddInTx, workLinkEnd, workPrereqAdd, workPrereqResolve } =
+    createWorkLinkOps(deps);
   const { workControl, workRecordOutcome } = createWorkControlOps(deps);
 
   return {
@@ -683,7 +711,15 @@ export function createWorkLedger(
     workEvaluate,
     hooks: { validateWorkInTx, attachTaskInTx, afterTaskSucceededInTx },
     /** Building blocks shared with work-backfill-ledger.ts (same transaction runner). Not worker operations. */
-    internals: { common: c, facts, insertWork, syncGoalShadow, evaluateOutcomeInTx },
+    internals: {
+      common: c,
+      facts,
+      insertWork,
+      syncGoalShadow,
+      evaluateOutcomeInTx,
+      requireLive,
+      linkAddInTx,
+    },
   };
 }
 

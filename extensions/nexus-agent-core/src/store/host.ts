@@ -208,6 +208,20 @@ const STORE_OPERATIONS: Record<StoreOperationName, true> = {
   workBackfill: true,
   workDataStatus: true,
   workIntegrity: true,
+  commitmentCreate: true,
+  commitmentGeneratePeriods: true,
+  commitmentGet: true,
+  commitmentList: true,
+  commitmentImpact: true,
+  commitmentUpdate: true,
+  commitmentSetRole: true,
+  commitmentCommunication: true,
+  commitmentAcceptance: true,
+  commitmentResolve: true,
+  commitmentCancel: true,
+  commitmentRestore: true,
+  commitmentReopen: true,
+  commitmentCommitVerification: true,
 };
 
 export type StoreHost = {

@@ -36,7 +36,53 @@ export type NexusAction =
   | { kind: "work-rename"; id: string }
   | { kind: "work-hide"; id: string }
   | { kind: "work-archive"; id: string }
-  | { kind: "work-delete"; id: string };
+  | { kind: "work-delete"; id: string }
+  | { kind: "cm-new"; id: string }
+  | { kind: "cm-edit"; id: string }
+  | { kind: "cm-comm"; id: string }
+  | { kind: "cm-accept"; id: string }
+  | { kind: "cm-resolve"; id: string }
+  | { kind: "cm-cancel"; id: string }
+  | { kind: "cm-restore"; id: string }
+  | { kind: "cm-reopen"; id: string }
+  | { kind: "cm-role"; id: string };
+
+const ID_ACTIONS: ReadonlySet<string> = new Set<NexusAction["kind"]>([
+  "decision",
+  "watch-cancel",
+  "claim-retract",
+  "pref-edit",
+  "pref-delete",
+  "evidence-view",
+  "file-open",
+  "file-download",
+  "goal-create",
+  "goal-open",
+  "goal-pending",
+  "goal-check",
+  "goal-approve",
+  "goal-reject",
+  "goal-up",
+  "goal-down",
+  "work-pause",
+  "work-resume",
+  "work-stop",
+  "work-endpartial",
+  "work-reopen",
+  "work-rename",
+  "work-hide",
+  "work-archive",
+  "work-delete",
+  "cm-new",
+  "cm-edit",
+  "cm-comm",
+  "cm-accept",
+  "cm-resolve",
+  "cm-cancel",
+  "cm-restore",
+  "cm-reopen",
+  "cm-role",
+]);
 
 const ACTION_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
@@ -60,34 +106,9 @@ export function actionFromMarker(act: string | null, id: string | null): NexusAc
   if (!id || !ACTION_ID.test(id)) {
     return undefined;
   }
-  if (
-    act === "decision" ||
-    act === "watch-cancel" ||
-    act === "claim-retract" ||
-    act === "pref-edit" ||
-    act === "pref-delete" ||
-    act === "evidence-view" ||
-    act === "file-open" ||
-    act === "file-download" ||
-    act === "goal-create" ||
-    act === "goal-open" ||
-    act === "goal-pending" ||
-    act === "goal-check" ||
-    act === "goal-approve" ||
-    act === "goal-reject" ||
-    act === "goal-up" ||
-    act === "goal-down" ||
-    act === "work-pause" ||
-    act === "work-resume" ||
-    act === "work-stop" ||
-    act === "work-endpartial" ||
-    act === "work-reopen" ||
-    act === "work-rename" ||
-    act === "work-hide" ||
-    act === "work-archive" ||
-    act === "work-delete"
-  ) {
-    return { kind: act, id };
+  if (act !== null && ID_ACTIONS.has(act)) {
+    // The union is wider than TypeScript expands for a computed `kind`; the set above is the same list as the type.
+    return { kind: act, id } as NexusAction;
   }
   return undefined;
 }

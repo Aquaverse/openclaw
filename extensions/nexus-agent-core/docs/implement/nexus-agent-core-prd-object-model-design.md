@@ -2726,6 +2726,8 @@ CREATE INDEX incident_by_status ON incident_reports(owner_id, status, created_at
 
 ### 12.4 开关与依赖
 
+> 2026-11 更新：`commitmentsEnabled` 不再单独存在，承诺层（Commitment 与行动台账、`nexus_commitment_*` 工具）跟随 `worksEnabled`；下表中它的行和“`worksEnabled` + `commitmentsEnabled`”这类依赖按 `worksEnabled` 理解。后续新增能力的参数也优先复用 `worksEnabled`。
+
 | 开关（`openclaw.plugin.json` 的 `configSchema`） | 前置                                                      | 打开后                                                                                                                           |
 | ------------------------------------------------ | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `worksEnabled`                                   | `tasksEnabled`                                            | Work 表可写、回填、工作页 / 路由、`nexus_work_*` 工具、Task 创建自动带 Work                                                      |

@@ -136,12 +136,12 @@ const writes = (calls: string[]) =>
 const restarts = (calls: string[]) => calls.filter((c) => c.startsWith("gateway restart"));
 
 describe("scripts/mac-nexus-preset.sh", () => {
-  it("first run appends the 33 tools once, keeps what was there, and restarts the gateway exactly once", () => {
+  it("first run appends the 36 tools once, keeps what was there, and restarts the gateway exactly once", () => {
     if (!runnable) {
       return;
     }
     const tools = nexusTools();
-    assert.equal(tools.length, 33);
+    assert.equal(tools.length, 36);
     const box = sandbox();
     // One user entry, plus one Nexus tool already present: it must not be added a second time.
     box.set("tools.alsoAllow", JSON.stringify(["web_search", "nexus_task_get"]));
@@ -304,5 +304,23 @@ describe("scripts/build-mac-installer.sh default-ai-provider.env", () => {
       source,
       /echo "==> OPENCLAW_INSTALLER_DEFAULT_MODEL=0 -- no default model baked"/u,
     );
+  });
+
+  it("turns on works and goals in both default switch lists (the dmg bake and the script fallback)", () => {
+    if (!runnable) {
+      return;
+    }
+    const lists = [
+      /^SWITCHES="\$\{SWITCHES:-([^}]*)\}"$/mu.exec(fs.readFileSync(presetScript, "utf8")),
+      /NEXUS_SWITCHES_FOR_BUNDLE:-([^}]*)\}"/u.exec(fs.readFileSync(buildScript, "utf8")),
+    ].map((m) => m?.[1]?.split(","));
+    assert.equal(lists[0]?.length, lists[1]?.length, "the two default lists must stay identical");
+    for (const list of lists) {
+      assert.ok(list, "a default switch list was not found");
+      for (const key of ["worksEnabled", "goalsEnabled"]) {
+        assert.ok(list.includes(key), `${key} missing from a default switch list`);
+      }
+    }
+    assert.deepEqual(lists[0], lists[1]);
   });
 });

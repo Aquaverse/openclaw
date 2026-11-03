@@ -1,3 +1,4 @@
+import type { CommitmentLine } from "../src/commitment-ui.js";
 // The write side of the Nexus page: decisions, watch cancellation and preferences. Every action opens a confirmation
 // dialog built from the records the page itself loaded (never from the clicked markup, which only carries an id), then
 // calls the existing operator.write RPC. The RPCs stay the authority: they re-check status, revision and authority hash,
@@ -18,6 +19,7 @@ import type { VaultFileRecord } from "../src/store/vault-types.js";
 import type { WatchRecord } from "../src/store/watch-types.js";
 import { clip, fmtTime } from "../src/ui-render.js";
 import type { WorkActionModel } from "../src/work-ui.js";
+import { runCommitmentAction } from "./commitment-dialogs.ts";
 import type { NexusRequest } from "./data.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
 import { evidenceViewDialog } from "./evidence-view.ts";
@@ -57,6 +59,8 @@ export type NexusModel = {
   goals?: readonly GoalSummaryRecord[];
   /** The Work the Work page shows in its detail pane; absent on every other tab. */
   work?: WorkActionModel;
+  /** The commitments that Work cites (what the commitment dialogs are built from); absent when commitments are off. */
+  commitments?: readonly CommitmentLine[];
 };
 
 export const EMPTY_MODEL: NexusModel = {
@@ -528,6 +532,16 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
     case "work-archive":
     case "work-delete":
       return runWorkAction(ctx, action);
+    case "cm-new":
+    case "cm-edit":
+    case "cm-comm":
+    case "cm-accept":
+    case "cm-resolve":
+    case "cm-cancel":
+    case "cm-restore":
+    case "cm-reopen":
+    case "cm-role":
+      return runCommitmentAction(ctx, action);
     case "goal-menu":
       return goalMenu(ctx);
     case "goal-create":

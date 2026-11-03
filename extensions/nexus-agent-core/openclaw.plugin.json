@@ -299,6 +299,9 @@
       "nexus_work_get",
       "nexus_work_update",
       "nexus_work_link",
+      "nexus_commitment_record",
+      "nexus_commitment_get",
+      "nexus_commitment_search",
       "nexus_spike_probe"
     ]
   },
@@ -403,6 +406,15 @@
       "optional": true
     },
     "nexus_work_link": {
+      "optional": true
+    },
+    "nexus_commitment_record": {
+      "optional": true
+    },
+    "nexus_commitment_get": {
+      "optional": true
+    },
+    "nexus_commitment_search": {
       "optional": true
     }
   },

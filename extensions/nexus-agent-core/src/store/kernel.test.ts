@@ -70,6 +70,8 @@ describe("task store kernel", () => {
       "stage6-0002-goal-metrics",
       "stage6-0003-goal-review-plans",
       "stage7-0001-works",
+      "stage7-0002-counterparts",
+      "stage7-0003-commitments",
     ]);
     assert.deepEqual(applyMigrations(db, tx), []);
   });

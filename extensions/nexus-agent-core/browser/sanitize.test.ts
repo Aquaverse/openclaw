@@ -284,3 +284,37 @@ describe("work action markers", () => {
     expect(container.textContent).toContain("unknown");
   });
 });
+
+describe("commitment action markers", () => {
+  it("passes the commitment buttons with their ids and refuses unknown or malformed ones", () => {
+    const onAction = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(container);
+    mountSanitized(
+      container,
+      [
+        ...["new", "edit", "comm", "accept", "resolve", "cancel", "restore", "reopen", "role"].map(
+          (act) => `<button data-nx-act="cm-${act}" data-nx-id="cm_ab12CD34ef">${act}</button>`,
+        ),
+        '<button data-nx-act="cm-resolve">no id</button>',
+        '<button data-nx-act="cm-resolve" data-nx-id="../x">bad id</button>',
+        '<button data-nx-act="cm-verify" data-nx-id="cm_a">unknown</button>',
+      ].join(""),
+      hrefOf,
+      vi.fn(),
+      onAction,
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons).toHaveLength(9);
+    for (const button of buttons) {
+      button.click();
+    }
+    expect(onAction.mock.calls.map(([action]) => action)).toEqual(
+      ["new", "edit", "comm", "accept", "resolve", "cancel", "restore", "reopen", "role"].map(
+        (act) => ({ kind: `cm-${act}`, id: "cm_ab12CD34ef" }),
+      ),
+    );
+    expect(container.textContent).toContain("no id");
+    expect(container.textContent).toContain("unknown");
+  });
+});

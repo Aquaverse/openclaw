@@ -1,5 +1,6 @@
 // Reads for the Work page: the counts, the filtered list and the Work shown in the detail pane. Everything goes through the
 // read-only `nexus.work.*` methods (operator.read), so the page sees exactly what any RPC client would.
+import type { CommitmentLine } from "../src/commitment-ui.js";
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
 import type { DecisionRecord } from "../src/store/decision-types.js";
 import type { WorkView } from "../src/store/work-facts.js";
@@ -116,7 +117,15 @@ export async function loadWorksView(
   let missing = false;
   if (selectedId) {
     try {
-      detail = await request<WorkDetail>("nexus.work.get", { workId: selectedId });
+      const [got, cited] = await Promise.all([
+        request<WorkDetail>("nexus.work.get", { workId: selectedId }),
+        // The Commitments block only exists when commitments are switched on: a refusal means "not available", not an error.
+        request<{ items: CommitmentLine[] }>("nexus.commitment.list", {
+          workId: selectedId,
+          limit: 100,
+        }).catch(() => undefined),
+      ]);
+      detail = cited ? { ...got, commitments: cited.items } : got;
     } catch (error) {
       if (!isNotFound(error)) {
         throw error;
@@ -154,6 +163,7 @@ export async function loadWorksView(
       ...EMPTY_MODEL,
       decisions,
       ...(detail ? { work: workActionModel(detail) } : {}),
+      ...(detail?.commitments ? { commitments: detail.commitments } : {}),
     },
   };
 }

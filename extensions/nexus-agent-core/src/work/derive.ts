@@ -124,10 +124,10 @@ export type TerminalFact = {
   windowPending?: boolean;
 } | null;
 
-/** Commitment and Schedule facts arrive with slices W2 and W4; the shapes are fixed here so derive does not change then. */
+/** Commitment facts (slice W2) and Schedule facts (slice W4); the shapes are fixed so derive does not change with the slices. */
 export type CommitmentFact = {
   id: string;
-  /** role='required' and not ended. */
+  /** A required Commitment (active link) that is no longer open: resolved or cancelled. */
   resolved: boolean;
   needsUser: boolean;
   blocked?: ReasonCode;

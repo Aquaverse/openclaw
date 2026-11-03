@@ -117,7 +117,7 @@ export type TaskModuleConfig = {
   vaultExtractMaxChars?: number;
   /** Stage 6: Goals (tools nexus_goal_*, RPC nexus.goal.*, the console "Goals" page). Needs worksEnabled. */
   goalsEnabled?: boolean;
-  /** Slice W1: the Task and Work layers share this one switch (every Task gets a Work; tools nexus_work_*, RPC nexus.work.*). */
+  /** Slice W1: the Task and Work layers share this one switch (every Task gets a Work; tools nexus_work_*, RPC nexus.work.*). Slice W2 Commitments (tools nexus_commitment_*, RPC nexus.commitment.*) follow it too: no switch of their own. */
   worksEnabled?: boolean;
   /** Active goals one owner may hold (default 20). */
   goalMaxActivePerOwner?: number;
@@ -604,7 +604,7 @@ export function registerTaskModule(
   // ---- Stage 6: Goals (Goals design; goal-module.ts). A goal is context for the Agent, never authority. ----
   const goals = registerGoalModule({ api, config, getStore, events, principalFor });
 
-  // ---- Slice W1: the Work layer (work-module.ts). Task creation already carries the Work when worksEnabled. ----
+  // ---- Slice W1/W2: the Work layer and, on top of it, Commitments (work-module.ts, commitment-module.ts). ----
   registerWorkModule({ api, config, getStore, events, principalFor });
 
   // Stage 1 only handles user turns. The watcher branch for cron/heartbeat turns comes in front of this

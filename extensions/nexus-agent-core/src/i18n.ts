@@ -2,6 +2,7 @@
 // know falls back to English, and "no locale at all" to Chinese (the plugin's home language). Identifiers the system
 // itself defines (task statuses, risk tiers, RPC names, ids) are never translated: they are what the model and the logs
 // say. Plain functions, no node or DOM imports, so the HTTP page and the browser module share it.
+import { COMMITMENT_MESSAGES } from "./i18n-commitment.js";
 import { GOAL_MESSAGES } from "./i18n-goals.js";
 import { WORK_MESSAGES } from "./i18n-work.js";
 
@@ -15,6 +16,9 @@ const CATALOG = {
   "nav.preferences": ["偏好", "Preferences"],
   "nav.receipts": ["清除回执", "Purge receipts"],
   "nav.refresh": ["刷新", "Refresh"],
+  "nav.rail.people": ["人员", "People"],
+  "nav.rail.library": ["资料库", "Library"],
+  "nav.rail.status": ["状态", "Status"],
   "page.connecting": ["正在连接网关…", "Connecting to the gateway…"],
   "page.loadFailed": ["Nexus 读取失败：{message}", "Nexus could not load: {message}"],
   "title.tasks": ["事项", "Tasks"],
@@ -615,6 +619,8 @@ const CATALOG = {
   ...GOAL_MESSAGES,
   // Work page (i18n-work.ts)
   ...WORK_MESSAGES,
+  // Commitments block (i18n-commitment.ts)
+  ...COMMITMENT_MESSAGES,
 } as const satisfies Record<string, readonly [string, string]>;
 
 export type MsgKey = keyof typeof CATALOG;

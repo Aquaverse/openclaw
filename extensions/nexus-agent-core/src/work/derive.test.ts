@@ -263,6 +263,37 @@ describe("deriveWorkState", () => {
     assert.equal(state.reasons[0]?.code, "no_follow_up");
     assert.deepEqual(state.nextStep, { kind: "schedule_follow_up" });
   });
+  it("a required commitment the user must look at (cancelled, manually closed, or a failed check) is needs_you with a decide step", () => {
+    const state = deriveWorkState(
+      facts({
+        tasks: [task("t1", "completed")],
+        commitments: [{ id: "c1", resolved: true, needsUser: true }],
+      }),
+    );
+    assert.equal(state.primary, "needs_you");
+    assert.deepEqual(state.nextStep, { kind: "decide", objectKind: "commitment", objectId: "c1" });
+    assert.equal(state.reasons[0]?.objectKind, "commitment");
+  });
+  it("the same commitment after the user ended the Work with what exists: ended_incomplete, closed by hand", () => {
+    const state = deriveWorkState(
+      facts({
+        tasks: [task("t1", "completed")],
+        commitments: [{ id: "c1", resolved: true, needsUser: true }],
+        terminal: { id: "te1", resultAtClose: "partial", reason: "accept_partial" },
+      }),
+    );
+    assert.equal(state.primary, "ended_incomplete");
+    assert.ok(state.flags.includes("manual_close"));
+  });
+  it("a closed commitment with nothing else left to run does not read as follow-up needed", () => {
+    const state = deriveWorkState(
+      facts({
+        tasks: [task("t1", "completed")],
+        commitments: [{ id: "c1", resolved: true, needsUser: false }],
+      }),
+    );
+    assert.notEqual(state.reasons[0]?.code, "no_follow_up");
+  });
   it("adoption pending: user must accept the revision card; accepted but no successor yet is blocked", () => {
     const needs = deriveWorkState(
       facts({ tasks: [task("t1", "running", { adoption: "needs_user" })] }),

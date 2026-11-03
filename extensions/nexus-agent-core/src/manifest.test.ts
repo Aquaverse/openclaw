@@ -6,6 +6,7 @@ import path from "node:path";
 import { describe, it } from "vitest";
 import { ACTION_TOOL_NAMES } from "./tools/action-tools.js";
 import { CLAIM_TOOL_NAMES } from "./tools/claim-tools.js";
+import { COMMITMENT_TOOL_NAMES } from "./tools/commitment-tools.js";
 import { VAULT_TOOL_NAMES } from "./tools/file-tools.js";
 import { GOAL_TOOL_NAMES } from "./tools/goal-tools.js";
 import { PREFERENCE_TOOL_NAMES } from "./tools/preference-tools.js";
@@ -31,6 +32,7 @@ describe("openclaw.plugin.json", () => {
     ...VAULT_TOOL_NAMES,
     ...GOAL_TOOL_NAMES,
     ...WORK_TOOL_NAMES,
+    ...COMMITMENT_TOOL_NAMES,
   ];
 
   it("declares every registered tool in contracts.tools", () => {
@@ -138,8 +140,14 @@ describe("Control UI browser module", () => {
     assert.equal(pageId, tabId);
     assert.match(index, /id: "nexus-agent-core"/);
     assert.match(index, /registerPage\(/);
-    // The descriptor stays the only sidebar entry: a second navigation item would point at the same page.
-    assert.doesNotMatch(index, /registerNavigation\(/);
+    // The descriptor stays the page's own sidebar tab; Work, Goals, People, Library and Status are extra destinations of the
+    // same page, fixed in the host's left rail below the Sessions button (never user pins: no pinNavigation).
+    assert.match(index, /registerNavigation\(/);
+    assert.match(index, /rail: "sessions"/);
+    assert.doesNotMatch(index, /pinNavigation\(/);
+    const ids = [...index.matchAll(/\{ id: "(\w+)", label: "nav\.[\w.]+"/g)].map((m) => m[1]);
+    assert.deepEqual(ids, ["work", "goals", "people", "library", "status"]);
+    assert.match(index, /page: \{ id: NEXUS_PAGE_ID, params: destination\.params \}/);
   });
 
   it("points a built manifest at an immutable hashed entry", () => {

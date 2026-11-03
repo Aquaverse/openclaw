@@ -1,0 +1,48 @@
+// Slice W2 wiring (Commitments): the Agent tools and the gateway methods, behind `worksEnabled` (no switch of its own).
+import type { OpenClawPluginApi } from "../api.js";
+import { createCommitmentRpcHandlers } from "./commitment-rpc.js";
+import { NEXUS_COMMITMENT_PROTOCOL } from "./commitment/commitment-prompt.js";
+import type { EventBridge } from "./events.js";
+import type { TaskStore } from "./store/host.js";
+import type { Principal } from "./store/types.js";
+import { COMMITMENT_TOOL_NAMES, createCommitmentTools } from "./tools/commitment-tools.js";
+
+export type CommitmentConfig = { worksEnabled?: boolean };
+
+export type CommitmentModuleParams = {
+  api: OpenClawPluginApi;
+  config: CommitmentConfig;
+  getStore: () => Promise<TaskStore>;
+  events: EventBridge;
+  principalFor: (ctx?: {
+    agentId?: string;
+    accountId?: string;
+    senderId?: string;
+    requesterSenderId?: string;
+  }) => Principal | undefined;
+};
+
+const enabled = (config: CommitmentConfig): boolean => config.worksEnabled === true;
+
+/** The model-facing protocol lines of the Commitment layer (empty when it is off). */
+export function commitmentProtocols(config: CommitmentConfig): string[] {
+  return enabled(config) ? [NEXUS_COMMITMENT_PROTOCOL] : [];
+}
+
+export function registerCommitmentModule(params: CommitmentModuleParams): void {
+  const { api, config, getStore, events, principalFor } = params;
+  if (!enabled(config)) {
+    return;
+  }
+  api.registerTool(
+    (ctx) => createCommitmentTools({ getStore, events, resolvePrincipal: principalFor }, ctx),
+    { names: [...COMMITMENT_TOOL_NAMES], optional: true },
+  );
+  for (const [method, handler, scope] of createCommitmentRpcHandlers({
+    getStore,
+    events,
+    resolvePrincipal: () => principalFor(),
+  })) {
+    api.registerGatewayMethod(method, handler, { scope });
+  }
+}
