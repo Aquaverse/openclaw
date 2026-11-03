@@ -136,6 +136,11 @@ describe("nexus.work.* rpc", () => {
       "nexus_invalid_params",
     );
     assert.equal(
+      (await t.call("nexus.work.list", { order: "sideways" })).error?.code,
+      "nexus_invalid_params",
+    );
+    assert.equal((await t.call("nexus.work.list", { order: "state", limit: 1 })).ok, true);
+    assert.equal(
       (await t.call("nexus.work.list", { contextMode: "nope" })).error?.code,
       "nexus_invalid_params",
     );

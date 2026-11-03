@@ -10,9 +10,19 @@ import { createFileBar } from "./file-bar.ts";
 import { createFilterBar } from "./filters.ts";
 import { readGoalPrefs, writeGoalPrefs } from "./goal-prefs.ts";
 import { refreshOpenGoalDetail } from "./goals-view.ts";
-import { FILES_HOME, parseRoute, routeParams, TASKS_HOME, type NexusRoute } from "./route.ts";
+import {
+  FILES_HOME,
+  parseRoute,
+  routeParams,
+  TASKS_HOME,
+  WORKS_HOME,
+  type NexusRoute,
+} from "./route.ts";
 import { mountSanitized } from "./sanitize.ts";
 import { NEXUS_CSS } from "./style.ts";
+import { createWorkBar } from "./work-bar.ts";
+import { WORK_PAGE_SIZE, workAttentionCount } from "./work-data.ts";
+import { attachWorkList, type WorkList } from "./work-list.ts";
 
 export const NEXUS_PAGE_ID = "nexus";
 const EVENT_PREFIX = "plugin.nexus-agent-core.";
@@ -27,6 +37,7 @@ const CHANGE_EVENTS = [
   "watch_changed",
   "vault_changed",
   "goal_changed",
+  "work_changed",
 ];
 /** Events that can change what an open goal-detail dialog shows (its own goal, or the tasks and claims it points at). */
 const DETAIL_EVENTS = new Set(["task_changed", "claim_changed", "goal_changed"]);
@@ -47,10 +58,17 @@ export function createNexusPage(): ControlUiView {
   let rememberedFiles: FilesRoute = FILES_HOME;
   return (container, initial) => {
     let context = initial;
-    let features: NexusFeatures = { preferences: false, files: false, goals: false };
+    let features: NexusFeatures = {
+      preferences: false,
+      files: false,
+      goals: false,
+      works: false,
+    };
     let probed = false;
     // Goals due for a look-back; shown as a count on the Goals tab. Read again on every load.
     let goalsDue = 0;
+    // Works waiting for the user ("needs you"); shown as a red dot on the Work entry. Read again on every load.
+    let worksWaiting = 0;
     let sequence = 0;
     let unbindClicks: (() => void) | undefined;
     let model: NexusModel = EMPTY_MODEL;
@@ -62,6 +80,9 @@ export function createNexusPage(): ControlUiView {
     const style = document.createElement("style");
     style.textContent = NEXUS_CSS;
     const nav = document.createElement("nav");
+    // Everything right of the rail: the notice, the task filter bar and the page itself.
+    const content = document.createElement("div");
+    content.className = "nx-content";
     const notice = document.createElement("p");
     notice.setAttribute("role", "status");
     notice.hidden = true;
@@ -107,7 +128,51 @@ export function createNexusPage(): ControlUiView {
       },
     });
     let fileBarKey: string | undefined;
-    root.append(style, nav, notice, bar.element, main);
+    // The Work list pane after a mount (paging, in-place search), the filter it shows, and a route the page already shows
+    // because a search changed it in place (the host's answer to that navigation must not reload the page).
+    let workList: WorkList | undefined;
+    let shownListKey: string | undefined;
+    // The route of a search made in place. A search is a state of the list, not a place to go: it does not touch the address
+    // (every navigation makes the host redraw and reset its scroll regions, which is what made the page jump while typing).
+    // It stays in force until the address changes for another reason (a click on a row, a pill, another tab).
+    let settling: NexusRoute | undefined;
+    // The Work search box: the same idea, moved into the empty slot of the Work list header.
+    const workBar = createWorkBar({
+      lang: currentLang(),
+      apply(q) {
+        const here = settling ?? parseRoute(context.props);
+        const state = here.view === "works" || here.view === "work" ? here.state : undefined;
+        const filter = { ...(state ? { state } : {}), ...(q ? { q } : {}) };
+        // A selected Work stays selected while the list changes beside it.
+        const next: NexusRoute =
+          here.view === "work"
+            ? { view: "work", workId: here.workId, ...filter }
+            : { view: "works", ...filter };
+        // Same query, same URL: the host would not react, so searching again reloads in place.
+        if (JSON.stringify(routeParams(next)) === JSON.stringify(routeParams(here))) {
+          void load();
+          return;
+        }
+        // The list pane swaps its rows itself (no rebuild of the page, so the box keeps its focus and nothing jumps).
+        // Without a mounted list, or if the rows cannot be read, the route change loads the page as usual.
+        const pane = workList;
+        if (!pane) {
+          open(next);
+          return;
+        }
+        pane
+          .refresh(filter)
+          .then((shown) => {
+            if (shown) {
+              shownListKey = listKey(next);
+              settling = next;
+            }
+          })
+          .catch(() => open(next));
+      },
+    });
+    content.append(notice, bar.element, main);
+    root.append(style, nav, content);
     container.replaceChildren(root);
 
     // Links back to the plain list (the tab, "back to list") come from another view: give them the remembered filter.
@@ -127,7 +192,19 @@ export function createNexusPage(): ControlUiView {
       return route;
     };
     const hrefOf = (route: NexusRoute) => context.host.navigation.pageHref(target(resolve(route)));
-    const open = (route: NexusRoute) => context.host.navigation.openPage(target(resolve(route)));
+    const open = (route: NexusRoute) => {
+      const to = resolve(route);
+      // A link back to the address the host already has, while a search overrides it: the host would not react.
+      if (
+        settling &&
+        JSON.stringify(routeParams(to)) === JSON.stringify(routeParams(parseRoute(context.props)))
+      ) {
+        settling = undefined;
+        void load();
+        return;
+      }
+      context.host.navigation.openPage(target(to));
+    };
 
     const showNotice = (next: ActionNotice | undefined) => {
       notice.hidden = next === undefined;
@@ -137,43 +214,78 @@ export function createNexusPage(): ControlUiView {
 
     const renderNav = (route: NexusRoute) => {
       const lang = currentLang();
-      const items: Array<[string, NexusRoute, boolean]> = [
-        [tr(lang, "nav.tasks"), TASKS_HOME, route.view === "tasks" || route.view === "task"],
+      type Item = { label: string; to: NexusRoute; on: boolean; icon: string; dot?: string };
+      const items: Item[] = [
+        ...(features.works === true
+          ? [
+              {
+                label: tr(lang, "nav.works"),
+                to: WORKS_HOME,
+                on: route.view === "works" || route.view === "work",
+                icon: "\u25a4",
+                ...(worksWaiting > 0 ? { dot: tr(lang, "work.chip.needs_you") } : {}),
+              },
+            ]
+          : []),
+        {
+          label: tr(lang, "nav.tasks"),
+          to: TASKS_HOME,
+          on: route.view === "tasks" || route.view === "task",
+          icon: "\u2630",
+        },
         ...(features.goals === true
           ? [
-              [
-                goalsDue > 0 ? `${tr(lang, "nav.goals")} (${goalsDue})` : tr(lang, "nav.goals"),
-                { view: "goals" },
-                route.view === "goals",
-              ] as [string, NexusRoute, boolean],
+              {
+                label:
+                  goalsDue > 0 ? `${tr(lang, "nav.goals")} (${goalsDue})` : tr(lang, "nav.goals"),
+                to: { view: "goals" } as NexusRoute,
+                on: route.view === "goals",
+                icon: "\u25ce",
+              },
             ]
           : []),
         ...(features.preferences
           ? [
-              [
-                tr(lang, "nav.preferences"),
-                { view: "preferences" },
-                route.view === "preferences",
-              ] as [string, NexusRoute, boolean],
+              {
+                label: tr(lang, "nav.preferences"),
+                to: { view: "preferences" } as NexusRoute,
+                on: route.view === "preferences",
+                icon: "\u2699",
+              },
             ]
           : []),
         ...(features.files === true
           ? [
-              [tr(lang, "nav.files"), FILES_HOME, route.view === "files"] as [
-                string,
-                NexusRoute,
-                boolean,
-              ],
+              {
+                label: tr(lang, "nav.files"),
+                to: FILES_HOME,
+                on: route.view === "files",
+                icon: "\u25ad",
+              },
             ]
           : []),
-        [tr(lang, "nav.receipts"), { view: "receipts" }, route.view === "receipts"],
+        {
+          label: tr(lang, "nav.receipts"),
+          to: { view: "receipts" } as NexusRoute,
+          on: route.view === "receipts",
+          icon: "\u2713",
+        },
       ];
-      const links = items.map(([label, to, on]) => {
+      const links = items.map(({ label, to, on, icon, dot }) => {
         const link = document.createElement("a");
         link.textContent = label;
         link.href = hrefOf(to);
+        link.dataset.icon = icon;
         if (on) {
           link.className = "on";
+        }
+        if (dot !== undefined) {
+          const mark = document.createElement("span");
+          mark.className = "nx-reddot";
+          mark.setAttribute("role", "img");
+          mark.setAttribute("aria-label", dot);
+          mark.title = dot;
+          link.append(mark);
         }
         link.addEventListener("click", (event) => {
           if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) {
@@ -196,7 +308,10 @@ export function createNexusPage(): ControlUiView {
     const showMessage = (text: string, className: string) => {
       unbindClicks?.();
       unbindClicks = undefined;
+      workList?.dispose();
+      workList = undefined;
       fileBar.element.remove();
+      workBar.element.remove();
       const paragraph = document.createElement("p");
       paragraph.className = className;
       paragraph.textContent = context.host.redact(text);
@@ -241,21 +356,47 @@ export function createNexusPage(): ControlUiView {
       }
     };
 
+    // Puts the search box into the slot of the Work list just mounted; it shows the route's keyword only when that changes.
+    const listKey = (route: NexusRoute): string | undefined =>
+      route.view === "works" || route.view === "work"
+        ? JSON.stringify([route.state ?? "", route.q ?? ""])
+        : undefined;
+
+    const placeWorkBar = (route: NexusRoute) => {
+      const slot =
+        route.view === "works" || route.view === "work"
+          ? main.querySelector(".nx-search-slot")
+          : null;
+      if ((route.view !== "works" && route.view !== "work") || !slot) {
+        workBar.element.remove();
+        return;
+      }
+      slot.append(workBar.element);
+      workBar.set(route.q ?? "");
+      workBar.restoreFocus();
+    };
+
     async function load(keepNotice = false): Promise<void> {
       const mine = ++sequence;
-      const route = parseRoute(context.props);
+      const route = settling ?? parseRoute(context.props);
       if (!keepNotice) {
         showNotice(undefined);
       }
       const lang = currentLang();
+      // A reload of the same list keeps the rows already scrolled in, and where the reader had scrolled to.
+      const sameList = workList !== undefined && listKey(route) === shownListKey;
+      const keepRows = sameList ? workList?.loaded() : undefined;
+      const keepTop = sameList ? main.querySelector(".nx-rows")?.scrollTop : undefined;
       bar.setLang(lang);
       fileBar.setLang(lang);
+      workBar.setLang(lang);
       if (route.view === "tasks") {
         remembered = route.filter;
       }
       if (route.view === "files") {
         rememberedFiles = route;
       }
+      root.classList.toggle("nx-split", route.view === "works" || route.view === "work");
       renderNav(route);
       syncBar(route);
       if (!context.host.connection.connected) {
@@ -273,20 +414,27 @@ export function createNexusPage(): ControlUiView {
         }
         // Asked alongside the page data (never waited for first): it only feeds the count on the Goals tab.
         const dueRead = features.goals === true ? goalsDueCount(context.host.request) : undefined;
+        const waitingRead =
+          features.works === true ? workAttentionCount(context.host.request) : undefined;
         const view = await loadView(context.host.request, route, features, {
           actions: context.host.connection.canWrite,
           lang,
           goalPrefs: readGoalPrefs(),
+          ...(keepRows && keepRows > WORK_PAGE_SIZE ? { workRows: keepRows } : {}),
         });
         const due = dueRead ? await dueRead : 0;
+        const waiting = waitingRead ? await waitingRead : 0;
         if (mine !== sequence || context.signal.aborted) {
           return;
         }
-        if (due !== goalsDue) {
+        if (due !== goalsDue || waiting !== worksWaiting) {
           goalsDue = due;
+          worksWaiting = waiting;
           renderNav(route);
         }
         model = view.model;
+        workList?.dispose();
+        workList = undefined;
         unbindClicks?.();
         unbindClicks = mountSanitized(main, view.html, hrefOf, open, (action) =>
           runAction(
@@ -310,6 +458,21 @@ export function createNexusPage(): ControlUiView {
           ),
         );
         placeFileBar(route);
+        placeWorkBar(route);
+        shownListKey = view.workList ? listKey(route) : undefined;
+        if (view.workList) {
+          workList = attachWorkList({
+            root: main,
+            request: context.host.request,
+            hrefOf,
+            lang,
+            init: view.workList,
+          });
+          const rows = main.querySelector(".nx-rows");
+          if (rows && keepTop !== undefined) {
+            rows.scrollTop = keepTop;
+          }
+        }
       } catch (error) {
         if (mine === sequence && !context.signal.aborted) {
           showMessage(
@@ -357,6 +520,8 @@ export function createNexusPage(): ControlUiView {
         const serialized = JSON.stringify(next.props);
         if (serialized !== lastProps) {
           lastProps = serialized;
+          // The address changed for another reason: it decides again, and a search made in place is over.
+          settling = undefined;
           void load();
         }
       },
@@ -364,6 +529,7 @@ export function createNexusPage(): ControlUiView {
         sequence += 1;
         clearTimeout(timer);
         unbindClicks?.();
+        workList?.dispose();
         for (const dispose of disposers) {
           dispose();
         }

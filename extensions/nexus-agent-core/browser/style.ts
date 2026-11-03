@@ -1,13 +1,12 @@
-// Scoped under .nexus-page so nothing leaks into the host. Colors follow the host theme through currentColor; only the
-// status accents are fixed (mid-tone, readable on light and dark).
-export const NEXUS_CSS = `
+// Scoped under .nexus-page so nothing leaks into the host. The rules below are the pages not yet moved to the new skeleton:
+// they follow the host theme through currentColor, and only their status accents are fixed. The tokens, the shell (rail,
+// content, components) and the Work page come from the sibling files; the shell comes after these rules so it wins ties.
+import { NEXUS_SHELL_CSS } from "./style-shell.ts";
+import { NEXUS_TOKENS_CSS } from "./style-tokens.ts";
+import { NEXUS_WORK_CSS } from "./style-work.ts";
+
+const LEGACY_CSS = `
 .nexus-page [hidden]{display:none !important}
-.nexus-page{padding:16px 20px;font:14px/1.5 system-ui,sans-serif;color:inherit;max-width:1040px}
-.nexus-page nav{display:flex;gap:16px;align-items:center;border-bottom:1px solid color-mix(in srgb,currentColor 18%,transparent);padding-bottom:8px;margin-bottom:8px}
-.nexus-page nav a{color:inherit;opacity:.65;text-decoration:none}
-.nexus-page nav a.on{opacity:1;font-weight:600}
-.nexus-page nav .spacer{flex:1}
-.nexus-page nav button{font:inherit;color:inherit;background:none;border:1px solid color-mix(in srgb,currentColor 25%,transparent);border-radius:6px;padding:2px 10px;cursor:pointer;opacity:.8}
 .nexus-page h1{font-size:20px;margin:12px 0}
 .nexus-page h2{font-size:15px;margin:20px 0 6px;opacity:.7}
 .nexus-page table{border-collapse:collapse;width:100%}
@@ -121,3 +120,4 @@ export const NEXUS_CSS = `
 .nexus-page .gl-link{font:inherit;color:#4f7cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
 .nexus-page .nx-dialog textarea,.nexus-page .nx-dialog input:not([type=checkbox]){width:100%;box-sizing:border-box;font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:4px 8px;margin:4px 0}
 `;
+export const NEXUS_CSS = NEXUS_TOKENS_CSS + LEGACY_CSS + NEXUS_SHELL_CSS + NEXUS_WORK_CSS;

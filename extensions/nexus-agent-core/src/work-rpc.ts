@@ -43,6 +43,7 @@ export function createWorkRpcHandlers(deps: WorkRpcDeps) {
           const states = params.states;
           if (
             keyword === null ||
+            (params.order !== undefined && params.order !== "recent" && params.order !== "state") ||
             contextMode === "invalid" ||
             (states !== undefined &&
               !(
@@ -53,7 +54,7 @@ export function createWorkRpcHandlers(deps: WorkRpcDeps) {
             reject(
               respond,
               "nexus_invalid_params",
-              "states must be known work states; keyword and contextMode must be valid",
+              "states must be known work states; keyword, contextMode and order must be valid",
             );
             return;
           }
@@ -79,6 +80,7 @@ export function createWorkRpcHandlers(deps: WorkRpcDeps) {
             ...(goalId ? { goalId } : {}),
             ...(contextMode ? { contextMode } : {}),
             ...(keyword ? { keyword } : {}),
+            ...(params.order === "state" ? { order: "state" as const } : {}),
             limit,
             offset,
           });

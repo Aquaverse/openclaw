@@ -3,6 +3,7 @@
 // itself defines (task statuses, risk tiers, RPC names, ids) are never translated: they are what the model and the logs
 // say. Plain functions, no node or DOM imports, so the HTTP page and the browser module share it.
 import { GOAL_MESSAGES } from "./i18n-goals.js";
+import { WORK_MESSAGES } from "./i18n-work.js";
 
 export type Lang = "zh" | "en";
 export const DEFAULT_LANG: Lang = "zh";
@@ -612,6 +613,8 @@ const CATALOG = {
   ],
   // Goals page (i18n-goals.ts)
   ...GOAL_MESSAGES,
+  // Work page (i18n-work.ts)
+  ...WORK_MESSAGES,
 } as const satisfies Record<string, readonly [string, string]>;
 
 export type MsgKey = keyof typeof CATALOG;

@@ -28,13 +28,19 @@ import { fileListParams, type FileQuery } from "../src/vault-ui.js";
 import { EMPTY_MODEL, type NexusModel } from "./actions.ts";
 import { DEFAULT_GOAL_PREFS, type GoalPrefs } from "./goal-prefs.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
+import { loadWorksView, type WorkListInit } from "./work-data.ts";
 
 export type NexusRequest = <T = unknown>(
   method: string,
   params?: Record<string, unknown>,
 ) => Promise<T>;
 
-export type NexusFeatures = { preferences: boolean; files?: boolean; goals?: boolean };
+export type NexusFeatures = {
+  preferences: boolean;
+  files?: boolean;
+  goals?: boolean;
+  works?: boolean;
+};
 
 /** A method the gateway does not serve (feature switched off) or any read failure reads as "not available". */
 async function optional<T>(read: () => Promise<T>): Promise<T | undefined> {
@@ -46,15 +52,18 @@ async function optional<T>(read: () => Promise<T>): Promise<T | undefined> {
 }
 
 export async function probeFeatures(request: NexusRequest): Promise<NexusFeatures> {
-  const [listed, vault, goals] = await Promise.all([
+  const [listed, vault, goals, works] = await Promise.all([
     optional(() => request("nexus.preference.list", { limit: 1 })),
     optional(() => request("nexus.vault.stats")),
     optional(() => request("nexus.goal.list", { limit: 1 })),
+    optional(() => request("nexus.work.counts", { top: 0 })),
   ]);
   return {
     preferences: listed !== undefined,
     files: vault !== undefined,
     goals: goals !== undefined,
+    // A gateway that serves the Work API answers with the five counts; any other reply is not the Work API.
+    works: typeof (works as { counts?: unknown } | undefined)?.counts === "object",
   };
 }
 
@@ -65,7 +74,13 @@ export async function goalsDueCount(request: NexusRequest): Promise<number> {
 }
 
 /** `model` keeps the records the page rendered; action dialogs are built from it, never from the markup. */
-export type NexusView = { title: string; html: string; model: NexusModel };
+export type NexusView = {
+  title: string;
+  html: string;
+  model: NexusModel;
+  /** The Work list pane's paging state; only the Work page sets it. */
+  workList?: WorkListInit;
+};
 
 export type LoadOptions = {
   /** Render action buttons. Off when the connection cannot write. */
@@ -74,6 +89,8 @@ export type LoadOptions = {
   lang?: Lang;
   /** The Goals page-menu switches. */
   goalPrefs?: GoalPrefs;
+  /** The Work list keeps at least this many rows on a reload (the pages already scrolled in). */
+  workRows?: number;
 };
 
 export async function loadView(
@@ -85,6 +102,13 @@ export async function loadView(
   const actions = options.actions === true;
   const lang = options.lang ?? DEFAULT_LANG;
   switch (route.view) {
+    case "works":
+    case "work":
+      return loadWorksView(request, route, {
+        actions,
+        lang,
+        ...(options.workRows ? { rows: options.workRows } : {}),
+      });
     case "tasks": {
       let filter = route.filter;
       const fetchList = (next: TaskFilter) =>

@@ -26,8 +26,19 @@ export type WorkListInput = {
   goalId?: string;
   contextMode?: ContextMode;
   keyword?: string;
+  /** "recent" (default): most recently updated first. "state": by what needs the reader first, then most recent. */
+  order?: "recent" | "state";
   limit: number;
   offset: number;
+};
+
+/** The order of the "state" listing: what needs the person first, finished and ended work last. */
+const STATE_ORDER: Record<string, number> = {
+  needs_you: 0,
+  blocked: 1,
+  in_progress: 2,
+  done: 3,
+  ended_incomplete: 4,
 };
 
 export function createWorkLedger(
@@ -418,9 +429,15 @@ export function createWorkLedger(
       params.push(input.goalId);
     }
     if (input.keyword) {
-      where.push("(w.title LIKE ? ESCAPE '\\' OR COALESCE(w.request_text, '') LIKE ? ESCAPE '\\')");
+      // Title, the wanted result and the request, when they are words. Arguments an agent stored as JSON are machinery,
+      // not something the reader wrote: "hi" must not find "passenger_relationship".
+      const words = (column: string) =>
+        `(COALESCE(${column}, '') NOT LIKE '{%' AND COALESCE(${column}, '') NOT LIKE '[%' AND COALESCE(${column}, '') LIKE ? ESCAPE '\\')`;
+      where.push(
+        `(w.title LIKE ? ESCAPE '\\' OR ${words("w.outcome_text")} OR ${words("w.request_text")})`,
+      );
       const like = `%${input.keyword.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-      params.push(like, like);
+      params.push(like, like, like);
     }
     const rows = all(
       `SELECT w.* FROM works w WHERE ${where.join(" AND ")} ORDER BY w.updated_at DESC, w.id DESC LIMIT 2000`,
@@ -428,7 +445,14 @@ export function createWorkLedger(
     );
     const views = facts.buildViews(owner, rows, input.now);
     const wanted = input.states && input.states.length > 0 ? new Set(input.states) : undefined;
-    const matched = wanted ? views.filter((view) => wanted.has(view.state.primary)) : views;
+    const filtered = wanted ? views.filter((view) => wanted.has(view.state.primary)) : views;
+    // Array.prototype.sort is stable, so within one state the rows keep the "most recent first" order of the query.
+    const matched =
+      input.order === "state"
+        ? filtered.toSorted(
+            (a, b) => (STATE_ORDER[a.state.primary] ?? 9) - (STATE_ORDER[b.state.primary] ?? 9),
+          )
+        : filtered;
     return {
       works: matched.slice(input.offset, input.offset + input.limit),
       total: matched.length,

@@ -27,7 +27,16 @@ export type NexusAction =
   | { kind: "goal-approve"; id: string }
   | { kind: "goal-reject"; id: string }
   | { kind: "goal-up"; id: string }
-  | { kind: "goal-down"; id: string };
+  | { kind: "goal-down"; id: string }
+  | { kind: "work-pause"; id: string }
+  | { kind: "work-resume"; id: string }
+  | { kind: "work-stop"; id: string }
+  | { kind: "work-endpartial"; id: string }
+  | { kind: "work-reopen"; id: string }
+  | { kind: "work-rename"; id: string }
+  | { kind: "work-hide"; id: string }
+  | { kind: "work-archive"; id: string }
+  | { kind: "work-delete"; id: string };
 
 const ACTION_ID = /^[A-Za-z0-9_-]{1,40}$/;
 
@@ -67,7 +76,16 @@ export function actionFromMarker(act: string | null, id: string | null): NexusAc
     act === "goal-approve" ||
     act === "goal-reject" ||
     act === "goal-up" ||
-    act === "goal-down"
+    act === "goal-down" ||
+    act === "work-pause" ||
+    act === "work-resume" ||
+    act === "work-stop" ||
+    act === "work-endpartial" ||
+    act === "work-reopen" ||
+    act === "work-rename" ||
+    act === "work-hide" ||
+    act === "work-archive" ||
+    act === "work-delete"
   ) {
     return { kind: act, id };
   }
@@ -150,6 +168,23 @@ function clean(source: Node, target: Node, doc: Document, hrefOf: (route: NexusR
 }
 
 /**
+ * The sanitized form of `html` as a detached fragment. Parts of a mounted page that are refreshed in place (the Work list
+ * loading the next rows) go through the same allow-list; the click handler of the mounted container already covers them.
+ */
+export function sanitizeFragment(
+  html: string,
+  hrefOf: (route: NexusRoute) => string,
+): DocumentFragment {
+  const parsed = new DOMParser().parseFromString(
+    `<!doctype html><body>${html}</body>`,
+    "text/html",
+  );
+  const fragment = document.createDocumentFragment();
+  clean(parsed.body, fragment, document, hrefOf);
+  return fragment;
+}
+
+/**
  * Replaces `container`'s content with the sanitized `html`. Clicks on route links call `navigate` instead of following
  * the href (which only exists so the link can be opened in a new tab). Returns a disposer for the click handler.
  */
@@ -160,13 +195,7 @@ export function mountSanitized(
   navigate: NavigateHandler,
   onAction?: ActionHandler,
 ): () => void {
-  const parsed = new DOMParser().parseFromString(
-    `<!doctype html><body>${html}</body>`,
-    "text/html",
-  );
-  const fragment = document.createDocumentFragment();
-  clean(parsed.body, fragment, document, hrefOf);
-  container.replaceChildren(fragment);
+  container.replaceChildren(sanitizeFragment(html, hrefOf));
   const onClick = (event: MouseEvent) => {
     if (
       event.defaultPrevented ||

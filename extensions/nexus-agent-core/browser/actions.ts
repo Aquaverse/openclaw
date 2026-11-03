@@ -17,6 +17,7 @@ import type { VaultExtractionStatus } from "../src/store/vault-text-types.js";
 import type { VaultFileRecord } from "../src/store/vault-types.js";
 import type { WatchRecord } from "../src/store/watch-types.js";
 import { clip, fmtTime } from "../src/ui-render.js";
+import type { WorkActionModel } from "../src/work-ui.js";
 import type { NexusRequest } from "./data.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
 import { evidenceViewDialog } from "./evidence-view.ts";
@@ -39,6 +40,7 @@ import {
   type GoalSessions,
 } from "./goals-view.ts";
 import type { NexusAction } from "./sanitize.ts";
+import { runWorkAction } from "./work-dialogs.ts";
 
 export type NexusModel = {
   decisions: readonly DecisionRecord[];
@@ -53,6 +55,8 @@ export type NexusModel = {
   extraction?: Readonly<Record<string, VaultExtractionStatus>>;
   /** The active goals the Goals tab rendered (for moving a goal among its siblings). */
   goals?: readonly GoalSummaryRecord[];
+  /** The Work the Work page shows in its detail pane; absent on every other tab. */
+  work?: WorkActionModel;
 };
 
 export const EMPTY_MODEL: NexusModel = {
@@ -514,6 +518,16 @@ function preferenceFormDialog(ctx: ActionContext, existing: PreferenceRecord | u
 
 export function runAction(ctx: ActionContext, action: NexusAction): void {
   switch (action.kind) {
+    case "work-pause":
+    case "work-resume":
+    case "work-stop":
+    case "work-endpartial":
+    case "work-reopen":
+    case "work-rename":
+    case "work-hide":
+    case "work-archive":
+    case "work-delete":
+      return runWorkAction(ctx, action);
     case "goal-menu":
       return goalMenu(ctx);
     case "goal-create":

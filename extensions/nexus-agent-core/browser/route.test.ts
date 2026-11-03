@@ -7,6 +7,7 @@ import {
   routeFromHref,
   routeParams,
   TASKS_HOME,
+  WORKS_HOME,
 } from "./route.ts";
 
 describe("nexus route", () => {
@@ -112,5 +113,54 @@ describe("nexus route", () => {
     expect(routeFromHref("https://evil.example/")).toBeUndefined();
     expect(routeFromHref("javascript:alert(1)")).toBeUndefined();
     expect(routeFromHref("/plugins/nexus-agent-core/ui/")).toBeUndefined();
+  });
+});
+
+describe("nexus work routes", () => {
+  it("parses the work page, the selected work and the filter; unknown values are dropped", () => {
+    expect(parseRoute({ view: "works" })).toEqual({ view: "works" });
+    expect(parseRoute({ view: "works", state: "needs_you", q: "  机票 " })).toEqual({
+      view: "works",
+      state: "needs_you",
+      q: "机票",
+    });
+    expect(parseRoute({ view: "works", state: "running" })).toEqual({ view: "works" });
+    expect(parseRoute({ view: "work", work: "w_T1", state: "done" })).toEqual({
+      view: "work",
+      workId: "w_T1",
+      state: "done",
+    });
+    // A malformed id is not a selection: the page falls back to the list.
+    expect(parseRoute({ view: "work", work: "../x" })).toEqual({ view: "works" });
+    expect(parseRoute({ view: "work" })).toEqual({ view: "works" });
+  });
+
+  it("round-trips through the host parameters and the placeholder links", () => {
+    for (const route of [
+      WORKS_HOME,
+      { view: "works", state: "blocked", q: "报价" },
+      { view: "work", workId: "w_T1" },
+      { view: "work", workId: "w_T1", state: "in_progress", q: "x y" },
+    ] as const) {
+      expect(parseRoute(routeParams(route))).toEqual(route);
+    }
+    expect(routeParams({ view: "work", workId: "w_T1", state: "done" })).toEqual({
+      view: "work",
+      work: "w_T1",
+      state: "done",
+    });
+    expect(routeFromHref(`${NAV_BASE}/works`)).toEqual({ view: "works" });
+    expect(routeFromHref(`${NAV_BASE}/works?state=done&q=a%20b`)).toEqual({
+      view: "works",
+      state: "done",
+      q: "a b",
+    });
+    expect(routeFromHref(`${NAV_BASE}/works/w_T1?state=needs_you`)).toEqual({
+      view: "work",
+      workId: "w_T1",
+      state: "needs_you",
+    });
+    expect(routeFromHref(`${NAV_BASE}/works/..%2Fx`)).toBeUndefined();
+    expect(routeFromHref(`${NAV_BASE}/works/a/b`)).toBeUndefined();
   });
 });

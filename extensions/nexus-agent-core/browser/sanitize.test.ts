@@ -233,3 +233,54 @@ describe("goal action markers", () => {
     expect(container.textContent).toContain("bad");
   });
 });
+
+describe("work action markers", () => {
+  it("passes the work buttons with their ids and refuses unknown or malformed ones", () => {
+    const onAction = vi.fn();
+    const container = document.createElement("div");
+    document.body.append(container);
+    mountSanitized(
+      container,
+      [
+        ...[
+          "pause",
+          "resume",
+          "stop",
+          "endpartial",
+          "reopen",
+          "rename",
+          "hide",
+          "archive",
+          "delete",
+        ].map((act) => `<button data-nx-act="work-${act}" data-nx-id="w_T1">${act}</button>`),
+        '<button data-nx-act="work-pause">no id</button>',
+        '<button data-nx-act="work-pause" data-nx-id="../x">bad id</button>',
+        '<button data-nx-act="work-explode" data-nx-id="w_T1">unknown</button>',
+        '<button data-nx-act="work-search">the search box is a page-built form now</button>',
+      ].join(""),
+      hrefOf,
+      vi.fn(),
+      onAction,
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons).toHaveLength(9);
+    for (const button of buttons) {
+      button.click();
+    }
+    expect(onAction.mock.calls.map(([action]) => action)).toEqual(
+      [
+        "pause",
+        "resume",
+        "stop",
+        "endpartial",
+        "reopen",
+        "rename",
+        "hide",
+        "archive",
+        "delete",
+      ].map((act) => ({ kind: `work-${act}`, id: "w_T1" })),
+    );
+    expect(container.textContent).toContain("no id");
+    expect(container.textContent).toContain("unknown");
+  });
+});

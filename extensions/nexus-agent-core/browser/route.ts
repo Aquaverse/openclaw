@@ -13,9 +13,15 @@ import {
   parseFileQuery,
   type FileQuery,
 } from "../src/vault-ui.js";
+import { WORK_PRIMARY_STATES, type WorkPrimaryState } from "../src/work/types.js";
+
+/** The Work page filter: one state segment and a keyword. Both optional; none means "all". */
+export type WorkFilter = { state?: WorkPrimaryState; q?: string };
 
 export type NexusRoute =
   | { view: "tasks"; filter: TaskFilter }
+  | ({ view: "works" } & WorkFilter)
+  | ({ view: "work"; workId: string } & WorkFilter)
   | { view: "task"; taskId: string }
   | { view: "preferences" }
   | { view: "goals" }
@@ -34,11 +40,33 @@ export const FILES_HOME: Extract<NexusRoute, { view: "files" }> = {
 export const NAV_BASE = "nexus-nav:";
 
 const TASK_ID = /^[A-Za-z0-9._-]{1,64}$/;
+const WORK_Q_MAX = 100;
+
+/** The state and keyword of a Work page link; anything unknown is dropped rather than guessed. */
+export function parseWorkFilter(get: (name: string) => string | undefined): WorkFilter {
+  const state = WORK_PRIMARY_STATES.find((known) => known === get("state"));
+  const q = (get("q") ?? "").trim().slice(0, WORK_Q_MAX);
+  return { ...(state ? { state } : {}), ...(q ? { q } : {}) };
+}
+
+const workFilterParams = (filter: WorkFilter): Record<string, string> => ({
+  ...(filter.state ? { state: filter.state } : {}),
+  ...(filter.q ? { q: filter.q } : {}),
+});
+
+/** The Work page with nothing chosen. */
+export const WORKS_HOME: NexusRoute = { view: "works" };
 
 export function parseRoute(props: Readonly<Record<string, string>>): NexusRoute {
   const task = props.task;
   if (props.view === "task" && task !== undefined && TASK_ID.test(task)) {
     return { view: "task", taskId: task };
+  }
+  if (props.view === "work" && props.work !== undefined && TASK_ID.test(props.work)) {
+    return { view: "work", workId: props.work, ...parseWorkFilter((name) => props[name]) };
+  }
+  if (props.view === "works" || props.view === "work") {
+    return { view: "works", ...parseWorkFilter((name) => props[name]) };
   }
   if (props.view === "preferences") {
     return { view: "preferences" };
@@ -62,6 +90,10 @@ export function routeParams(route: NexusRoute): Record<string, string> {
       return { view: "task", task: route.taskId };
     case "tasks":
       return filterToParams(route.filter);
+    case "works":
+      return { view: "works", ...workFilterParams(route) };
+    case "work":
+      return { view: "work", work: route.workId, ...workFilterParams(route) };
     case "files":
       return { view: "files", ...fileQueryToParams(route) };
     default:
@@ -82,6 +114,14 @@ export function routeFromHref(href: string): NexusRoute | undefined {
   const [first, second] = segments;
   if (segments.length === 0) {
     return { view: "tasks", filter: parseTaskFilter((name) => query.get(name) ?? undefined) };
+  }
+  if (first === "works" && segments.length === 1) {
+    return { view: "works", ...parseWorkFilter((name) => query.get(name) ?? undefined) };
+  }
+  if (first === "works" && second !== undefined && segments.length === 2) {
+    return TASK_ID.test(second)
+      ? { view: "work", workId: second, ...parseWorkFilter((name) => query.get(name) ?? undefined) }
+      : undefined;
   }
   if (first === "tasks" && second !== undefined && segments.length === 2) {
     return TASK_ID.test(second) ? { view: "task", taskId: second } : undefined;
