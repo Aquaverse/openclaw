@@ -150,21 +150,17 @@ afterEach(() => {
 });
 
 describe("work page", () => {
-  it("adds the Work entry to the rail only when the gateway serves it, with a dot when something waits", async () => {
+  it("is opened from the host's left rail: no inner navigation on the Work page, and no Work tab in it", async () => {
     const served = mount({ view: "works" });
     await flush();
-    const links = [...served.container.querySelectorAll("nav a")];
-    assert.equal(links[0]?.textContent, "工作");
-    assert.ok(links[0]?.classList.contains("on"));
-    const dot = links[0]?.querySelector(".nx-reddot");
-    assert.ok(dot);
-    assert.equal(dot.textContent, "");
-    const without = mount({ view: "tasks" }, {}, { works: false });
+    assert.ok(q(served.container, ".nexus-page")?.classList.contains("nx-rail"));
+    const tasks = mount({ view: "tasks" });
     await flush();
-    assert.ok(
-      ![...without.container.querySelectorAll("nav a")].some((a) => a.textContent === "工作"),
-    );
-    assert.equal(without.container.querySelector(".nx-reddot"), null);
+    assert.equal(q(tasks.container, ".nexus-page")?.classList.contains("nx-rail"), false);
+    for (const f of [served, tasks]) {
+      assert.ok(![...f.container.querySelectorAll("nav a")].some((a) => a.textContent === "工作"));
+    }
+    assert.equal(tasks.container.querySelector(".nx-reddot"), null);
   });
 
   it("shows the list and the first work's detail, in the split layout", async () => {

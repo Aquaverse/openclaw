@@ -163,4 +163,14 @@ describe("nexus work routes", () => {
     expect(routeFromHref(`${NAV_BASE}/works/..%2Fx`)).toBeUndefined();
     expect(routeFromHref(`${NAV_BASE}/works/a/b`)).toBeUndefined();
   });
+  it("opens the rail pages that only show their design, and drops an unknown one", () => {
+    for (const hub of ["goals", "people", "library", "status"] as const) {
+      expect(routeParams({ view: "hub", hub })).toEqual({ view: "hub", hub });
+      expect(parseRoute({ view: "hub", hub })).toEqual({ view: "hub", hub });
+    }
+    expect(parseRoute({ view: "hub", hub: "nowhere" })).toEqual(TASKS_HOME);
+    expect(parseRoute({ view: "hub" })).toEqual(TASKS_HOME);
+    // A renderer link never reaches them: they have no data to link to.
+    expect(routeFromHref(`${NAV_BASE}/hub`)).toBeUndefined();
+  });
 });

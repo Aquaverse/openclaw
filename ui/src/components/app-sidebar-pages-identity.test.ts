@@ -242,4 +242,64 @@ describe("Pages navigation identity", () => {
     expect(state.listeners.size).toBe(0);
     expect(daily.row.isConnected).toBe(false);
   });
+
+  it("places plugin destinations that declare a rail slot directly below the Sessions button", async () => {
+    const state = await fixture();
+    const { sidebar } = state;
+    const railItem = (id: string, label: string, order: number) => ({
+      ...state.fleet,
+      key: `fleet/${id}`,
+      value: {
+        id,
+        label,
+        icon: "target",
+        page: { id: "overview", params: { view: id } },
+        order,
+        rail: "sessions" as const,
+      },
+    });
+    state.registrations.navigation = [state.fleet, railItem("b", "B", 2), railItem("a", "A", 1)];
+    state.notifyPlugins();
+    await settleLitElement(sidebar);
+    const views = sidebar.querySelector<HTMLElement>(".sidebar-rail__views")!;
+    expect(views).not.toBeNull();
+    const order = [
+      ...views.querySelectorAll<HTMLElement>("[data-navigation-view],[data-rail-navigation]"),
+    ].map((node) => node.dataset.navigationView ?? node.dataset.railNavigation);
+    // The ordinary destination ("fleet/overview") declares no rail slot and stays out of the rail.
+    expect(order).toEqual(["pages", "sessions", "fleet/a", "fleet/b", "online"]);
+  });
+
+  it("collapses the conversation panel when a rail destination is opened, and never opens a closed one", async () => {
+    const state = await fixture();
+    const { sidebar } = state;
+    state.registrations.navigation = [
+      {
+        ...state.fleet,
+        key: "fleet/work",
+        value: {
+          id: "work",
+          label: "Work",
+          icon: "target",
+          page: { id: "overview", params: { view: "work" } },
+          order: 1,
+          rail: "sessions" as const,
+        },
+      },
+    ];
+    state.notifyPlugins();
+    await settleLitElement(sidebar);
+    const toggle = vi.fn();
+    sidebar.onToggleSidebar = toggle;
+    const item = sidebar.querySelector<HTMLElement>("[data-rail-navigation='fleet/work']")!;
+    expect(item).not.toBeNull();
+    sidebar.navigationCollapsed = false;
+    item.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+    expect(toggle).toHaveBeenCalledTimes(1);
+    item.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, metaKey: true }));
+    expect(toggle).toHaveBeenCalledTimes(1);
+    sidebar.navigationCollapsed = true;
+    item.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
 });

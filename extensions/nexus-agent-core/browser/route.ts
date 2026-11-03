@@ -18,8 +18,13 @@ import { WORK_PRIMARY_STATES, type WorkPrimaryState } from "../src/work/types.js
 /** The Work page filter: one state segment and a keyword. Both optional; none means "all". */
 export type WorkFilter = { state?: WorkPrimaryState; q?: string };
 
+/** The prototype pages that only show their design for now; the host's left rail links to each. */
+export const HUB_PAGES = ["goals", "people", "library", "status"] as const;
+export type HubPage = (typeof HUB_PAGES)[number];
+
 export type NexusRoute =
   | { view: "tasks"; filter: TaskFilter }
+  | { view: "hub"; hub: HubPage }
   | ({ view: "works" } & WorkFilter)
   | ({ view: "work"; workId: string } & WorkFilter)
   | { view: "task"; taskId: string }
@@ -68,6 +73,12 @@ export function parseRoute(props: Readonly<Record<string, string>>): NexusRoute 
   if (props.view === "works" || props.view === "work") {
     return { view: "works", ...parseWorkFilter((name) => props[name]) };
   }
+  if (props.view === "hub") {
+    const hub = HUB_PAGES.find((known) => known === props.hub);
+    if (hub) {
+      return { view: "hub", hub };
+    }
+  }
   if (props.view === "preferences") {
     return { view: "preferences" };
   }
@@ -96,6 +107,8 @@ export function routeParams(route: NexusRoute): Record<string, string> {
       return { view: "work", work: route.workId, ...workFilterParams(route) };
     case "files":
       return { view: "files", ...fileQueryToParams(route) };
+    case "hub":
+      return { view: "hub", hub: route.hub };
     default:
       return { view: route.view };
   }

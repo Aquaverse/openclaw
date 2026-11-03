@@ -158,6 +158,12 @@ export type ControlUiNavigationItem = {
   order?: number;
   /** False offers the destination in the pin editor without adding it to the sidebar. */
   defaultVisible?: boolean;
+  /**
+   * Fixed rail button: "sessions" shows this top-level destination as an icon button directly below the Sessions
+   * button of the left rail, ordered by `order`. It is a plugin-declared placement, not a user pin: it is not saved
+   * in the sidebar entries and cannot be dragged or unpinned. Ignored when `parent` is set.
+   */
+  rail?: "sessions";
   /** Context menu actions, available by right-click or the keyboard menu shortcut. */
   actions?: ControlUiNavigationAction[];
 };

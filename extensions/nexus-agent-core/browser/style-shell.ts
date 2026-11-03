@@ -15,6 +15,8 @@ export const NEXUS_SHELL_CSS = `
 .nexus-page > nav button:hover{background:var(--nx-soft)}
 .nx-content{min-width:0;max-width:1040px;padding:16px 20px;box-sizing:border-box}
 .nexus-page.nx-split .nx-content{max-width:none;padding:0}
+.nexus-page.nx-rail{grid-template-columns:minmax(0,1fr)}
+.nexus-page.nx-rail > nav{display:none}
 .nexus-page.nx-split .nx-content > .nx-notice{margin:12px 20px 0}
 .nexus-page.nx-split .nx-content > main > .muted,.nexus-page.nx-split .nx-content > main > .error{margin:16px 20px}
 @media (max-width:1200px){.nexus-page{grid-template-columns:64px minmax(0,1fr)}.nexus-page > nav a{width:54px}}

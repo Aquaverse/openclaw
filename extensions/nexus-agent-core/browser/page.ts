@@ -6,22 +6,16 @@ import { resolveLang, tr, type Lang } from "../src/i18n.js";
 import { EMPTY_FILTER, filterToParams, type TaskFilter } from "../src/task-query.js";
 import { EMPTY_MODEL, runAction, type ActionNotice, type NexusModel } from "./actions.ts";
 import { goalsDueCount, loadView, probeFeatures, type NexusFeatures } from "./data.ts";
+import { mountDesignPage } from "./design-view.ts";
 import { createFileBar } from "./file-bar.ts";
 import { createFilterBar } from "./filters.ts";
 import { readGoalPrefs, writeGoalPrefs } from "./goal-prefs.ts";
 import { refreshOpenGoalDetail } from "./goals-view.ts";
-import {
-  FILES_HOME,
-  parseRoute,
-  routeParams,
-  TASKS_HOME,
-  WORKS_HOME,
-  type NexusRoute,
-} from "./route.ts";
+import { FILES_HOME, parseRoute, routeParams, TASKS_HOME, type NexusRoute } from "./route.ts";
 import { mountSanitized } from "./sanitize.ts";
 import { NEXUS_CSS } from "./style.ts";
 import { createWorkBar } from "./work-bar.ts";
-import { WORK_PAGE_SIZE, workAttentionCount } from "./work-data.ts";
+import { WORK_PAGE_SIZE } from "./work-data.ts";
 import { attachWorkList, type WorkList } from "./work-list.ts";
 
 export const NEXUS_PAGE_ID = "nexus";
@@ -67,8 +61,6 @@ export function createNexusPage(): ControlUiView {
     let probed = false;
     // Goals due for a look-back; shown as a count on the Goals tab. Read again on every load.
     let goalsDue = 0;
-    // Works waiting for the user ("needs you"); shown as a red dot on the Work entry. Read again on every load.
-    let worksWaiting = 0;
     let sequence = 0;
     let unbindClicks: (() => void) | undefined;
     let model: NexusModel = EMPTY_MODEL;
@@ -214,19 +206,8 @@ export function createNexusPage(): ControlUiView {
 
     const renderNav = (route: NexusRoute) => {
       const lang = currentLang();
-      type Item = { label: string; to: NexusRoute; on: boolean; icon: string; dot?: string };
+      type Item = { label: string; to: NexusRoute; on: boolean; icon: string };
       const items: Item[] = [
-        ...(features.works === true
-          ? [
-              {
-                label: tr(lang, "nav.works"),
-                to: WORKS_HOME,
-                on: route.view === "works" || route.view === "work",
-                icon: "\u25a4",
-                ...(worksWaiting > 0 ? { dot: tr(lang, "work.chip.needs_you") } : {}),
-              },
-            ]
-          : []),
         {
           label: tr(lang, "nav.tasks"),
           to: TASKS_HOME,
@@ -271,21 +252,13 @@ export function createNexusPage(): ControlUiView {
           icon: "\u2713",
         },
       ];
-      const links = items.map(({ label, to, on, icon, dot }) => {
+      const links = items.map(({ label, to, on, icon }) => {
         const link = document.createElement("a");
         link.textContent = label;
         link.href = hrefOf(to);
         link.dataset.icon = icon;
         if (on) {
           link.className = "on";
-        }
-        if (dot !== undefined) {
-          const mark = document.createElement("span");
-          mark.className = "nx-reddot";
-          mark.setAttribute("role", "img");
-          mark.setAttribute("aria-label", dot);
-          mark.title = dot;
-          link.append(mark);
         }
         link.addEventListener("click", (event) => {
           if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) {
@@ -305,13 +278,18 @@ export function createNexusPage(): ControlUiView {
       nav.replaceChildren(...links, spacer, refresh);
     };
 
-    const showMessage = (text: string, className: string) => {
+    // Lets go of everything a data view had mounted in the body before something else takes its place.
+    const clearMain = () => {
       unbindClicks?.();
       unbindClicks = undefined;
       workList?.dispose();
       workList = undefined;
       fileBar.element.remove();
       workBar.element.remove();
+    };
+
+    const showMessage = (text: string, className: string) => {
+      clearMain();
       const paragraph = document.createElement("p");
       paragraph.className = className;
       paragraph.textContent = context.host.redact(text);
@@ -396,9 +374,18 @@ export function createNexusPage(): ControlUiView {
       if (route.view === "files") {
         rememberedFiles = route;
       }
-      root.classList.toggle("nx-split", route.view === "works" || route.view === "work");
+      // Work and the prototype pages are reached from the host's left rail: they take the whole width and no inner navigation.
+      const railView = route.view === "works" || route.view === "work" || route.view === "hub";
+      root.classList.toggle("nx-split", railView);
+      root.classList.toggle("nx-rail", railView);
       renderNav(route);
       syncBar(route);
+      if (route.view === "hub") {
+        // Static design only: nothing to read from the gateway, so it shows even while disconnected.
+        clearMain();
+        mountDesignPage(main, route.hub);
+        return;
+      }
       if (!context.host.connection.connected) {
         showMessage(tr(lang, "page.connecting"), "muted");
         return;
@@ -414,8 +401,6 @@ export function createNexusPage(): ControlUiView {
         }
         // Asked alongside the page data (never waited for first): it only feeds the count on the Goals tab.
         const dueRead = features.goals === true ? goalsDueCount(context.host.request) : undefined;
-        const waitingRead =
-          features.works === true ? workAttentionCount(context.host.request) : undefined;
         const view = await loadView(context.host.request, route, features, {
           actions: context.host.connection.canWrite,
           lang,
@@ -423,13 +408,11 @@ export function createNexusPage(): ControlUiView {
           ...(keepRows && keepRows > WORK_PAGE_SIZE ? { workRows: keepRows } : {}),
         });
         const due = dueRead ? await dueRead : 0;
-        const waiting = waitingRead ? await waitingRead : 0;
         if (mine !== sequence || context.signal.aborted) {
           return;
         }
-        if (due !== goalsDue || waiting !== worksWaiting) {
+        if (due !== goalsDue) {
           goalsDue = due;
-          worksWaiting = waiting;
           renderNav(route);
         }
         model = view.model;
