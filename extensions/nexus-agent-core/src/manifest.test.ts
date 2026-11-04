@@ -145,9 +145,16 @@ describe("Control UI browser module", () => {
     assert.match(index, /registerNavigation\(/);
     assert.match(index, /rail: "sessions"/);
     assert.doesNotMatch(index, /pinNavigation\(/);
-    const ids = [...index.matchAll(/\{ id: "(\w+)", label: "nav\.[\w.]+"/g)].map((m) => m[1]);
+    const ids = [...index.matchAll(/\{\s*id: "(\w+)",\s*label: "nav\.[\w.]+"/g)].map((m) => m[1]);
     assert.deepEqual(ids, ["work", "goals", "people", "library", "status"]);
-    assert.match(index, /page: \{ id: NEXUS_PAGE_ID, params: destination\.params \}/);
+    // Aimed at the tab's own id they would make the host hide the Nexus sidebar entry: they use a second page id.
+    assert.match(index, /page: \{ id: NEXUS_RAIL_PAGE_ID, params: destination\.params \}/);
+    const railId = /NEXUS_RAIL_PAGE_ID = "([^"]+)"/.exec(page)?.[1];
+    assert.ok(
+      railId && railId !== tabId,
+      "the rail destinations must not point at the descriptor tab's page id",
+    );
+    assert.match(index, /registerPage\(\{\s*id: NEXUS_RAIL_PAGE_ID/);
   });
 
   it("points a built manifest at an immutable hashed entry", () => {

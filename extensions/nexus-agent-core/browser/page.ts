@@ -19,6 +19,9 @@ import { WORK_PAGE_SIZE } from "./work-data.ts";
 import { attachWorkList, type WorkList } from "./work-list.ts";
 
 export const NEXUS_PAGE_ID = "nexus";
+/** The same page under a second id, for the host's left-rail buttons. They cannot use `nexus`: the host hides a descriptor tab
+ * whenever a navigation item of its plugin points at the tab's id, and the Nexus sidebar entry has to stay. */
+export const NEXUS_RAIL_PAGE_ID = "nexus-rail";
 const EVENT_PREFIX = "plugin.nexus-agent-core.";
 const CHANGE_EVENTS = [
   "task_changed",
@@ -42,9 +45,8 @@ type FilesRoute = Extract<NexusRoute, { view: "files" }>;
 const isPlainFiles = (route: FilesRoute) =>
   JSON.stringify(routeParams(route)) === JSON.stringify(routeParams(FILES_HOME));
 
-const target = (route: NexusRoute) => ({ id: NEXUS_PAGE_ID, params: routeParams(route) });
-
-export function createNexusPage(): ControlUiView {
+export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
+  const target = (route: NexusRoute) => ({ id: pageId, params: routeParams(route) });
   // The last list filter, kept for as long as the module is loaded: a task detail, the preference tab or a reload of the
   // page hands the list back exactly as the user left it. Only "reset" and a new search change it.
   let remembered: TaskFilter = EMPTY_FILTER;

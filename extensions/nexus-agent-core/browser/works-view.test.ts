@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import type { ControlUiHost, ControlUiViewContext } from "openclaw/plugin-sdk/control-ui";
 import { afterEach, describe, it } from "vitest";
-import { createNexusPage } from "./page.ts";
+import { createNexusPage, NEXUS_PAGE_ID, NEXUS_RAIL_PAGE_ID } from "./page.ts";
 
 const NOW = Date.now();
 
@@ -42,7 +42,7 @@ type Calls = Array<{ method: string; params: Record<string, unknown> | undefined
 function mount(
   props: Record<string, string>,
   replies: Record<string, Reply> = {},
-  options: { canWrite?: boolean; works?: boolean } = {},
+  options: { canWrite?: boolean; works?: boolean; pageId?: string } = {},
 ) {
   const calls: Calls = [];
   const opened: Array<{ id: string; params?: Record<string, string> }> = [];
@@ -118,7 +118,7 @@ function mount(
     presented: true,
     mountDefault: () => () => {},
   } as unknown as ControlUiViewContext;
-  const handle = createNexusPage()(container, context);
+  const handle = createNexusPage(options.pageId)(container, context);
   return { container, calls, opened, events, handle, context };
 }
 
@@ -161,6 +161,23 @@ describe("work page", () => {
       assert.ok(![...f.container.querySelectorAll("nav a")].some((a) => a.textContent === "工作"));
     }
     assert.equal(tasks.container.querySelector(".nx-reddot"), null);
+  });
+
+  it("keeps its links on the page id it was opened under (the rail page stays the rail page)", async () => {
+    const rail = mount({ view: "works" }, {}, { pageId: NEXUS_RAIL_PAGE_ID });
+    await flush();
+    const railHrefs = [...rail.container.querySelectorAll<HTMLAnchorElement>("a.nx-wrow")].map(
+      (a) => a.getAttribute("href") ?? "",
+    );
+    assert.ok(railHrefs.length > 0);
+    for (const href of railHrefs) {
+      assert.ok(href.includes(`id=${NEXUS_RAIL_PAGE_ID}&`), href);
+    }
+    const tab = mount({ view: "tasks" });
+    await flush();
+    for (const a of tab.container.querySelectorAll<HTMLAnchorElement>("nav a")) {
+      assert.ok((a.getAttribute("href") ?? "").includes(`id=${NEXUS_PAGE_ID}&`));
+    }
   });
 
   it("shows the list and the first work's detail, in the split layout", async () => {
