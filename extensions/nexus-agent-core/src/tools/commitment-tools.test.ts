@@ -224,4 +224,46 @@ describe("commitment tools", () => {
     assert.equal(JSON.stringify(got).includes("对方私下告诉我的原因"), false);
     assert.equal(got.acceptance, "accepted");
   });
+  it("refuses an id picked silently when another person has the same name, until the user's choice is quoted", async () => {
+    const make = (allowSameName: boolean) => {
+      const out = kernel.counterpartCreate({
+        principal: owner,
+        displayName: "同名人",
+        allowSameName,
+        now: clock,
+      });
+      assert.equal(out.outcome, "created");
+      return (out as { counterpart: { id: string } }).counterpart.id;
+    };
+    const first = make(false);
+    const base = { requirementText: "回邮件", userStatementRef: "同名人答应回邮件" };
+    const ok = await call("nexus_commitment_record", { ...base, counterpartId: first });
+    assert.equal(ok.ok, true, "one person with that name: the id is fine");
+    const second = make(true);
+    const refused = await call("nexus_commitment_record", {
+      ...base,
+      userStatementRef: "同名人答应周日回邮件",
+      counterpartId: first,
+    });
+    assert.equal(refused.ok, false);
+    assert.equal(refused.code, "ambiguous_person");
+    assert.equal(refused.candidates.length, 2);
+    const chosen = await call("nexus_commitment_record", {
+      ...base,
+      userStatementRef: "同名人答应周日回邮件",
+      counterpartId: second,
+      userChoiceRef: "是后建的那个同名人",
+    });
+    assert.equal(chosen.ok, true);
+    assert.equal(
+      (
+        await call("nexus_commitment_record", {
+          ...base,
+          userStatementRef: "另一句话",
+          counterpartId: "cp_missing",
+        })
+      ).code,
+      "invalid",
+    );
+  });
 });

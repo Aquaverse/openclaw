@@ -222,6 +222,19 @@ const STORE_OPERATIONS: Record<StoreOperationName, true> = {
   commitmentRestore: true,
   commitmentReopen: true,
   commitmentCommitVerification: true,
+  counterpartCreate: true,
+  counterpartEnsure: true,
+  counterpartUpdate: true,
+  counterpartContactAdd: true,
+  counterpartContactRemove: true,
+  counterpartDeactivate: true,
+  counterpartRestore: true,
+  counterpartClaim: true,
+  counterpartGet: true,
+  counterpartList: true,
+  counterpartResolveName: true,
+  counterpartPending: true,
+  counterpartView: true,
 };
 
 export type StoreHost = {

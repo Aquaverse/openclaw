@@ -302,6 +302,9 @@
       "nexus_commitment_record",
       "nexus_commitment_get",
       "nexus_commitment_search",
+      "nexus_counterpart_ensure",
+      "nexus_counterpart_get",
+      "nexus_counterpart_search",
       "nexus_spike_probe"
     ]
   },
@@ -415,6 +418,15 @@
       "optional": true
     },
     "nexus_commitment_search": {
+      "optional": true
+    },
+    "nexus_counterpart_ensure": {
+      "optional": true
+    },
+    "nexus_counterpart_get": {
+      "optional": true
+    },
+    "nexus_counterpart_search": {
       "optional": true
     }
   },

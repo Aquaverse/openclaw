@@ -7,6 +7,7 @@ import type {
   CommitmentRecord,
   ResponsibleSpec,
 } from "../commitment/types.js";
+import { createCounterpartCommon } from "./counterpart-common.js";
 import type { Row, WorkCommon } from "./work-ledger-common.js";
 
 export const COMMITMENT_SELECT =
@@ -109,6 +110,7 @@ export function validTimeZone(tz: unknown): tz is string {
 
 export function createCommitmentCommon(c: WorkCommon) {
   const { one, all, run, newId } = c;
+  const names = createCounterpartCommon(c);
 
   const commitmentRow = (owner: string, id: string): Row | undefined =>
     one(`${COMMITMENT_SELECT} WHERE c.owner_id = ? AND c.id = ?`, owner, id);
@@ -195,6 +197,17 @@ export function createCommitmentCommon(c: WorkCommon) {
       const name = typeof spec.name === "string" ? spec.name.trim() : "";
       if (name.length === 0) {
         return { problem: "responsible_required" };
+      }
+      if (actor === "agent") {
+        // Exactly one person the user stated or confirmed answers to this name: use it. Several or none: the typed name stays,
+        // and the user picks the person later (a name is never a key).
+        const found = names.resolveName(owner, name);
+        if (found.match === "one") {
+          return {
+            counterpartId: found.candidates[0]?.id ?? null,
+            raw: found.candidates[0] ? null : name,
+          };
+        }
       }
       return { counterpartId: null, raw: name };
     }

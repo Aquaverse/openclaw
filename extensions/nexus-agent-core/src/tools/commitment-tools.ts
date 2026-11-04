@@ -104,7 +104,13 @@ export function createCommitmentTools(deps: CommitmentToolDeps, ctx: ToolContext
         ),
         counterpartId: Type.Optional(
           Type.String({
-            description: "An existing, confirmed person's id, if you already know it.",
+            description:
+              "An existing person's id, if you already know it. If another person has the same name, the call is refused until the user has chosen: then pass their words in userChoiceRef.",
+          }),
+        ),
+        userChoiceRef: Type.Optional(
+          Type.String({
+            description: `Only when several people share a name and the user said which one: a short quote (at most ${COMMITMENT_LIMITS.ref} characters) of the user's own words choosing.`,
           }),
         ),
         dueAt: Type.Optional(
@@ -120,7 +126,8 @@ export function createCommitmentTools(deps: CommitmentToolDeps, ctx: ToolContext
         ),
         workId: Type.Optional(
           Type.String({
-            description: "A Work id (w_...) to reference this commitment from. Reference only.",
+            description:
+              "The Work id (w_...) this conversation is about, whenever it is clear which one (from nexus_work_search / nexus_work_get or the Task you created); omit it when unclear, never guess. The commitment is shown under that Work as a reference only.",
           }),
         ),
       }),
@@ -149,6 +156,33 @@ export function createCommitmentTools(deps: CommitmentToolDeps, ctx: ToolContext
               "responsible_required",
               "Give exactly one of responsibleSelf, responsibleName or counterpartId. If the user did not say who, ask them.",
             );
+          }
+          if (counterpartId) {
+            // A name is not a key: an id picked silently from a shared name is exactly what the user must decide.
+            const person = await store.counterpartGet({ principal, counterpartId, now: now() });
+            // An unknown id falls through: the ledger refuses it with its own answer.
+            const same =
+              person.outcome === "ok"
+                ? await store.counterpartResolveName({
+                    principal,
+                    name: person.counterpart.displayName,
+                  })
+                : undefined;
+            const choice =
+              typeof params.userChoiceRef === "string" ? params.userChoiceRef.trim() : "";
+            if (same?.match === "many" && !choice) {
+              return {
+                ...fail(
+                  "ambiguous_person",
+                  "More than one person has this name. Ask the user which one they mean (name and relation), then call again with that counterpartId and the user's words in userChoiceRef. Do not choose.",
+                ),
+                candidates: same.candidates.map((candidate) => ({
+                  counterpartId: candidate.id,
+                  name: candidate.displayName,
+                  relation: candidate.relation,
+                })),
+              };
+            }
           }
           let due: { kind: "known"; at: number; tz: string } | undefined;
           if (params.dueAt !== undefined) {
