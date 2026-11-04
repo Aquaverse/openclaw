@@ -285,6 +285,23 @@ describe("deriveWorkState", () => {
     assert.equal(state.primary, "ended_incomplete");
     assert.ok(state.flags.includes("manual_close"));
   });
+  it("a Work with no Task at all and an open required commitment is blocked (no_follow_up)", () => {
+    const state = deriveWorkState(
+      facts({ tasks: [], commitments: [{ id: "c1", resolved: false, needsUser: false }] }),
+    );
+    assert.equal(state.primary, "blocked");
+    assert.equal(state.reasons[0]?.code, "no_follow_up");
+  });
+  it("a Task waiting for the user's input wins over the commitment: needs_you, not blocked", () => {
+    const state = deriveWorkState(
+      facts({
+        tasks: [task("t1", "waiting_input")],
+        commitments: [{ id: "c1", resolved: false, needsUser: false }],
+      }),
+    );
+    assert.equal(state.primary, "needs_you");
+    assert.equal(state.nextStep.kind, "provide_input");
+  });
   it("a closed commitment with nothing else left to run does not read as follow-up needed", () => {
     const state = deriveWorkState(
       facts({

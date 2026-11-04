@@ -42,6 +42,7 @@ export const COMMITMENT_MESSAGES = {
   ],
   "cm.note.cancelled": ["已取消：{reason}", "Cancelled: {reason}"],
   "cm.note.next": ["下一步：{text}", "Next: {text}"],
+  "cm.note.reply": ["对方回应的依据：{basis}（{time}）", "Basis for their reply: {basis} ({time})"],
 
   "cm.btn.comm": ["记录告知", "Record telling"],
   "cm.btn.accept": ["记录对方回应", "Record response"],

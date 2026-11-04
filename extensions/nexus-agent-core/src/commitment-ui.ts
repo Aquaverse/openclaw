@@ -76,6 +76,12 @@ function commitmentBox(
     c.lifecycle === "cancelled" && c.cancelReason
       ? tr(lang, "cm.note.cancelled", { reason: clip(c.cancelReason, 160) })
       : "",
+    open && c.acceptanceState !== "unknown" && c.acceptanceBasis
+      ? tr(lang, "cm.note.reply", {
+          basis: clip(c.acceptanceBasis, 160),
+          time: shortTime(c.acceptanceAt, now, lang),
+        })
+      : "",
     open && c.nextStep ? tr(lang, "cm.note.next", { text: clip(c.nextStep, 160) }) : "",
   ]
     .filter((text) => text !== "")

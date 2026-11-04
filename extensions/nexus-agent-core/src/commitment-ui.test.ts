@@ -160,4 +160,37 @@ describe("commitment section", () => {
     assert.doesNotMatch(html, /<img|<b>|<script>/);
     assert.match(html, /&lt;img/);
   });
+
+  it("shows the basis and the time of the counterpart's reply on an open commitment", () => {
+    const html = renderCommitmentSection(
+      [
+        line("cm_r", "required", {
+          acceptanceState: "accepted",
+          acceptanceBasisKind: "user_report",
+          acceptanceBasis: "对方微信说收到了",
+          acceptanceAt: NOW - 60_000,
+        }),
+      ],
+      options,
+    );
+    assert.match(html, /对方回应的依据：对方微信说收到了（/);
+  });
+
+  it("shows no reply line when there is no reply yet, and escapes the basis text", () => {
+    const none = renderCommitmentSection([line("cm_n", "required")], options);
+    assert.doesNotMatch(none, /对方回应的依据/);
+    const html = renderCommitmentSection(
+      [
+        line("cm_x", "required", {
+          acceptanceState: "declined",
+          acceptanceBasisKind: "user_report",
+          acceptanceBasis: "<img src=x onerror=alert(1)>",
+          acceptanceAt: NOW,
+        }),
+      ],
+      options,
+    );
+    assert.doesNotMatch(html, /<img/);
+    assert.match(html, /&lt;img/);
+  });
 });
