@@ -45,7 +45,11 @@ export function SidebarPages(props: { host: AppSidebarRenderHost }): JSX.Element
       .map((route) => serializeSidebarEntry({ type: "route", route }));
     for (const key of new Set([
       ...zone().pluginTabs.keys(),
-      ...props.host.pluginNavigation().map((entry) => entry.key),
+      // Destinations with a fixed rail button are reached from the rail; the Pages list does not repeat them.
+      ...props.host
+        .pluginNavigation()
+        .filter((entry) => !entry.value.rail)
+        .map((entry) => entry.key),
     ])) {
       result.push(serializeSidebarEntry({ type: "plugin", key }));
     }

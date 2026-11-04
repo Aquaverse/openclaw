@@ -268,6 +268,10 @@ describe("Pages navigation identity", () => {
     ].map((node) => node.dataset.navigationView ?? node.dataset.railNavigation);
     // The ordinary destination ("fleet/overview") declares no rail slot and stays out of the rail.
     expect(order).toEqual(["pages", "sessions", "fleet/a", "fleet/b", "online"]);
+    // The Pages list does not repeat the rail destinations, and still lists the ordinary one.
+    expect(pageRow(sidebar, "plugin:fleet/a")).toBeNull();
+    expect(pageRow(sidebar, "plugin:fleet/b")).toBeNull();
+    expect(pageRow(sidebar, fleetKey)).not.toBeNull();
   });
 
   it("collapses the conversation panel when a rail destination is opened, and never opens a closed one", async () => {
