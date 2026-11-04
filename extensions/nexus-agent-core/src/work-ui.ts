@@ -607,7 +607,7 @@ function detailPane(data: WorksPageData, lang: Lang, base: string, withActions: 
     askCard(detail, data, lang, base, withActions) +
     (paused.length > 0 ? section(tr(lang, "work.ctl.activeNoReason"), paused) : "") +
     criteriaSection(detail, lang, base) +
-    renderCommitmentSection(detail.commitments, { lang, now, workId: id, withActions }) +
+    renderCommitmentSection(detail.commitments, { lang, now, workId: id, withActions, base }) +
     (links.length > 0 ? section(tr(lang, "work.sec.links"), links) : "") +
     feed +
     (withActions

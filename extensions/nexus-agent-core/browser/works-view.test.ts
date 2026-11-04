@@ -828,7 +828,6 @@ describe("commitments in the work page", () => {
 describe("rail pages without function yet", () => {
   const pages = [
     ["goals", "提升英语口语表达"],
-    ["people", "人员"],
     ["library", "资料库"],
     ["status", "状态"],
   ] as const;

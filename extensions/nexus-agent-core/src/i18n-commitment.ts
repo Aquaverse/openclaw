@@ -141,5 +141,9 @@ export const COMMITMENT_MESSAGES = {
     "需要你确认这个影响后才能继续。",
     "You need to confirm this effect before it can go ahead.",
   ],
+  "cm.err.cited": [
+    "这项承诺已经挂在这个工作上了，一项承诺在同一个工作里只出现一次。要改成必要或可选，请改它的角色。",
+    "This work already cites that commitment, once. To make it required or optional, change its role.",
+  ],
   "cm.err.generic": ["操作没有完成：{message}", "That did not complete: {message}"],
 } as const satisfies Record<string, readonly [string, string]>;

@@ -13,6 +13,7 @@ import {
 import type { WorkPrimaryState } from "../src/work/types.js";
 import { EMPTY_MODEL } from "./actions.ts";
 import type { NexusRequest, NexusView } from "./data.ts";
+import { readPeopleChoices } from "./people-data.ts";
 import { NAV_BASE, type NexusRoute, type WorkFilter } from "./route.ts";
 
 /** Rows per page of the list pane; the next page loads when the reader scrolls to the end. */
@@ -83,7 +84,7 @@ export async function loadWorksView(
     ...(route.q ? { q: route.q } : {}),
   };
   const want = Math.max(WORK_PAGE_SIZE, options.rows ?? 0);
-  const [counts, first, pending] = await Promise.all([
+  const [counts, first, pending, people] = await Promise.all([
     request<WorkCounts>("nexus.work.counts", { top: 0 }),
     readWorkPage(request, filter, 0, Math.min(want, SERVER_PAGE_MAX)),
     // Waiting decisions feed the rows and the ask card; a failure only means those show no decision.
@@ -91,6 +92,8 @@ export async function loadWorksView(
       statuses: ["pending"],
       limit: 200,
     }).catch(() => ({ decisions: [] as DecisionRecord[] })),
+    // The people a commitment can point at; without them the dialogs only offer a typed name.
+    readPeopleChoices(request),
   ]);
   const decisions = pending.decisions ?? [];
   const listed = [...first.works];
@@ -164,6 +167,7 @@ export async function loadWorksView(
       decisions,
       ...(detail ? { work: workActionModel(detail) } : {}),
       ...(detail?.commitments ? { commitments: detail.commitments } : {}),
+      ...(people ? { people } : {}),
     },
   };
 }

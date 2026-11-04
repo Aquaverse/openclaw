@@ -19,7 +19,7 @@ type RailDestination = {
 const RAIL_DESTINATIONS: readonly RailDestination[] = [
   { id: "work", label: "nav.works", icon: "listChecks", params: { view: "works" } },
   { id: "goals", label: "nav.goals", icon: "target", params: { view: "hub", hub: "goals" } },
-  { id: "people", label: "nav.rail.people", icon: "users", params: { view: "hub", hub: "people" } },
+  { id: "people", label: "nav.rail.people", icon: "users", params: { view: "people" } },
   {
     id: "library",
     label: "nav.rail.library",

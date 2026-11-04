@@ -45,7 +45,17 @@ export type NexusAction =
   | { kind: "cm-cancel"; id: string }
   | { kind: "cm-restore"; id: string }
   | { kind: "cm-reopen"; id: string }
-  | { kind: "cm-role"; id: string };
+  | { kind: "cm-role"; id: string }
+  | { kind: "cm-attach"; id: string }
+  | { kind: "pp-new" }
+  | { kind: "pp-edit"; id: string }
+  | { kind: "pp-confirm"; id: string }
+  | { kind: "pp-contact"; id: string }
+  | { kind: "pp-cdel"; id: string }
+  | { kind: "pp-off"; id: string }
+  | { kind: "pp-on"; id: string }
+  | { kind: "pp-record"; id: string }
+  | { kind: "pp-claim"; id: string };
 
 const ID_ACTIONS: ReadonlySet<string> = new Set<NexusAction["kind"]>([
   "decision",
@@ -82,6 +92,15 @@ const ID_ACTIONS: ReadonlySet<string> = new Set<NexusAction["kind"]>([
   "cm-restore",
   "cm-reopen",
   "cm-role",
+  "cm-attach",
+  "pp-edit",
+  "pp-confirm",
+  "pp-contact",
+  "pp-cdel",
+  "pp-off",
+  "pp-on",
+  "pp-record",
+  "pp-claim",
 ]);
 
 const ACTION_ID = /^[A-Za-z0-9_-]{1,40}$/;
@@ -102,6 +121,9 @@ export function actionFromMarker(act: string | null, id: string | null): NexusAc
   }
   if (act === "goal-menu") {
     return { kind: "goal-menu" };
+  }
+  if (act === "pp-new") {
+    return { kind: "pp-new" };
   }
   if (!id || !ACTION_ID.test(id)) {
     return undefined;

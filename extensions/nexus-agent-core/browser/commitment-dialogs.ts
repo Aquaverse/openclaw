@@ -3,223 +3,58 @@
 // (never from the clicked markup, which only carries an id). The ones that change a lifecycle first ask the server what they
 // would reach (`dryRun`) and list exactly that. The RPC stays the authority: a stale dialog can at worst be refused.
 import type { CommitmentLine } from "../src/commitment-ui.js";
-import { tr, type Lang, type MsgKey } from "../src/i18n.js";
+import { tr, type MsgKey } from "../src/i18n.js";
 import type { ActionContext } from "./actions.ts";
+import {
+  buildForm,
+  describeError,
+  dueOf,
+  formValid,
+  guarded,
+  impactList,
+  localInput,
+  newRequestId,
+  responsibleOf,
+  select,
+  textarea,
+  textInput,
+  workPicker,
+  worksImpact,
+  type Form,
+  type Impact,
+  type PersonChoice,
+  type Reply,
+} from "./commitment-form.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
 import { el, field, note } from "./goal-dom.ts";
 import type { NexusAction } from "./sanitize.ts";
 
 export type CommitmentAction = Extract<NexusAction, { kind: `cm-${string}` }>;
 
-type Impact = {
-  works?: { workId: string; title: string; role: "required" | "reference" }[];
-};
-type Reply = { outcome?: string; impact?: Impact; commitment?: { id: string } };
-
-const text = (error: unknown): string =>
-  `${(error as { code?: string } | undefined)?.code ?? ""} ${error instanceof Error ? error.message : String(error)}`;
-
-function describeError(lang: Lang, error: unknown): string {
-  const t = text(error);
-  if (t.includes("nexus_commitment_state")) {
-    return tr(lang, "cm.err.state");
-  }
-  if (t.includes("nexus_not_found")) {
-    return tr(lang, "cm.err.gone");
-  }
-  if (t.includes("nexus_gap_ack_required")) {
-    return tr(lang, "cm.err.ack");
-  }
-  return tr(lang, "cm.err.generic", {
-    message: error instanceof Error ? error.message : String(error),
-  });
-}
-
-/** A write; a stale revision or state reloads with a notice instead of leaving the dialog open on old data. */
-async function guarded(ctx: ActionContext, write: () => Promise<void>): Promise<void> {
-  try {
-    await write();
-  } catch (error) {
-    const t = text(error);
-    if (t.includes("nexus_revision_conflict") || t.includes("nexus_commitment_state")) {
-      ctx.changed({ ok: false, text: tr(ctx.lang, "cm.err.state") });
-      return;
-    }
-    throw new Error(describeError(ctx.lang, error), { cause: error });
-  }
-}
-
-const MARK = { keep: "✓", stop: "✕", note: "!" } as const;
-function impactList(items: readonly { tone: keyof typeof MARK; text: string }[]): HTMLElement {
-  const list = el("div", "nx-imp");
-  for (const item of items) {
-    const line = el("div", `nx-imp-li ${item.tone}`);
-    line.append(el("span", "nx-imp-i", MARK[item.tone]), el("span", "", item.text));
-    list.append(line);
-  }
-  return list;
-}
-
-/** The Works a lifecycle change reaches, as the impact list (design 6.5). */
-function worksImpact(lang: Lang, impact: Impact | undefined) {
-  const works = impact?.works ?? [];
-  if (works.length === 0) {
-    return [{ tone: "keep" as const, text: tr(lang, "cm.imp.none") }];
-  }
-  return works.map((work) =>
-    work.role === "required"
-      ? { tone: "stop" as const, text: tr(lang, "cm.imp.required", { title: work.title }) }
-      : { tone: "keep" as const, text: tr(lang, "cm.imp.reference", { title: work.title }) },
-  );
-}
-
-const newRequestId = () => `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-
-function option(label: string, value: string): HTMLOptionElement {
-  const node = el("option", "", label);
-  node.value = value;
-  return node;
-}
-function select(
-  options: readonly [string, string][],
-  value: string,
-  onChange: (v: string) => void,
-) {
-  const node = el("select");
-  for (const [label, v] of options) {
-    node.append(option(label, v));
-  }
-  node.value = value;
-  node.addEventListener("change", () => onChange(node.value));
-  return node;
-}
-function textarea(value: string, max: number, onInput: (v: string) => void) {
-  const node = el("textarea");
-  node.rows = 3;
-  node.maxLength = max;
-  node.value = value;
-  node.addEventListener("input", () => onInput(node.value));
-  return node;
-}
-function textInput(value: string, max: number, onInput: (v: string) => void) {
-  const node = el("input");
-  node.maxLength = max;
-  node.value = value;
-  node.addEventListener("input", () => onInput(node.value));
-  return node;
-}
-
-/** `YYYY-MM-DDTHH:mm` in the viewer's local time, the format a datetime-local input takes. */
-function localInput(ms: number | null): string {
-  if (ms === null) {
-    return "";
-  }
-  const d = new Date(ms);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-type Form = {
-  what: string;
-  who: "self" | "name";
-  name: string;
-  due: "pending" | "none" | "known";
-  dueAt: string;
-  next: string;
-};
-
-/** The "what / who / when / next" fields shared by the record and edit dialogs. */
-function buildForm(body: HTMLElement, lang: Lang, form: Form, changed: () => void): void {
-  body.append(
-    field(
-      tr(lang, "cm.f.what"),
-      textarea(form.what, 500, (v) => {
-        form.what = v;
-        changed();
-      }),
-    ),
-  );
-  const name = textInput(form.name, 80, (v) => {
-    form.name = v;
-    changed();
-  });
-  const nameLine = field(tr(lang, "cm.f.name"), name);
-  nameLine.hidden = form.who !== "name";
-  body.append(
-    field(
-      tr(lang, "cm.f.who"),
-      select(
-        [
-          [tr(lang, "cm.f.whoSelf"), "self"],
-          [tr(lang, "cm.f.whoName"), "name"],
-        ],
-        form.who,
-        (v) => {
-          form.who = v === "self" ? "self" : "name";
-          nameLine.hidden = form.who !== "name";
-          changed();
-        },
-      ),
-    ),
-    nameLine,
-  );
-  const at = el("input");
-  at.type = "datetime-local";
-  at.value = form.dueAt;
-  at.addEventListener("input", () => {
-    form.dueAt = at.value;
-    changed();
-  });
-  const atLine = field(tr(lang, "cm.f.dueAt"), at);
-  atLine.hidden = form.due !== "known";
-  body.append(
-    field(
-      tr(lang, "cm.f.due"),
-      select(
-        [
-          [tr(lang, "cm.f.duePending"), "pending"],
-          [tr(lang, "cm.f.dueNone"), "none"],
-          [tr(lang, "cm.f.dueKnown"), "known"],
-        ],
-        form.due,
-        (v) => {
-          form.due = v === "none" ? "none" : v === "known" ? "known" : "pending";
-          atLine.hidden = form.due !== "known";
-          changed();
-        },
-      ),
-    ),
-    atLine,
-    field(
-      tr(lang, "cm.f.next"),
-      textInput(form.next, 300, (v) => {
-        form.next = v;
-        changed();
-      }),
-    ),
-  );
-}
-
-const formValid = (form: Form): boolean =>
-  form.what.trim() !== "" &&
-  (form.who === "self" || form.name.trim() !== "") &&
-  (form.due !== "known" || Number.isFinite(new Date(form.dueAt).getTime()));
-
-const responsibleOf = (form: Form) =>
-  form.who === "self" ? { kind: "self" } : { kind: "name", name: form.name.trim() };
-const dueOf = (form: Form) =>
-  form.due === "known"
-    ? { kind: "known", at: new Date(form.dueAt).getTime(), tz: localZone() }
-    : { kind: form.due };
-
 // ------------------------------------------------------------------ record
 
-function createDialog(ctx: ActionContext, workId: string): void {
+export type CreateOptions = {
+  /** Cite the new commitment in this Work (required by default). */
+  workId?: string;
+  /** Start with this person chosen (the people page); the Work is then optional and only a reference. */
+  personId?: string;
+};
+
+export function createDialog(ctx: ActionContext, options: CreateOptions): void {
   const lang = ctx.lang;
-  const form: Form = { what: "", who: "name", name: "", due: "pending", dueAt: "", next: "" };
-  let role: "required" | "reference" = "required";
+  const people = ctx.model().people ?? [];
+  const form: Form = {
+    what: "",
+    who: "other",
+    name: "",
+    personId: options.personId ?? "",
+    due: "pending",
+    dueAt: "",
+    next: "",
+  };
+  let role: "required" | "reference" = options.workId ? "required" : "reference";
   const requestId = newRequestId();
+  let picker: ReturnType<typeof workPicker> | undefined;
   openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
@@ -233,14 +68,14 @@ function createDialog(ctx: ActionContext, workId: string): void {
         enabled: () => formValid(form),
         run: () =>
           guarded(ctx, async () => {
+            const workId = options.workId ?? (picker?.value() || undefined);
             const reply = await ctx.request<Reply>("nexus.commitment.create", {
               requestId,
               requirementText: form.what.trim(),
               responsible: responsibleOf(form),
               due: dueOf(form),
               ...(form.next.trim() ? { nextStep: form.next.trim() } : {}),
-              workId,
-              workRole: role,
+              ...(workId ? { workId, workRole: role } : {}),
             });
             ctx.changed({
               ok: true,
@@ -250,7 +85,11 @@ function createDialog(ctx: ActionContext, workId: string): void {
       },
     ],
     build: (body, changed) => {
-      buildForm(body, lang, form, changed);
+      buildForm(body, lang, form, changed, people);
+      if (!options.workId) {
+        picker = workPicker(ctx, changed);
+        body.append(picker.line);
+      }
       body.append(
         field(
           tr(lang, "cm.f.role"),
@@ -260,7 +99,7 @@ function createDialog(ctx: ActionContext, workId: string): void {
               [tr(lang, "cm.role.reference"), "reference"],
             ],
             role,
-            (v) => (role = v === "reference" ? "reference" : "required"),
+            (v) => (role = v === "required" ? "required" : "reference"),
           ),
         ),
       );
@@ -274,23 +113,46 @@ function createDialog(ctx: ActionContext, workId: string): void {
 function editDialog(ctx: ActionContext, line: CommitmentLine): void {
   const lang = ctx.lang;
   const c = line.commitment;
+  const known = ctx.model().people ?? [];
+  const current = c.responsibleCounterpartId;
+  const people: readonly PersonChoice[] =
+    current && !known.some((p) => p.id === current)
+      ? [
+          ...known,
+          {
+            id: current,
+            name: c.responsibleName ?? current,
+            relation: null,
+            names: [c.responsibleName ?? ""],
+          },
+        ]
+      : known;
   const initial: Form = {
     what: c.requirementText,
-    who: c.responsibleSelf ? "self" : "name",
+    who: c.responsibleSelf ? "self" : "other",
     name: c.responsibleRaw ?? c.responsibleName ?? "",
+    personId: current ?? "",
     due: c.dueState,
     dueAt: localInput(c.dueAt),
     next: c.nextStep ?? "",
   };
   const form: Form = { ...initial };
   let why = "";
+  // What the reason field started with (the last edit's reason, once it has been read): only a different note counts.
+  let whyStart = "";
+  const ownerChanged = (): boolean =>
+    form.who !== initial.who ||
+    (form.who === "other" &&
+      (form.personId !== initial.personId ||
+        (form.personId === "" && form.name.trim() !== initial.name)));
   const material = (): boolean =>
     form.what.trim() !== initial.what ||
-    form.who !== initial.who ||
-    (form.who === "name" && form.name.trim() !== initial.name) ||
+    ownerChanged() ||
     form.due !== initial.due ||
     (form.due === "known" && form.dueAt !== initial.dueAt);
-  const changedAny = (): boolean => material() || form.next.trim() !== initial.next;
+  const noteChanged = (): boolean => why.trim() !== "" && why.trim() !== whyStart.trim();
+  const changedAny = (): boolean =>
+    material() || form.next.trim() !== initial.next || noteChanged();
   openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
@@ -308,10 +170,7 @@ function editDialog(ctx: ActionContext, line: CommitmentLine): void {
             if (form.what.trim() !== initial.what) {
               changes.requirementText = form.what.trim();
             }
-            if (
-              form.who !== initial.who ||
-              (form.who === "name" && form.name.trim() !== initial.name)
-            ) {
+            if (ownerChanged()) {
               changes.responsible = responsibleOf(form);
             }
             if (
@@ -335,18 +194,47 @@ function editDialog(ctx: ActionContext, line: CommitmentLine): void {
     ],
     build: (body, changed) => {
       const hint = el("p", "muted", tr(lang, "cm.imp.versioned"));
+      let reasonInput: HTMLInputElement | undefined;
       hint.hidden = true;
-      buildForm(body, lang, form, () => {
-        hint.hidden = !material();
-        changed();
-      });
+      buildForm(
+        body,
+        lang,
+        form,
+        () => {
+          hint.hidden = !material();
+          changed();
+        },
+        people,
+      );
       body.append(
         field(
           tr(lang, "cm.f.why"),
-          textInput("", 500, (v) => (why = v)),
+          (reasonInput = textInput("", 500, (v) => {
+            why = v;
+            changed();
+          })),
         ),
         hint,
       );
+      // The reason given at the last edit comes back into the field, so a small follow-up edit does not start from nothing.
+      void ctx
+        .request<{ events?: { kind: string; payload?: { reason?: unknown } }[] }>(
+          "nexus.commitment.get",
+          { commitmentId: c.id },
+        )
+        .then((reply) => {
+          const last = (reply.events ?? []).find(
+            (event) => event.kind === "edited" && typeof event.payload?.reason === "string",
+          );
+          if (last && reasonInput && why === "") {
+            why = String(last.payload?.reason);
+            whyStart = why;
+            reasonInput.value = why;
+          }
+        })
+        .catch(() => {
+          // The reason is a convenience; the edit works without it.
+        });
     },
   });
 }
@@ -614,6 +502,118 @@ function roleDialog(ctx: ActionContext, line: CommitmentLine, workId: string): v
   });
 }
 
+// ------------------------------------------------------------------ attach to a Work
+
+/**
+ * Cite a commitment in a Work (a reference unless the person says it is required). The dialog first reads where it is cited
+ * today and starts from that: the Work and role it already has are chosen, so changing the role is one click and a Work it is
+ * not in yet is a different choice.
+ */
+function attachDialog(ctx: ActionContext, line: CommitmentLine): void {
+  const lang = ctx.lang;
+  const c = line.commitment;
+  let role: "required" | "reference" = "reference";
+  let cited: { workId: string; title: string; role: "required" | "reference" }[] = [];
+  let picker: ReturnType<typeof workPicker> | undefined;
+  const roleBox = el("select");
+  const roleOptions: [string, string][] = [
+    [tr(lang, "cm.role.reference"), "reference"],
+    [tr(lang, "cm.role.required"), "required"],
+  ];
+  const current = (): (typeof cited)[number] | undefined =>
+    cited.find((work) => work.workId === picker?.value());
+  openDialog({
+    parent: ctx.parent,
+    signal: ctx.signal,
+    redact: ctx.redact,
+    cancelLabel: tr(lang, "btn.cancel"),
+    title: tr(lang, "pp.dlg.attach"),
+    actions: [
+      {
+        label: tr(lang, "pp.btn.attach"),
+        tone: "primary",
+        enabled: () => (picker?.value() ?? "") !== "" && current()?.role !== role,
+        run: () =>
+          guarded(ctx, async () => {
+            const workId = picker?.value() ?? "";
+            if (current()) {
+              // Already cited there: only the role changes.
+              await ctx.request("nexus.commitment.setRole", {
+                commitmentId: c.id,
+                workId,
+                role,
+                acknowledgeGap: true,
+              });
+            } else {
+              await ctx.request("nexus.work.link", {
+                workId,
+                role,
+                targetKind: "commitment",
+                targetId: c.id,
+              });
+            }
+            ctx.changed({ ok: true, text: tr(lang, "pp.notice.attached") });
+          }),
+      },
+    ],
+    build: (body, changed) => {
+      body.append(el("p", "", c.requirementText));
+      const where = el("p", "muted", tr(lang, "cm.dlg.loading"));
+      body.append(where);
+      picker = workPicker(ctx, changed);
+      for (const [label, value] of roleOptions) {
+        const node = el("option", "", label);
+        node.value = value;
+        roleBox.append(node);
+      }
+      roleBox.value = role;
+      roleBox.addEventListener("change", () => {
+        role = roleBox.value === "required" ? "required" : "reference";
+        changed();
+      });
+      // Choosing a Work it is already cited in shows the role it has there.
+      const picked = picker.line.querySelector("select");
+      picked?.addEventListener("change", () => {
+        const here = current();
+        if (here) {
+          role = here.role;
+          roleBox.value = role;
+        }
+        changed();
+      });
+      body.append(picker.line, field(tr(lang, "cm.f.role"), roleBox));
+      void ctx
+        .request<{ impact?: Impact }>("nexus.commitment.impact", { commitmentId: c.id })
+        .then((reply) => {
+          cited = (reply.impact?.works ?? []).map((work) => ({
+            workId: work.workId,
+            title: work.title,
+            role: work.role,
+          }));
+          where.textContent =
+            cited.length > 0
+              ? tr(lang, "pp.attach.in", {
+                  titles: cited
+                    .map((work) => `${work.title}（${tr(lang, `cm.role.${work.role}` as MsgKey)}）`)
+                    .join("、"),
+                })
+              : tr(lang, "pp.attach.none");
+          const first = cited[0];
+          if (first) {
+            role = first.role;
+            roleBox.value = role;
+            picker?.preset(first.workId, first.title);
+          }
+          changed();
+        })
+        .catch((error: unknown) => {
+          where.textContent = describeError(lang, error);
+        });
+      note(body, tr(lang, "cm.hint"));
+    },
+  });
+}
+
 /** Opens the dialog for a cm-* marker. The page's model decides what exists; an id it does not hold is reported as gone. */
 export function runCommitmentAction(ctx: ActionContext, action: CommitmentAction): void {
   const model = ctx.model();
@@ -623,10 +623,10 @@ export function runCommitmentAction(ctx: ActionContext, action: CommitmentAction
       ctx.changed({ ok: false, text: tr(ctx.lang, "cm.err.gone") });
       return;
     }
-    return createDialog(ctx, work.id);
+    return createDialog(ctx, { workId: work.id });
   }
   const line = model.commitments?.find((entry) => entry.commitment.id === action.id);
-  if (!line || !work) {
+  if (!line) {
     ctx.changed({ ok: false, text: tr(ctx.lang, "cm.err.gone") });
     return;
   }
@@ -646,6 +646,10 @@ export function runCommitmentAction(ctx: ActionContext, action: CommitmentAction
     case "cm-reopen":
       return lifecycleDialog(ctx, line, "reopen");
     case "cm-role":
-      return roleDialog(ctx, line, work.id);
+      return work
+        ? roleDialog(ctx, line, work.id)
+        : ctx.changed({ ok: false, text: tr(ctx.lang, "cm.err.gone") });
+    case "cm-attach":
+      return attachDialog(ctx, line);
   }
 }

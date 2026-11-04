@@ -164,7 +164,7 @@ describe("nexus work routes", () => {
     expect(routeFromHref(`${NAV_BASE}/works/a/b`)).toBeUndefined();
   });
   it("opens the rail pages that only show their design, and drops an unknown one", () => {
-    for (const hub of ["goals", "people", "library", "status"] as const) {
+    for (const hub of ["goals", "library", "status"] as const) {
       expect(routeParams({ view: "hub", hub })).toEqual({ view: "hub", hub });
       expect(parseRoute({ view: "hub", hub })).toEqual({ view: "hub", hub });
     }
@@ -172,5 +172,41 @@ describe("nexus work routes", () => {
     expect(parseRoute({ view: "hub" })).toEqual(TASKS_HOME);
     // A renderer link never reaches them: they have no data to link to.
     expect(routeFromHref(`${NAV_BASE}/hub`)).toBeUndefined();
+  });
+
+  it("opens the People page with a segment, a person and a tab, and drops what it does not know", () => {
+    expect(parseRoute({ view: "people" })).toEqual({ view: "people" });
+    expect(routeParams({ view: "people" })).toEqual({ view: "people" });
+    // The old design link still lands on the real page.
+    expect(parseRoute({ view: "hub", hub: "people" })).toEqual({ view: "people" });
+    const route = { view: "people", personId: "cp_AB12", seg: "pending", tab: "history" } as const;
+    expect(routeParams(route)).toEqual({
+      view: "people",
+      person: "cp_AB12",
+      seg: "pending",
+      tab: "history",
+    });
+    expect(
+      parseRoute({ view: "people", person: "cp_AB12", seg: "pending", tab: "history" }),
+    ).toEqual(route);
+    expect(parseRoute({ view: "people", person: "../x", seg: "nope", tab: "nope" })).toEqual({
+      view: "people",
+    });
+  });
+
+  it("maps people links to routes and refuses a path that is not an id", () => {
+    expect(routeFromHref(`${NAV_BASE}/people`)).toEqual({ view: "people" });
+    expect(routeFromHref(`${NAV_BASE}/people?seg=pending`)).toEqual({
+      view: "people",
+      seg: "pending",
+    });
+    expect(routeFromHref(`${NAV_BASE}/people/cp_AB12?seg=attention&tab=related`)).toEqual({
+      view: "people",
+      personId: "cp_AB12",
+      seg: "attention",
+      tab: "related",
+    });
+    expect(routeFromHref(`${NAV_BASE}/people/..%2Fx`)).toBeUndefined();
+    expect(routeFromHref(`${NAV_BASE}/people/a/b`)).toBeUndefined();
   });
 });

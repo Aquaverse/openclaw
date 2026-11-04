@@ -283,6 +283,19 @@ describe("commitment kernel", () => {
       now: now(),
     });
     assert.equal(same.outcome, "unchanged");
+    // A note on its own is saved: it is a new edit event, and neither a new responsibility version nor a reset.
+    const versionBefore = get(id).commitment.responsibilityVersion;
+    const note = k.commitmentUpdate({
+      principal: A,
+      commitmentId: id,
+      changes: {},
+      reason: "补充说明",
+      actor: "user",
+      now: now(),
+    });
+    assert.equal(note.outcome, "updated");
+    assert.equal((note as { versioned: boolean }).versioned, false);
+    assert.equal(get(id).commitment.responsibilityVersion, versionBefore);
     const words = k.commitmentUpdate({
       principal: A,
       commitmentId: id,
@@ -574,6 +587,53 @@ describe("commitment kernel", () => {
 });
 
 describe("commitments and the Works that cite them", () => {
+  it("cites one commitment once per Work: a second link in the other role is refused, and old double links fold into one", () => {
+    const wid = newWork("纽约行程");
+    const id = make("准备开会的材料").id;
+    assert.equal(link(wid, id, "required").outcome, "linked");
+    const second = link(wid, id, "reference") as { outcome: string; role?: string };
+    assert.equal(second.outcome, "role_conflict");
+    assert.equal(second.role, "required");
+    assert.equal(link(wid, id, "required").outcome, "exists");
+    // A Work that already holds both links (made before this rule) shows the commitment twice; a role change folds them.
+    db.prepare(
+      "INSERT INTO work_links (owner_id, id, work_id, role, target_kind, target_id, link_version, created_at) VALUES (?, 'wl_legacy', ?, 'reference', 'commitment', ?, 1, ?)",
+    ).run(A.ownerId, wid, id, now());
+    const active = () =>
+      (
+        db
+          .prepare(
+            "SELECT role FROM work_links WHERE owner_id = ? AND work_id = ? AND target_id = ? AND ended_at IS NULL ORDER BY role",
+          )
+          .all(A.ownerId, wid, id) as { role: string }[]
+      ).map((r) => r.role);
+    assert.deepEqual(active(), ["reference", "required"]);
+    const need = k.commitmentSetRole({
+      principal: A,
+      workId: wid,
+      commitmentId: id,
+      role: "reference",
+      actor: "user",
+      now: now(),
+    });
+    assert.equal(
+      need.outcome,
+      "gap_ack_required",
+      "dropping the required link still needs the acknowledgement",
+    );
+    const done = k.commitmentSetRole({
+      principal: A,
+      workId: wid,
+      commitmentId: id,
+      role: "reference",
+      acknowledgeGap: true,
+      actor: "user",
+      now: now(),
+    });
+    assert.equal(done.outcome, "changed");
+    assert.deepEqual(active(), ["reference"]);
+  });
+
   it("a required open commitment with no follow-up shows a blocked Work, not a finished one", () => {
     const wid = newWork("等他交");
     const created = k.commitmentCreate({

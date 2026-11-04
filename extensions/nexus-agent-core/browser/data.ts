@@ -27,6 +27,7 @@ import {
 import { fileListParams, type FileQuery } from "../src/vault-ui.js";
 import { EMPTY_MODEL, type NexusModel } from "./actions.ts";
 import { DEFAULT_GOAL_PREFS, type GoalPrefs } from "./goal-prefs.ts";
+import { loadPeopleView } from "./people-data.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
 import { loadWorksView, type WorkListInit } from "./work-data.ts";
 
@@ -109,6 +110,8 @@ export async function loadView(
         lang,
         ...(options.workRows ? { rows: options.workRows } : {}),
       });
+    case "people":
+      return loadPeopleView(request, route, { actions, lang });
     case "tasks": {
       let filter = route.filter;
       const fetchList = (next: TaskFilter) =>

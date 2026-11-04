@@ -369,6 +369,37 @@ describe("counterpart kernel: list, deactivate and claim", () => {
     );
   });
 
+  it("lists what a person owes most recently changed first, whatever the due dates", () => {
+    const p = person("排序人");
+    const first = commit(
+      "先建的",
+      { kind: "counterpart", counterpartId: p.id },
+      { due: now() + 1000 },
+    );
+    const second = commit(
+      "后建的",
+      { kind: "counterpart", counterpartId: p.id },
+      { due: now() + 9_000_000 },
+    );
+    const order = () => {
+      const out = k.counterpartView({ principal: A, counterpartId: p.id, now: now() });
+      return (out as Extract<typeof out, { outcome: "ok" }>).view.responsible.map(
+        (entry) => entry.requirementText,
+      );
+    };
+    assert.deepEqual(order(), ["后建的", "先建的"]);
+    const edited = k.commitmentUpdate({
+      principal: A,
+      commitmentId: first,
+      changes: { nextStep: "下周再问" },
+      actor: "user",
+      now: now(),
+    });
+    assert.equal(edited.outcome, "updated");
+    assert.deepEqual(order(), ["先建的", "后建的"], "the one edited last comes first");
+    assert.notEqual(first, second);
+  });
+
   it("previews a deactivation without changing anything, then moves open Commitments to a typed name with a new version", () => {
     const p = person("离职人", { aliases: ["老离"], contacts: [{ type: "phone", value: "100" }] });
     const open = commit("未完成交付", { kind: "counterpart", counterpartId: p.id });

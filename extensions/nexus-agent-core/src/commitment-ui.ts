@@ -3,7 +3,7 @@
 // marker, every value goes through `esc`, and every text is a catalog key. The four lines are said apart on purpose: told,
 // agreed, closed, verified. A hand close is never called "verified".
 import type { CommitmentRecord } from "./commitment/types.js";
-import { tr, type Lang, type MsgKey } from "./i18n.js";
+import { tr, trHtml, type Lang, type MsgKey } from "./i18n.js";
 import { chip, marker, section, shortTime, type Tone } from "./ui-kit.js";
 import { clip, esc } from "./ui-render.js";
 
@@ -44,23 +44,46 @@ const acceptText = (lang: Lang, c: CommitmentRecord): string =>
       )
     : tr(lang, `cm.acc.${c.acceptanceState}` as MsgKey);
 
-function commitmentBox(
+export type CommitmentBoxOptions = {
+  /** Placeholder link base the module rewrites into host navigation. */
+  base?: string;
+  /** Offer "cite in a Work" (the people page, where a commitment is not shown under a Work). */
+  attach?: boolean;
+  /** Name the responsible one as a link to their page (off on that person's own page). Default on. */
+  linkWho?: boolean;
+};
+
+/** One commitment as a box with its meta line and, when `withActions`, its buttons. */
+export function renderCommitmentBox(
   line: CommitmentLine,
   lang: Lang,
   now: number,
   withActions: boolean,
+  options: CommitmentBoxOptions = {},
 ): string {
   const c = line.commitment;
+  const base = options.base ?? "nexus-nav:";
+  const linkWho = options.linkWho !== false;
   const open = c.lifecycle === "open" || c.lifecycle === "waiting";
+  const name = c.responsibleName ?? c.responsibleRaw ?? "-";
+  // A name that points at a person's record is a way to that person; a typed name that points at nobody says so.
   const who = c.responsibleSelf
-    ? tr(lang, "cm.who.self")
-    : tr(lang, "cm.who", { name: c.responsibleName ?? c.responsibleRaw ?? "-" });
+    ? esc(tr(lang, "cm.who.self"))
+    : c.responsibleCounterpartId && linkWho
+      ? trHtml(lang, "cm.who", esc, {
+          name: `<a href="${esc(`${base}/people/${c.responsibleCounterpartId}`)}">${esc(name)}</a>`,
+        })
+      : esc(tr(lang, "cm.who", { name }));
+  const unlinked =
+    open && linkWho && !c.responsibleSelf && !c.responsibleCounterpartId
+      ? `<a href="${esc(`${base}/people?seg=pending`)}">${esc(tr(lang, "pp.cm.unlinked"))}</a>`
+      : "";
   const problem =
     open && (c.verification === "verified_exception" || c.verification === "conflicting_evidence")
       ? chip("rose", tr(lang, `cm.ver.${c.verification}` as MsgKey))
       : "";
   const meta = [
-    `<span>${esc(who)}</span>`,
+    `<span>${who}${unlinked ? ` ${unlinked}` : ""}</span>`,
     `<span${c.overdue ? ' class="nx-cm-late"' : ""}>${esc(dueText(lang, c, now))}</span>`,
     ...(open
       ? [
@@ -99,6 +122,7 @@ function commitmentBox(
               btn("cm-cancel", "cm.btn.cancel"),
             ]
           : []),
+        ...(options.attach ? [btn("cm-attach", "pp.btn.attachTo")] : []),
         ...(c.lifecycle === "cancelled" ? [btn("cm-restore", "cm.btn.restore")] : []),
         ...(c.lifecycle === "resolved" ? [btn("cm-reopen", "cm.btn.reopen")] : []),
         ...(line.role
@@ -125,12 +149,13 @@ function commitmentBox(
  */
 export function renderCommitmentSection(
   lines: readonly CommitmentLine[] | undefined,
-  options: { lang: Lang; now: number; workId: string; withActions: boolean },
+  options: { lang: Lang; now: number; workId: string; withActions: boolean; base?: string },
 ): string {
   if (lines === undefined) {
     return "";
   }
   const { lang, now, withActions, workId } = options;
+  const boxOptions: CommitmentBoxOptions = options.base ? { base: options.base } : {};
   const rank = (line: CommitmentLine) => (line.role === "required" ? 0 : 1);
   const ordered = lines.toSorted((a, b) => rank(a) - rank(b));
   const add = withActions ? marker("cm-new", workId, "nx-btn", esc(tr(lang, "cm.add"))) : "";
@@ -146,7 +171,7 @@ export function renderCommitmentSection(
     : "";
   return section(
     tr(lang, "cm.sec"),
-    [...ordered.map((line) => commitmentBox(line, lang, now, withActions)), hint],
+    [...ordered.map((line) => renderCommitmentBox(line, lang, now, withActions, boxOptions)), hint],
     add,
   );
 }

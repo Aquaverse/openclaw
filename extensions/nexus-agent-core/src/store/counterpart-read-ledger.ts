@@ -189,8 +189,7 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
         return { outcome: "not_found" as const };
       }
       const record: CounterpartRecord = cp.toCounterpart(owner, row);
-      const order =
-        "ORDER BY CASE WHEN c.due_at IS NULL THEN 1 ELSE 0 END, c.due_at, c.created_at, c.id";
+      const order = "ORDER BY c.updated_at DESC, c.id";
       const responsible = all(
         `${COMMITMENT_SELECT} WHERE c.owner_id = ? AND c.responsible_counterpart_id = ? AND c.lifecycle IN ('open','waiting') ${order}`,
         owner,

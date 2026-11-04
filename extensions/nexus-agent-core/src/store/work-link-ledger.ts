@@ -104,6 +104,24 @@ export function createWorkLinkOps(deps: WorkOpsDeps) {
       input.targetKind === "artifact"
         ? `${input.artifactFileId}#${input.artifactVersionSeq}`
         : input.targetId;
+    if (input.targetKind === "commitment") {
+      // One Commitment is cited once by a Work, as required or as a reference; changing that is a role change, not a second link
+      // (two links would show the same Commitment twice, once as required and once as optional).
+      const other = one(
+        "SELECT id, role FROM work_links WHERE owner_id = ? AND work_id = ? AND target_kind = 'commitment' AND target_id = ? AND role <> ? AND ended_at IS NULL",
+        owner,
+        input.workId,
+        input.targetId,
+        input.role,
+      );
+      if (other) {
+        return {
+          outcome: "role_conflict" as const,
+          linkId: String(other.id),
+          role: String(other.role),
+        };
+      }
+    }
     const dup = one(
       "SELECT id FROM work_links WHERE owner_id = ? AND work_id = ? AND role = ? AND target_kind = ? AND target_id = ? AND ended_at IS NULL",
       owner,

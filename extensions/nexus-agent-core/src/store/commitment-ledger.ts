@@ -56,7 +56,7 @@ export function createCommitmentLedger(
   work: WorkLedger["internals"],
 ) {
   const c = work.common;
-  const { one, run, newId } = c;
+  const { one, all, run, newId } = c;
   const k = createCommitmentCommon(c);
 
   /** Re-evaluate every Work that requires this Commitment, and refresh the list order of every Work that cites it. */
@@ -470,7 +470,9 @@ export function createCommitmentLedger(
           softChange = true;
         }
       }
-      if (changed.length === 0 && !softChange) {
+      // A note on its own is a change too: the reason is the record of why, and the person may add it after the fact.
+      const noteOnly = changed.length === 0 && !softChange && reason !== "";
+      if (changed.length === 0 && !softChange && !noteOnly) {
         return {
           outcome: "unchanged" as const,
           commitment: toCommitment(row, input.now),
@@ -508,7 +510,10 @@ export function createCommitmentLedger(
         input.commitmentId,
         "edited",
         actor,
-        { changed: softChange ? [...changed, "next_step"] : changed, reason: reason || null },
+        {
+          changed: softChange ? [...changed, "next_step"] : noteOnly ? ["note"] : changed,
+          reason: reason || null,
+        },
         input.now,
       );
       if (changed.includes("responsible")) {
@@ -589,36 +594,50 @@ export function createCommitmentLedger(
       if (input.role !== "required" && input.role !== "reference") {
         return { outcome: "invalid" as const, code: "bad_role" };
       }
-      const current = one(
-        "SELECT id, role FROM work_links WHERE owner_id = ? AND work_id = ? AND target_kind = 'commitment' AND target_id = ? AND ended_at IS NULL",
+      // Normally one link; a Work that cited the same Commitment twice (as required and as a reference) has two, and a
+      // role change folds them into one.
+      const links = all(
+        "SELECT id, role FROM work_links WHERE owner_id = ? AND work_id = ? AND target_kind = 'commitment' AND target_id = ? AND ended_at IS NULL ORDER BY created_at, id",
         owner,
         input.workId,
         input.commitmentId,
       );
-      if (!current) {
+      if (links.length === 0) {
         return { outcome: "not_linked" as const };
       }
-      if (String(current.role) === input.role) {
+      if (links.length === 1 && String(links[0]!.role) === input.role) {
         return { outcome: "unchanged" as const };
       }
-      if (String(current.role) === "required" && input.acknowledgeGap !== true) {
+      if (
+        input.role === "reference" &&
+        links.some((l) => String(l.role) === "required") &&
+        input.acknowledgeGap !== true
+      ) {
         return { outcome: "gap_ack_required" as const };
       }
-      run(
-        "UPDATE work_links SET ended_at = ?, end_basis = 'role_changed' WHERE owner_id = ? AND id = ?",
-        input.now,
-        owner,
-        String(current.id),
-      );
-      const linked = work.linkAddInTx({
-        principal: input.principal,
-        workId: input.workId,
-        role: input.role,
-        targetKind: "commitment",
-        targetId: input.commitmentId,
-        actor: workActor(input.actor),
-        now: input.now,
-      });
+      const keep = links.find((l) => String(l.role) === input.role);
+      for (const link of links) {
+        if (link === keep) {
+          continue;
+        }
+        run(
+          "UPDATE work_links SET ended_at = ?, end_basis = 'role_changed' WHERE owner_id = ? AND id = ?",
+          input.now,
+          owner,
+          String(link.id),
+        );
+      }
+      const linked = keep
+        ? { linkId: String(keep.id) }
+        : work.linkAddInTx({
+            principal: input.principal,
+            workId: input.workId,
+            role: input.role,
+            targetKind: "commitment",
+            targetId: input.commitmentId,
+            actor: workActor(input.actor),
+            now: input.now,
+          });
       work.evaluateOutcomeInTx(owner, input.workId, input.now);
       return {
         outcome: "changed" as const,

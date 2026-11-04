@@ -317,4 +317,41 @@ describe("commitment action markers", () => {
     expect(container.textContent).toContain("no id");
     expect(container.textContent).toContain("unknown");
   });
+
+  it("reports the people markers; adding a person needs no id, every other one does", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const onAction = vi.fn();
+    mountSanitized(
+      container,
+      [
+        '<button data-nx-act="pp-new">add</button>',
+        ...["edit", "confirm", "contact", "cdel", "off", "on", "record", "claim"].map(
+          (act) => `<button data-nx-act="pp-${act}" data-nx-id="cp_ab12CD34ef">${act}</button>`,
+        ),
+        '<button data-nx-act="cm-attach" data-nx-id="cm_ab12CD34ef">attach</button>',
+        '<button data-nx-act="pp-off">no id</button>',
+        '<button data-nx-act="pp-off" data-nx-id="../x">bad id</button>',
+        '<button data-nx-act="pp-merge" data-nx-id="cp_a">unknown</button>',
+      ].join(""),
+      hrefOf,
+      vi.fn(),
+      onAction,
+    );
+    const buttons = Array.from(container.querySelectorAll("button"));
+    expect(buttons).toHaveLength(10);
+    for (const button of buttons) {
+      button.click();
+    }
+    expect(onAction.mock.calls.map(([action]) => action)).toEqual([
+      { kind: "pp-new" },
+      ...["edit", "confirm", "contact", "cdel", "off", "on", "record", "claim"].map((act) => ({
+        kind: `pp-${act}`,
+        id: "cp_ab12CD34ef",
+      })),
+      { kind: "cm-attach", id: "cm_ab12CD34ef" },
+    ]);
+    expect(container.textContent).toContain("no id");
+    expect(container.textContent).toContain("unknown");
+  });
 });

@@ -1,6 +1,7 @@
 // Scoped under .nexus-page so nothing leaks into the host. The rules below are the pages not yet moved to the new skeleton:
 // they follow the host theme through currentColor, and only their status accents are fixed. The tokens, the shell (rail,
 // content, components) and the Work page come from the sibling files; the shell comes after these rules so it wins ties.
+import { NEXUS_PEOPLE_CSS } from "./style-people.ts";
 import { NEXUS_SHELL_CSS } from "./style-shell.ts";
 import { NEXUS_TOKENS_CSS } from "./style-tokens.ts";
 import { NEXUS_WORK_CSS } from "./style-work.ts";
@@ -120,4 +121,5 @@ const LEGACY_CSS = `
 .nexus-page .gl-link{font:inherit;color:#4f7cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
 .nexus-page .nx-dialog textarea,.nexus-page .nx-dialog input:not([type=checkbox]){width:100%;box-sizing:border-box;font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:4px 8px;margin:4px 0}
 `;
-export const NEXUS_CSS = NEXUS_TOKENS_CSS + LEGACY_CSS + NEXUS_SHELL_CSS + NEXUS_WORK_CSS;
+export const NEXUS_CSS =
+  NEXUS_TOKENS_CSS + LEGACY_CSS + NEXUS_SHELL_CSS + NEXUS_WORK_CSS + NEXUS_PEOPLE_CSS;

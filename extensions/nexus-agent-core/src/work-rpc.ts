@@ -342,6 +342,14 @@ export function createWorkRpcHandlers(deps: WorkRpcDeps) {
             );
             return;
           }
+          if (result.outcome === "role_conflict") {
+            reject(
+              respond,
+              "nexus_commitment_already_cited",
+              `this work already cites the commitment as ${result.role}; change its role instead`,
+            );
+            return;
+          }
           if (result.outcome === "linked") {
             deps.events.workChanged({ ownerId: principal.ownerId, workId, action: "link" });
           }

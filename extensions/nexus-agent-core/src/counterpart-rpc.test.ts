@@ -240,6 +240,31 @@ describe("counterpart rpc", () => {
     assert.equal(removed.payload?.outcome, "removed");
     assert.equal(removed.payload?.counterpart.contacts.length, 0);
   });
+
+  it("shows what a person owes most recently edited first, through the console methods", async () => {
+    const p = (await create("排序王")).payload?.counterpart;
+    const make = async (text: string) => {
+      const out = await s.call("nexus.commitment.create", {
+        requirementText: text,
+        responsible: { kind: "counterpart", counterpartId: p.id },
+      });
+      assert.equal(out.ok, true, JSON.stringify(out.error));
+      return out.payload?.commitment?.id ?? out.payload?.commitmentId;
+    };
+    const first = await make("先建的");
+    await make("后建的");
+    const order = async () =>
+      (
+        await s.call("nexus.counterpart.get", { counterpartId: p.id })
+      ).payload?.view.responsible.map((c: { requirementText: string }) => c.requirementText);
+    assert.deepEqual(await order(), ["后建的", "先建的"]);
+    const edited = await s.call("nexus.commitment.update", {
+      commitmentId: first,
+      changes: { requirementText: "先建的（改过）" },
+    });
+    assert.equal(edited.payload?.outcome, "updated", JSON.stringify(edited));
+    assert.deepEqual(await order(), ["先建的（改过）", "后建的"]);
+  });
 });
 
 describe("counterpart tools", () => {

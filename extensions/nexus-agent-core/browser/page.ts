@@ -376,8 +376,12 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
       if (route.view === "files") {
         rememberedFiles = route;
       }
-      // Work and the prototype pages are reached from the host's left rail: they take the whole width and no inner navigation.
-      const railView = route.view === "works" || route.view === "work" || route.view === "hub";
+      // Work, People and the prototype pages are reached from the host's left rail: they take the whole width and no inner navigation.
+      const railView =
+        route.view === "works" ||
+        route.view === "work" ||
+        route.view === "people" ||
+        route.view === "hub";
       root.classList.toggle("nx-split", railView);
       root.classList.toggle("nx-rail", railView);
       renderNav(route);

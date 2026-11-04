@@ -1,9 +1,11 @@
 import type { CommitmentLine } from "../src/commitment-ui.js";
+import type { PendingPersonGroup } from "../src/counterpart/types.js";
 // The write side of the Nexus page: decisions, watch cancellation and preferences. Every action opens a confirmation
 // dialog built from the records the page itself loaded (never from the clicked markup, which only carries an id), then
 // calls the existing operator.write RPC. The RPCs stay the authority: they re-check status, revision and authority hash,
 // so a stale dialog can at worst be refused, never wrongly applied.
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
+import type { PersonActionModel } from "../src/people-ui.js";
 import type { EvidenceBlobView } from "../src/store/blob-types.js";
 import type { ClaimRecord } from "../src/store/claim-types.js";
 import type { DecisionRecord } from "../src/store/decision-types.js";
@@ -20,6 +22,7 @@ import type { WatchRecord } from "../src/store/watch-types.js";
 import { clip, fmtTime } from "../src/ui-render.js";
 import type { WorkActionModel } from "../src/work-ui.js";
 import { runCommitmentAction } from "./commitment-dialogs.ts";
+import type { PersonChoice } from "./commitment-form.ts";
 import type { NexusRequest } from "./data.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
 import { evidenceViewDialog } from "./evidence-view.ts";
@@ -41,6 +44,7 @@ import {
   goalReject,
   type GoalSessions,
 } from "./goals-view.ts";
+import { runPeopleAction } from "./people-dialogs.ts";
 import type { NexusAction } from "./sanitize.ts";
 import { runWorkAction } from "./work-dialogs.ts";
 
@@ -59,8 +63,14 @@ export type NexusModel = {
   goals?: readonly GoalSummaryRecord[];
   /** The Work the Work page shows in its detail pane; absent on every other tab. */
   work?: WorkActionModel;
-  /** The commitments that Work cites (what the commitment dialogs are built from); absent when commitments are off. */
+  /** The commitments that Work (or the person) shows: what the commitment dialogs are built from; absent when commitments are off. */
   commitments?: readonly CommitmentLine[];
+  /** The people a commitment can point at (live, confirmed or stated); absent when people are not available. */
+  people?: readonly PersonChoice[];
+  /** The person the people page shows in its detail pane. */
+  person?: PersonActionModel;
+  /** The groups of typed names the people page lists as "to be confirmed". */
+  pending?: readonly PendingPersonGroup[];
 };
 
 export const EMPTY_MODEL: NexusModel = {
@@ -541,7 +551,18 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
     case "cm-restore":
     case "cm-reopen":
     case "cm-role":
+    case "cm-attach":
       return runCommitmentAction(ctx, action);
+    case "pp-new":
+    case "pp-edit":
+    case "pp-confirm":
+    case "pp-contact":
+    case "pp-cdel":
+    case "pp-off":
+    case "pp-on":
+    case "pp-record":
+    case "pp-claim":
+      return runPeopleAction(ctx, action);
     case "goal-menu":
       return goalMenu(ctx);
     case "goal-create":
