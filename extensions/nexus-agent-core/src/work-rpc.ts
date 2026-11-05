@@ -112,9 +112,23 @@ export function createWorkRpcHandlers(deps: WorkRpcDeps) {
             typeof params.top === "number" && params.top >= 0
               ? Math.min(Math.floor(params.top), 20)
               : 3;
+          const keyword = text(params.keyword, 200);
+          if (keyword === null) {
+            reject(
+              respond,
+              "nexus_invalid_params",
+              "keyword must be text of at most 200 characters",
+            );
+            return;
+          }
           respond(true, {
             ownerId: principal.ownerId,
-            ...(await store.workCounts({ principal, now: now(), top })),
+            ...(await store.workCounts({
+              principal,
+              now: now(),
+              top,
+              ...(keyword ? { keyword } : {}),
+            })),
           });
         }),
         "operator.read",

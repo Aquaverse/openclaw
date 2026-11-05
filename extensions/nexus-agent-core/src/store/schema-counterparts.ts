@@ -159,3 +159,16 @@ CREATE TABLE unresolved_mentions (
   CHECK ((state = 'resolved') = (resolved_counterpart_id IS NOT NULL AND resolve_scope IS NOT NULL))
 ) STRICT;
 `;
+
+// stage7-0004: a typed name the user said does not point at any person ("会场", "待定", design 7.6 "这不是一个人" way 3). The
+// Commitments keep their typed name; the name just stops appearing as a group waiting to be confirmed, until the user restores it.
+export const STAGE7_DISMISSALS_SQL = `
+CREATE TABLE counterpart_dismissals (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  normalized_raw TEXT NOT NULL,
+  raw TEXT NOT NULL,
+  created_at INTEGER NOT NULL, revoked_at INTEGER,
+  PRIMARY KEY (owner_id, id)
+) STRICT;
+CREATE UNIQUE INDEX counterpart_dismissals_once ON counterpart_dismissals(owner_id, normalized_raw) WHERE revoked_at IS NULL;
+`;

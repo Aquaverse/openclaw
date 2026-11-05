@@ -119,7 +119,7 @@ const LEGACY_CSS = `
 .nexus-page .gl-review-buttons{display:flex;gap:8px;margin:6px 0}
 .nexus-page .gl-linkrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .nexus-page .gl-link{font:inherit;color:#4f7cff;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
-.nexus-page .nx-dialog textarea,.nexus-page .nx-dialog input:not([type=checkbox]){width:100%;box-sizing:border-box;font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:4px 8px;margin:4px 0}
+.nexus-page .nx-dialog textarea,.nexus-page .nx-dialog input:not([type=checkbox]):not([type=radio]){width:100%;box-sizing:border-box;font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:4px 8px;margin:4px 0}
 `;
 export const NEXUS_CSS =
   NEXUS_TOKENS_CSS + LEGACY_CSS + NEXUS_SHELL_CSS + NEXUS_WORK_CSS + NEXUS_PEOPLE_CSS;

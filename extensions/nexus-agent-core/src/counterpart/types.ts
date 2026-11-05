@@ -57,6 +57,8 @@ export type CounterpartRecord = {
   lifecycle: "live" | "inactive" | "merged" | "deleted";
   inactiveReason: string | null;
   inactiveAt: number | null;
+  /** Set when this record was merged into another one: the record that kept the identity. */
+  mergedInto: string | null;
   isSelf: boolean;
   aliases: string[];
   relation: { relation: CounterpartRelation; scopeLabel: string | null } | null;
@@ -96,6 +98,35 @@ export type CounterpartImpact = {
   participantLinks: number;
   works: Array<{ workId: string; title: string }>;
 };
+
+/** What merging one person into another reaches (design 7.5). `relations` is set only when the two disagree. */
+export type MergeImpact = {
+  contacts: number;
+  /** Contacts the two already share (same kind and value): they become one. */
+  sharedContacts: number;
+  aliases: number;
+  openCommitments: number;
+  resolvedCommitments: number;
+  participantLinks: number;
+  works: Array<{ workId: string; title: string }>;
+  relations: {
+    source: CounterpartRecord["relation"];
+    target: CounterpartRecord["relation"];
+  } | null;
+};
+
+export const NOT_PERSON_DESTINATIONS = ["organization", "team", "self", "dismiss"] as const;
+export type NotPersonDestination = (typeof NOT_PERSON_DESTINATIONS)[number];
+
+/** What "this is not a person" reaches for one typed name. */
+export type NotPersonImpact = {
+  total: number;
+  open: number;
+  works: Array<{ workId: string; title: string }>;
+};
+
+/** A typed name the user said points at nobody; it no longer waits in "to confirm" until it is restored. */
+export type DismissedName = { id: string; raw: string; createdAt: number };
 
 /** A group of Commitments whose responsible person is only a typed name (design 9: "待确认人员"). */
 export type PendingPersonGroup = {

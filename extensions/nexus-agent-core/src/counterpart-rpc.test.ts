@@ -108,7 +108,7 @@ describe("counterpart rpc", () => {
 
   it("registers reads under operator.read and writes under operator.write", () => {
     const scopes = Object.fromEntries([...s.handlers].map(([m, h]) => [m, h.scope]));
-    for (const m of ["list", "get", "resolve", "pending"]) {
+    for (const m of ["list", "get", "resolve", "pending", "dismissed"]) {
       assert.equal(scopes[`nexus.counterpart.${m}`], "operator.read", m);
     }
     for (const m of [
@@ -119,6 +119,9 @@ describe("counterpart rpc", () => {
       "deactivate",
       "restore",
       "claim",
+      "merge",
+      "notPerson",
+      "dismissalRestore",
     ]) {
       assert.equal(scopes[`nexus.counterpart.${m}`], "operator.write", m);
     }
@@ -180,6 +183,16 @@ describe("counterpart rpc", () => {
     });
     assert.equal(done.payload?.outcome, "deactivated");
     assert.ok(s.emitted.some((e) => e.workId === workId));
+    // The list answers with the total, the counts of the segments, and takes a keyword and the attention filter.
+    const found = await s.call("nexus.counterpart.list", { keyword: "孙", limit: 5, offset: 0 });
+    assert.equal(found.payload?.total, found.payload?.items.length);
+    assert.equal(typeof found.payload?.counts.all, "number");
+    assert.equal(typeof found.payload?.counts.attention, "number");
+    assert.equal((await s.call("nexus.counterpart.list", { attention: true })).error, undefined);
+    assert.equal(
+      (await s.call("nexus.counterpart.list", { attention: "yes" })).error?.code,
+      "nexus_invalid_params",
+    );
     const inactive = await s.call("nexus.counterpart.list", { lifecycle: "inactive" });
     assert.ok(inactive.payload?.items.some((i: { id: string }) => i.id === p.id));
     const again = await s.call("nexus.counterpart.deactivate", {
@@ -239,6 +252,111 @@ describe("counterpart rpc", () => {
     });
     assert.equal(removed.payload?.outcome, "removed");
     assert.equal(removed.payload?.counterpart.contacts.length, 0);
+  });
+
+  it("merges two records of one person through the console methods, and tells the Works the commitments moved", async () => {
+    const keep = (await create("接口保留")).payload?.counterpart;
+    const gone = (await create("接口消失", { allowSameName: true })).payload?.counterpart;
+    const w = await s.call("nexus.work.create", { title: "合并的工作" });
+    const workId = w.payload?.workId ?? w.payload?.work?.id;
+    const cm = await s.call("nexus.commitment.create", {
+      requirementText: "合并前的承诺",
+      responsible: { kind: "counterpart", counterpartId: gone.id },
+      workId,
+    });
+    assert.equal(cm.ok, true, JSON.stringify(cm.error));
+    const bad = await s.call("nexus.counterpart.merge", { counterpartId: gone.id });
+    assert.equal(bad.error?.code, "nexus_invalid_params");
+    const same = await s.call("nexus.counterpart.merge", {
+      counterpartId: gone.id,
+      intoId: gone.id,
+    });
+    assert.equal(same.error?.code, "nexus_invalid_params");
+    const preview = await s.call("nexus.counterpart.merge", {
+      counterpartId: gone.id,
+      intoId: keep.id,
+      dryRun: true,
+    });
+    assert.equal(preview.payload?.outcome, "preview");
+    assert.equal(preview.payload?.impact.openCommitments, 1);
+    s.emitted.length = 0;
+    const done = await s.call("nexus.counterpart.merge", {
+      counterpartId: gone.id,
+      intoId: keep.id,
+      expectedRevision: gone.revision,
+    });
+    assert.equal(done.payload?.outcome, "merged", JSON.stringify(done));
+    assert.ok(s.emitted.some((e) => e.workId === workId));
+    const view = await s.call("nexus.counterpart.get", { counterpartId: keep.id });
+    assert.equal(view.payload?.view.responsible.length, 1);
+    const old = await s.call("nexus.counterpart.get", { counterpartId: gone.id });
+    assert.equal(old.payload?.view.counterpart.mergedInto, keep.id);
+    const again = await s.call("nexus.counterpart.merge", {
+      counterpartId: gone.id,
+      intoId: keep.id,
+    });
+    assert.equal(again.error?.code, "nexus_counterpart_state");
+  });
+
+  it("answers 'not a person' for each destination, and keeps the dismissed names listed until they are restored", async () => {
+    for (const text of ["接口会场", "接口市场部"]) {
+      const out = await s.call("nexus.commitment.create", {
+        requirementText: `${text}的事`,
+        responsible: { kind: "name", name: text },
+      });
+      assert.equal(out.ok, true, JSON.stringify(out.error));
+    }
+    const badDest = await s.call("nexus.counterpart.notPerson", {
+      raw: "接口会场",
+      destination: "robot",
+    });
+    assert.equal(badDest.error?.code, "nexus_invalid_params");
+    const dismissed = await s.call("nexus.counterpart.notPerson", {
+      raw: "接口会场",
+      destination: "dismiss",
+    });
+    assert.equal(dismissed.payload?.outcome, "dismissed");
+    const list = await s.call("nexus.counterpart.dismissed");
+    const entry = list.payload?.items.find((i: { raw: string }) => i.raw === "接口会场");
+    assert.ok(entry);
+    const pending = await s.call("nexus.counterpart.pending");
+    assert.equal(
+      pending.payload?.groups.some((g: { raw: string }) => g.raw === "接口会场"),
+      false,
+    );
+    const org = await s.call("nexus.counterpart.notPerson", {
+      raw: "接口市场部",
+      destination: "organization",
+    });
+    assert.equal(org.payload?.outcome, "moved");
+    const restored = await s.call("nexus.counterpart.dismissalRestore", { dismissalId: entry.id });
+    assert.equal(restored.payload?.outcome, "restored");
+    const none = await s.call("nexus.counterpart.notPerson", {
+      raw: "没有这个称呼",
+      destination: "dismiss",
+    });
+    assert.equal(none.error, undefined);
+    assert.equal(none.payload?.outcome, "nothing_to_claim");
+  });
+
+  it("refuses a type change to organization that would leave a colleague relation", async () => {
+    const p = (await create("接口同事", { relation: { relation: "colleague" } })).payload
+      ?.counterpart;
+    const out = await s.call("nexus.counterpart.update", {
+      counterpartId: p.id,
+      changes: { kind: "organization" },
+    });
+    assert.equal(out.error?.code, "nexus_relation_conflict");
+  });
+
+  it("refuses to create an organization that is a colleague, with a message that says why", async () => {
+    const out = await s.call("nexus.counterpart.create", {
+      displayName: "接口机构同事",
+      kind: "organization",
+      relation: { relation: "colleague" },
+    });
+    assert.equal(out.error?.code, "nexus_relation_conflict");
+    assert.match(String(out.error?.message), /organization or a team cannot be/);
   });
 
   it("shows what a person owes most recently edited first, through the console methods", async () => {

@@ -25,6 +25,8 @@ export type WorkLinkLine = {
   role: string;
   targetKind: string;
   targetId: string;
+  /** The name of what the link points at (a Work's title, a Commitment's requirement, ...); null when it cannot be read. */
+  targetTitle?: string | null;
   purpose: string | null;
   createdAt: number;
   endedAt: number | null;
@@ -48,6 +50,8 @@ export type WorkControlLine = {
 };
 /** What `nexus.work.get` returns: the Work view plus its links, history and the controls still in force. */
 export type WorkDetail = WorkView & {
+  /** The title of the Goal this Work serves, when there is one. */
+  goalTitle?: string | null;
   links: WorkLinkLine[];
   events: WorkEventLine[];
   controls: WorkControlLine[];
@@ -91,7 +95,10 @@ export type WorkDecisionLine = Pick<
 >;
 
 export type WorksPageData = {
+  /** The numbers beside the segments: what the current search finds (the whole account's when nothing is searched). */
   counts: WorkCounts;
+  /** The whole account's numbers, for the greeting; defaults to `counts`. */
+  overall?: WorkCounts;
   works: readonly WorkView[];
   /** Decisions waiting for the person, across all the listed Works (a row and the ask card read them). */
   decisions?: readonly WorkDecisionLine[];
@@ -355,7 +362,7 @@ function listPane(
   selected: string | undefined,
 ): string {
   const list = renderWorkList(data, { lang, basePath: base, ...(selected ? { selected } : {}) });
-  const waiting = data.counts.counts.needs_you;
+  const waiting = (data.overall ?? data.counts).counts.needs_you;
   const hello =
     waiting > 0 ? tr(lang, "work.hello.needs", { n: waiting }) : tr(lang, "work.hello.none");
   // The search box is built by the page (it is a form control) and moved into this empty slot after every mount.
@@ -530,12 +537,27 @@ function detailPane(data: WorksPageData, lang: Lang, base: string, withActions: 
       ? callout("plain", `<p>${esc(meansText(lang, detail, now))}</p>`)
       : "";
 
+  const linkName = (entry: WorkLinkLine): string => {
+    const name = entry.targetTitle ? esc(entry.targetTitle) : `<code>${esc(entry.targetId)}</code>`;
+    const to =
+      entry.targetKind === "work"
+        ? `${base}/works/${entry.targetId}`
+        : entry.targetKind === "task_output"
+          ? `${base}/tasks/${entry.targetId}`
+          : undefined;
+    return to ? `<a href="${esc(to)}">${name}</a>` : name;
+  };
   const links = [
     ...(detail.goalId
       ? [
           row(
             `<span class="nx-grow">${esc(tr(lang, "work.link.goal"))}</span>` +
-              marker("goal-open", detail.goalId, "gl-link", `<code>${esc(detail.goalId)}</code>`),
+              marker(
+                "goal-open",
+                detail.goalId,
+                "gl-link",
+                detail.goalTitle ? esc(detail.goalTitle) : `<code>${esc(detail.goalId)}</code>`,
+              ),
           ),
         ]
       : []),
@@ -543,11 +565,9 @@ function detailPane(data: WorksPageData, lang: Lang, base: string, withActions: 
       .filter((entry) => entry.endedAt === null)
       .map((entry) =>
         row(
-          `<span class="nx-grow">${
-            entry.targetKind === "task"
-              ? `<a href="${esc(`${base}/tasks/${entry.targetId}`)}">${esc(entry.targetId)}</a>`
-              : `<code>${esc(entry.targetId)}</code>`
-          }</span><span class="nx-meta">${esc(entry.role)} · ${esc(entry.targetKind)}</span>`,
+          `<span class="nx-grow">${linkName(entry)}</span><span class="nx-meta">${esc(
+            coded(lang, "work.lr.", entry.role),
+          )} · ${esc(coded(lang, "work.lk.", entry.targetKind))}</span>`,
         ),
       ),
   ];

@@ -6,8 +6,9 @@ import {
   type CounterpartImpact,
   type CounterpartRecord,
 } from "../counterpart/types.js";
-import type { CommitmentCommon, CommitmentEventKind } from "./commitment-common.js";
+import type { CommitmentCommon } from "./commitment-common.js";
 import { normalizeName, type CounterpartCommon } from "./counterpart-common.js";
+import { createReassign } from "./counterpart-reassign.js";
 import type { TransactionRunner } from "./kernel.js";
 import type { Principal } from "./types.js";
 import type { Row, WorkCommon } from "./work-ledger-common.js";
@@ -27,44 +28,7 @@ export function createCounterpartMoveOps(deps: CounterpartMoveDeps) {
   const { transaction, c, k, cp, fetch, reevaluate } = deps;
   const { one, all, run } = c;
 
-  /** A new person is responsible: keep the old version, reset communication and acceptance, bump the version. */
-  const reassign = (
-    owner: string,
-    row: Row,
-    to: { counterpartId: string | null; raw: string | null },
-    cause: string,
-    now: number,
-  ): void => {
-    k.snapshotVersion(owner, row, cause, now);
-    run(
-      "UPDATE commitments SET responsible_counterpart_id = ?, responsible_raw = ?, " +
-        "communication_state = 'draft', communication_action_ref = NULL, communication_receipt_level = NULL, communication_at = NULL, " +
-        "acceptance_state = 'unknown', acceptance_basis_kind = NULL, acceptance_basis = NULL, acceptance_at = NULL, " +
-        "lifecycle = CASE lifecycle WHEN 'waiting' THEN 'open' ELSE lifecycle END, " +
-        "responsibility_version = responsibility_version + 1, revision = revision + 1, updated_at = ? WHERE owner_id = ? AND id = ?",
-      to.counterpartId,
-      to.raw,
-      now,
-      owner,
-      String(row.id),
-    );
-    const kind: CommitmentEventKind = "responsible_changed";
-    k.appendEvent(
-      owner,
-      String(row.id),
-      kind,
-      "system",
-      {
-        from: {
-          counterpartId: row.responsible_counterpart_id ?? null,
-          raw: row.responsible_raw ?? null,
-        },
-        to,
-        cause,
-      },
-      now,
-    );
-  };
+  const reassign = createReassign(c, k);
 
   const impactOf = (owner: string, id: string): CounterpartImpact => {
     const count = (sql: string): number => Number((one(sql, owner, id) as Row).n);

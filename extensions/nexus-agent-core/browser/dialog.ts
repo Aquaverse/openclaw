@@ -141,7 +141,11 @@ export function openDialog(options: DialogOptions): () => void {
   };
   document.addEventListener("keydown", onKey, true);
   options.signal.addEventListener("abort", close, { once: true });
-  options.build(body, refresh);
+  // Editing anything answers a failure the dialog showed: the message was about what was typed before.
+  options.build(body, () => {
+    error.hidden = true;
+    refresh();
+  });
   refresh();
   options.parent.append(overlay);
   (focusables().find((el) => el.tagName !== "BUTTON") ?? cancel).focus();

@@ -8,7 +8,7 @@ import type { WorkPrimaryState } from "../src/work/types.js";
 import type { NexusRequest } from "./data.ts";
 import { NAV_BASE, type NexusRoute, type WorkFilter } from "./route.ts";
 import { sanitizeFragment } from "./sanitize.ts";
-import { readWorkPage, WORK_PAGE_SIZE, type WorkListInit } from "./work-data.ts";
+import { readWorkCounts, readWorkPage, WORK_PAGE_SIZE, type WorkListInit } from "./work-data.ts";
 
 export type WorkList = {
   /** How many rows the pane shows now (a reload asks for at least this many, so the scroll position survives). */
@@ -32,6 +32,7 @@ export function attachWorkList(options: {
     return undefined;
   }
   let filter = init.filter;
+  let counts = init.counts;
   let total = init.total;
   let loaded = init.loaded;
   // The state of the final row decides whether the next page starts with a group heading.
@@ -141,18 +142,21 @@ export function attachWorkList(options: {
       const mine = ++token;
       busy = false;
       failed = false;
-      const page = await readWorkPage(request, next, 0, WORK_PAGE_SIZE);
+      // The numbers beside the segments follow the search, so they are read with the rows. They are only a label: a
+      // failure to read them leaves the old ones rather than losing the rows.
+      const [page, searched] = await Promise.all([
+        readWorkPage(request, next, 0, WORK_PAGE_SIZE),
+        readWorkCounts(request, next.q).catch(() => undefined),
+      ]);
       if (mine !== token) {
         return false;
       }
       filter = next;
+      counts = searched ?? counts;
       loaded = page.works.length;
       total = page.total ?? loaded;
       last = page.works.at(-1)?.state.primary;
-      const list = renderWorkList(
-        { counts: init.counts, works: page.works, ...rowsData() },
-        listOptions(),
-      );
+      const list = renderWorkList({ counts, works: page.works, ...rowsData() }, listOptions());
       const fresh = sanitizeFragment(list.seg, hrefOf);
       const replacement = fresh.firstElementChild as HTMLElement | null;
       if (replacement) {

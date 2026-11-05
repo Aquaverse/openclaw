@@ -73,49 +73,71 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
   const counterpartList = (input: {
     principal: Principal;
     now: number;
+    /** Which people the rows are: the live ones (default) or the inactive. The counts always cover both. */
     lifecycle?: "live" | "inactive";
     keyword?: string;
+    /** Only the people who need a look: something overdue or waiting for confirmation. */
+    attention?: boolean;
     includeSelf?: boolean;
     limit: number;
     offset: number;
   }) =>
     transaction(() => {
       const owner = input.principal.ownerId;
-      const where = ["cp.owner_id = ?", "cp.lifecycle = ?"];
-      const params: (string | number)[] = [owner, input.lifecycle ?? "live"];
+      const where = ["cp.owner_id = ?", "cp.lifecycle IN ('live','inactive')"];
+      const params: (string | number)[] = [owner];
       if (input.includeSelf !== true) {
         where.push(
           "cp.id NOT IN (SELECT self_counterpart_id FROM owner_identity WHERE owner_id = cp.owner_id)",
         );
       }
-      const keyword = normalizeName(input.keyword ?? "");
-      if (keyword.length > 0) {
-        const like = `%${keyword.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-        where.push(
-          "(lower(cp.display_name) LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM counterpart_names n WHERE n.owner_id = cp.owner_id AND n.counterpart_id = cp.id " +
-            "AND n.revoked_at IS NULL AND n.name LIKE ? ESCAPE '\\'))",
-        );
-        params.push(like, like);
-      }
-      const rows = all(
-        `SELECT cp.* FROM counterparts cp WHERE ${where.join(" AND ")} ORDER BY cp.display_name, cp.id`,
-        ...params,
-      );
+      const rows = all(`SELECT cp.* FROM counterparts cp WHERE ${where.join(" AND ")}`, ...params);
       const stats = statsFor(owner, input.now);
-      const items: CounterpartSummary[] = rows.map((row) =>
+      let everyone: CounterpartSummary[] = rows.map((row) =>
         Object.assign(cp.toCounterpart(owner, row), stats.get(String(row.id)) ?? EMPTY),
       );
       // Whom to look at first: overdue, then waiting for confirmation, then the earliest due date; names break ties.
-      items.sort(
+      everyone.sort(
         (a, b) =>
           b.overdue - a.overdue ||
           b.needsConfirmation - a.needsConfirmation ||
           (a.earliestDueAt ?? Infinity) - (b.earliestDueAt ?? Infinity) ||
           a.displayName.localeCompare(b.displayName, "zh"),
       );
+      // The search narrows everything, the counts included: the numbers beside the segments describe what it finds.
+      const keyword = normalizeName(input.keyword ?? "");
+      if (keyword.length > 0) {
+        const like = `%${keyword.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+        const hit = new Set(
+          all(
+            `SELECT cp.id FROM counterparts cp WHERE ${where.join(" AND ")} AND (lower(cp.display_name) LIKE ? ESCAPE '\\' OR EXISTS ` +
+              "(SELECT 1 FROM counterpart_names n WHERE n.owner_id = cp.owner_id AND n.counterpart_id = cp.id " +
+              "AND n.revoked_at IS NULL AND n.name LIKE ? ESCAPE '\\'))",
+            ...params,
+            like,
+            like,
+          ).map((row) => String(row.id)),
+        );
+        everyone = everyone.filter((p) => hit.has(p.id));
+      }
+      const needsLook = (p: CounterpartSummary) => p.overdue > 0 || p.needsConfirmation > 0;
+      const live = everyone.filter((p) => p.lifecycle === "live");
+      const inactive = everyone.filter((p) => p.lifecycle === "inactive");
+      const counts = {
+        all: live.length,
+        attention: live.filter(needsLook).length,
+        inactive: inactive.length,
+      };
+      const items =
+        input.lifecycle === "inactive"
+          ? inactive
+          : input.attention === true
+            ? live.filter(needsLook)
+            : live;
       const limit = Math.min(Math.max(input.limit, 1), LIST_MAX);
       return {
         total: items.length,
+        counts,
         items: items.slice(input.offset, input.offset + limit),
       };
     });
@@ -168,7 +190,15 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
           }
         }
       }
-      const out = [...groups.values()].filter((group) => group.open > 0);
+      const dismissed = new Set(
+        all(
+          "SELECT normalized_raw FROM counterpart_dismissals WHERE owner_id = ? AND revoked_at IS NULL",
+          owner,
+        ).map((row) => String(row.normalized_raw)),
+      );
+      const out = [...groups.values()].filter(
+        (group) => group.open > 0 && !dismissed.has(group.key),
+      );
       for (const group of out) {
         group.suggestions = cp.resolveName(owner, group.raw).candidates;
       }

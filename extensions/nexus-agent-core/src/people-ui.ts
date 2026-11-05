@@ -8,6 +8,7 @@ import type {
   ContactRecord,
   CounterpartRecord,
   CounterpartSummary,
+  DismissedName,
   PendingPersonGroup,
   PersonView,
 } from "./counterpart/types.js";
@@ -49,13 +50,23 @@ export function personActionModel(c: CounterpartRecord): PersonActionModel {
   };
 }
 
+export type PeopleCounts = { all: number; attention: number; inactive?: number };
+
 export type PeoplePageData = {
-  /** The live people, most in need of attention first (the server's order). */
+  /** The live people loaded so far, most in need of attention first (the server's order); the attention segment holds only those. */
   items: readonly CounterpartSummary[];
-  /** The inactive people; read only while that segment is open. */
+  /** The inactive people loaded so far; read only while that segment is open. */
   inactive: readonly CounterpartSummary[];
+  /** How many people each segment holds for the current search (everyone's when nothing is searched). Absent: counted from `items`. */
+  counts?: PeopleCounts;
+  /** The whole account's numbers, for the greeting (a search does not change what needs the reader's attention). Defaults to `counts`. */
+  overall?: PeopleCounts;
+  /** The name search of the list pane (blank: none). */
+  q?: string;
   /** Typed names with open commitments that point at no one yet. */
   pending: readonly PendingPersonGroup[];
+  /** Typed names the user said point at nobody; read only while the pending segment is open. */
+  dismissed?: readonly DismissedName[];
   seg?: PeopleSeg;
   tab: PersonTab;
   /** The person shown in the detail pane, if any. */
@@ -89,11 +100,14 @@ const relationText = (lang: Lang, c: Pick<CounterpartRecord, "relation">): strin
 function href(
   base: string,
   id: string | undefined,
-  query: { seg?: PeopleSeg | undefined; tab?: PersonTab | undefined },
+  query: { seg?: PeopleSeg | undefined; tab?: PersonTab | undefined; q?: string | undefined },
 ): string {
   const params = new URLSearchParams();
   if (query.seg) {
     params.set("seg", query.seg);
+  }
+  if (query.q) {
+    params.set("q", query.q);
   }
   if (query.tab && query.tab !== "responsible") {
     params.set("tab", query.tab);
@@ -118,16 +132,27 @@ function personRow(
   p: CounterpartSummary,
   lang: Lang,
   base: string,
-  seg: PeopleSeg | undefined,
+  filter: { seg?: PeopleSeg | undefined; q?: string | undefined },
   selected: string | undefined,
 ): string {
   const meta = relationText(lang, p) || kindText(lang, p.kind);
   return (
-    `<a class="nx-wrow nx-t-${toneOf(p)}${p.id === selected ? " on" : ""}" href="${href(base, p.id, { seg })}">` +
+    `<a class="nx-wrow nx-t-${toneOf(p)}${p.id === selected ? " on" : ""}" href="${href(base, p.id, filter)}">` +
     `<span class="nx-sd"></span><span class="nx-wm"><span class="nx-wt">` +
     `<span class="nx-wtt">${esc(p.displayName)}</span><span class="nx-wtm">${esc(meta)}</span></span>` +
     `<span class="nx-wnx">${esc(summaryLine(lang, p))}</span></span></a>`
   );
+}
+
+/** The person rows of the list pane (what a page of more rows, or a new search, puts in place). */
+export function renderPeopleRows(
+  people: readonly CounterpartSummary[],
+  options: { lang?: Lang; basePath?: string; seg?: PeopleSeg; q?: string; selected?: string },
+): string {
+  const lang = options.lang ?? DEFAULT_LANG;
+  const base = (options.basePath ?? "nexus-nav:").replace(/\/$/, "");
+  const filter = { seg: options.seg, q: options.q };
+  return people.map((p) => personRow(p, lang, base, filter, options.selected)).join("");
 }
 
 function pendingRow(
@@ -153,8 +178,88 @@ function pendingRow(
     `<span class="nx-sd"></span><span class="nx-wm"><span class="nx-wt">` +
     `<span class="nx-wtt">${esc(group.raw)}</span></span>` +
     `<span class="nx-wnx">${esc(parts.join(" · "))}</span>${hint}</span>` +
-    (withActions ? marker("pp-claim", `g${index}`, "nx-btn", esc(tr(lang, "pp.pend.claim"))) : "") +
+    (withActions
+      ? marker("pp-claim", `g${index}`, "nx-btn", esc(tr(lang, "pp.pend.claim"))) +
+        marker("pp-notperson", `g${index}`, "nx-btn", esc(tr(lang, "pp.pend.not")))
+      : "") +
     `</div>`
+  );
+}
+
+/** The numbers beside the segments: the server's, or counted from what is loaded when a (test) server sends none. */
+function peopleTotals(data: Pick<PeoplePageData, "items" | "counts">): PeopleCounts {
+  return {
+    all: data.counts?.all ?? data.items.length,
+    attention: data.counts?.attention ?? data.items.filter(needsLook).length,
+    ...(data.counts?.inactive !== undefined ? { inactive: data.counts.inactive } : {}),
+  };
+}
+
+/** The pill row of the list pane (what a new search replaces in place, so the numbers follow the search). */
+export function renderPeopleSegs(
+  data: Pick<PeoplePageData, "items" | "counts" | "pending" | "seg" | "q">,
+  lang: Lang,
+  base: string,
+): string {
+  const total = peopleTotals(data);
+  const q = data.q || undefined;
+  const pill = (to: PeopleSeg | undefined, label: string, count?: number) =>
+    `<a class="${data.seg === to ? "on" : ""}" href="${href(base, undefined, { seg: to, q: to === "pending" ? undefined : q })}">${esc(label)}` +
+    `${count === undefined ? "" : `<span class="nx-n">${count}</span>`}</a>`;
+  return (
+    `<div class="nx-seg">` +
+    pill(undefined, tr(lang, "pp.seg.all"), total.all) +
+    pill("attention", tr(lang, "pp.seg.attention"), total.attention) +
+    pill("pending", tr(lang, "pp.seg.pending"), data.pending.length) +
+    pill("inactive", tr(lang, "pp.seg.inactive"), total.inactive) +
+    `</div>`
+  );
+}
+
+/** The rows of a people segment: the "typed names" note, the people or the empty text (what a new search puts in place). */
+export function renderPeopleListRows(
+  data: Pick<PeoplePageData, "items" | "inactive" | "pending" | "seg" | "q">,
+  lang: Lang,
+  base: string,
+  selected: string | undefined,
+): string {
+  const seg = data.seg;
+  const q = data.q || undefined;
+  const shown =
+    seg === "inactive"
+      ? data.inactive
+      : seg === "attention"
+        ? data.items.filter(needsLook)
+        : data.items;
+  // From the full list, names that point at no one yet are one click away.
+  const note =
+    seg === undefined && !q && data.pending.length > 0
+      ? `<a class="nx-wrow nx-t-amber" href="${href(base, undefined, { seg: "pending" })}"><span class="nx-sd"></span>` +
+        `<span class="nx-wm"><span class="nx-wtt">${esc(tr(lang, "pp.pend.note", { n: data.pending.length }))}</span></span></a>`
+      : "";
+  const emptyKey: MsgKey = q
+    ? "pp.empty.search"
+    : seg === "inactive"
+      ? "pp.empty.inactive"
+      : seg === "attention"
+        ? "pp.empty.attention"
+        : "pp.empty.all";
+  return (
+    note +
+    (shown.length === 0
+      ? `<p class="nx-wempty">${esc(tr(lang, emptyKey))}` +
+        // A search that finds no one offers the way back: the same segment without the search.
+        (q
+          ? ` <a href="${href(base, undefined, { seg })}">${esc(tr(lang, "pp.empty.clear"))}</a>`
+          : "") +
+        `</p>`
+      : renderPeopleRows(shown, {
+          lang,
+          basePath: base,
+          ...(seg ? { seg } : {}),
+          ...(q ? { q } : {}),
+          ...(selected ? { selected } : {}),
+        }))
   );
 }
 
@@ -165,22 +270,13 @@ function listPane(
   selected: string | undefined,
   withActions: boolean,
 ): string {
-  const attention = data.items.filter(needsLook);
   const seg = data.seg;
+  const total = peopleTotals(data);
   const hello =
-    attention.length > 0
-      ? tr(lang, "pp.hello.attention", { n: attention.length })
+    (data.overall?.attention ?? total.attention) > 0
+      ? tr(lang, "pp.hello.attention", { n: data.overall?.attention ?? total.attention })
       : tr(lang, "pp.hello.none");
-  const pill = (to: PeopleSeg | undefined, label: string, count?: number) =>
-    `<a class="${seg === to ? "on" : ""}" href="${href(base, undefined, { seg: to })}">${esc(label)}` +
-    `${count === undefined ? "" : `<span class="nx-n">${count}</span>`}</a>`;
-  const segs =
-    `<div class="nx-seg">` +
-    pill(undefined, tr(lang, "pp.seg.all"), data.items.length) +
-    pill("attention", tr(lang, "pp.seg.attention"), attention.length) +
-    pill("pending", tr(lang, "pp.seg.pending"), data.pending.length) +
-    pill("inactive", tr(lang, "pp.seg.inactive")) +
-    `</div>`;
+  const segs = renderPeopleSegs(data, lang, base);
   let rows: string;
   if (seg === "pending") {
     rows =
@@ -189,24 +285,31 @@ function listPane(
         : data.pending
             .map((group, index) => pendingRow(group, index, lang, data.now, withActions))
             .join("");
+    const ignored = data.dismissed ?? [];
+    if (ignored.length > 0) {
+      rows +=
+        `<p class="nx-hello">${esc(tr(lang, "pp.dis.title"))}</p>` +
+        `<p class="nx-cm-hint">${esc(tr(lang, "pp.dis.note"))}</p>` +
+        ignored
+          .map(
+            (entry, index) =>
+              `<div class="nx-wrow nx-prow"><span class="nx-wm"><span class="nx-wtt">${esc(entry.raw)}</span></span>` +
+              (withActions
+                ? marker("pp-undismiss", `d${index}`, "nx-btn", esc(tr(lang, "pp.dis.restore")))
+                : "") +
+              `</div>`,
+          )
+          .join("");
+    }
   } else {
-    const shown = seg === "inactive" ? data.inactive : seg === "attention" ? attention : data.items;
-    // From the full list, names that point at no one yet are one click away.
-    const note =
-      seg === undefined && data.pending.length > 0
-        ? `<a class="nx-wrow nx-t-amber" href="${href(base, undefined, { seg: "pending" })}"><span class="nx-sd"></span>` +
-          `<span class="nx-wm"><span class="nx-wtt">${esc(tr(lang, "pp.pend.note", { n: data.pending.length }))}</span></span></a>`
-        : "";
-    rows =
-      note +
-      (shown.length === 0
-        ? `<p class="nx-wempty">${esc(tr(lang, seg === "inactive" ? "pp.empty.inactive" : seg === "attention" ? "pp.empty.attention" : "pp.empty.all"))}</p>`
-        : shown.map((p) => personRow(p, lang, base, seg, selected)).join(""));
+    rows = renderPeopleListRows(data, lang, base, selected);
   }
   return (
     `<div class="nx-wlist"><div class="nx-lh"><div class="nx-lhr"><h1>${esc(tr(lang, "pp.title"))}</h1>` +
     (withActions ? marker("pp-new", undefined, "nx-btn", esc(tr(lang, "pp.add"))) : "") +
-    `</div><p class="nx-hello">${esc(hello)}</p></div>${segs}` +
+    `</div><p class="nx-hello">${esc(hello)}</p>` +
+    // The search box is built by the page (it is a form control) and moved into this empty slot after every mount.
+    `${seg === "pending" ? "" : `<div class="nx-search-slot"></div>`}</div>${segs}` +
     `<div class="nx-rows">${rows}</div></div>`
   );
 }
@@ -284,14 +387,14 @@ function tabBody(
 }
 
 function detailPane(data: PeoplePageData, lang: Lang, base: string, withActions: boolean): string {
-  const back = `<a class="nx-back" href="${href(base, undefined, { seg: data.seg })}">${esc(tr(lang, "work.d.back"))}</a>`;
+  const back = `<a class="nx-back" href="${href(base, undefined, { seg: data.seg, q: data.q || undefined })}">${esc(tr(lang, "work.d.back"))}</a>`;
   const view = data.view;
   if (!view) {
     const text = data.missing
       ? tr(lang, "pp.d.missing")
       : data.seg === "pending"
         ? tr(lang, "pp.pend.explain")
-        : data.items.length + data.inactive.length + data.pending.length === 0
+        : (data.counts?.all ?? data.items.length) + data.inactive.length + data.pending.length === 0
           ? tr(lang, "pp.d.first")
           : tr(lang, "pp.d.pick");
     return `<div class="nx-detail"><div class="nx-dw"><div class="nx-top">${back}</div><p class="nx-wempty">${esc(text)}</p></div></div>`;
@@ -303,8 +406,13 @@ function detailPane(data: PeoplePageData, lang: Lang, base: string, withActions:
   const top =
     withActions && !c.isSelf
       ? [
-          ib("pp-edit", "pp.btn.edit"),
-          live ? ib("pp-off", "pp.btn.off") : ib("pp-on", "pp.btn.on"),
+          ...(c.lifecycle === "merged" ? [] : [ib("pp-edit", "pp.btn.edit")]),
+          ...(live ? [ib("pp-merge", "pp.btn.merge")] : []),
+          ...(live
+            ? [ib("pp-off", "pp.btn.off")]
+            : c.lifecycle === "inactive"
+              ? [ib("pp-on", "pp.btn.on")]
+              : []),
         ].join("")
       : "";
   const tone = toneOf(counts);
@@ -323,7 +431,15 @@ function detailPane(data: PeoplePageData, lang: Lang, base: string, withActions:
       ),
     );
   }
-  if (!live) {
+  if (c.lifecycle === "merged" && c.mergedInto) {
+    notes.push(
+      callout(
+        "plain",
+        `<p>${esc(tr(lang, "pp.merged.note"))}</p>` +
+          `<p><a href="${href(base, c.mergedInto, {})}">${esc(tr(lang, "pp.merged.go"))}</a></p>`,
+      ),
+    );
+  } else if (!live) {
     notes.push(
       callout(
         "plain",
@@ -344,7 +460,7 @@ function detailPane(data: PeoplePageData, lang: Lang, base: string, withActions:
   const addContact =
     withActions && live ? marker("pp-contact", id, "nx-btn", esc(tr(lang, "pp.btn.cadd"))) : "";
   const tab = (to: PersonTab, key: MsgKey, n: number) =>
-    `<a class="${data.tab === to ? "on" : ""}" href="${href(base, id, { seg: data.seg, tab: to })}">${esc(tr(lang, key))}<span class="nx-n">${n}</span></a>`;
+    `<a class="${data.tab === to ? "on" : ""}" href="${href(base, id, { seg: data.seg, tab: to, q: data.q || undefined })}">${esc(tr(lang, key))}<span class="nx-n">${n}</span></a>`;
   return (
     `<div class="nx-detail"><div class="nx-dw">` +
     `<div class="nx-top">${back}<span>${esc(kindText(lang, c.kind))}</span>` +
@@ -356,7 +472,11 @@ function detailPane(data: PeoplePageData, lang: Lang, base: string, withActions:
     (c.confirmation === "confirmed"
       ? chip("green", tr(lang, "pp.chip.confirmed"))
       : chip("amber", tr(lang, "pp.chip.stated"))) +
-    (live ? "" : chip("gray", tr(lang, "pp.chip.inactive"))) +
+    (live
+      ? ""
+      : c.lifecycle === "merged"
+        ? chip("gray", tr(lang, "pp.chip.merged"))
+        : chip("gray", tr(lang, "pp.chip.inactive"))) +
     (relation ? `<span>${esc(relation)}</span>` : "") +
     `</div>` +
     `<div class="nx-hero nx-pst nx-t-${tone}">` +

@@ -15,6 +15,7 @@ import { createDialog } from "./commitment-dialogs.ts";
 import { select } from "./commitment-form.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
 import { el, field, note } from "./goal-dom.ts";
+import { mergeDialog, notPersonDialog, undismissAction } from "./people-fix-dialogs.ts";
 import {
   candidateList,
   kindOptions,
@@ -288,7 +289,7 @@ function editPersonDialog(ctx: ActionContext): void {
           slot?.replaceChildren();
           changed();
         },
-        false,
+        true,
       );
       slot = el("div");
       body.append(slot);
@@ -482,6 +483,12 @@ export function runPeopleAction(ctx: ActionContext, action: PeopleAction): void 
   if (action.kind === "pp-claim") {
     return claimDialog(ctx, action.id);
   }
+  if (action.kind === "pp-notperson") {
+    return notPersonDialog(ctx, action.id);
+  }
+  if (action.kind === "pp-undismiss") {
+    return undismissAction(ctx, action.id);
+  }
   if (!model.person || (action.kind !== "pp-cdel" && model.person.id !== action.id)) {
     ctx.changed({ ok: false, text: tr(ctx.lang, "pp.err.gone") });
     return;
@@ -495,6 +502,8 @@ export function runPeopleAction(ctx: ActionContext, action: PeopleAction): void 
       return contactAddDialog(ctx);
     case "pp-cdel":
       return contactRemoveDialog(ctx, action.id);
+    case "pp-merge":
+      return mergeDialog(ctx);
     case "pp-off":
       return deactivateDialog(ctx);
     case "pp-on":

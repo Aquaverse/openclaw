@@ -11,11 +11,14 @@ import type { ClaimLedger } from "./claim-ledger.js";
 import type { TransactionRunner } from "./kernel.js";
 import type { Principal } from "./types.js";
 import { createWorkControlOps } from "./work-control-ledger.js";
+import { createWorkCountsOps } from "./work-counts-ledger.js";
 import { createWorkFacts, type WorkView } from "./work-facts.js";
 import { createWorkGoalOps } from "./work-goal-ledger.js";
+import { workKeywordFilter } from "./work-keyword.js";
 import { createWorkCommon, toWork, type Row, type WorkActor } from "./work-ledger-common.js";
 import { createRequireLive, TERMINAL_TASK, type WorkOpsDeps } from "./work-ledger-deps.js";
 import { createWorkLinkOps } from "./work-link-ledger.js";
+import { createWorkLinkLines } from "./work-link-lines.js";
 
 export type WorkListInput = {
   principal: Principal;
@@ -48,6 +51,8 @@ export function createWorkLedger(
   const c = createWorkCommon(transaction, internals);
   const { one, all, run, newId, workRow, appendEvent, ensureContextRoot, touch } = c;
   const facts = createWorkFacts(c);
+  const { workCounts } = createWorkCountsOps(c, facts);
+  const { lines: linkLines, goalTitle } = createWorkLinkLines(c);
 
   const requireLive = createRequireLive(c);
 
@@ -379,20 +384,14 @@ export function createWorkLedger(
     }
     const row = workRow(owner, input.workId) as Row;
     const view = facts.buildViews(owner, [row], input.now)[0] as WorkView;
-    const links = all(
-      "SELECT * FROM work_links WHERE owner_id = ? AND work_id = ? ORDER BY created_at DESC LIMIT 200",
+    const links = linkLines(
       owner,
-      input.workId,
-    ).map((link) => ({
-      id: String(link.id),
-      role: String(link.role),
-      targetKind: String(link.target_kind),
-      targetId: String(link.target_id),
-      purpose: typeof link.purpose === "string" ? link.purpose : null,
-      createdAt: Number(link.created_at),
-      endedAt: link.ended_at === null ? null : Number(link.ended_at),
-      endBasis: typeof link.end_basis === "string" ? link.end_basis : null,
-    }));
+      all(
+        "SELECT * FROM work_links WHERE owner_id = ? AND work_id = ? ORDER BY created_at DESC LIMIT 200",
+        owner,
+        input.workId,
+      ),
+    );
     const events = all(
       "SELECT id, seq, kind, actor, payload_json, created_at FROM work_events WHERE owner_id = ? AND work_id = ? ORDER BY seq DESC LIMIT ?",
       owner,
@@ -432,7 +431,8 @@ export function createWorkLedger(
       validUntil: p.valid_until === null ? null : Number(p.valid_until),
       createdAt: Number(p.created_at),
     }));
-    return { ...view, links, events: events.toReversed(), controls, prerequisites };
+    const detail = { ...view, goalTitle: goalTitle(owner, view.goalId) };
+    return { ...detail, links, events: events.toReversed(), controls, prerequisites };
   };
 
   const workList = (input: WorkListInput) => {
@@ -456,15 +456,9 @@ export function createWorkLedger(
       params.push(input.goalId);
     }
     if (input.keyword) {
-      // Title, the wanted result and the request, when they are words. Arguments an agent stored as JSON are machinery,
-      // not something the reader wrote: "hi" must not find "passenger_relationship".
-      const words = (column: string) =>
-        `(COALESCE(${column}, '') NOT LIKE '{%' AND COALESCE(${column}, '') NOT LIKE '[%' AND COALESCE(${column}, '') LIKE ? ESCAPE '\\')`;
-      where.push(
-        `(w.title LIKE ? ESCAPE '\\' OR ${words("w.outcome_text")} OR ${words("w.request_text")})`,
-      );
-      const like = `%${input.keyword.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-      params.push(like, like, like);
+      const found = workKeywordFilter(input.keyword);
+      where.push(found.sql);
+      params.push(...found.params);
     }
     const rows = all(
       `SELECT w.* FROM works w WHERE ${where.join(" AND ")} ORDER BY w.updated_at DESC, w.id DESC LIMIT 2000`,
@@ -485,40 +479,6 @@ export function createWorkLedger(
       total: matched.length,
       offset: input.offset,
     };
-  };
-
-  /** RT-02: five mutually exclusive classes over live, visible Works; the totals add up to the number of Works. */
-  const workCounts = (input: { principal: Principal; now: number; top: number }) => {
-    const owner = input.principal.ownerId;
-    const rows = all(
-      "SELECT * FROM works WHERE owner_id = ? AND lifecycle = 'live' AND hidden = 0 ORDER BY updated_at DESC, id DESC LIMIT 2000",
-      owner,
-    );
-    const views = facts.buildViews(owner, rows, input.now);
-    const classes = ["done", "ended_incomplete", "needs_you", "blocked", "in_progress"] as const;
-    const counts = Object.fromEntries(classes.map((k) => [k, 0])) as Record<
-      (typeof classes)[number],
-      number
-    >;
-    const top = Object.fromEntries(classes.map((k) => [k, [] as WorkView[]])) as Record<
-      (typeof classes)[number],
-      WorkView[]
-    >;
-    for (const view of views) {
-      counts[view.state.primary] += 1;
-      if (top[view.state.primary].length < input.top) {
-        top[view.state.primary].push(view);
-      }
-    }
-    const hidden = Number(
-      (
-        one(
-          "SELECT COUNT(*) AS c FROM works WHERE owner_id = ? AND lifecycle = 'live' AND hidden = 1",
-          owner,
-        ) as Row
-      ).c,
-    );
-    return { total: views.length, counts, top, hiddenCount: hidden };
   };
 
   const workOfTask = (input: { principal: Principal; taskId: string }) =>

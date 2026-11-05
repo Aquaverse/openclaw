@@ -55,7 +55,10 @@ export type NexusAction =
   | { kind: "pp-off"; id: string }
   | { kind: "pp-on"; id: string }
   | { kind: "pp-record"; id: string }
-  | { kind: "pp-claim"; id: string };
+  | { kind: "pp-claim"; id: string }
+  | { kind: "pp-merge"; id: string }
+  | { kind: "pp-notperson"; id: string }
+  | { kind: "pp-undismiss"; id: string };
 
 const ID_ACTIONS: ReadonlySet<string> = new Set<NexusAction["kind"]>([
   "decision",
@@ -101,6 +104,9 @@ const ID_ACTIONS: ReadonlySet<string> = new Set<NexusAction["kind"]>([
   "pp-on",
   "pp-record",
   "pp-claim",
+  "pp-merge",
+  "pp-notperson",
+  "pp-undismiss",
 ]);
 
 const ACTION_ID = /^[A-Za-z0-9_-]{1,40}$/;

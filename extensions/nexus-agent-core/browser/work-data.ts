@@ -23,7 +23,10 @@ const SERVER_PAGE_MAX = 200;
 
 /** What the list pane needs after a mount to keep loading rows (the pager picks up where the page stopped). */
 export type WorkListInit = {
+  /** Beside the segments: what the search finds. */
   counts: WorkCounts;
+  /** The whole account's, for the greeting. */
+  overall: WorkCounts;
   filter: WorkFilter;
   total: number;
   loaded: number;
@@ -49,6 +52,10 @@ export function readWorkPage(
     ...(filter.q ? { keyword: filter.q } : {}),
   });
 }
+
+/** The five classes over what a search finds (the numbers beside the segments of a searched list). */
+export const readWorkCounts = (request: NexusRequest, keyword?: string): Promise<WorkCounts> =>
+  request<WorkCounts>("nexus.work.counts", { top: 0, ...(keyword ? { keyword } : {}) });
 
 const isNotFound = (error: unknown): boolean => {
   const code = (error as { code?: unknown } | undefined)?.code;
@@ -84,7 +91,7 @@ export async function loadWorksView(
     ...(route.q ? { q: route.q } : {}),
   };
   const want = Math.max(WORK_PAGE_SIZE, options.rows ?? 0);
-  const [counts, first, pending, people] = await Promise.all([
+  const [overall, first, pending, people] = await Promise.all([
     request<WorkCounts>("nexus.work.counts", { top: 0 }),
     readWorkPage(request, filter, 0, Math.min(want, SERVER_PAGE_MAX)),
     // Waiting decisions feed the rows and the ask card; a failure only means those show no decision.
@@ -95,6 +102,8 @@ export async function loadWorksView(
     // The people a commitment can point at; without them the dialogs only offer a typed name.
     readPeopleChoices(request),
   ]);
+  // The segments describe the search: with one, the numbers are counted over what it finds.
+  const counts = route.q ? await readWorkCounts(request, route.q) : overall;
   const decisions = pending.decisions ?? [];
   const listed = [...first.works];
   const total = first.total ?? listed.length;
@@ -141,6 +150,7 @@ export async function loadWorksView(
     html: renderWorksPage(
       {
         counts,
+        overall,
         works: list.works,
         decisions,
         ...(route.state ? { state: route.state } : {}),
@@ -154,6 +164,7 @@ export async function loadWorksView(
     ),
     workList: {
       counts,
+      overall,
       filter,
       total,
       loaded: listed.length,

@@ -27,7 +27,7 @@ import {
 import { fileListParams, type FileQuery } from "../src/vault-ui.js";
 import { EMPTY_MODEL, type NexusModel } from "./actions.ts";
 import { DEFAULT_GOAL_PREFS, type GoalPrefs } from "./goal-prefs.ts";
-import { loadPeopleView } from "./people-data.ts";
+import { loadPeopleView, type PeopleListInit } from "./people-data.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
 import { loadWorksView, type WorkListInit } from "./work-data.ts";
 
@@ -81,6 +81,8 @@ export type NexusView = {
   model: NexusModel;
   /** The Work list pane's paging state; only the Work page sets it. */
   workList?: WorkListInit;
+  /** The People list pane's paging state; only the People page sets it. */
+  peopleList?: PeopleListInit;
 };
 
 export type LoadOptions = {
@@ -92,6 +94,8 @@ export type LoadOptions = {
   goalPrefs?: GoalPrefs;
   /** The Work list keeps at least this many rows on a reload (the pages already scrolled in). */
   workRows?: number;
+  /** The People list keeps at least this many rows on a reload. */
+  peopleRows?: number;
 };
 
 export async function loadView(
@@ -111,7 +115,11 @@ export async function loadView(
         ...(options.workRows ? { rows: options.workRows } : {}),
       });
     case "people":
-      return loadPeopleView(request, route, { actions, lang });
+      return loadPeopleView(request, route, {
+        actions,
+        lang,
+        ...(options.peopleRows ? { rows: options.peopleRows } : {}),
+      });
     case "tasks": {
       let filter = route.filter;
       const fetchList = (next: TaskFilter) =>

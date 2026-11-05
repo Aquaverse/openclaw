@@ -1,5 +1,5 @@
 import type { CommitmentLine } from "../src/commitment-ui.js";
-import type { PendingPersonGroup } from "../src/counterpart/types.js";
+import type { DismissedName, PendingPersonGroup } from "../src/counterpart/types.js";
 // The write side of the Nexus page: decisions, watch cancellation and preferences. Every action opens a confirmation
 // dialog built from the records the page itself loaded (never from the clicked markup, which only carries an id), then
 // calls the existing operator.write RPC. The RPCs stay the authority: they re-check status, revision and authority hash,
@@ -71,6 +71,8 @@ export type NexusModel = {
   person?: PersonActionModel;
   /** The groups of typed names the people page lists as "to be confirmed". */
   pending?: readonly PendingPersonGroup[];
+  /** The typed names the user said point at nobody (shown under "to confirm"). */
+  dismissed?: readonly DismissedName[];
 };
 
 export const EMPTY_MODEL: NexusModel = {
@@ -562,6 +564,9 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
     case "pp-on":
     case "pp-record":
     case "pp-claim":
+    case "pp-merge":
+    case "pp-notperson":
+    case "pp-undismiss":
       return runPeopleAction(ctx, action);
     case "goal-menu":
       return goalMenu(ctx);

@@ -11,6 +11,8 @@ import { createFileBar } from "./file-bar.ts";
 import { createFilterBar } from "./filters.ts";
 import { readGoalPrefs, writeGoalPrefs } from "./goal-prefs.ts";
 import { refreshOpenGoalDetail } from "./goals-view.ts";
+import { PEOPLE_PAGE_SIZE } from "./people-data.ts";
+import { attachPeopleList, type PeopleList } from "./people-list.ts";
 import { FILES_HOME, parseRoute, routeParams, TASKS_HOME, type NexusRoute } from "./route.ts";
 import { mountSanitized } from "./sanitize.ts";
 import { NEXUS_CSS } from "./style.ts";
@@ -125,6 +127,8 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
     // The Work list pane after a mount (paging, in-place search), the filter it shows, and a route the page already shows
     // because a search changed it in place (the host's answer to that navigation must not reload the page).
     let workList: WorkList | undefined;
+    // The same for the People list pane (its rows page in as the reader scrolls, its search applies in place).
+    let peopleList: PeopleList | undefined;
     let shownListKey: string | undefined;
     // The route of a search made in place. A search is a state of the list, not a place to go: it does not touch the address
     // (every navigation makes the host redraw and reset its scroll regions, which is what made the page jump while typing).
@@ -156,6 +160,38 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
         }
         pane
           .refresh(filter)
+          .then((shown) => {
+            if (shown) {
+              shownListKey = listKey(next);
+              settling = next;
+            }
+          })
+          .catch(() => open(next));
+      },
+    });
+    // The People search box: the same box, with its own placeholder, moved into the slot of the People list header.
+    const peopleBar = createWorkBar({
+      lang: currentLang(),
+      placeholder: "pp.search.placeholder",
+      apply(q) {
+        const here = settling ?? parseRoute(context.props);
+        if (here.view !== "people") {
+          return;
+        }
+        const { q: _previous, ...rest } = here;
+        const next: NexusRoute = { ...rest, ...(q ? { q } : {}) };
+        // Same query, same URL: the host would not react, so searching again reloads in place.
+        if (JSON.stringify(routeParams(next)) === JSON.stringify(routeParams(here))) {
+          void load();
+          return;
+        }
+        const pane = peopleList;
+        if (!pane) {
+          open(next);
+          return;
+        }
+        pane
+          .refresh(q)
           .then((shown) => {
             if (shown) {
               shownListKey = listKey(next);
@@ -286,8 +322,11 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
       unbindClicks = undefined;
       workList?.dispose();
       workList = undefined;
+      peopleList?.dispose();
+      peopleList = undefined;
       fileBar.element.remove();
       workBar.element.remove();
+      peopleBar.element.remove();
     };
 
     const showMessage = (text: string, className: string) => {
@@ -340,7 +379,9 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
     const listKey = (route: NexusRoute): string | undefined =>
       route.view === "works" || route.view === "work"
         ? JSON.stringify([route.state ?? "", route.q ?? ""])
-        : undefined;
+        : route.view === "people"
+          ? JSON.stringify(["people", route.seg ?? "", route.q ?? ""])
+          : undefined;
 
     const placeWorkBar = (route: NexusRoute) => {
       const slot =
@@ -356,6 +397,18 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
       workBar.restoreFocus();
     };
 
+    // The People page has no slot while the "to confirm" names are shown (they are not people, so there is nothing to search).
+    const placePeopleBar = (route: NexusRoute) => {
+      const slot = route.view === "people" ? main.querySelector(".nx-search-slot") : null;
+      if (route.view !== "people" || !slot) {
+        peopleBar.element.remove();
+        return;
+      }
+      slot.append(peopleBar.element);
+      peopleBar.set(route.q ?? "");
+      peopleBar.restoreFocus();
+    };
+
     async function load(keepNotice = false): Promise<void> {
       const mine = ++sequence;
       const route = settling ?? parseRoute(context.props);
@@ -364,12 +417,14 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
       }
       const lang = currentLang();
       // A reload of the same list keeps the rows already scrolled in, and where the reader had scrolled to.
-      const sameList = workList !== undefined && listKey(route) === shownListKey;
-      const keepRows = sameList ? workList?.loaded() : undefined;
+      const sameList =
+        (workList !== undefined || peopleList !== undefined) && listKey(route) === shownListKey;
+      const keepRows = sameList ? (workList ?? peopleList)?.loaded() : undefined;
       const keepTop = sameList ? main.querySelector(".nx-rows")?.scrollTop : undefined;
       bar.setLang(lang);
       fileBar.setLang(lang);
       workBar.setLang(lang);
+      peopleBar.setLang(lang);
       if (route.view === "tasks") {
         remembered = route.filter;
       }
@@ -412,6 +467,7 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
           lang,
           goalPrefs: readGoalPrefs(),
           ...(keepRows && keepRows > WORK_PAGE_SIZE ? { workRows: keepRows } : {}),
+          ...(keepRows && keepRows > PEOPLE_PAGE_SIZE ? { peopleRows: keepRows } : {}),
         });
         const due = dueRead ? await dueRead : 0;
         if (mine !== sequence || context.signal.aborted) {
@@ -424,6 +480,8 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
         model = view.model;
         workList?.dispose();
         workList = undefined;
+        peopleList?.dispose();
+        peopleList = undefined;
         unbindClicks?.();
         unbindClicks = mountSanitized(main, view.html, hrefOf, open, (action) =>
           runAction(
@@ -448,7 +506,8 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
         );
         placeFileBar(route);
         placeWorkBar(route);
-        shownListKey = view.workList ? listKey(route) : undefined;
+        placePeopleBar(route);
+        shownListKey = view.workList || view.peopleList ? listKey(route) : undefined;
         if (view.workList) {
           workList = attachWorkList({
             root: main,
@@ -457,10 +516,19 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
             lang,
             init: view.workList,
           });
-          const rows = main.querySelector(".nx-rows");
-          if (rows && keepTop !== undefined) {
-            rows.scrollTop = keepTop;
-          }
+        }
+        if (view.peopleList) {
+          peopleList = attachPeopleList({
+            root: main,
+            request: context.host.request,
+            hrefOf,
+            lang,
+            init: view.peopleList,
+          });
+        }
+        const rows = main.querySelector(".nx-rows");
+        if (rows && keepTop !== undefined && (workList || peopleList)) {
+          rows.scrollTop = keepTop;
         }
       } catch (error) {
         if (mine === sequence && !context.signal.aborted) {
@@ -519,6 +587,7 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
         clearTimeout(timer);
         unbindClicks?.();
         workList?.dispose();
+        peopleList?.dispose();
         for (const dispose of disposers) {
           dispose();
         }

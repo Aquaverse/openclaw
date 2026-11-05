@@ -23,6 +23,7 @@ import {
   createCounterpartCommon,
   normalizeName,
 } from "./counterpart-common.js";
+import { createCounterpartMergeOps } from "./counterpart-merge-ledger.js";
 import { createCounterpartMoveOps } from "./counterpart-move-ledger.js";
 import { createCounterpartReadOps } from "./counterpart-read-ledger.js";
 import type { TransactionRunner } from "./kernel.js";
@@ -103,6 +104,9 @@ export function createCounterpartLedger(
     return out;
   };
 
+  const isStaffRelation = (relation: string | null | undefined): boolean =>
+    relation === "direct_report" || relation === "colleague";
+
   // ------------------------------------------------------------------ create / ensure
 
   const counterpartCreate = (input: {
@@ -127,6 +131,13 @@ export function createCounterpartLedger(
       const kind = input.kind ?? "person";
       if (!inSet(COUNTERPART_KINDS, kind)) {
         return { outcome: "invalid" as const, code: "bad_kind" };
+      }
+      // An organization or a team is nobody's direct report or colleague (the same rule as changing the type of a record).
+      if (kind !== "person" && isStaffRelation(input.relation?.relation)) {
+        return {
+          outcome: "relation_conflict" as const,
+          relation: String(input.relation?.relation),
+        };
       }
       const contacts = input.contacts ?? [];
       if (contacts.length > COUNTERPART_LIMITS.contacts) {
@@ -190,6 +201,9 @@ export function createCounterpartLedger(
       const kind = input.kind ?? "person";
       if (!inSet(COUNTERPART_KINDS, kind)) {
         return { outcome: "invalid" as const, code: "bad_kind" };
+      }
+      if (kind !== "person" && isStaffRelation(input.relation?.relation)) {
+        return { outcome: "invalid" as const, code: "relation_kind_mismatch" };
       }
       const found = cp.resolveName(owner, name);
       if (found.match === "one") {
@@ -267,6 +281,16 @@ export function createCounterpartLedger(
         if (self) {
           return { outcome: "forbidden" as const, code: "self_identity" };
         }
+        // An organization or a team is nobody's direct report or colleague: the relation has to change with the type.
+        if (changes.kind !== "person") {
+          const nextRelation =
+            changes.relation !== undefined
+              ? (changes.relation?.relation ?? null)
+              : (cp.relationOf(owner, input.counterpartId)?.relation ?? null);
+          if (isStaffRelation(nextRelation)) {
+            return { outcome: "relation_conflict" as const, relation: nextRelation };
+          }
+        }
         run(
           "UPDATE counterparts SET kind = ? WHERE owner_id = ? AND id = ?",
           changes.kind,
@@ -274,6 +298,12 @@ export function createCounterpartLedger(
           input.counterpartId,
         );
         touched = true;
+      } else if (String(row.kind) !== "person" && isStaffRelation(changes.relation?.relation)) {
+        // The type stays as it is, but the new relation would make an organization or a team somebody's colleague.
+        return {
+          outcome: "relation_conflict" as const,
+          relation: changes.relation?.relation ?? null,
+        };
       }
       if (changes.displayName !== undefined) {
         const name = clean(changes.displayName);
@@ -529,6 +559,7 @@ export function createCounterpartLedger(
     });
 
   const moves = createCounterpartMoveOps({ transaction, c, k, cp, fetch, reevaluate });
+  const merges = createCounterpartMergeOps({ transaction, c, k, cp, fetch, reevaluate });
 
   return {
     counterpartCreate,
@@ -537,6 +568,7 @@ export function createCounterpartLedger(
     counterpartContactAdd,
     counterpartContactRemove,
     ...moves,
+    ...merges,
     ...read,
   };
 }

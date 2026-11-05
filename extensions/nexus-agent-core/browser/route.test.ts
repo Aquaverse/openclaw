@@ -194,6 +194,26 @@ describe("nexus work routes", () => {
     });
   });
 
+  it("carries the People name search in the address, trimmed and bounded", () => {
+    expect(parseRoute({ view: "people", q: "  钱经理 " })).toEqual({ view: "people", q: "钱经理" });
+    expect(parseRoute({ view: "people", q: "   " })).toEqual({ view: "people" });
+    expect(parseRoute({ view: "people", q: "x".repeat(300) })).toEqual({
+      view: "people",
+      q: "x".repeat(100),
+    });
+    expect(routeParams({ view: "people", seg: "attention", q: "钱" })).toEqual({
+      view: "people",
+      seg: "attention",
+      q: "钱",
+    });
+    expect(routeFromHref(`${NAV_BASE}/people/cp_AB12?q=%E9%92%B1&seg=inactive`)).toEqual({
+      view: "people",
+      personId: "cp_AB12",
+      seg: "inactive",
+      q: "钱",
+    });
+  });
+
   it("maps people links to routes and refuses a path that is not an id", () => {
     expect(routeFromHref(`${NAV_BASE}/people`)).toEqual({ view: "people" });
     expect(routeFromHref(`${NAV_BASE}/people?seg=pending`)).toEqual({

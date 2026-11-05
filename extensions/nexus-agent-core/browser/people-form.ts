@@ -70,6 +70,12 @@ export async function peopleGuard(ctx: ActionContext, write: () => Promise<void>
       ctx.changed({ ok: false, text: tr(ctx.lang, "pp.err.state") });
       return;
     }
+    if (t.includes("nexus_relation_conflict")) {
+      throw new Error(tr(ctx.lang, "pp.err.relconf"), { cause: error });
+    }
+    if (t.includes("nexus_choice_required")) {
+      throw new Error(tr(ctx.lang, "pp.err.choice"), { cause: error });
+    }
     if (t.includes("nexus_forbidden")) {
       throw new Error(tr(ctx.lang, "pp.err.self"), { cause: error });
     }

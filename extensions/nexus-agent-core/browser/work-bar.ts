@@ -2,7 +2,7 @@
 // only (a form control cannot pass through the markup allow-list). The renderer leaves an empty slot; the page moves this
 // form into it after every mount, so what is being typed survives a refresh. Typing applies after a short pause, Enter
 // at once; applying keeps the state filter of the route (the page decides) and always lands on the plain list.
-import { tr, type Lang } from "../src/i18n.js";
+import { tr, type Lang, type MsgKey } from "../src/i18n.js";
 
 const MAX_QUERY = 100;
 const TYPING_PAUSE_MS = 350;
@@ -18,7 +18,12 @@ export type WorkBar = {
   restoreFocus(): void;
 };
 
-export function createWorkBar(handlers: { lang: Lang; apply(q: string): void }): WorkBar {
+export function createWorkBar(handlers: {
+  lang: Lang;
+  /** The placeholder text of the box; the Work list's by default. */
+  placeholder?: MsgKey;
+  apply(q: string): void;
+}): WorkBar {
   const form = document.createElement("form");
   form.className = "nx-wsearch";
   form.noValidate = true;
@@ -46,7 +51,7 @@ export function createWorkBar(handlers: { lang: Lang; apply(q: string): void }):
   input.name = "q";
   input.maxLength = MAX_QUERY;
   input.autocomplete = "off";
-  const text = () => tr(lang, "work.search.placeholder");
+  const text = () => tr(lang, handlers.placeholder ?? "work.search.placeholder");
   input.placeholder = text();
   input.setAttribute("aria-label", text());
   form.append(icon, input);

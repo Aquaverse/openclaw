@@ -4,6 +4,7 @@
 // say. Plain functions, no node or DOM imports, so the HTTP page and the browser module share it.
 import { COMMITMENT_MESSAGES } from "./i18n-commitment.js";
 import { GOAL_MESSAGES } from "./i18n-goals.js";
+import { PEOPLE_FIX_MESSAGES } from "./i18n-people-fix.js";
 import { PEOPLE_MESSAGES } from "./i18n-people.js";
 import { WORK_MESSAGES } from "./i18n-work.js";
 
@@ -624,6 +625,7 @@ const CATALOG = {
   ...COMMITMENT_MESSAGES,
   // People page (i18n-people.ts)
   ...PEOPLE_MESSAGES,
+  ...PEOPLE_FIX_MESSAGES,
 } as const satisfies Record<string, readonly [string, string]>;
 
 export type MsgKey = keyof typeof CATALOG;

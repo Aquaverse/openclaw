@@ -520,4 +520,51 @@ describe("work page detail", () => {
     assert.match(text, /A decision is waiting for you/);
     assert.match(text, /The result I want/);
   });
+
+  it("names what a link points at instead of showing its id, and falls back to the id when the name is gone", () => {
+    const v = view("w1", "in_progress");
+    const link = (
+      id: string,
+      kind: string,
+      targetId: string,
+      title: string | null,
+      role = "required",
+    ) => ({
+      id,
+      role,
+      targetKind: kind,
+      targetId,
+      targetTitle: title,
+      purpose: null,
+      createdAt: NOW,
+      endedAt: null,
+      endBasis: null,
+    });
+    const html = renderWorksPage(
+      page({
+        counts: counts({ in_progress: 1 }),
+        works: [v],
+        detail: detailOf(v, {
+          goalId: "g_1",
+          goalTitle: "今年把华东做起来",
+          links: [
+            link("l1", "commitment", "cm_1", "周五前把报价发给客户"),
+            link("l2", "work", "w9", "华东项目", "coordination"),
+            link("l3", "artifact", "f_1", null, "reference"),
+          ],
+        }),
+      }),
+      { lang: "zh" },
+    );
+    const text = visible(html);
+    assert.match(text, /周五前把报价发给客户/);
+    assert.match(text, /必要 · 承诺/);
+    assert.match(text, /协作 · 工作/);
+    assert.match(text, /仅参考 · 文件/);
+    assert.match(text, /今年把华东做起来/);
+    // A linked Work is a link to it; a name that cannot be read shows the id.
+    assert.match(html, /href="nexus-nav:\/works\/w9"[^>]*>华东项目</);
+    assert.match(html, /<code>f_1<\/code>/);
+    assert.doesNotMatch(text, /cm_1/);
+  });
 });

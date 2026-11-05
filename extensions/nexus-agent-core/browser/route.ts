@@ -19,8 +19,8 @@ import { WORK_PRIMARY_STATES, type WorkPrimaryState } from "../src/work/types.js
 /** The Work page filter: one state segment and a keyword. Both optional; none means "all". */
 export type WorkFilter = { state?: WorkPrimaryState; q?: string };
 
-/** The People page: the segment of the list, the person shown and the tab of that person. All optional. */
-export type PeopleQuery = { personId?: string; seg?: PeopleSeg; tab?: PersonTab };
+/** The People page: the segment of the list, a name search, the person shown and the tab of that person. All optional. */
+export type PeopleQuery = { personId?: string; seg?: PeopleSeg; tab?: PersonTab; q?: string };
 
 /** The prototype pages that only show their design for now; the host's left rail links to each. */
 export const HUB_PAGES = ["goals", "library", "status"] as const;
@@ -71,10 +71,12 @@ function parsePeopleQuery(
 ): PeopleQuery {
   const seg = PEOPLE_SEGS.find((known) => known === get("seg"));
   const tab = PERSON_TABS.find((known) => known === get("tab"));
+  const q = (get("q") ?? "").trim().slice(0, WORK_Q_MAX);
   return {
     ...(personId !== undefined && TASK_ID.test(personId) ? { personId } : {}),
     ...(seg ? { seg } : {}),
     ...(tab ? { tab } : {}),
+    ...(q ? { q } : {}),
   };
 }
 
@@ -82,6 +84,7 @@ const peopleParams = (route: PeopleQuery): Record<string, string> => ({
   ...(route.personId ? { person: route.personId } : {}),
   ...(route.seg ? { seg: route.seg } : {}),
   ...(route.tab ? { tab: route.tab } : {}),
+  ...(route.q ? { q: route.q } : {}),
 });
 
 /** The People page with nothing chosen. */

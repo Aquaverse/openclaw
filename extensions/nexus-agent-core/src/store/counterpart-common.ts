@@ -86,6 +86,7 @@ export function createCounterpartCommon(c: WorkCommon) {
       inactiveReason: (row.inactive_reason as string | null) ?? null,
       inactiveAt:
         row.inactive_at === null || row.inactive_at === undefined ? null : Number(row.inactive_at),
+      mergedInto: (row.merged_into as string | null) ?? null,
       isSelf:
         one(
           "SELECT 1 AS yes FROM owner_identity WHERE owner_id = ? AND self_counterpart_id = ?",

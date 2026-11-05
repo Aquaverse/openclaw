@@ -60,11 +60,19 @@ function mount(
     work("w2"),
   ];
   const served: Record<string, Reply> = {
-    "nexus.work.counts": {
-      total: 2,
-      counts: { done: 0, ended_incomplete: 0, needs_you: 1, blocked: 0, in_progress: 1 },
-      hiddenCount: 0,
-    },
+    "nexus.work.counts": (params?: Record<string, unknown>) =>
+      // A search is counted over what it finds only; the account's own numbers are the greeting's.
+      params?.keyword
+        ? {
+            total: 1,
+            counts: { done: 0, ended_incomplete: 0, needs_you: 0, blocked: 0, in_progress: 1 },
+            hiddenCount: 0,
+          }
+        : {
+            total: 2,
+            counts: { done: 0, ended_incomplete: 0, needs_you: 1, blocked: 0, in_progress: 1 },
+            hiddenCount: 0,
+          },
     "nexus.work.list": { works: list, total: 2, offset: 0 },
     "nexus.work.get": (params?: Record<string, unknown>) => ({
       ...(list.find((entry) => entry.work.id === params?.workId) ?? work(String(params?.workId))),
@@ -644,7 +652,16 @@ describe("work page", () => {
     assert.equal(q(f.container, ".nx-dw"), detail);
     assert.equal(q(f.container, ".nx-wsearch input"), input);
     assert.equal(f.calls.filter((c) => c.method === "nexus.work.get").length, getsBefore);
-    assert.equal(f.calls.filter((c) => c.method === "nexus.work.counts").length, countsBefore);
+    // The numbers beside the segments are counted over what the search finds: one request, with the keyword.
+    const counted = f.calls.filter((c) => c.method === "nexus.work.counts");
+    assert.equal(counted.length, countsBefore + 1);
+    assert.equal(counted.at(-1)?.params?.keyword, "机票");
+    const numbers = [...f.container.querySelectorAll(".nx-seg a")].map(
+      (a) => `${a.firstChild?.textContent}${a.querySelector(".nx-n")?.textContent}`,
+    );
+    assert.deepEqual(numbers, ["全部1", "待你处理0", "受阻0", "进行中1", "已完成0", "已结束0"]);
+    // The greeting still speaks for the whole account.
+    assert.match(q(f.container, ".nx-hello")?.textContent ?? "", /有 1 件待你处理/);
     assert.equal(f.opened.length, 0);
     // The address changing for another reason (the back button, a link) decides again and ends the search.
     f.handle?.update?.({ ...f.context, props: { view: "works", state: "done" } });

@@ -127,6 +127,15 @@ describe("nexus.work.* rpc", () => {
     assert.equal(got.payload?.work.title, "Plan the Tokyo trip");
     const counts = await t.call("nexus.work.counts", {});
     assert.equal(counts.ok, true);
+    // With a keyword the classes are counted over what the search finds, the same Works the list returns.
+    const found = await t.call("nexus.work.counts", { keyword: "Tokyo" });
+    assert.equal(found.payload?.total, list.payload?.total);
+    const none = await t.call("nexus.work.counts", { keyword: "no such work" });
+    assert.equal(none.payload?.total, 0);
+    assert.equal(
+      (await t.call("nexus.work.counts", { keyword: 5 })).error?.code,
+      "nexus_invalid_params",
+    );
   });
 
   it("rejects malformed list params and unknown works", async () => {

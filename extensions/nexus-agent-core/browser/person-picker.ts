@@ -11,6 +11,8 @@ export type PersonChoice = {
   name: string;
   relation: string | null;
   names: readonly string[];
+  /** person, organization or team (a merge is offered only between records of one kind). */
+  kind?: string;
 };
 
 /** How many people one commitment can have as its owner today (the ledger holds a single responsible person). */

@@ -1,5 +1,5 @@
 // Gateway RPC for people (design 10.2, slice W3a): nexus.counterpart.list / get / resolve / pending / create / update / contactAdd /
-// contactRemove / deactivate / restore / claim. Reads need operator.read, writes operator.write. The console is the user, so these
+// contactRemove / deactivate / restore / claim / merge / notPerson / dismissed / dismissalRestore. Reads need operator.read, writes operator.write. The console is the user, so these
 // write as the user (and the user alone may confirm a person); the Agent has its own narrower tools. A change that moves a
 // Commitment reaches the Work page through `work_changed` (ids only). Replies carry ownerId.
 import {
@@ -7,6 +7,7 @@ import {
   COUNTERPART_KINDS,
   COUNTERPART_LIMITS,
   COUNTERPART_RELATIONS,
+  NOT_PERSON_DESTINATIONS,
   type ContactSpec,
   type CounterpartKind,
   type RelationSpec,
@@ -130,6 +131,20 @@ function refuse(respond: Respond, result: { outcome: string } & Record<string, u
     case "forbidden":
       reject(respond, "nexus_forbidden", String(result.code));
       return true;
+    case "relation_conflict":
+      reject(
+        respond,
+        "nexus_relation_conflict",
+        `an organization or a team cannot be a ${String(result.relation)}: change the relation too`,
+      );
+      return true;
+    case "choice_required":
+      reject(
+        respond,
+        "nexus_choice_required",
+        "the two records have different relations: pass relationChoice (source or target) to say which one stays",
+      );
+      return true;
     case "closed":
     case "not_inactive":
       reject(respond, "nexus_counterpart_state", `the person is ${String(result.lifecycle)}`);
@@ -152,11 +167,13 @@ export function createCounterpartRpcHandlers(deps: CounterpartRpcDeps) {
         guarded(async ({ principal, store, params, respond }) => {
           const keyword = str(params.keyword, 200);
           const lifecycle = params.lifecycle;
+          const attention = params.attention;
           if (
             keyword === null ||
-            (lifecycle !== undefined && lifecycle !== "live" && lifecycle !== "inactive")
+            (lifecycle !== undefined && lifecycle !== "live" && lifecycle !== "inactive") ||
+            (attention !== undefined && typeof attention !== "boolean")
           ) {
-            need(respond, "keyword or lifecycle is invalid");
+            need(respond, "keyword, lifecycle or attention is invalid");
             return;
           }
           const limit =
@@ -172,6 +189,7 @@ export function createCounterpartRpcHandlers(deps: CounterpartRpcDeps) {
             now: now(),
             ...(keyword ? { keyword } : {}),
             ...(lifecycle ? { lifecycle } : {}),
+            ...(attention ? { attention } : {}),
             limit,
             offset,
           });
@@ -390,6 +408,109 @@ export function createCounterpartRpcHandlers(deps: CounterpartRpcDeps) {
             return;
           }
           const result = await store.counterpartRestore({ principal, counterpartId, now: now() });
+          if (refuse(respond, result)) {
+            return;
+          }
+          respond(true, { ownerId: principal.ownerId, ...result });
+        }),
+        "operator.write",
+      ],
+      [
+        "nexus.counterpart.merge",
+        guarded(async ({ principal, store, params, respond }) => {
+          const counterpartId = id(params.counterpartId);
+          const intoId = id(params.intoId);
+          const expected = params.expectedRevision;
+          const choice = params.relationChoice;
+          if (
+            !counterpartId ||
+            !intoId ||
+            (expected !== undefined && !Number.isInteger(expected)) ||
+            (choice !== undefined && choice !== "source" && choice !== "target")
+          ) {
+            need(
+              respond,
+              "counterpartId and intoId are required; expectedRevision, relationChoice must be valid",
+            );
+            return;
+          }
+          const result = await store.counterpartMerge({
+            principal,
+            counterpartId,
+            intoId,
+            ...(params.dryRun === true ? { dryRun: true } : {}),
+            ...(typeof expected === "number" ? { expectedRevision: expected } : {}),
+            ...(choice ? { relationChoice: choice } : {}),
+            now: now(),
+          });
+          if (refuse(respond, result)) {
+            return;
+          }
+          if (result.outcome === "merged") {
+            for (const workId of result.workIds) {
+              deps.events.workChanged({ ownerId: principal.ownerId, workId, action: "commitment" });
+            }
+          }
+          respond(true, { ownerId: principal.ownerId, ...result });
+        }),
+        "operator.write",
+      ],
+      [
+        "nexus.counterpart.notPerson",
+        guarded(async ({ principal, store, params, respond }) => {
+          const raw = str(params.raw, COUNTERPART_LIMITS.name);
+          const displayName = str(params.displayName, COUNTERPART_LIMITS.name);
+          const destination = (NOT_PERSON_DESTINATIONS as readonly unknown[]).find(
+            (item) => item === params.destination,
+          ) as (typeof NOT_PERSON_DESTINATIONS)[number] | undefined;
+          if (!raw || displayName === null || !destination) {
+            need(respond, "raw and a destination (organization, team, self, dismiss) are required");
+            return;
+          }
+          const result = await store.counterpartNotPerson({
+            principal,
+            raw,
+            destination,
+            ...(displayName ? { displayName } : {}),
+            ...(params.allowSameName === true ? { allowSameName: true } : {}),
+            ...(params.dryRun === true ? { dryRun: true } : {}),
+            now: now(),
+          });
+          if (refuse(respond, result)) {
+            return;
+          }
+          if (result.outcome === "moved") {
+            for (const workId of result.workIds) {
+              deps.events.workChanged({ ownerId: principal.ownerId, workId, action: "commitment" });
+            }
+          }
+          respond(true, { ownerId: principal.ownerId, ...result });
+        }),
+        "operator.write",
+      ],
+      [
+        "nexus.counterpart.dismissed",
+        guarded(async ({ principal, store, respond }) => {
+          respond(true, {
+            ownerId: principal.ownerId,
+            ...(await store.counterpartDismissed({ principal })),
+          });
+        }),
+        "operator.read",
+      ],
+      [
+        "nexus.counterpart.dismissalRestore",
+        guarded(async ({ principal, store, params, respond }) => {
+          const dismissalId = id(params.dismissalId);
+          if (!dismissalId) {
+            need(respond, "dismissalId is required");
+            return;
+          }
+          const result = await store.counterpartDismissalRestore({
+            principal,
+            dismissalId,
+            now: now(),
+          });
           if (refuse(respond, result)) {
             return;
           }
