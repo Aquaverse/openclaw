@@ -14,7 +14,7 @@ export function createReassign(c: WorkCommon, k: CommitmentCommon) {
   ): void => {
     k.snapshotVersion(owner, row, cause, now);
     run(
-      "UPDATE commitments SET responsible_counterpart_id = ?, responsible_raw = ?, " +
+      "UPDATE commitments SET responsible_counterpart_id = ?, responsible_raw = ?, ambiguity_json = NULL, " +
         "communication_state = 'draft', communication_action_ref = NULL, communication_receipt_level = NULL, communication_at = NULL, " +
         "acceptance_state = 'unknown', acceptance_basis_kind = NULL, acceptance_basis = NULL, acceptance_at = NULL, " +
         "lifecycle = CASE lifecycle WHEN 'waiting' THEN 'open' ELSE lifecycle END, " +
@@ -25,6 +25,7 @@ export function createReassign(c: WorkCommon, k: CommitmentCommon) {
       owner,
       String(row.id),
     );
+    k.endHelperWhoIsResponsible(owner, now, { commitmentId: String(row.id) });
     const kind: CommitmentEventKind = "responsible_changed";
     k.appendEvent(
       owner,

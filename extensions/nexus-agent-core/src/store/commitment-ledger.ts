@@ -1,3 +1,4 @@
+import type { JointAmbiguity } from "../commitment/joint.js";
 import {
   COMMITMENT_LIMITS,
   type CommitmentActor,
@@ -7,6 +8,7 @@ import {
   type DueSpec,
   type PeriodSpec,
 } from "../commitment/types.js";
+import { createCommitmentAssistOps } from "./commitment-assist-ledger.js";
 import {
   COMMITMENT_SELECT,
   createCommitmentCommon,
@@ -14,7 +16,9 @@ import {
   validTimeZone,
 } from "./commitment-common.js";
 import { createCommitmentFlowOps } from "./commitment-flow-ledger.js";
+import { createCommitmentJointOps } from "./commitment-joint-ledger.js";
 import { createCommitmentReadOps } from "./commitment-read-ledger.js";
+import { createCommitmentRoleOps } from "./commitment-role-ledger.js";
 // Commitment kernel (object-model design 4.4, 6, 10.2): create, read, list, edit with responsibility versions and the impact
 // preview. The four state lines (communication, acceptance, lifecycle, verification) move in commitment-flow-ledger.ts.
 // Every method is ONE synchronous transaction and every statement filters on owner_id. What holds across the files:
@@ -56,7 +60,7 @@ export function createCommitmentLedger(
   work: WorkLedger["internals"],
 ) {
   const c = work.common;
-  const { one, all, run, newId } = c;
+  const { one, run, newId } = c;
   const k = createCommitmentCommon(c);
 
   /** Re-evaluate every Work that requires this Commitment, and refresh the list order of every Work that cites it. */
@@ -134,6 +138,10 @@ export function createCommitmentLedger(
     if (responsible.raw !== null && responsible.raw.length > COMMITMENT_LIMITS.responsibleRaw) {
       return { outcome: "invalid", code: "bad_responsible" };
     }
+    const wording = k.wordingOf(owner, spec.responsible, text, clean(input.userStatementRef));
+    if ("problem" in wording) {
+      return { outcome: "invalid", code: wording.problem };
+    }
     const mode = spec.contextMode === "executive" ? "executive" : "personal";
     const scope = c.ensureContextRoot(owner, mode, now);
     const id = newId("cm_");
@@ -179,10 +187,14 @@ export function createCommitmentLedger(
         dueState: due.state,
         dueAt: due.at,
         origin: { kind: originKind, ref: originRef },
+        ...(wording.ambiguity ? { ambiguity: wording.ambiguity } : {}),
         ...(period ? { period: { requestId: input.period?.requestId, key: period.key } } : {}),
       },
       now,
     );
+    if (wording.ambiguity) {
+      k.markAmbiguity(owner, id, wording.ambiguity);
+    }
     return { outcome: "inserted", id };
   };
 
@@ -381,7 +393,7 @@ export function createCommitmentLedger(
 
   // ------------------------------------------------------------------ edit
 
-  const commitmentUpdate = (input: {
+  type UpdateInput = {
     principal: Principal;
     commitmentId: string;
     changes: CommitmentChanges;
@@ -390,263 +402,226 @@ export function createCommitmentLedger(
     userStatementRef?: string;
     reason?: string;
     now: number;
-  }) =>
-    transaction(() => {
-      const owner = input.principal.ownerId;
-      const row = k.commitmentRow(owner, input.commitmentId);
-      if (!row) {
-        return { outcome: "not_found" as const };
+  };
+
+  /** The edit itself; the caller owns the transaction (the joint-responsibility choice edits inside its own). */
+  const updateInTx = (input: UpdateInput) => {
+    const owner = input.principal.ownerId;
+    const row = k.commitmentRow(owner, input.commitmentId);
+    if (!row) {
+      return { outcome: "not_found" as const };
+    }
+    if (input.expectedRevision !== undefined && input.expectedRevision !== Number(row.revision)) {
+      return { outcome: "revision_conflict" as const, revision: Number(row.revision) };
+    }
+    const lifecycle = String(row.lifecycle);
+    if (lifecycle === "resolved" || lifecycle === "cancelled") {
+      return { outcome: "closed" as const, lifecycle };
+    }
+    if (input.actor === "agent") {
+      const ref = clean(input.userStatementRef);
+      if (ref.length === 0 || ref.length > COMMITMENT_LIMITS.ref) {
+        return { outcome: "invalid" as const, code: "statement_ref_required" };
       }
-      if (input.expectedRevision !== undefined && input.expectedRevision !== Number(row.revision)) {
-        return { outcome: "revision_conflict" as const, revision: Number(row.revision) };
+    }
+    const reason = clean(input.reason);
+    if (reason.length > COMMITMENT_LIMITS.reason) {
+      return { outcome: "invalid" as const, code: "bad_reason" };
+    }
+    const changes = input.changes;
+    let requirement = String(row.requirement_text);
+    let counterpartId = (row.responsible_counterpart_id as string | null) ?? null;
+    let raw = (row.responsible_raw as string | null) ?? null;
+    let dueState = String(row.due_state);
+    let dueAt = (row.due_at as number | null) ?? null;
+    let dueTz = (row.due_tz as string | null) ?? null;
+    let nextStep = (row.next_step as string | null) ?? null;
+    const changed: string[] = [];
+    if (changes.requirementText !== undefined) {
+      const text = clean(changes.requirementText);
+      if (text.length === 0 || text.length > COMMITMENT_LIMITS.requirement) {
+        return { outcome: "invalid" as const, code: "bad_requirement" };
       }
-      const lifecycle = String(row.lifecycle);
-      if (lifecycle === "resolved" || lifecycle === "cancelled") {
-        return { outcome: "closed" as const, lifecycle };
+      if (text !== requirement) {
+        requirement = text;
+        changed.push("requirement");
       }
-      if (input.actor === "agent") {
-        const ref = clean(input.userStatementRef);
-        if (ref.length === 0 || ref.length > COMMITMENT_LIMITS.ref) {
-          return { outcome: "invalid" as const, code: "statement_ref_required" };
-        }
-      }
-      const reason = clean(input.reason);
-      if (reason.length > COMMITMENT_LIMITS.reason) {
-        return { outcome: "invalid" as const, code: "bad_reason" };
-      }
-      const changes = input.changes;
-      let requirement = String(row.requirement_text);
-      let counterpartId = (row.responsible_counterpart_id as string | null) ?? null;
-      let raw = (row.responsible_raw as string | null) ?? null;
-      let dueState = String(row.due_state);
-      let dueAt = (row.due_at as number | null) ?? null;
-      let dueTz = (row.due_tz as string | null) ?? null;
-      let nextStep = (row.next_step as string | null) ?? null;
-      const changed: string[] = [];
-      if (changes.requirementText !== undefined) {
-        const text = clean(changes.requirementText);
-        if (text.length === 0 || text.length > COMMITMENT_LIMITS.requirement) {
-          return { outcome: "invalid" as const, code: "bad_requirement" };
-        }
-        if (text !== requirement) {
-          requirement = text;
-          changed.push("requirement");
-        }
-      }
-      if (changes.responsible !== undefined) {
-        const resolved = k.resolveResponsible(owner, changes.responsible, input.actor, input.now);
-        if ("problem" in resolved) {
-          return { outcome: "invalid" as const, code: resolved.problem };
-        }
-        if (resolved.raw !== null && resolved.raw.length > COMMITMENT_LIMITS.responsibleRaw) {
-          return { outcome: "invalid" as const, code: "bad_responsible" };
-        }
-        if (resolved.counterpartId !== counterpartId || resolved.raw !== raw) {
-          counterpartId = resolved.counterpartId;
-          raw = resolved.raw;
-          changed.push("responsible");
-        }
-      }
-      if (changes.due !== undefined) {
-        const due = normalizeDue(changes.due);
-        if (!due) {
-          return { outcome: "invalid" as const, code: "bad_due" };
-        }
-        if (due.state !== dueState || due.at !== dueAt || due.tz !== dueTz) {
-          dueState = due.state;
-          dueAt = due.at;
-          dueTz = due.tz;
-          changed.push("due");
-        }
-      }
-      let softChange = false;
-      if (changes.nextStep !== undefined) {
-        const step = changes.nextStep === null ? null : clean(changes.nextStep);
-        if (step !== null && step.length > COMMITMENT_LIMITS.nextStep) {
-          return { outcome: "invalid" as const, code: "bad_next_step" };
-        }
-        if ((step === "" ? null : step) !== nextStep) {
-          nextStep = step === "" ? null : step;
-          softChange = true;
-        }
-      }
-      // A note on its own is a change too: the reason is the record of why, and the person may add it after the fact.
-      const noteOnly = changed.length === 0 && !softChange && reason !== "";
-      if (changed.length === 0 && !softChange && !noteOnly) {
-        return {
-          outcome: "unchanged" as const,
-          commitment: toCommitment(row, input.now),
-        };
-      }
-      const material = changed.length > 0;
-      const version = Number(row.responsibility_version);
-      if (material) {
-        k.snapshotVersion(owner, row, changed.join("+"), input.now);
-      }
-      run(
-        "UPDATE commitments SET requirement_text = ?, responsible_counterpart_id = ?, responsible_raw = ?, due_state = ?, due_at = ?, due_tz = ?, " +
-          "next_step = ?, responsibility_version = ?, " +
-          (material
-            ? "communication_state = 'draft', communication_action_ref = NULL, communication_receipt_level = NULL, communication_at = NULL, " +
-              "acceptance_state = 'unknown', acceptance_basis_kind = NULL, acceptance_basis = NULL, acceptance_at = NULL, " +
-              "lifecycle = CASE lifecycle WHEN 'waiting' THEN 'open' ELSE lifecycle END, "
-            : "") +
-          "revision = revision + 1, updated_at = ? WHERE owner_id = ? AND id = ?",
-        requirement,
-        counterpartId,
-        raw,
-        dueState,
-        dueAt,
-        dueTz,
-        nextStep,
-        material ? version + 1 : version,
-        input.now,
+    }
+    let ambiguity: JointAmbiguity | null | undefined;
+    if (changes.responsible !== undefined || changes.requirementText !== undefined) {
+      const wording = k.wordingOf(
         owner,
-        input.commitmentId,
+        changes.responsible ?? { kind: "counterpart", counterpartId: "" },
+        requirement,
       );
-      const actor: CommitmentActor = input.actor;
+      if ("problem" in wording) {
+        return { outcome: "invalid" as const, code: wording.problem };
+      }
+      ambiguity = changes.responsible === undefined ? undefined : wording.ambiguity;
+    }
+    if (changes.responsible !== undefined) {
+      const resolved = k.resolveResponsible(owner, changes.responsible, input.actor, input.now);
+      if ("problem" in resolved) {
+        return { outcome: "invalid" as const, code: resolved.problem };
+      }
+      if (resolved.raw !== null && resolved.raw.length > COMMITMENT_LIMITS.responsibleRaw) {
+        return { outcome: "invalid" as const, code: "bad_responsible" };
+      }
+      if (resolved.counterpartId !== counterpartId || resolved.raw !== raw) {
+        counterpartId = resolved.counterpartId;
+        raw = resolved.raw;
+        changed.push("responsible");
+      }
+    }
+    if (changes.due !== undefined) {
+      const due = normalizeDue(changes.due);
+      if (!due) {
+        return { outcome: "invalid" as const, code: "bad_due" };
+      }
+      if (due.state !== dueState || due.at !== dueAt || due.tz !== dueTz) {
+        dueState = due.state;
+        dueAt = due.at;
+        dueTz = due.tz;
+        changed.push("due");
+      }
+    }
+    let softChange = false;
+    if (changes.nextStep !== undefined) {
+      const step = changes.nextStep === null ? null : clean(changes.nextStep);
+      if (step !== null && step.length > COMMITMENT_LIMITS.nextStep) {
+        return { outcome: "invalid" as const, code: "bad_next_step" };
+      }
+      if ((step === "" ? null : step) !== nextStep) {
+        nextStep = step === "" ? null : step;
+        softChange = true;
+      }
+    }
+    // A note on its own is a change too: the reason is the record of why, and the person may add it after the fact.
+    const noteOnly = changed.length === 0 && !softChange && reason !== "";
+    if (changed.length === 0 && !softChange && !noteOnly) {
+      return {
+        outcome: "unchanged" as const,
+        commitment: toCommitment(row, input.now),
+      };
+    }
+    const material = changed.length > 0;
+    const version = Number(row.responsibility_version);
+    if (material) {
+      k.snapshotVersion(owner, row, changed.join("+"), input.now);
+    }
+    run(
+      "UPDATE commitments SET requirement_text = ?, responsible_counterpart_id = ?, responsible_raw = ?, due_state = ?, due_at = ?, due_tz = ?, " +
+        "next_step = ?, responsibility_version = ?, " +
+        (material
+          ? "communication_state = 'draft', communication_action_ref = NULL, communication_receipt_level = NULL, communication_at = NULL, " +
+            "acceptance_state = 'unknown', acceptance_basis_kind = NULL, acceptance_basis = NULL, acceptance_at = NULL, " +
+            "lifecycle = CASE lifecycle WHEN 'waiting' THEN 'open' ELSE lifecycle END, "
+          : "") +
+        "revision = revision + 1, updated_at = ? WHERE owner_id = ? AND id = ?",
+      requirement,
+      counterpartId,
+      raw,
+      dueState,
+      dueAt,
+      dueTz,
+      nextStep,
+      material ? version + 1 : version,
+      input.now,
+      owner,
+      input.commitmentId,
+    );
+    if (changed.includes("responsible")) {
+      k.endHelperWhoIsResponsible(owner, input.now, { commitmentId: input.commitmentId });
+    }
+    if (ambiguity !== undefined && (ambiguity !== null || row.ambiguity_json)) {
+      k.markAmbiguity(owner, input.commitmentId, ambiguity);
+    }
+    const actor: CommitmentActor = input.actor;
+    k.appendEvent(
+      owner,
+      input.commitmentId,
+      "edited",
+      actor,
+      {
+        changed: softChange ? [...changed, "next_step"] : noteOnly ? ["note"] : changed,
+        reason: reason || null,
+      },
+      input.now,
+    );
+    if (changed.includes("responsible")) {
       k.appendEvent(
         owner,
         input.commitmentId,
-        "edited",
+        "responsible_changed",
         actor,
         {
-          changed: softChange ? [...changed, "next_step"] : noteOnly ? ["note"] : changed,
-          reason: reason || null,
+          from: {
+            counterpartId: row.responsible_counterpart_id ?? null,
+            raw: row.responsible_raw ?? null,
+          },
+          to: { counterpartId, raw },
         },
         input.now,
       );
-      if (changed.includes("responsible")) {
-        k.appendEvent(
-          owner,
-          input.commitmentId,
-          "responsible_changed",
-          actor,
-          {
-            from: {
-              counterpartId: row.responsible_counterpart_id ?? null,
-              raw: row.responsible_raw ?? null,
-            },
-            to: { counterpartId, raw },
-          },
-          input.now,
-        );
-      }
-      if (changed.includes("due")) {
-        k.appendEvent(
-          owner,
-          input.commitmentId,
-          "due_changed",
-          actor,
-          {
-            from: { state: row.due_state, at: row.due_at ?? null },
-            to: { state: dueState, at: dueAt },
-          },
-          input.now,
-        );
-      }
-      if (changed.includes("requirement")) {
-        k.appendEvent(
-          owner,
-          input.commitmentId,
-          "standard_changed",
-          actor,
-          { from: row.requirement_text, to: requirement },
-          input.now,
-        );
-      }
-      if (material) {
-        k.appendEvent(
-          owner,
-          input.commitmentId,
-          "responsibility_versioned",
-          actor,
-          { from: version, to: version + 1, resetCommunication: true, resetAcceptance: true },
-          input.now,
-        );
-      }
-      reevaluate(owner, input.commitmentId, input.now);
-      return {
-        outcome: "updated" as const,
-        commitment: fetch(owner, input.commitmentId, input.now) as CommitmentRecord,
-        versioned: material,
-      };
-    });
-
-  /**
-   * Change how a Work cites a Commitment (required <-> reference) in one step: the old link ends, the new one starts. Making a
-   * required Commitment a mere reference can make the Work look finished, so the caller must acknowledge that gap (design 6.6).
-   */
-  const commitmentSetRole = (input: {
-    principal: Principal;
-    workId: string;
-    commitmentId: string;
-    role: "required" | "reference";
-    acknowledgeGap?: boolean;
-    actor: "user" | "agent";
-    now: number;
-  }) =>
-    transaction(() => {
-      const owner = input.principal.ownerId;
-      if (work.requireLive(owner, input.workId).problem) {
-        return { outcome: "work_not_found" as const };
-      }
-      if (input.role !== "required" && input.role !== "reference") {
-        return { outcome: "invalid" as const, code: "bad_role" };
-      }
-      // Normally one link; a Work that cited the same Commitment twice (as required and as a reference) has two, and a
-      // role change folds them into one.
-      const links = all(
-        "SELECT id, role FROM work_links WHERE owner_id = ? AND work_id = ? AND target_kind = 'commitment' AND target_id = ? AND ended_at IS NULL ORDER BY created_at, id",
+    }
+    if (changed.includes("due")) {
+      k.appendEvent(
         owner,
-        input.workId,
         input.commitmentId,
+        "due_changed",
+        actor,
+        {
+          from: { state: row.due_state, at: row.due_at ?? null },
+          to: { state: dueState, at: dueAt },
+        },
+        input.now,
       );
-      if (links.length === 0) {
-        return { outcome: "not_linked" as const };
-      }
-      if (links.length === 1 && String(links[0]!.role) === input.role) {
-        return { outcome: "unchanged" as const };
-      }
-      if (
-        input.role === "reference" &&
-        links.some((l) => String(l.role) === "required") &&
-        input.acknowledgeGap !== true
-      ) {
-        return { outcome: "gap_ack_required" as const };
-      }
-      const keep = links.find((l) => String(l.role) === input.role);
-      for (const link of links) {
-        if (link === keep) {
-          continue;
-        }
-        run(
-          "UPDATE work_links SET ended_at = ?, end_basis = 'role_changed' WHERE owner_id = ? AND id = ?",
-          input.now,
-          owner,
-          String(link.id),
-        );
-      }
-      const linked = keep
-        ? { linkId: String(keep.id) }
-        : work.linkAddInTx({
-            principal: input.principal,
-            workId: input.workId,
-            role: input.role,
-            targetKind: "commitment",
-            targetId: input.commitmentId,
-            actor: workActor(input.actor),
-            now: input.now,
-          });
-      work.evaluateOutcomeInTx(owner, input.workId, input.now);
-      return {
-        outcome: "changed" as const,
-        linkId: (linked as { linkId?: string }).linkId ?? null,
-      };
-    });
+    }
+    if (changed.includes("requirement")) {
+      k.appendEvent(
+        owner,
+        input.commitmentId,
+        "standard_changed",
+        actor,
+        { from: row.requirement_text, to: requirement },
+        input.now,
+      );
+    }
+    if (material) {
+      k.appendEvent(
+        owner,
+        input.commitmentId,
+        "responsibility_versioned",
+        actor,
+        { from: version, to: version + 1, resetCommunication: true, resetAcceptance: true },
+        input.now,
+      );
+    }
+    reevaluate(owner, input.commitmentId, input.now);
+    return {
+      outcome: "updated" as const,
+      commitment: fetch(owner, input.commitmentId, input.now) as CommitmentRecord,
+      versioned: material,
+    };
+  };
 
+  const commitmentUpdate = (input: UpdateInput) => transaction(() => updateInTx(input));
+
+  const { commitmentSetRole } = createCommitmentRoleOps({ transaction, c, work });
   const flow = createCommitmentFlowOps({ transaction, c, k, reevaluate, fetch });
   const read = createCommitmentReadOps({ transaction, c, k, fetch });
+  const { assistAddInTx, ...assist } = createCommitmentAssistOps({ transaction, c, k });
+  const joint = createCommitmentJointOps({
+    transaction,
+    c,
+    k,
+    updateInTx,
+    insertInTx,
+    linkInTx,
+    reevaluate,
+    fetch,
+    addHelperInTx: assistAddInTx,
+  });
 
   return {
     commitmentCreate,
@@ -655,6 +630,8 @@ export function createCommitmentLedger(
     commitmentSetRole,
     ...read,
     ...flow,
+    ...assist,
+    ...joint,
   };
 }
 

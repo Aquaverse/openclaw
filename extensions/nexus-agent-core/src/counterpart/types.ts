@@ -198,6 +198,8 @@ export type PendingPersonGroup = {
   earliestDueAt: number | null;
   commitmentIds: string[];
   suggestions: NameMatch["candidates"];
+  /** Some commitment here has words that named several people: it needs "who answers" chosen, not a person to point at. */
+  joint?: boolean;
 };
 
 export type PersonView = {
@@ -211,5 +213,7 @@ export type PersonView = {
     updatedAt: number;
     via: string;
   }>;
+  /** Commitments he helps with (not answers for), with his roles in each: participant, approver or recipient. */
+  assisting?: Array<{ commitment: CommitmentRecord; roles: string[] }>;
   counts: { unresolved: number; overdue: number; needsConfirmation: number };
 };

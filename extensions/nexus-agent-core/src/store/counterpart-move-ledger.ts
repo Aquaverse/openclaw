@@ -181,8 +181,10 @@ export function createCounterpartMoveOps(deps: CounterpartMoveDeps) {
         owner,
       ).filter(
         (row) =>
-          ids.has(String(row.id)) ||
-          (key.length > 0 && normalizeName(String(row.responsible_raw ?? "")) === key),
+          // A commitment whose words named several people waits for the user's choice (design 6.8); no group move settles it.
+          row.ambiguity_json == null &&
+          (ids.has(String(row.id)) ||
+            (key.length > 0 && normalizeName(String(row.responsible_raw ?? "")) === key)),
       );
       if (rows.length === 0) {
         return { outcome: "nothing_to_claim" as const };

@@ -8,7 +8,11 @@ import { foldName, personPicker, type PersonChoice } from "./person-picker.ts";
 export type Impact = {
   works?: { workId: string; title: string; role: "required" | "reference" }[];
 };
-export type Reply = { outcome?: string; impact?: Impact; commitment?: { id: string } };
+export type Reply = {
+  outcome?: string;
+  impact?: Impact;
+  commitment?: { id: string; ambiguity?: unknown };
+};
 
 export const text = (error: unknown): string =>
   `${(error as { code?: string } | undefined)?.code ?? ""} ${error instanceof Error ? error.message : String(error)}`;
@@ -20,6 +24,9 @@ export function describeError(lang: Lang, error: unknown): string {
   }
   if (t.includes("nexus_not_found")) {
     return tr(lang, "cm.err.gone");
+  }
+  if (t.includes("nexus_unsupported")) {
+    return tr(lang, "cm.err.either");
   }
   if (t.includes("nexus_commitment_already_cited")) {
     return tr(lang, "cm.err.cited");

@@ -3,6 +3,7 @@
 // against a Work is only a `reference` link: promoting it to a requirement of that Work is the user's decision.
 import { Type } from "typebox";
 import type { AnyAgentTool } from "../../api.js";
+import { EITHER_RESPONSIBLE_MESSAGE } from "../commitment/joint.js";
 import type { CommitmentRecord } from "../commitment/types.js";
 import { COMMITMENT_LIFECYCLES, COMMITMENT_LIMITS } from "../commitment/types.js";
 import type { EventBridge } from "../events.js";
@@ -45,6 +46,12 @@ function view(c: CommitmentRecord) {
     requirement: c.requirementText,
     responsible: c.responsibleSelf ? "the user" : (c.responsibleName ?? c.responsibleRaw),
     responsibleResolved: c.responsibleCounterpartId !== null,
+    ...(c.ambiguity
+      ? {
+          waitingForUserChoice:
+            "Several people were named, so nobody answers for this yet. Only the user can choose, in the console: one commitment each, or one responsible person with the others helping. Do not choose for them and do not record a second commitment.",
+        }
+      : {}),
     lifecycle: c.lifecycle,
     verification: c.verification,
     dueState: c.dueState,
@@ -86,7 +93,7 @@ export function createCommitmentTools(deps: CommitmentToolDeps, ctx: ToolContext
       name: "nexus_commitment_record",
       label: "Nexus: record a commitment",
       description:
-        "Record something one person said they will deliver, exactly as the user told you. Quote the user's own words in userStatementRef. Name who is responsible: the user themself (responsibleSelf), a person by the name the user used (responsibleName), or an existing known person (counterpartId). Give a due date only if the user gave one. You cannot accept, resolve or cancel a commitment; the user does that on the Work page.",
+        "Record something one person said they will deliver, exactly as the user told you. Quote the user's own words in userStatementRef. Name who is responsible: the user themself (responsibleSelf), a person by the name the user used (responsibleName), or an existing known person (counterpartId). Give a due date only if the user gave one. One commitment has ONE responsible person: if the user named several people （如“小王和小李一起做”）, do not put both in responsibleName and do not guess; ask them first. You cannot accept, resolve or cancel a commitment; the user does that on the Work page.",
       parameters: Type.Object({
         requirementText: Type.String({
           description: `What is to be delivered, one short sentence in the user's language, at most ${COMMITMENT_LIMITS.requirement} characters.`,
@@ -220,6 +227,12 @@ export function createCommitmentTools(deps: CommitmentToolDeps, ctx: ToolContext
           });
           if (result.outcome === "work_not_found") {
             return fail("work_not_found", "Work not found.");
+          }
+          if (result.outcome === "invalid" && result.code === "either_responsible") {
+            return fail(
+              "either_responsible",
+              `${EITHER_RESPONSIBLE_MESSAGE} Tell the user this, and ask which of the two ways they want. Record nothing until they answer.`,
+            );
           }
           if (result.outcome === "invalid") {
             return fail("invalid", `Not accepted: ${result.code}.`);

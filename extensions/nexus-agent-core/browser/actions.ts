@@ -554,6 +554,8 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
     case "cm-reopen":
     case "cm-role":
     case "cm-attach":
+    case "cm-assist":
+    case "cm-joint":
       return runCommitmentAction(ctx, action);
     case "pp-new":
     case "pp-edit":

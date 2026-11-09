@@ -173,8 +173,9 @@ function pendingRow(
       ? [tr(lang, "pp.pend.due", { time: shortTime(group.earliestDueAt, now, lang) })]
       : []),
   ];
-  const hint =
-    group.suggestions.length > 0
+  const hint = group.joint
+    ? `<span class="nx-wnx">${esc(tr(lang, "pp.pending.joint"))}</span>`
+    : group.suggestions.length > 0
       ? `<span class="nx-wnx">${esc(tr(lang, "pp.pend.maybe", { names: group.suggestions.map((s) => s.displayName).join("、") }))}</span>`
       : "";
   return (
@@ -182,7 +183,7 @@ function pendingRow(
     `<span class="nx-sd"></span><span class="nx-wm"><span class="nx-wt">` +
     `<span class="nx-wtt">${esc(group.raw)}</span></span>` +
     `<span class="nx-wnx">${esc(parts.join(" · "))}</span>${hint}</span>` +
-    (withActions
+    (withActions && !group.joint
       ? marker("pp-claim", `g${index}`, "nx-btn", esc(tr(lang, "pp.pend.claim"))) +
         marker("pp-notperson", `g${index}`, "nx-btn", esc(tr(lang, "pp.pend.not")))
       : "") +
@@ -379,15 +380,29 @@ function tabBody(
     linkId: null,
   });
   if (data.tab === "related") {
+    const helping = view.assisting ?? [];
     const rows = view.related.map((work) =>
       row(
         `<span class="nx-grow"><a href="${esc(`${base}/works/${work.workId}`)}">${esc(clip(work.title, 120))}</a></span>` +
           `<span class="nx-meta">${esc(viaText(lang, work.via))} · ${esc(shortTime(work.updatedAt, data.now, lang))}</span>`,
       ),
     );
-    return section(
-      tr(lang, "pp.sec.related"),
-      rows.length > 0 ? rows : [`<p class="nx-wempty">${esc(tr(lang, "pp.related.empty"))}</p>`],
+    return (
+      section(
+        tr(lang, "pp.sec.related"),
+        rows.length > 0 ? rows : [`<p class="nx-wempty">${esc(tr(lang, "pp.related.empty"))}</p>`],
+      ) +
+      section(tr(lang, "pp.sec.assisting"), [
+        `<p class="nx-cm-hint">${esc(tr(lang, "pp.assisting.note"))}</p>`,
+        ...(helping.length === 0
+          ? [`<p class="nx-wempty">${esc(tr(lang, "pp.assisting.empty"))}</p>`]
+          : helping.map(({ commitment, roles }) =>
+              renderCommitmentBox(line(commitment), lang, data.now, withActions, {
+                base,
+                helperRoles: roles,
+              }),
+            )),
+      ])
     );
   }
   if (data.tab === "history") {
@@ -511,7 +526,7 @@ function detailPane(data: PeoplePageData, lang: Lang, base: string, withActions:
     section(tr(lang, "pp.sec.profile"), profile, addContact) +
     `<div class="nx-seg nx-ptabs">` +
     tab("responsible", "pp.tab.resp", view.responsible.length) +
-    tab("related", "pp.tab.related", view.related.length) +
+    tab("related", "pp.tab.related", view.related.length + (view.assisting?.length ?? 0)) +
     tab("history", "pp.tab.history", view.history.length) +
     `</div>` +
     tabBody(view, data, lang, base, withActions) +

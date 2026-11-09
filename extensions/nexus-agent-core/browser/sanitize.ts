@@ -47,6 +47,8 @@ export type NexusAction =
   | { kind: "cm-reopen"; id: string }
   | { kind: "cm-role"; id: string }
   | { kind: "cm-attach"; id: string }
+  | { kind: "cm-assist"; id: string }
+  | { kind: "cm-joint"; id: string }
   | { kind: "pp-new" }
   | { kind: "pp-edit"; id: string }
   | { kind: "pp-confirm"; id: string }
@@ -98,6 +100,8 @@ const ID_ACTIONS: ReadonlySet<string> = new Set<NexusAction["kind"]>([
   "cm-reopen",
   "cm-role",
   "cm-attach",
+  "cm-assist",
+  "cm-joint",
   "pp-edit",
   "pp-confirm",
   "pp-contact",

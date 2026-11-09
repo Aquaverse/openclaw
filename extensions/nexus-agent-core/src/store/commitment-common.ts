@@ -1,17 +1,28 @@
+import {
+  asksForEither,
+  parseAmbiguity,
+  readResponsibleWording,
+  type JointAmbiguity,
+} from "../commitment/joint.js";
 // Commitment kernel, shared part: row mapping, the append-only event writer, responsibility snapshots, the owner's own identity row
 // and the lookups every operation module needs. No transaction is opened here; the modules around it own theirs. Every statement
 // filters on owner_id.
 import type {
   CommitmentActor,
   CommitmentImpact,
+  CommitmentParticipant,
   CommitmentRecord,
   ResponsibleSpec,
 } from "../commitment/types.js";
 import { createCounterpartCommon } from "./counterpart-common.js";
 import type { Row, WorkCommon } from "./work-ledger-common.js";
 
+/** How many people help with the commitment (a live link). Added to every select that builds a CommitmentRecord. */
+export const PARTICIPANT_COUNT =
+  "(SELECT COUNT(*) FROM commitment_participant_links pl WHERE pl.owner_id = c.owner_id AND pl.commitment_id = c.id AND pl.status <> 'revoked') AS participant_count";
+
 export const COMMITMENT_SELECT =
-  "SELECT c.*, cp.display_name AS responsible_name, " +
+  `SELECT c.*, cp.display_name AS responsible_name, ${PARTICIPANT_COUNT}, ` +
   "(oi.self_counterpart_id IS NOT NULL) AS responsible_self FROM commitments c " +
   "LEFT JOIN counterparts cp ON cp.owner_id = c.owner_id AND cp.id = c.responsible_counterpart_id " +
   "LEFT JOIN owner_identity oi ON oi.owner_id = c.owner_id AND oi.self_counterpart_id = c.responsible_counterpart_id";
@@ -68,6 +79,25 @@ export function toCommitment(row: Row, now: number): CommitmentRecord {
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     overdue: dueAt !== null && dueAt < now && (lifecycle === "open" || lifecycle === "waiting"),
+    ...(Number(row.participant_count) > 0
+      ? { participantCount: Number(row.participant_count) }
+      : {}),
+    ...(parseAmbiguity(row.ambiguity_json)
+      ? { ambiguity: parseAmbiguity(row.ambiguity_json) }
+      : {}),
+  };
+}
+
+export function toParticipant(row: Row): CommitmentParticipant {
+  return {
+    id: String(row.id),
+    commitmentId: String(row.commitment_id),
+    counterpartId: String(row.counterpart_id),
+    displayName: String(row.display_name ?? ""),
+    role: String(row.role) as CommitmentParticipant["role"],
+    responsibilityVersion: Number(row.responsibility_version),
+    purpose: str(row.purpose),
+    createdAt: Number(row.created_at),
   };
 }
 
@@ -225,6 +255,46 @@ export function createCommitmentCommon(c: WorkCommon) {
     return { counterpartId: spec.counterpartId, raw: null };
   };
 
+  /**
+   * What the typed words say about who answers (design 6.8): several people or a group are kept as typed and marked "joint" until
+   * the user chooses; "any one of them is enough" is refused. A name the user already has wins over a split ("刘和平" is one person).
+   */
+  const wordingOf = (
+    owner: string,
+    spec: ResponsibleSpec,
+    ...extra: Array<string | undefined>
+  ): { problem: "either_responsible" } | { ambiguity: JointAmbiguity | null } => {
+    const typed =
+      spec.kind === "name" && typeof spec.name === "string" ? spec.name.trim() : undefined;
+    if (asksForEither(typed, ...extra)) {
+      return { problem: "either_responsible" };
+    }
+    const read = typed ? readResponsibleWording(typed) : null;
+    if (
+      !typed ||
+      !read ||
+      read.kind !== "joint" ||
+      names.resolveName(owner, typed).match !== "none"
+    ) {
+      return { ambiguity: null };
+    }
+    return { ambiguity: { kind: "joint", names: read.names } };
+  };
+
+  /** Write (or clear) the "waiting for the user's choice" mark. */
+  const markAmbiguity = (
+    owner: string,
+    commitmentId: string,
+    ambiguity: JointAmbiguity | null,
+  ): void => {
+    run(
+      "UPDATE commitments SET ambiguity_json = ? WHERE owner_id = ? AND id = ?",
+      ambiguity ? JSON.stringify(ambiguity) : null,
+      owner,
+      commitmentId,
+    );
+  };
+
   /** Keep the previous responsibility version as a snapshot before the live row moves on (design 4.4.2). */
   const snapshotVersion = (owner: string, row: Row, reason: string, now: number): void => {
     run(
@@ -265,6 +335,41 @@ export function createCommitmentCommon(c: WorkCommon) {
       linkId: String(row.link_id),
     }));
 
+  /**
+   * INV-08: the responsible one is never also a helper. When a person becomes responsible (an edit, a claim, a merge, a split),
+   * the links that name them as a helper on that commitment end, with the time. `scope` narrows it to one commitment or one person.
+   */
+  const endHelperWhoIsResponsible = (
+    owner: string,
+    now: number,
+    scope: { commitmentId?: string; counterpartId?: string },
+  ): void => {
+    run(
+      "UPDATE commitment_participant_links SET status = 'revoked', revoked_at = ?, valid_to = ? " +
+        "WHERE owner_id = ? AND status <> 'revoked' " +
+        (scope.commitmentId !== undefined ? "AND commitment_id = ? " : "") +
+        (scope.counterpartId !== undefined ? "AND counterpart_id = ? " : "") +
+        "AND EXISTS (SELECT 1 FROM commitments c WHERE c.owner_id = commitment_participant_links.owner_id " +
+        "AND c.id = commitment_participant_links.commitment_id " +
+        "AND c.responsible_counterpart_id = commitment_participant_links.counterpart_id)",
+      now,
+      now,
+      owner,
+      ...(scope.commitmentId !== undefined ? [scope.commitmentId] : []),
+      ...(scope.counterpartId !== undefined ? [scope.counterpartId] : []),
+    );
+  };
+
+  /** The people who help with a commitment (live links), oldest first. */
+  const helpersOf = (owner: string, commitmentId: string): CommitmentParticipant[] =>
+    all(
+      "SELECT l.*, cp.display_name FROM commitment_participant_links l " +
+        "JOIN counterparts cp ON cp.owner_id = l.owner_id AND cp.id = l.counterpart_id " +
+        "WHERE l.owner_id = ? AND l.commitment_id = ? AND l.status <> 'revoked' ORDER BY l.created_at, l.id",
+      owner,
+      commitmentId,
+    ).map(toParticipant);
+
   const impactOf = (owner: string, commitmentId: string): CommitmentImpact => ({
     works: linkedWorks(owner, commitmentId),
     // Follow-up plans arrive with slice W4: until then no plan can be owned by a commitment.
@@ -276,9 +381,13 @@ export function createCommitmentCommon(c: WorkCommon) {
     appendEvent,
     ensureSelf,
     resolveResponsible,
+    wordingOf,
+    markAmbiguity,
     snapshotVersion,
     linkedWorks,
     impactOf,
+    endHelperWhoIsResponsible,
+    helpersOf,
   };
 }
 

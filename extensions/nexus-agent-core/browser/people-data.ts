@@ -166,13 +166,17 @@ export async function loadPeopleView(
     }
   }
   const now = Date.now();
-  const lines: CommitmentLine[] = view
-    ? [...view.responsible, ...view.history].map((commitment) => ({
-        commitment,
-        role: null,
-        linkId: null,
-      }))
-    : [];
+  const asLine = (commitment: PersonView["responsible"][number]): CommitmentLine => ({
+    commitment,
+    role: null,
+    linkId: null,
+  });
+  // What he answers for (the split dialog offers these) and, apart, what he only helps with (its buttons find the commitment here).
+  const answers: CommitmentLine[] = view ? [...view.responsible, ...view.history].map(asLine) : [];
+  const lines: CommitmentLine[] = [
+    ...answers,
+    ...(view?.assisting ?? []).map(({ commitment }) => asLine(commitment)),
+  ];
   return {
     title: tr(lang, "pp.title"),
     html: renderPeoplePage(
@@ -213,7 +217,7 @@ export async function loadPeopleView(
         ? {
             person: personActionModel(
               view.counterpart,
-              lines.map(({ commitment }) => ({
+              answers.map(({ commitment }) => ({
                 id: commitment.id,
                 text: commitment.requirementText,
                 open: commitment.lifecycle === "open" || commitment.lifecycle === "waiting",

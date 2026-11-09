@@ -292,7 +292,13 @@ describe("people list: search", () => {
       /seg=attention.*q=逾期|q=逾期.*seg=attention/,
     );
     click(f.container, ".nx-wlist .nx-seg > a:nth-child(2)");
-    assert.deepEqual(f.opened.at(-1)?.params, { view: "people", seg: "attention", q: "逾期" });
+    await flush();
+    // The segment changes in place: the same search, the other segment, and the host is not navigated.
+    assert.equal(f.opened.length, 0);
+    assert.ok(
+      listCalls(f).some((c) => c.params?.attention === true && c.params?.keyword === "逾期"),
+      "the list was read again for the other segment, with the same search",
+    );
     // A search that finds no one says so, and the way back is one click: the same segment without the search.
     input.value = "查无此人";
     input.form?.dispatchEvent(new Event("submit", { cancelable: true }));
@@ -304,7 +310,8 @@ describe("people list: search", () => {
     await flush();
     assert.equal((q(f.container, ".nx-wsearch input") as HTMLInputElement).value, "");
     assert.equal(listCalls(f).at(-1)?.params?.keyword, undefined);
-    assert.equal(rows(f.container), 50);
+    // The segment picked above is still the one shown (the fake serves one person who needs attention).
+    assert.equal(rows(f.container), 1);
   });
 
   it("takes the search from the address, and shows it in the box", async () => {

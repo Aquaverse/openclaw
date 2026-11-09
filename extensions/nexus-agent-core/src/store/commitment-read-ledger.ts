@@ -1,7 +1,7 @@
 // Commitment reads (object-model design 4.4, 10.2): one record with its history, the filtered list a Work page or the Agent
 // searches, and the impact preview. Read-only: nothing here writes a row, so a stale caller can only see old data.
 import type { CommitmentActor, CommitmentRecord } from "../commitment/types.js";
-import { toCommitment, type CommitmentCommon } from "./commitment-common.js";
+import { PARTICIPANT_COUNT, toCommitment, type CommitmentCommon } from "./commitment-common.js";
 import type { TransactionRunner } from "./kernel.js";
 import type { Principal } from "./types.js";
 import type { Row, WorkCommon } from "./work-ledger-common.js";
@@ -57,6 +57,7 @@ export function createCommitmentReadOps(deps: CommitmentReadDeps) {
         outcome: "ok" as const,
         commitment,
         works: k.linkedWorks(owner, input.commitmentId),
+        helpers: k.helpersOf(owner, input.commitmentId),
         events,
         versions,
       };
@@ -125,7 +126,7 @@ export function createCommitmentReadOps(deps: CommitmentReadDeps) {
           : "CASE c.lifecycle WHEN 'open' THEN 0 WHEN 'waiting' THEN 1 WHEN 'resolved' THEN 2 ELSE 3 END, " +
             "c.due_at IS NULL, c.due_at, c.created_at DESC, c.id";
       const rows = all(
-        `SELECT c.*, cp.display_name AS responsible_name, (oi.self_counterpart_id IS NOT NULL) AS responsible_self, ` +
+        `SELECT c.*, cp.display_name AS responsible_name, ${PARTICIPANT_COUNT}, (oi.self_counterpart_id IS NOT NULL) AS responsible_self, ` +
           `${input.workId !== undefined ? "wl.role AS link_role, wl.id AS link_id" : "NULL AS link_role, NULL AS link_id"} ` +
           `${base.replace("WHERE", "LEFT JOIN owner_identity oi ON oi.owner_id = c.owner_id AND oi.self_counterpart_id = c.responsible_counterpart_id WHERE")} ` +
           `ORDER BY ${order} LIMIT ? OFFSET ?`,

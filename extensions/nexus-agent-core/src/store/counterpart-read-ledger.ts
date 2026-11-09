@@ -155,7 +155,7 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
     transaction(() => {
       const owner = input.principal.ownerId;
       const rows = all(
-        "SELECT id, responsible_raw, lifecycle, due_at FROM commitments WHERE owner_id = ? AND responsible_counterpart_id IS NULL ORDER BY created_at, id",
+        "SELECT id, responsible_raw, lifecycle, due_at, ambiguity_json FROM commitments WHERE owner_id = ? AND responsible_counterpart_id IS NULL ORDER BY created_at, id",
         owner,
       );
       const groups = new Map<string, PendingPersonGroup>();
@@ -180,6 +180,9 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
           groups.set(key, group);
         }
         group.total += 1;
+        if (row.ambiguity_json != null) {
+          group.joint = true;
+        }
         if (group.commitmentIds.length < 50) {
           group.commitmentIds.push(String(row.id));
         }
@@ -236,6 +239,29 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
         input.counterpartId,
         HISTORY_LIMIT,
       ).map((r: Row) => toCommitment(r, input.now));
+      // The commitments he helps with (a live link), open ones first: he does not answer for them, so they are not in `responsible`.
+      const roles = new Map<string, string[]>();
+      for (const r of all(
+        "SELECT commitment_id, role FROM commitment_participant_links WHERE owner_id = ? AND counterpart_id = ? AND status <> 'revoked' ORDER BY role",
+        owner,
+        input.counterpartId,
+      )) {
+        roles.set(String(r.commitment_id), [
+          ...(roles.get(String(r.commitment_id)) ?? []),
+          String(r.role),
+        ]);
+      }
+      const assisting = all(
+        `${COMMITMENT_SELECT} WHERE c.owner_id = ? AND EXISTS (SELECT 1 FROM commitment_participant_links hl WHERE hl.owner_id = c.owner_id ` +
+          "AND hl.commitment_id = c.id AND hl.counterpart_id = ? AND hl.status <> 'revoked') " +
+          "ORDER BY CASE WHEN c.lifecycle IN ('open','waiting') THEN 0 ELSE 1 END, c.updated_at DESC, c.id LIMIT ?",
+        owner,
+        input.counterpartId,
+        RELATED_LIMIT,
+      ).map((r: Row) => ({
+        commitment: toCommitment(r, input.now),
+        roles: roles.get(String(r.id)) ?? [],
+      }));
       const related = all(
         "SELECT w.id AS work_id, w.title, w.lifecycle, w.updated_at, 'commitment' AS via FROM commitments cm " +
           "JOIN work_links l ON l.owner_id = cm.owner_id AND l.target_kind = 'commitment' AND l.target_id = cm.id AND l.ended_at IS NULL " +
@@ -272,6 +298,7 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
         responsible,
         history,
         related: works,
+        assisting,
         counts: {
           unresolved: stats.unresolved,
           overdue: stats.overdue,

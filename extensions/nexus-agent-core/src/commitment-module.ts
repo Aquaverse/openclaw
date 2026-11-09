@@ -1,5 +1,7 @@
 // Slice W2/W3 wiring (Commitments and people): the Agent tools and the gateway methods, behind `worksEnabled` (no switch of its own).
 import type { OpenClawPluginApi } from "../api.js";
+import { createCommitmentAssistRpcHandlers } from "./commitment-assist-rpc.js";
+import { createCommitmentJointRpcHandlers } from "./commitment-joint-rpc.js";
 import { createCommitmentRpcHandlers } from "./commitment-rpc.js";
 import { NEXUS_COMMITMENT_PROTOCOL } from "./commitment/commitment-prompt.js";
 import { createCounterpartPurgeRpcHandlers } from "./counterpart-purge-rpc.js";
@@ -51,6 +53,8 @@ export function registerCommitmentModule(params: CommitmentModuleParams): void {
   const rpcDeps = { getStore, events, resolvePrincipal: () => principalFor() };
   for (const [method, handler, scope] of [
     ...createCommitmentRpcHandlers(rpcDeps),
+    ...createCommitmentAssistRpcHandlers(rpcDeps),
+    ...createCommitmentJointRpcHandlers(rpcDeps),
     ...createCounterpartRpcHandlers(rpcDeps),
     ...createCounterpartPurgeRpcHandlers(rpcDeps),
   ]) {

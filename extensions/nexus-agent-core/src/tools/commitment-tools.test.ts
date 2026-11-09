@@ -266,4 +266,45 @@ describe("commitment tools", () => {
       "invalid",
     );
   });
+  it("keeps several people named together as waiting for the user's choice, and tells the Agent not to choose", async () => {
+    const out = await record({
+      requirementText: "一起做报价",
+      userStatementRef: "小王和小李一起做报价",
+      responsibleName: "小王和小李一起",
+    });
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(out.responsibleResolved, false);
+    assert.match(String(out.waitingForUserChoice), /Only the user can choose/);
+    const row = db
+      .prepare("SELECT responsible_counterpart_id, ambiguity_json FROM commitments WHERE id = ?")
+      .get(out.commitmentId) as {
+      responsible_counterpart_id: string | null;
+      ambiguity_json: string;
+    };
+    assert.equal(row.responsible_counterpart_id, null);
+    assert.deepEqual(JSON.parse(row.ambiguity_json), { kind: "joint", names: ["小王", "小李"] });
+    // reading it back says the same
+    const read = await call("nexus_commitment_get", { commitmentId: out.commitmentId });
+    assert.match(String(read.waitingForUserChoice), /Only the user can choose/);
+    // a single name says nothing of the kind
+    assert.equal(
+      (await record({ userStatementRef: "单人一句话" })).waitingForUserChoice,
+      undefined,
+    );
+  });
+
+  it("refuses 'any one of them is enough' with the sentence, and records nothing", async () => {
+    const before = (db.prepare("SELECT COUNT(*) AS n FROM commitments").get() as { n: number }).n;
+    const out = await record({
+      requirementText: "报价单",
+      userStatementRef: "小王或小李谁都行，先做完就算",
+      responsibleName: "小王",
+    });
+    assert.equal(out.ok, false);
+    assert.equal(out.code, "either_responsible");
+    assert.match(String(out.message), /请指定一位负责人，其他人可协助，或明确各自需要交付的部分/);
+    assert.match(String(out.message), /Record nothing until they answer/);
+    const after = (db.prepare("SELECT COUNT(*) AS n FROM commitments").get() as { n: number }).n;
+    assert.equal(after, before);
+  });
 });

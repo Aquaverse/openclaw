@@ -51,6 +51,8 @@ export type CommitmentBoxOptions = {
   attach?: boolean;
   /** Name the responsible one as a link to their page (off on that person's own page). Default on. */
   linkWho?: boolean;
+  /** The roles the person whose page this is has in the commitment as a helper (he does not answer for it). */
+  helperRoles?: readonly string[];
 };
 
 /** One commitment as a box with its meta line and, when `withActions`, its buttons. */
@@ -75,7 +77,7 @@ export function renderCommitmentBox(
         })
       : esc(tr(lang, "cm.who", { name }));
   const unlinked =
-    open && linkWho && !c.responsibleSelf && !c.responsibleCounterpartId
+    open && linkWho && !c.responsibleSelf && !c.responsibleCounterpartId && !c.ambiguity
       ? `<a href="${esc(`${base}/people?seg=pending`)}">${esc(tr(lang, "pp.cm.unlinked"))}</a>`
       : "";
   const problem =
@@ -85,6 +87,9 @@ export function renderCommitmentBox(
   const meta = [
     `<span>${who}${unlinked ? ` ${unlinked}` : ""}</span>`,
     `<span${c.overdue ? ' class="nx-cm-late"' : ""}>${esc(dueText(lang, c, now))}</span>`,
+    ...(c.participantCount
+      ? [`<span>${esc(tr(lang, "cm.assist.count", { n: String(c.participantCount) }))}</span>`]
+      : []),
     ...(open
       ? [
           `<span>${esc(tr(lang, `cm.comm.${c.communicationState}` as MsgKey))}</span>`,
@@ -92,7 +97,16 @@ export function renderCommitmentBox(
         ]
       : []),
   ].join("<span>·</span>");
+  const joint = open && c.ambiguity !== undefined;
   const notes = [
+    joint ? tr(lang, "cm.joint.note") : "",
+    options.helperRoles && options.helperRoles.length > 0
+      ? tr(lang, "pp.assisting.roles", {
+          roles: options.helperRoles
+            .map((r) => tr(lang, `cm.assist.role.${r}` as MsgKey))
+            .join(tr(lang, "pp.assisting.sep")),
+        })
+      : "",
     c.lifecycle === "resolved" && c.resolutionBasis === "manual_override" && c.resolutionReason
       ? tr(lang, "cm.note.manual", { reason: clip(c.resolutionReason, 160) })
       : "",
@@ -115,9 +129,11 @@ export function renderCommitmentBox(
     ? [
         ...(open
           ? [
+              ...(joint ? [btn("cm-joint", "cm.btn.joint")] : []),
               btn("cm-comm", "cm.btn.comm"),
               btn("cm-accept", "cm.btn.accept"),
               btn("cm-edit", "cm.btn.edit"),
+              btn("cm-assist", "cm.btn.assist"),
               btn("cm-resolve", "cm.btn.resolve"),
               btn("cm-cancel", "cm.btn.cancel"),
             ]
@@ -136,7 +152,7 @@ export function renderCommitmentBox(
     (line.role
       ? chip(line.role === "required" ? "blue" : "gray", tr(lang, `cm.role.${line.role}` as MsgKey))
       : "") +
-    `${stateChip(lang, c)}${problem}${c.overdue ? chip("rose", tr(lang, "cm.overdue")) : ""}</div>` +
+    `${stateChip(lang, c)}${joint ? chip("amber", tr(lang, "cm.joint.chip")) : ""}${problem}${c.overdue ? chip("rose", tr(lang, "cm.overdue")) : ""}</div>` +
     `<div class="nx-cm-m">${meta}</div>${notes}` +
     (actions ? `<div class="nx-cm-a">${actions}</div>` : "") +
     `</div>`

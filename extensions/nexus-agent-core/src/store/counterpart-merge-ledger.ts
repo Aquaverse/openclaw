@@ -272,6 +272,8 @@ export function createCounterpartMergeOps(deps: CounterpartMergeDeps) {
           workIds.add(link.workId);
         }
       }
+      // The person who stays may now be both responsible and a helper on a commitment: only the responsible side remains.
+      k.endHelperWhoIsResponsible(owner, input.now, { counterpartId: to });
       // The record that goes away stays as a tombstone that points at the one that stays.
       run(
         "UPDATE counterparts SET lifecycle = 'merged', merged_into = ?, merge_tx_id = ?, merged_at = ?, revision = revision + 1, updated_at = ? WHERE owner_id = ? AND id = ?",
@@ -312,7 +314,11 @@ export function createCounterpartMergeOps(deps: CounterpartMergeDeps) {
     all(
       "SELECT * FROM commitments WHERE owner_id = ? AND responsible_counterpart_id IS NULL ORDER BY created_at, id",
       owner,
-    ).filter((row) => normalizeName(String(row.responsible_raw ?? "")) === key);
+    ).filter(
+      // A commitment whose words named several people waits for the user's choice (design 6.8); no group move settles it.
+      (row) =>
+        row.ambiguity_json == null && normalizeName(String(row.responsible_raw ?? "")) === key,
+    );
 
   const counterpartNotPerson = (input: {
     principal: Principal;

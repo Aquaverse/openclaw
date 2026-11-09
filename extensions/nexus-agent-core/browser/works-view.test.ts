@@ -210,11 +210,11 @@ describe("work page", () => {
     assert.ok(q(f.container, ".nx-works")?.classList.contains("nx-picked"));
     const list = f.calls.find((c) => c.method === "nexus.work.list");
     assert.deepEqual(list?.params?.states, ["in_progress"]);
+    // Picking a row is handled in place: the host would remount the whole page for a new address (the blank flash).
     click(f.container, "a.nx-wrow");
-    assert.deepEqual(f.opened.at(-1), {
-      id: "nexus",
-      params: { view: "work", work: "w1", state: "in_progress" },
-    });
+    await flush();
+    assert.equal(f.opened.length, 0);
+    assert.equal(q(f.container, ".nx-wtitle")?.textContent, "工作 w1");
   });
 
   it("says so when the named work is gone", async () => {
@@ -423,14 +423,12 @@ describe("work page", () => {
     await wait(600);
     assert.equal(lastList()?.params?.keyword, "酒店");
     assert.equal((q(f.container, ".nx-wsearch input") as HTMLInputElement).value, "酒店");
-    // Picking a row navigates, and the link carries the search and the state.
+    // Picking a row is in place too: the search and the state stay, and the host is not navigated.
     click(f.container, "a.nx-wrow");
-    assert.deepEqual(f.opened.at(-1)?.params, {
-      view: "work",
-      work: "w1",
-      state: "needs_you",
-      q: "酒店",
-    });
+    await flush();
+    assert.equal(f.opened.length, 0);
+    assert.equal(lastList()?.params?.keyword, "酒店");
+    assert.deepEqual(lastList()?.params?.states, ["needs_you"]);
   });
 
   it("waits for the input method: pinyin being composed is not a query, and the box is left alone", async () => {
@@ -557,7 +555,14 @@ describe("work page", () => {
       // Rows added later are clickable like the first ones (one delegated handler), and the heading is not repeated.
       assert.equal(f.container.querySelectorAll(".nx-gh").length, 1);
       f.container.querySelectorAll<HTMLElement>("a.nx-wrow")[99]?.click();
-      assert.equal(f.opened.at(-1)?.params?.work, "w099");
+      await flush();
+      assert.equal(f.opened.length, 0, "a row is picked in place, the host is not navigated");
+      assert.ok(
+        f.calls.some(
+          (c) => c.method === "nexus.work.get" && JSON.stringify(c.params).includes("w099"),
+        ),
+        "the detail of the picked row is read",
+      );
       watchers.at(-1)?.fire();
       await flush();
       assert.equal(f.container.querySelectorAll("a.nx-wrow").length, 120);

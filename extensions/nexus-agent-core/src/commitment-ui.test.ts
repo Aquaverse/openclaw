@@ -2,7 +2,11 @@
 // values escaped.
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { renderCommitmentSection, type CommitmentLine } from "./commitment-ui.js";
+import {
+  renderCommitmentBox,
+  renderCommitmentSection,
+  type CommitmentLine,
+} from "./commitment-ui.js";
 import type { CommitmentRecord } from "./commitment/types.js";
 
 const NOW = new Date(2026, 9, 8, 12, 0, 0).getTime();
@@ -192,5 +196,59 @@ describe("commitment section", () => {
     );
     assert.doesNotMatch(html, /<img/);
     assert.match(html, /&lt;img/);
+  });
+  it("offers 协助的人 on an open commitment only, and shows how many help and in what role", () => {
+    const open = renderCommitmentSection(
+      [line("cm_h", "required", { participantCount: 2 })],
+      options,
+    );
+    assert.match(open, /data-nx-act="cm-assist"/);
+    assert.match(open, /协助 2 人/);
+    const none = renderCommitmentSection([line("cm_n", "required")], options);
+    assert.doesNotMatch(none, /协助 \d+ 人/);
+    const closed = renderCommitmentSection(
+      [line("cm_c", "required", { lifecycle: "resolved" })],
+      options,
+    );
+    assert.doesNotMatch(closed, /data-nx-act="cm-assist"/);
+    const roles = renderCommitmentBox(line("cm_r", null), "zh", NOW, true, {
+      helperRoles: ["approver", "recipient"],
+    });
+    assert.match(roles, /他的角色：审批、收件/);
+  });
+
+  it("keeps the assist button out of a read-only page", () => {
+    const html = renderCommitmentSection([line("cm_h", "required")], {
+      ...options,
+      withActions: false,
+    });
+    assert.doesNotMatch(html, /cm-assist/);
+  });
+  it("marks a commitment that waits for 'who answers', offers 分责 first, and shows nothing of it once chosen", () => {
+    const waiting = renderCommitmentSection(
+      [
+        line("cm_w", "required", {
+          responsibleRaw: "小王和小李一起",
+          ambiguity: { kind: "joint", names: ["小王", "小李"] },
+        }),
+      ],
+      options,
+    );
+    assert.match(waiting, /待分责/);
+    assert.match(waiting, /一条承诺只有一位负责人/);
+    assert.ok(waiting.indexOf('data-nx-act="cm-joint"') < waiting.indexOf('data-nx-act="cm-comm"'));
+    assert.doesNotMatch(waiting, /未指向人员档案/);
+    const chosen = renderCommitmentSection([line("cm_c", "required")], options);
+    assert.doesNotMatch(chosen, /待分责|cm-joint/);
+    const closed = renderCommitmentSection(
+      [
+        line("cm_x", "required", {
+          lifecycle: "cancelled",
+          ambiguity: { kind: "joint", names: ["a", "b"] },
+        }),
+      ],
+      options,
+    );
+    assert.doesNotMatch(closed, /待分责|cm-joint/);
   });
 });

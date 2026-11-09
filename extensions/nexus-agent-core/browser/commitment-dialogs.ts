@@ -5,6 +5,7 @@
 import type { CommitmentLine } from "../src/commitment-ui.js";
 import { tr, type MsgKey } from "../src/i18n.js";
 import type { ActionContext } from "./actions.ts";
+import { assistDialog } from "./commitment-assist-dialog.ts";
 import {
   buildForm,
   describeError,
@@ -25,6 +26,7 @@ import {
   type PersonChoice,
   type Reply,
 } from "./commitment-form.ts";
+import { jointDialog } from "./commitment-joint-dialog.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
 import { el, field, note } from "./goal-dom.ts";
 import type { NexusAction } from "./sanitize.ts";
@@ -79,7 +81,14 @@ export function createDialog(ctx: ActionContext, options: CreateOptions): void {
             });
             ctx.changed({
               ok: true,
-              text: tr(lang, reply.outcome === "exists" ? "cm.notice.exists" : "cm.notice.created"),
+              text: tr(
+                lang,
+                reply.outcome === "exists"
+                  ? "cm.notice.exists"
+                  : reply.commitment?.ambiguity
+                    ? "cm.notice.joint"
+                    : "cm.notice.created",
+              ),
             });
           }),
       },
@@ -651,5 +660,9 @@ export function runCommitmentAction(ctx: ActionContext, action: CommitmentAction
         : ctx.changed({ ok: false, text: tr(ctx.lang, "cm.err.gone") });
     case "cm-attach":
       return attachDialog(ctx, line);
+    case "cm-assist":
+      return assistDialog(ctx, line);
+    case "cm-joint":
+      return jointDialog(ctx, line);
   }
 }

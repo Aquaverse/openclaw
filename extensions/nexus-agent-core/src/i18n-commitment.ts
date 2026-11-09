@@ -145,5 +145,116 @@ export const COMMITMENT_MESSAGES = {
     "这项承诺已经挂在这个工作上了，一项承诺在同一个工作里只出现一次。要改成必要或可选，请改它的角色。",
     "This work already cites that commitment, once. To make it required or optional, change its role.",
   ],
+  "cm.btn.assist": ["协助的人", "Helpers"],
+  "cm.dlg.assist": ["协助的人", "People who help"],
+  "cm.assist.count": ["协助 {n} 人", "{n} helping"],
+  "cm.assist.lead": [
+    "负责这项承诺的只有一位：{name}。这里记的是帮忙的人。",
+    "One person answers for this commitment: {name}. This is for the people who help.",
+  ],
+  "cm.assist.none": ["还没有协助的人。", "Nobody helps yet."],
+  "cm.assist.role.participant": ["参与", "Participant"],
+  "cm.assist.role.approver": ["审批", "Approver"],
+  "cm.assist.role.recipient": ["收件", "Recipient"],
+  "cm.assist.hint.participant": [
+    "一起做，或配合负责人。",
+    "Works on it with the responsible person, or helps them.",
+  ],
+  "cm.assist.hint.approver": [
+    "业务上需要他点头。这不是 Nexus 的批准，不会替你批准任何操作。",
+    "Needs his say-so for the business. This is not a Nexus approval and approves nothing for you.",
+  ],
+  "cm.assist.hint.recipient": [
+    "成果是交给他的。这不是发送授权，Nexus 不会因此给他发任何消息。",
+    "The result goes to him. This is not a sending authorization: Nexus will not message him.",
+  ],
+  "cm.assist.who": ["选一位已有的人", "Pick someone who has a record"],
+  "cm.assist.role": ["他的角色", "His role"],
+  "cm.assist.purpose": ["备注（可选）", "Note (optional)"],
+  "cm.assist.add": ["添加", "Add"],
+  "cm.assist.remove": ["移除", "Remove"],
+  "cm.assist.older": ["在更早的责任版本里加的", "Added under an earlier responsibility"],
+  "cm.assist.rules": [
+    "协助的人不承担这项承诺，也不影响“已告知 / 对方已回应 / 核验”。换负责人时，协助的人保留；新负责人本来就是协助的人时，这条协助记录自动结束。",
+    "A helper does not answer for the commitment and changes nothing about what was told, agreed or verified. When the responsible person changes, helpers stay; if the new responsible person was a helper, that helper record ends.",
+  ],
+  "cm.assist.readonly": [
+    "当前连接是只读的，不能修改。",
+    "This connection is read-only, so nothing can be changed.",
+  ],
+  "cm.assist.closed": [
+    "这项承诺已经结案或取消，不再添加协助的人（可以移除）。",
+    "This commitment is closed or cancelled: no more helpers can be added.",
+  ],
+  "cm.assist.err.responsible": [
+    "他是这项承诺的负责人，不能同时是协助的人。",
+    "He is the responsible person of this commitment, so he cannot also be a helper.",
+  ],
+  "cm.assist.err.person": [
+    "找不到这个人，或者已经被删除。",
+    "That person was not found, or has been deleted.",
+  ],
+  "cm.assist.err.many": [
+    "一项承诺最多 20 位协助的人。",
+    "One commitment can have at most 20 helpers.",
+  ],
+  "cm.notice.assist": ["协助的人已更新", "Helpers updated"],
+  "pp.assisting.roles": ["他的角色：{roles}", "His role: {roles}"],
+  "pp.sec.assisting": ["他协助的承诺", "Commitments he helps with"],
+  "pp.assisting.empty": ["他没有协助任何承诺。", "He does not help with any commitment."],
+  "pp.assisting.note": [
+    "他不承担这些承诺，也不会因此收到任何消息；负责的人在每条承诺里写明。",
+    "He does not answer for these and nothing is sent to him because of them; each shows who is responsible.",
+  ],
+  "pp.assisting.sep": ["、", ", "],
   "cm.err.generic": ["操作没有完成：{message}", "That did not complete: {message}"],
+  "cm.err.either": [
+    "请指定一位负责人，其他人可协助，或明确各自需要交付的部分。“任一人完成即可”暂不支持，不会改成两个人都必须完成。",
+    "Name one responsible person (others can help), or say what each person must deliver. “Any one of them is enough” is not supported, and it will not be turned into “both must do it”.",
+  ],
+  "cm.joint.chip": ["待分责", "Who answers?"],
+  "cm.btn.joint": ["分责", "Decide who answers"],
+  "cm.dlg.joint": ["谁来负责这条承诺", "Who answers for this commitment"],
+  "cm.joint.note": [
+    "这里写了几个人一起做，但一条承诺只有一位负责人。在你选好之前，没有人被当作负责人。",
+    "Several people were named, but a commitment has one responsible person. Until you choose, nobody is treated as responsible.",
+  ],
+  "cm.joint.lead": [
+    "你写的是“{raw}”。一条承诺只有一位负责人，请选一种做法：",
+    "You wrote “{raw}”. A commitment has one responsible person; pick one way:",
+  ],
+  "cm.joint.form": ["做法", "Way"],
+  "cm.joint.form.lead": ["一人负责，其他人协助", "One person answers, the others help"],
+  "cm.joint.form.each": ["每人一条承诺", "One commitment for each person"],
+  "cm.joint.lead.who": ["负责人（只有一位）", "Responsible person (just one)"],
+  "cm.joint.lead.helpers": ["协助的人（可多位，可不选）", "People who help (any number, or none)"],
+  "cm.joint.lead.hint": [
+    "协助的人不承担这条承诺，也不是“可以替你发消息”的授权。",
+    "A helper does not answer for the commitment and is not an authorization to send messages.",
+  ],
+  "cm.joint.each.who": [
+    "各自负责的人（2～10 位）",
+    "The people who each answer for their own (2 to 10)",
+  ],
+  "cm.joint.each.hint": [
+    "原来这条给第一位，再为其余每位各建一条：内容、期限、所属工作都一样；之后各自结案、各自核验。名单里找不到的人，请先在“人员”页建档。",
+    "The existing one goes to the first person, and each of the others gets a copy with the same words, due date and Work citations; each is closed and verified on its own. Someone not listed needs a record first, on the People page.",
+  ],
+  "cm.joint.either": [
+    "“任一人完成即可”暂不支持：请指定一位负责人（其他人可协助），或分成各自要交付的部分。",
+    "“Any one of them is enough” is not supported: name one responsible person (others can help), or split it into what each person must deliver.",
+  ],
+  "cm.notice.joint.lead": [
+    "已指定负责人，其余的人作为协助的人",
+    "Responsible person set; the others are helping",
+  ],
+  "cm.notice.joint.each": ["已分成每人一条承诺", "Split into one commitment for each person"],
+  "cm.notice.joint": [
+    "已记录，但写了几个人，这条还没有负责人：请点“分责”选择怎么分。",
+    "Recorded, but several people were named, so nobody answers yet: use “Decide who answers” to choose.",
+  ],
+  "pp.pending.joint": [
+    "这里写了几个人一起做：不能指向某一个人，请到承诺上点“分责”。",
+    "Several people were named together: it cannot be pointed at one person. Use “Decide who answers” on the commitment.",
+  ],
 } as const satisfies Record<string, readonly [string, string]>;

@@ -2,6 +2,7 @@
 // acceptance / resolve / cancel / restore / reopen / setRole / generatePeriods. Reads need operator.read, writes operator.write.
 // The console is the user, so these write as the user: the Agent has its own narrower tools. A change reaches the Works that cite
 // the Commitment through `work_changed` (ids only), which the Work page already listens to. Replies carry ownerId.
+import { EITHER_RESPONSIBLE_MESSAGE } from "./commitment/joint.js";
 import type {
   CommitmentChanges,
   DueSpec,
@@ -116,6 +117,11 @@ function refuse(respond: Respond, result: { outcome: string } & Record<string, u
       reject(respond, "nexus_revision_conflict", "the commitment changed; reload it");
       return true;
     case "invalid":
+      if (result.code === "either_responsible") {
+        // "Any one of them is enough" has no legal form (design 6.8): say what to do instead, never record two obligations.
+        reject(respond, "nexus_unsupported", EITHER_RESPONSIBLE_MESSAGE);
+        return true;
+      }
       reject(respond, "nexus_invalid_params", String(result.code));
       return true;
     case "forbidden":

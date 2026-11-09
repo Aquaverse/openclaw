@@ -38,6 +38,10 @@ export const COMMITMENT_LIMITS = {
   ref: 200,
   nextStep: 300,
   periods: 12,
+  /** People who can help with one Commitment at the same time. */
+  participants: 20,
+  /** The user's note on why a person helps. */
+  purpose: 200,
 } as const;
 
 export type CommitmentRecord = {
@@ -88,6 +92,31 @@ export type CommitmentRecord = {
   updatedAt: number;
   /** Computed: a known due date has passed and the obligation is still open or waiting. */
   overdue: boolean;
+  /** How many people help with this Commitment without answering for it (left out when none). */
+  participantCount?: number;
+  /**
+   * Set while the typed words for "who is responsible" name several people or a group ("小王和小李一起做"): nobody is responsible
+   * yet, and the user must choose one of the two legal forms (design 6.8). Left out otherwise.
+   */
+  ambiguity?: { kind: "joint"; names: string[] };
+};
+
+/** The roles a person can have in a Commitment besides being responsible (INV-08: there is no copy of the responsible one). */
+export const COMMITMENT_PARTICIPANT_ROLES = ["participant", "approver", "recipient"] as const;
+export type CommitmentParticipantRole = (typeof COMMITMENT_PARTICIPANT_ROLES)[number];
+
+/** One person who helps with a Commitment (`commitment_participant_links`). Never a grant, never a recipient address. */
+export type CommitmentParticipant = {
+  id: string;
+  commitmentId: string;
+  counterpartId: string;
+  displayName: string;
+  role: CommitmentParticipantRole;
+  /** The responsibility version that was current when the person was added. */
+  responsibilityVersion: number;
+  /** The user's own note about why, if any. */
+  purpose: string | null;
+  createdAt: number;
 };
 
 /** Who is responsible. `name` keeps the person's own word; only `self` and `counterpart` resolve to an identity row. */
