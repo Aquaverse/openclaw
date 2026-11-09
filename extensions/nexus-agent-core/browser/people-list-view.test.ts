@@ -91,6 +91,128 @@ describe("people list: paging", () => {
   });
 });
 
+describe("people list: choosing another person", () => {
+  const goTo = (f: ReturnType<typeof mount>, person: string) => {
+    f.handle?.update?.({ ...f.context, props: { view: "people", person } } as never);
+  };
+
+  it("changes only the highlight and the detail pane: the list keeps its elements and scroll position", async () => {
+    const f = mount({ view: "people", person: "cp_1" }, serve());
+    await flush();
+    const box = q(f.container, ".nx-rows") as HTMLElement;
+    const first = f.container.querySelector(".nx-rows a.nx-wrow") as HTMLElement;
+    const search = q(f.container, ".nx-wsearch input");
+    box.scrollTop = 120;
+    goTo(f, "cp_2");
+    await flush();
+    assert.equal(q(f.container, ".nx-rows"), box, "the list element was not rebuilt");
+    assert.equal(f.container.querySelector(".nx-rows a.nx-wrow"), first);
+    assert.equal(q(f.container, ".nx-wsearch input"), search);
+    assert.equal(box.scrollTop, 120);
+    const on = [...f.container.querySelectorAll(".nx-rows a.nx-wrow.on")].map((a) =>
+      a.getAttribute("href"),
+    );
+    assert.equal(on.length, 1);
+    assert.match(on[0] ?? "", /cp_2/);
+    assert.match(q(f.container, ".nx-detail")?.textContent ?? "", /孙工/);
+    assert.ok(
+      f.calls.some(
+        (c) => c.method === "nexus.counterpart.get" && c.params?.counterpartId === "cp_2",
+      ),
+    );
+  });
+
+  it("does not ask the host to navigate when a row is clicked (a navigation makes the host rebuild the page)", async () => {
+    const f = mount({ view: "people", person: "cp_1" }, serve());
+    await flush();
+    const box = q(f.container, ".nx-rows");
+    const second = [...f.container.querySelectorAll<HTMLElement>(".nx-rows a.nx-wrow")].find((a) =>
+      (a.getAttribute("href") ?? "").includes("cp_2"),
+    );
+    assert.ok(second, "the second person has a row");
+    second.click();
+    await flush();
+    assert.equal(f.opened.length, 0, "no host navigation");
+    assert.equal(q(f.container, ".nx-rows"), box, "the list was not rebuilt");
+    assert.match(q(f.container, ".nx-detail")?.textContent ?? "", /孙工/);
+    const on = [...f.container.querySelectorAll(".nx-rows a.nx-wrow.on")];
+    assert.equal(on.length, 1);
+    assert.match(on[0]?.getAttribute("href") ?? "", /cp_2/);
+  });
+
+  it("does not ask the host to navigate when the segment changes: the page switches itself", async () => {
+    const f = mount({ view: "people" }, serve());
+    await flush();
+    const pills = f.container.querySelectorAll<HTMLElement>(".nx-wlist .nx-seg > a");
+    assert.equal(pills[1]?.textContent, "需要关注1");
+    pills[1]?.click();
+    await flush();
+    assert.equal(f.opened.length, 0, "no host navigation");
+    assert.equal(listCalls(f).at(-1)?.params?.attention, true);
+    assert.equal(rows(f.container), 1);
+    assert.match(
+      f.container.querySelector(".nx-wlist .nx-seg > a.on")?.textContent ?? "",
+      /需要关注/,
+    );
+  });
+
+  it("keeps marking the chosen row on rows that load afterwards", async () => {
+    const f = mount({ view: "people", person: "cp_1" }, serve());
+    await flush();
+    goTo(f, "cp_2");
+    await flush();
+    click(f.container, ".nx-wload button");
+    await flush();
+    const on = [...f.container.querySelectorAll(".nx-rows a.nx-wrow.on")].map((a) =>
+      a.getAttribute("href"),
+    );
+    assert.equal(on.length, 1);
+    assert.match(on[0] ?? "", /cp_2/);
+  });
+});
+
+describe("people list: reloads that read nothing new", () => {
+  it("leaves the list and the detail pane alone when a server event reloads the same content", async () => {
+    const f = mount({ view: "people" }, serve());
+    await flush();
+    const rowsBox = q(f.container, ".nx-rows");
+    const detail = q(f.container, ".nx-detail");
+    const lists = listCalls(f).length;
+    assert.ok(rowsBox && detail);
+    f.events.get("plugin.nexus-agent-core.work_changed")?.();
+    await wait(600);
+    assert.ok(listCalls(f).length > lists, "the page did read again");
+    assert.equal(q(f.container, ".nx-rows"), rowsBox, "the same list element, not a rebuilt one");
+    assert.equal(q(f.container, ".nx-detail"), detail);
+  });
+
+  it("does rebuild when the content really changed", async () => {
+    let name = "成员000";
+    const f = mount(
+      { view: "people" },
+      {
+        ...serve(),
+        "nexus.counterpart.list": (params?: Record<string, unknown>) => {
+          const base = (
+            serve()["nexus.counterpart.list"] as (p?: Record<string, unknown>) => {
+              items: Array<Record<string, unknown>>;
+            }
+          )(params);
+          const [first, ...rest] = base.items;
+          return { ...base, items: [{ ...first, displayName: name }, ...rest] };
+        },
+      },
+    );
+    await flush();
+    const rowsBox = q(f.container, ".nx-rows");
+    name = "改过名字";
+    f.events.get("plugin.nexus-agent-core.work_changed")?.();
+    await wait(600);
+    assert.notEqual(q(f.container, ".nx-rows"), rowsBox);
+    assert.match(f.container.textContent ?? "", /改过名字/);
+  });
+});
+
 describe("people list: search", () => {
   it("searches in place: the rows change, the box and the detail pane stay, the address is left alone", async () => {
     const f = mount({ view: "people" }, serve());

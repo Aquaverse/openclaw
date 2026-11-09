@@ -29,6 +29,7 @@ import {
   type NexusRoute,
 } from "./route.ts";
 import { mountSanitized } from "./sanitize.ts";
+import { listSignature, patchSelection } from "./select-patch.ts";
 import { NEXUS_CSS } from "./style.ts";
 import { createWorkBar } from "./work-bar.ts";
 import { WORK_PAGE_SIZE } from "./work-data.ts";
@@ -86,6 +87,12 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
     let model: NexusModel = EMPTY_MODEL;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lastConnected = initial.host.connection.connected;
+    // What is mounted in the body now: a reload (a server event, a refresh) that reads the very same markup leaves the body
+    // alone, so the list keeps its scroll position and nothing is rebuilt under the reader's hand.
+    // `sig` is the list pane's markup without the highlighted row: when only that and the detail pane differ, the page patches them in
+    // place (select-patch.ts). `init` is the list state the panes hold, whose selected row is moved along with the highlight.
+    let mounted: { key: string; html: string; sig?: string; base: string } | undefined;
+    let shownInit: { selected: string | undefined } | undefined;
 
     const root = document.createElement("div");
     root.className = "nexus-page";
@@ -180,6 +187,8 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
             if (shown) {
               shownListKey = listKey(next);
               settling = next;
+              // The rows were swapped in place: the body no longer shows what was mounted.
+              mounted = undefined;
             }
           })
           .catch(() => open(next));
@@ -212,6 +221,8 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
             if (shown) {
               shownListKey = listKey(next);
               settling = next;
+              // The rows were swapped in place: the body no longer shows what was mounted.
+              mounted = undefined;
             }
           })
           .catch(() => open(next));
@@ -246,6 +257,16 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
         JSON.stringify(routeParams(to)) === JSON.stringify(routeParams(parseRoute(context.props)))
       ) {
         settling = undefined;
+        void load();
+        return;
+      }
+      // Choosing another row, or another filter, of the Work / People list on screen is a state of the page, not a place to
+      // go: a navigation makes the host build the page again (blank for a moment, scroll regions reset), the jolt on clicks.
+      const shown = settling ?? parseRoute(context.props);
+      const family = (view: string) =>
+        view === "people" ? "people" : view === "works" || view === "work" ? "work" : "";
+      if (family(shown.view) !== "" && family(shown.view) === family(to.view)) {
+        settling = to;
         void load();
         return;
       }
@@ -344,6 +365,7 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
 
     // Lets go of everything a data view had mounted in the body before something else takes its place.
     const clearMain = () => {
+      mounted = undefined;
       unbindClicks?.();
       unbindClicks = undefined;
       workList?.dispose();
@@ -504,6 +526,36 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
           renderNav(route);
         }
         model = view.model;
+        // The clear-people list is built from data beside the markup, so that data is part of what "the same" means.
+        const mountKey = JSON.stringify([
+          routeParams(route),
+          lang,
+          context.host.connection.canWrite,
+          view.cleanup ?? null,
+        ]);
+        if (mounted?.key === mountKey && mounted.html === view.html) {
+          return;
+        }
+        const base = JSON.stringify([lang, context.host.connection.canWrite]);
+        const sig = listSignature(view.html);
+        const listInit = view.peopleList ?? view.workList;
+        if (
+          listInit &&
+          shownInit &&
+          sig !== undefined &&
+          mounted?.sig === sig &&
+          mounted.base === base &&
+          (workList !== undefined || peopleList !== undefined) &&
+          shownListKey === listKey(route) &&
+          patchSelection(main, view.html, hrefOf)
+        ) {
+          // Another row was chosen: the list stays exactly as it is, only the highlight and the detail pane change.
+          shownInit.selected = listInit.selected;
+          mounted = { key: mountKey, html: view.html, sig, base };
+          return;
+        }
+        mounted = { key: mountKey, html: view.html, ...(sig !== undefined ? { sig } : {}), base };
+        shownInit = listInit;
         workList?.dispose();
         workList = undefined;
         peopleList?.dispose();

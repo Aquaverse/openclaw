@@ -164,7 +164,7 @@ export function mount(
     mountDefault: () => () => {},
   } as unknown as ControlUiViewContext;
   const handle = createNexusPage(NEXUS_RAIL_PAGE_ID)(container, context);
-  return { container, calls, opened, events, handle };
+  return { container, calls, opened, events, handle, context };
 }
 
 export const flush = async (rounds = 6) => {
