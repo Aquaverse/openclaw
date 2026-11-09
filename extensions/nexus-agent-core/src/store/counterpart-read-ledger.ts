@@ -11,6 +11,7 @@ import type {
 import { toCommitment, COMMITMENT_SELECT } from "./commitment-common.js";
 import type { CounterpartCommon } from "./counterpart-common.js";
 import { normalizeName } from "./counterpart-common.js";
+import { createPossibleSame } from "./counterpart-same.js";
 import type { TransactionRunner } from "./kernel.js";
 import type { Principal } from "./types.js";
 import type { Row, WorkCommon } from "./work-ledger-common.js";
@@ -33,6 +34,7 @@ const LIST_MAX = 200;
 export function createCounterpartReadOps(deps: CounterpartReadDeps) {
   const { transaction, c, cp } = deps;
   const { one, all } = c;
+  const possibleSameOf = createPossibleSame(c);
 
   /** Per person: the open or waiting Commitments they answer for. Each Commitment counts once however many Works cite it. */
   const statsFor = (owner: string, now: number, counterpartId?: string): Map<string, Stats> => {
@@ -95,8 +97,11 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
       }
       const rows = all(`SELECT cp.* FROM counterparts cp WHERE ${where.join(" AND ")}`, ...params);
       const stats = statsFor(owner, input.now);
+      const same = possibleSameOf(owner);
       let everyone: CounterpartSummary[] = rows.map((row) =>
-        Object.assign(cp.toCounterpart(owner, row), stats.get(String(row.id)) ?? EMPTY),
+        Object.assign(cp.toCounterpart(owner, row), stats.get(String(row.id)) ?? EMPTY, {
+          possibleSame: same.get(String(row.id))?.length ?? 0,
+        }),
       );
       // Whom to look at first: overdue, then waiting for confirmation, then the earliest due date; names break ties. order:"name" is plain name order.
       everyone.sort(
@@ -299,6 +304,7 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
         history,
         related: works,
         assisting,
+        possibleSame: possibleSameOf(owner).get(input.counterpartId) ?? [],
         counts: {
           unresolved: stats.unresolved,
           overdue: stats.overdue,

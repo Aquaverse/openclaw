@@ -311,6 +311,22 @@ export function createWorkBackfill(ledger: WorkLedger) {
     )) {
       add("goal_shadow_missing", "work", String(row.work_id), `goal=${String(row.goal_id)}`);
     }
+    // The same target cited twice in one Work (the unique index only stops the same role twice): a commitment that is both
+    // "required" and "reference" shows up as two lines. Reported with the link ids; the page's role switch merges them
+    // (`nexus.commitment.setRole`); nothing is repaired here.
+    for (const row of all(
+      "SELECT work_id, target_kind, target_id, COUNT(*) AS n, GROUP_CONCAT(role || ':' || id, ',') AS links FROM work_links " +
+        "WHERE owner_id = ? AND ended_at IS NULL AND target_kind IN ('commitment','artifact') " +
+        "GROUP BY work_id, target_kind, target_id HAVING COUNT(*) > 1 ORDER BY work_id, target_kind, target_id",
+      owner,
+    )) {
+      add(
+        "duplicate_link",
+        "work",
+        String(row.work_id),
+        `${String(row.target_kind)}:${String(row.target_id)} cited ${Number(row.n)} times (${String(row.links)})`,
+      );
+    }
     for (const row of all(
       "SELECT id, work_id, target_kind, target_id FROM work_links WHERE owner_id = ? AND ended_at IS NULL",
       owner,

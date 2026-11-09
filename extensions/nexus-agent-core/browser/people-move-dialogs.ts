@@ -22,7 +22,9 @@ export function deactivateDialog(ctx: ActionContext): void {
     ctx.changed({ ok: false, text: tr(lang, "pp.err.gone") });
     return;
   }
-  let reason = "";
+  // A person who was deleted before and brought back starts from the reason written then; the user rewrites it for this time.
+  const earlier = person.lastStopReason?.trim() ?? "";
+  let reason = earlier;
   let loaded = false;
   openDialog({
     parent: ctx.parent,
@@ -55,12 +57,15 @@ export function deactivateDialog(ctx: ActionContext): void {
         el("p", "", tr(lang, "pp.dlg.off.intro")),
         field(
           tr(lang, "pp.f.reason"),
-          textarea("", 500, (v) => {
+          textarea(earlier, 500, (v) => {
             reason = v;
             changed();
           }),
         ),
       );
+      if (earlier !== "") {
+        body.append(el("p", "muted", tr(lang, "pp.dlg.off.prefill")));
+      }
       const slot = el("div");
       const status = el("p", "muted", tr(lang, "cm.dlg.loading"));
       body.append(slot, status);

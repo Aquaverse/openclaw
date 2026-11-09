@@ -109,7 +109,8 @@ export function createCounterpartMoveOps(deps: CounterpartMoveDeps) {
         );
       }
       run(
-        "UPDATE counterparts SET lifecycle = 'inactive', inactive_reason = ?, inactive_at = ? WHERE owner_id = ? AND id = ?",
+        "UPDATE counterparts SET lifecycle = 'inactive', inactive_reason = ?, last_stop_reason = ?, inactive_at = ? WHERE owner_id = ? AND id = ?",
+        reason,
         reason,
         input.now,
         owner,

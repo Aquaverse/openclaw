@@ -7,6 +7,7 @@ import { foldName, personPicker, type PersonChoice } from "./person-picker.ts";
 
 export type Impact = {
   works?: { workId: string; title: string; role: "required" | "reference" }[];
+  helpers?: { counterpartId: string; displayName: string; role: string }[];
 };
 export type Reply = {
   outcome?: string;
@@ -77,6 +78,23 @@ export function worksImpact(lang: Lang, impact: Impact | undefined) {
       ? { tone: "stop" as const, text: tr(lang, "cm.imp.required", { title: work.title }) }
       : { tone: "keep" as const, text: tr(lang, "cm.imp.reference", { title: work.title }) },
   );
+}
+
+/** "N people help" in the impact list: their records stay as they are, so this only tells the user they exist. */
+export function helpersImpact(lang: Lang, impact: Impact | undefined) {
+  const helpers = impact?.helpers ?? [];
+  if (helpers.length === 0) {
+    return [];
+  }
+  return [
+    {
+      tone: "keep" as const,
+      text: tr(lang, "cm.imp.helpers", {
+        n: helpers.length,
+        names: helpers.map((h) => h.displayName).join("、"),
+      }),
+    },
+  ];
 }
 
 export const newRequestId = () =>

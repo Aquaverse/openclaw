@@ -5,6 +5,7 @@
 import { COMMITMENT_MESSAGES } from "./i18n-commitment.js";
 import { GOAL_MESSAGES } from "./i18n-goals.js";
 import { PEOPLE_FIX_MESSAGES } from "./i18n-people-fix.js";
+import { PEOPLE_HINT_MESSAGES } from "./i18n-people-hints.js";
 import { PEOPLE_SPLIT_MESSAGES } from "./i18n-people-split.js";
 import { PEOPLE_MESSAGES } from "./i18n-people.js";
 import { WORK_MESSAGES } from "./i18n-work.js";
@@ -627,6 +628,7 @@ const CATALOG = {
   // People page (i18n-people.ts)
   ...PEOPLE_MESSAGES,
   ...PEOPLE_FIX_MESSAGES,
+  ...PEOPLE_HINT_MESSAGES,
   ...PEOPLE_SPLIT_MESSAGES,
 } as const satisfies Record<string, readonly [string, string]>;
 

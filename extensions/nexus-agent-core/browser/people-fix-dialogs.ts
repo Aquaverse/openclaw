@@ -9,7 +9,7 @@ import type {
   NotPersonDestination,
   NotPersonImpact,
 } from "../src/counterpart/types.js";
-import { tr, type MsgKey } from "../src/i18n.js";
+import { tr, type Lang, type MsgKey } from "../src/i18n.js";
 import type { ActionContext } from "./actions.ts";
 import { block, impactList, select } from "./commitment-form.ts";
 import { openDialog, type DialogAction } from "./dialog.ts";
@@ -26,6 +26,34 @@ const relationText = (ctx: ActionContext, relation: CounterpartRecord["relation"
 // ------------------------------------------------------------------ merge
 
 type MergeReply = { outcome?: string; impact?: MergeImpact };
+
+const DUP_SHOWN = 3;
+
+/** The "may repeat" hints of a merge preview: a few pairs by wording, then how many more there are. */
+function duplicateLines(
+  lang: Lang,
+  impact: MergeImpact,
+  from: string,
+  keeper: string,
+): Array<{ tone: "note"; text: string }> {
+  const pairs = impact.possibleDuplicates ?? [];
+  const lines = pairs.slice(0, DUP_SHOWN).map((pair) => ({
+    tone: "note" as const,
+    text: tr(lang, "pp.merge.dup", {
+      a: pair.sourceText,
+      b: pair.targetText,
+      from,
+      name: keeper,
+    }),
+  }));
+  if (pairs.length > DUP_SHOWN) {
+    lines.push({
+      tone: "note",
+      text: tr(lang, "pp.merge.dupMore", { n: pairs.length - DUP_SHOWN }),
+    });
+  }
+  return lines;
+}
 
 /** Merge the person on the page into another record of the same kind. */
 export function mergeDialog(ctx: ActionContext): void {
@@ -125,6 +153,7 @@ export function mergeDialog(ctx: ActionContext): void {
             tone: "note" as const,
             text: tr(lang, "pp.merge.work", { title: work.title }),
           })),
+          ...duplicateLines(lang, i, person.name, keeper),
           { tone: "stop", text: tr(lang, "pp.merge.final") },
         ];
         const parts: HTMLElement[] = [impactList(lines)];

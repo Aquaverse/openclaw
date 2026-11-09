@@ -2,6 +2,7 @@ import { STAGE7_COMMITMENTS_SQL } from "./schema-commitments.js";
 import {
   STAGE7_COUNTERPARTS_SQL,
   STAGE7_DISMISSALS_SQL,
+  STAGE7_LAST_STOP_REASON_SQL,
   STAGE7_PURGE_RECEIPTS_SQL,
 } from "./schema-counterparts.js";
 import { STAGE7_WORKS_SQL } from "./schema-works.js";
@@ -16,4 +17,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: "stage7-0003-commitments", sql: STAGE7_COMMITMENTS_SQL },
   { id: "stage7-0004-counterpart-dismissals", sql: STAGE7_DISMISSALS_SQL },
   { id: "stage7-0005-counterpart-purge-receipts", sql: STAGE7_PURGE_RECEIPTS_SQL },
+  { id: "stage7-0006-counterpart-last-stop-reason", sql: STAGE7_LAST_STOP_REASON_SQL },
 ];

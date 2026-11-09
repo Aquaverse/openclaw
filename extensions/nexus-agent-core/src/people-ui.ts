@@ -33,6 +33,8 @@ export type PersonActionModel = {
   aliases: readonly string[];
   relation: CounterpartRecord["relation"];
   contacts: readonly ContactRecord[];
+  /** The reason written the last time this person was deleted, if they were (the delete dialog starts from it). */
+  lastStopReason?: string | null;
   /** The commitments this person answers for (the split dialog offers them); `open` = still open or waiting. */
   commitments: ReadonlyArray<{ id: string; text: string; open: boolean }>;
 };
@@ -52,6 +54,7 @@ export function personActionModel(
     aliases: c.aliases,
     relation: c.relation,
     contacts: c.contacts,
+    lastStopReason: c.lastStopReason ?? null,
     commitments,
   };
 }
@@ -120,6 +123,9 @@ function href(
   return esc(`${base}/people${id ? `/${id}` : ""}${text ? `?${text}` : ""}`);
 }
 
+/** How many "may be the same person" notes the detail page shows (the rest stay in the data). */
+const SAME_SHOWN = 3;
+
 function summaryLine(lang: Lang, p: CounterpartSummary): string {
   const parts = [
     ...(p.unresolved === 0
@@ -128,6 +134,7 @@ function summaryLine(lang: Lang, p: CounterpartSummary): string {
     ...(p.overdue > 0 ? [tr(lang, "pp.row.late", { n: p.overdue })] : []),
     ...(p.needsConfirmation > 0 ? [tr(lang, "pp.row.confirm", { n: p.needsConfirmation })] : []),
     ...(p.confirmation === "stated" ? [tr(lang, "pp.row.stated")] : []),
+    ...((p.possibleSame ?? 0) > 0 ? [tr(lang, "pp.same.chip")] : []),
   ];
   return parts.join(" · ");
 }
@@ -466,6 +473,18 @@ function detailPane(data: PeoplePageData, lang: Lang, base: string, withActions:
             : ""),
       ),
     );
+  }
+  if (live && !c.isSelf) {
+    for (const same of (view.possibleSame ?? []).slice(0, SAME_SHOWN)) {
+      const why = same.reasons.map((r) => tr(lang, `pp.same.${r}` as MsgKey)).join("、");
+      notes.push(
+        callout(
+          "amber",
+          `<p>${esc(tr(lang, "pp.same.note", { name: same.displayName, why }))}</p>` +
+            `<p><a href="${href(base, same.id, {})}">${esc(tr(lang, "pp.same.link", { name: same.displayName }))}</a></p>`,
+        ),
+      );
+    }
   }
   if (c.lifecycle === "merged" && c.mergedInto) {
     notes.push(

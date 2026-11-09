@@ -187,3 +187,9 @@ CREATE TABLE counterpart_purge_receipts (
 ) STRICT;
 CREATE INDEX counterpart_purge_receipts_time ON counterpart_purge_receipts(owner_id, executed_at, id);
 `;
+
+// stage7-0006: the reason of the last time a person was deleted (stopped), kept when they are brought back so the next delete dialog
+// can start from it. Plain text the user wrote; "clear a deleted person" (forgetting) empties it. Additive: databases in use keep working.
+export const STAGE7_LAST_STOP_REASON_SQL = `
+ALTER TABLE counterparts ADD COLUMN last_stop_reason TEXT;
+`;

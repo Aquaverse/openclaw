@@ -14,6 +14,7 @@ export const record = (id: string, name: string, over: Record<string, unknown> =
   origin: "user",
   lifecycle: "live",
   inactiveReason: null,
+  lastStopReason: null,
   inactiveAt: null,
   isSelf: false,
   aliases: [],

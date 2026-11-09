@@ -374,6 +374,11 @@ export function createCommitmentCommon(c: WorkCommon) {
     works: linkedWorks(owner, commitmentId),
     // Follow-up plans arrive with slice W4: until then no plan can be owned by a commitment.
     plansToWrapUp: [],
+    helpers: helpersOf(owner, commitmentId).map((h) => ({
+      counterpartId: h.counterpartId,
+      displayName: h.displayName,
+      role: h.role,
+    })),
   });
 
   return {

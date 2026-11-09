@@ -57,6 +57,8 @@ export type CounterpartRecord = {
   lifecycle: "live" | "inactive" | "merged" | "deleted";
   inactiveReason: string | null;
   inactiveAt: number | null;
+  /** The reason written the last time this person was deleted (kept when they come back); the next delete dialog starts from it. */
+  lastStopReason: string | null;
   /** Set when this record was merged into another one: the record that kept the identity. */
   mergedInto: string | null;
   isSelf: boolean;
@@ -76,7 +78,14 @@ export type CounterpartSummary = CounterpartRecord & {
   /** Of the unresolved ones, those whose acceptance is not yet recorded as accepted. */
   needsConfirmation: number;
   earliestDueAt: number | null;
+  /** How many other live people look like this one (same name, shared alias or contact): a hint to look at, never acted on. */
+  possibleSame?: number;
 };
+
+export type PossibleSameReason = "name" | "alias" | "contact";
+
+/** Another record that may be the same person, and why the book thinks so. */
+export type PossibleSame = { id: string; displayName: string; reasons: PossibleSameReason[] };
 
 export type NameMatch = {
   match: "one" | "many" | "none";
@@ -113,6 +122,16 @@ export type MergeImpact = {
     source: CounterpartRecord["relation"];
     target: CounterpartRecord["relation"];
   } | null;
+  /**
+   * Open commitments of the two people that read like the same ask (a hint: two independent commitments are never merged by
+   * themselves, so after the merge both stay and the user decides). At most 10 pairs, each commitment in one pair.
+   */
+  possibleDuplicates: Array<{
+    sourceId: string;
+    sourceText: string;
+    targetId: string;
+    targetText: string;
+  }>;
 };
 
 /** What splitting one record into two reaches (design 4.3.4, 7.5): what moves to the new person and what stays. */
@@ -215,5 +234,7 @@ export type PersonView = {
   }>;
   /** Commitments he helps with (not answers for), with his roles in each: participant, approver or recipient. */
   assisting?: Array<{ commitment: CommitmentRecord; roles: string[] }>;
+  /** Other live people who may be the same person (hint only; the page offers the merge, nothing happens by itself). */
+  possibleSame?: PossibleSame[];
   counts: { unresolved: number; overdue: number; needsConfirmation: number };
 };

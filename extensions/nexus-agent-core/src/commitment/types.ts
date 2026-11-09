@@ -152,6 +152,8 @@ export type CommitmentImpact = {
   works: { workId: string; title: string; role: "required" | "reference"; linkId: string }[];
   /** Follow-up plans owned by this commitment that would be wrapped up (design 6.4). Empty until the plan layer exists. */
   plansToWrapUp: { planId: string }[];
+  /** The people who help (live links). Their records are not changed by closing, cancelling or reopening the commitment. */
+  helpers: { counterpartId: string; displayName: string; role: CommitmentParticipantRole }[];
 };
 
 export type PeriodSpec = {

@@ -169,9 +169,10 @@ export function createCounterpartPurgeOps(deps: CounterpartPurgeDeps) {
           owner,
           item.id,
         );
-        // The CHECK on the row ties inactive_reason / inactive_at to lifecycle 'inactive', so a cleared person carries neither.
+        // The CHECK on the row ties inactive_reason / inactive_at to lifecycle 'inactive', so a cleared person carries neither; the
+        // remembered reason of an earlier delete goes too (it is the user's words about this person).
         run(
-          "UPDATE counterparts SET lifecycle = 'deleted', inactive_reason = NULL, inactive_at = NULL WHERE owner_id = ? AND id = ?",
+          "UPDATE counterparts SET lifecycle = 'deleted', inactive_reason = NULL, last_stop_reason = NULL, inactive_at = NULL WHERE owner_id = ? AND id = ?",
           owner,
           item.id,
         );

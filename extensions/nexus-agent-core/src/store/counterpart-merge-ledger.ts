@@ -1,3 +1,4 @@
+import { likePairs } from "../commitment/likeness.js";
 // Counterpart kernel, identity corrections (design 7.5, 7.6): merge two records of the SAME person, and say a typed name "is not a
 // person". Each method is one synchronous transaction with a dry-run preview; the preview lists what would be reached and the
 // real call needs the same facts the user saw. Nothing here sends a message or reads an account.
@@ -31,6 +32,10 @@ export type CounterpartMergeDeps = {
   reevaluate: (owner: string, commitmentId: string, now: number) => void;
 };
 
+/** How many open commitments of each person are compared, and how many "may repeat" pairs the preview lists. */
+const DUP_SCAN_MAX = 200;
+const DUP_HINT_MAX = 10;
+
 const clean = (text: unknown): string => (typeof text === "string" ? text.trim() : "");
 const contactKey = (type: string, label: string, value: string): string =>
   `${type}|${normalizeName(label)}|${normalizeName(value)}`;
@@ -52,6 +57,16 @@ export function createCounterpartMergeOps(deps: CounterpartMergeDeps) {
 
   const count = (sql: string, ...args: (string | number | null)[]): number =>
     Number((one(sql, ...args) as Row).n);
+
+  /** The open commitments of one person (id and wording), oldest first: what the "may repeat" hint compares. */
+  const openTexts = (owner: string, id: string) =>
+    all(
+      "SELECT id, requirement_text FROM commitments WHERE owner_id = ? AND responsible_counterpart_id = ? " +
+        "AND lifecycle IN ('open','waiting') ORDER BY created_at, id LIMIT ?",
+      owner,
+      id,
+      DUP_SCAN_MAX,
+    ).map((row) => ({ id: String(row.id), text: String(row.requirement_text) }));
 
   // ------------------------------------------------------------------ merge
 
@@ -98,6 +113,11 @@ export function createCounterpartMergeOps(deps: CounterpartMergeDeps) {
         ),
       works: worksOf(owner, "cm.responsible_counterpart_id = ?", source),
       relations: differ ? { source: sourceRelation, target: targetRelation } : null,
+      possibleDuplicates: likePairs(
+        openTexts(owner, source),
+        openTexts(owner, target),
+        DUP_HINT_MAX,
+      ),
     };
   };
 

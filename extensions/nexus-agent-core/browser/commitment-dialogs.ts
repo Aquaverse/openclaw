@@ -6,12 +6,14 @@ import type { CommitmentLine } from "../src/commitment-ui.js";
 import { tr, type MsgKey } from "../src/i18n.js";
 import type { ActionContext } from "./actions.ts";
 import { assistDialog } from "./commitment-assist-dialog.ts";
+import { addHelpers, helperFields, noHelpers } from "./commitment-create-helpers.ts";
 import {
   buildForm,
   describeError,
   dueOf,
   formValid,
   guarded,
+  helpersImpact,
   impactList,
   localInput,
   newRequestId,
@@ -55,6 +57,7 @@ export function createDialog(ctx: ActionContext, options: CreateOptions): void {
     next: "",
   };
   let role: "required" | "reference" = options.workId ? "required" : "reference";
+  const helpers = noHelpers();
   const requestId = newRequestId();
   let picker: ReturnType<typeof workPicker> | undefined;
   openDialog({
@@ -79,16 +82,25 @@ export function createDialog(ctx: ActionContext, options: CreateOptions): void {
               ...(form.next.trim() ? { nextStep: form.next.trim() } : {}),
               ...(workId ? { workId, workRole: role } : {}),
             });
+            const helped =
+              reply.outcome !== "exists" && reply.commitment?.id && helpers.ids.length > 0
+                ? await addHelpers(ctx, reply.commitment.id, helpers, form.personId)
+                : { added: 0, failed: 0 };
             ctx.changed({
               ok: true,
-              text: tr(
-                lang,
-                reply.outcome === "exists"
-                  ? "cm.notice.exists"
-                  : reply.commitment?.ambiguity
-                    ? "cm.notice.joint"
-                    : "cm.notice.created",
-              ),
+              text:
+                helped.failed > 0
+                  ? tr(lang, "cm.notice.createdHelpersPartial", { n: helped.failed })
+                  : helped.added > 0
+                    ? tr(lang, "cm.notice.createdHelpers", { n: helped.added })
+                    : tr(
+                        lang,
+                        reply.outcome === "exists"
+                          ? "cm.notice.exists"
+                          : reply.commitment?.ambiguity
+                            ? "cm.notice.joint"
+                            : "cm.notice.created",
+                      ),
             });
           }),
       },
@@ -112,6 +124,7 @@ export function createDialog(ctx: ActionContext, options: CreateOptions): void {
           ),
         ),
       );
+      body.append(...helperFields(lang, people, helpers));
       note(body, tr(lang, "cm.hint"));
     },
   });
@@ -457,6 +470,7 @@ function lifecycleDialog(ctx: ActionContext, line: CommitmentLine, kind: Kind): 
           slot.replaceChildren(
             impactList([
               ...worksImpact(lang, reply.impact),
+              ...helpersImpact(lang, reply.impact),
               ...(foot ? [{ tone: "note" as const, text: tr(lang, foot) }] : []),
             ]),
           );

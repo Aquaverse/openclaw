@@ -84,6 +84,7 @@ export function createCounterpartCommon(c: WorkCommon) {
       origin: String(row.origin) as CounterpartRecord["origin"],
       lifecycle: String(row.lifecycle) as CounterpartRecord["lifecycle"],
       inactiveReason: (row.inactive_reason as string | null) ?? null,
+      lastStopReason: (row.last_stop_reason as string | null) ?? null,
       inactiveAt:
         row.inactive_at === null || row.inactive_at === undefined ? null : Number(row.inactive_at),
       mergedInto: (row.merged_into as string | null) ?? null,
