@@ -179,12 +179,15 @@ describe("people page", () => {
     );
     await flush();
     click(f.container, 'button[data-nx-act="pp-off"][data-nx-id="cp_1"]');
-    const stop = () => dialogButton(f.container, "停用");
+    const stop = () => dialogButton(f.container, "删除");
     assert.ok(stop()?.disabled, "no preview and no reason yet");
     await flush();
     const text = q(f.container, ".nx-dialog")?.textContent ?? "";
     assert.match(text, /2 条未结案的承诺会回到/);
     assert.match(text, /华东项目/);
+    assert.match(text, /不再可用于发送/);
+    assert.match(text, /显示为“已删除的人员”/);
+    assert.match(text, /这不是彻底清除/);
     assert.ok(stop()?.disabled, "still needs a reason");
     typeInto(q(f.container, ".nx-dialog textarea"), "不再合作");
     assert.equal(stop()?.disabled, false);
@@ -198,6 +201,7 @@ describe("people page", () => {
       expectedRevision: 3,
     });
     assert.equal(q(f.container, ".nx-dialog"), null);
+    assert.match(q(f.container, ".nx-notice")?.textContent ?? "", /承诺历史仍保留，这不是彻底清除/);
   });
 
   it("reloads with a notice when the person changed underneath", async () => {

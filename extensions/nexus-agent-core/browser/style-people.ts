@@ -20,7 +20,22 @@ export const NEXUS_PEOPLE_CSS = `
 .nexus-page .nx-pick-item:hover{background:var(--nx-soft)}
 .nexus-page .nx-pick-rel{color:var(--nx-mute);font-size:12px}
 .nexus-page .nx-pick-list .muted{margin:0;padding:7px 12px}
+.nexus-page .nx-checks{display:flex;flex-direction:column;gap:2px;max-height:170px;overflow:auto}
+.nexus-page .nx-check{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer}
 .nx-people .nx-callout p{margin:0 0 8px}
 .nx-people .nx-callout p:last-child{margin-bottom:0}
+.nexus-page .nx-cl-bar{margin:12px 0 8px}
+.nexus-page .nx-cl-bar input[type=search]{width:18em;max-width:100%;font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 28%,transparent);border-radius:6px;padding:3px 8px}
+.nexus-page .nx-cl-sel{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:8px 0;padding:8px 12px;border:1px solid var(--nx-line);border-radius:8px}
+.nexus-page .nx-cl-sel .nx-danger{margin-left:auto}
+.nexus-page .nx-cl-list{border:1px solid var(--nx-line);border-radius:8px;overflow:hidden}
+.nexus-page .nx-cl-list>.muted{margin:0;padding:14px 12px}
+.nexus-page .nx-cl-row{display:flex;align-items:center;gap:12px;padding:8px 12px;border-bottom:1px solid var(--nx-line);cursor:pointer}
+.nexus-page .nx-cl-row:last-child{border-bottom:0}
+.nexus-page .nx-cl-row:hover{background:var(--nx-soft)}
+.nexus-page .nx-cl-info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.nexus-page .nx-cl-name{font-weight:600;word-break:break-word}
+.nexus-page .nx-cl-meta{font-size:12px;word-break:break-word}
+.nexus-page .nx-cl-pager{margin:10px 0}
 @media (max-width:860px){.nx-people .nx-pst{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}}
 `;

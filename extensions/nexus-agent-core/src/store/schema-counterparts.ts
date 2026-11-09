@@ -172,3 +172,18 @@ CREATE TABLE counterpart_dismissals (
 ) STRICT;
 CREATE UNIQUE INDEX counterpart_dismissals_once ON counterpart_dismissals(owner_id, normalized_raw) WHERE revoked_at IS NULL;
 `;
+
+// stage7-0005: the hashes-only receipt of "clear a deleted person" (PRD FG: forgetting is its own flow; deleting a person only stops
+// them). The receipt keeps the person's id, a hash of the name and counts; the cleared contacts, other names and relations are gone.
+export const STAGE7_PURGE_RECEIPTS_SQL = `
+CREATE TABLE counterpart_purge_receipts (
+  owner_id TEXT NOT NULL, id TEXT NOT NULL,
+  counterpart_id TEXT NOT NULL,
+  name_hash TEXT NOT NULL,
+  contact_count INTEGER NOT NULL, link_count INTEGER NOT NULL, alias_count INTEGER NOT NULL, relation_count INTEGER NOT NULL,
+  requested_by TEXT NOT NULL, executed_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, id),
+  CHECK (contact_count >= 0 AND link_count >= 0 AND alias_count >= 0 AND relation_count >= 0)
+) STRICT;
+CREATE INDEX counterpart_purge_receipts_time ON counterpart_purge_receipts(owner_id, executed_at, id);
+`;

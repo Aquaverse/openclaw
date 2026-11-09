@@ -25,7 +25,9 @@ import {
 } from "./counterpart-common.js";
 import { createCounterpartMergeOps } from "./counterpart-merge-ledger.js";
 import { createCounterpartMoveOps } from "./counterpart-move-ledger.js";
+import { createCounterpartPurgeOps } from "./counterpart-purge-ledger.js";
 import { createCounterpartReadOps } from "./counterpart-read-ledger.js";
+import { createCounterpartSplitOps } from "./counterpart-split-ledger.js";
 import type { TransactionRunner } from "./kernel.js";
 import type { Principal } from "./types.js";
 import type { Row } from "./work-ledger-common.js";
@@ -560,6 +562,8 @@ export function createCounterpartLedger(
 
   const moves = createCounterpartMoveOps({ transaction, c, k, cp, fetch, reevaluate });
   const merges = createCounterpartMergeOps({ transaction, c, k, cp, fetch, reevaluate });
+  const splits = createCounterpartSplitOps({ transaction, c, k, cp, fetch, reevaluate });
+  const purges = createCounterpartPurgeOps({ transaction, c, cp });
 
   return {
     counterpartCreate,
@@ -569,6 +573,8 @@ export function createCounterpartLedger(
     counterpartContactRemove,
     ...moves,
     ...merges,
+    ...splits,
+    ...purges,
     ...read,
   };
 }

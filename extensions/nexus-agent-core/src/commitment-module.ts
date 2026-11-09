@@ -2,6 +2,7 @@
 import type { OpenClawPluginApi } from "../api.js";
 import { createCommitmentRpcHandlers } from "./commitment-rpc.js";
 import { NEXUS_COMMITMENT_PROTOCOL } from "./commitment/commitment-prompt.js";
+import { createCounterpartPurgeRpcHandlers } from "./counterpart-purge-rpc.js";
 import { createCounterpartRpcHandlers } from "./counterpart-rpc.js";
 import type { EventBridge } from "./events.js";
 import type { TaskStore } from "./store/host.js";
@@ -51,6 +52,7 @@ export function registerCommitmentModule(params: CommitmentModuleParams): void {
   for (const [method, handler, scope] of [
     ...createCommitmentRpcHandlers(rpcDeps),
     ...createCounterpartRpcHandlers(rpcDeps),
+    ...createCounterpartPurgeRpcHandlers(rpcDeps),
   ]) {
     api.registerGatewayMethod(method, handler, { scope });
   }

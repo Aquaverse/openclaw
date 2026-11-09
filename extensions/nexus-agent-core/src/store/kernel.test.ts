@@ -73,6 +73,7 @@ describe("task store kernel", () => {
       "stage7-0002-counterparts",
       "stage7-0003-commitments",
       "stage7-0004-counterpart-dismissals",
+      "stage7-0005-counterpart-purge-receipts",
     ]);
     assert.deepEqual(applyMigrations(db, tx), []);
   });

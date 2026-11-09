@@ -28,6 +28,7 @@ import {
   type PersonDraft,
 } from "./people-form.ts";
 import { deactivateDialog, claimDialog, restoreDialog } from "./people-move-dialogs.ts";
+import { contactMoveDialog, splitDialog } from "./people-split-dialogs.ts";
 import type { NexusAction } from "./sanitize.ts";
 
 export type PeopleAction = Extract<NexusAction, { kind: `pp-${string}` }>;
@@ -489,7 +490,8 @@ export function runPeopleAction(ctx: ActionContext, action: PeopleAction): void 
   if (action.kind === "pp-undismiss") {
     return undismissAction(ctx, action.id);
   }
-  if (!model.person || (action.kind !== "pp-cdel" && model.person.id !== action.id)) {
+  const byIndex = action.kind === "pp-cdel" || action.kind === "pp-cmove";
+  if (!model.person || (!byIndex && model.person.id !== action.id)) {
     ctx.changed({ ok: false, text: tr(ctx.lang, "pp.err.gone") });
     return;
   }
@@ -504,6 +506,10 @@ export function runPeopleAction(ctx: ActionContext, action: PeopleAction): void 
       return contactRemoveDialog(ctx, action.id);
     case "pp-merge":
       return mergeDialog(ctx);
+    case "pp-split":
+      return splitDialog(ctx);
+    case "pp-cmove":
+      return contactMoveDialog(ctx, action.id);
     case "pp-off":
       return deactivateDialog(ctx);
     case "pp-on":

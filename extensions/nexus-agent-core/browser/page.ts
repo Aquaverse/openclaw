@@ -4,7 +4,14 @@
 import type { ControlUiView } from "openclaw/plugin-sdk/control-ui";
 import { resolveLang, tr, type Lang } from "../src/i18n.js";
 import { EMPTY_FILTER, filterToParams, type TaskFilter } from "../src/task-query.js";
-import { EMPTY_MODEL, runAction, type ActionNotice, type NexusModel } from "./actions.ts";
+import {
+  EMPTY_MODEL,
+  runAction,
+  type ActionContext,
+  type ActionNotice,
+  type NexusModel,
+} from "./actions.ts";
+import { attachCleanup, type CleanupPicked } from "./cleanup-view.ts";
 import { goalsDueCount, loadView, probeFeatures, type NexusFeatures } from "./data.ts";
 import { mountDesignPage } from "./design-view.ts";
 import { createFileBar } from "./file-bar.ts";
@@ -13,7 +20,14 @@ import { readGoalPrefs, writeGoalPrefs } from "./goal-prefs.ts";
 import { refreshOpenGoalDetail } from "./goals-view.ts";
 import { PEOPLE_PAGE_SIZE } from "./people-data.ts";
 import { attachPeopleList, type PeopleList } from "./people-list.ts";
-import { FILES_HOME, parseRoute, routeParams, TASKS_HOME, type NexusRoute } from "./route.ts";
+import {
+  CLEANUP_HOME,
+  FILES_HOME,
+  parseRoute,
+  routeParams,
+  TASKS_HOME,
+  type NexusRoute,
+} from "./route.ts";
 import { mountSanitized } from "./sanitize.ts";
 import { NEXUS_CSS } from "./style.ts";
 import { createWorkBar } from "./work-bar.ts";
@@ -63,6 +77,8 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
       works: false,
     };
     let probed = false;
+    // The people ticked on the clear-people page; kept across its pages and searches while the page is open.
+    const cleanupPicked: CleanupPicked = new Map();
     // Goals due for a look-back; shown as a count on the Goals tab. Read again on every load.
     let goalsDue = 0;
     let sequence = 0;
@@ -289,6 +305,16 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
           on: route.view === "receipts",
           icon: "\u2713",
         },
+        ...(features.works === true
+          ? [
+              {
+                label: tr(lang, "nav.cleanup"),
+                to: CLEANUP_HOME as NexusRoute,
+                on: route.view === "cleanup",
+                icon: "\u2702",
+              },
+            ]
+          : []),
       ];
       const links = items.map(({ label, to, on, icon }) => {
         const link = document.createElement("a");
@@ -397,7 +423,7 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
       workBar.restoreFocus();
     };
 
-    // The People page has no slot while the "to confirm" names are shown (they are not people, so there is nothing to search).
+    // The People search box stays on every segment (on "to confirm" it searches the typed names), so the layout does not move.
     const placePeopleBar = (route: NexusRoute) => {
       const slot = route.view === "people" ? main.querySelector(".nx-search-slot") : null;
       if (route.view !== "people" || !slot) {
@@ -483,27 +509,44 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
         peopleList?.dispose();
         peopleList = undefined;
         unbindClicks?.();
+        const actionContext: ActionContext = {
+          request: context.host.request,
+          parent: root,
+          signal: context.signal,
+          redact: context.host.redact,
+          lang,
+          canWrite: context.host.connection.canWrite,
+          model: () => model,
+          changed: (result) => {
+            showNotice(result.text === "" ? undefined : result);
+            void load(true);
+          },
+          notify: showNotice,
+          sessions: context.host.sessions,
+          goalPrefs: { read: readGoalPrefs, write: writeGoalPrefs },
+        };
         unbindClicks = mountSanitized(main, view.html, hrefOf, open, (action) =>
-          runAction(
-            {
-              request: context.host.request,
-              parent: root,
-              signal: context.signal,
-              redact: context.host.redact,
-              lang,
-              canWrite: context.host.connection.canWrite,
-              model: () => model,
-              changed: (result) => {
-                showNotice(result.text === "" ? undefined : result);
-                void load(true);
-              },
-              notify: showNotice,
-              sessions: context.host.sessions,
-              goalPrefs: { read: readGoalPrefs, write: writeGoalPrefs },
-            },
-            action,
-          ),
+          runAction(actionContext, action),
         );
+        if (view.cleanup) {
+          attachCleanup({
+            root: main,
+            ctx: actionContext,
+            init: view.cleanup,
+            picked: cleanupPicked,
+            // A search, page or size change; the same address would not make the host react, so it reloads in place.
+            go: (next) => {
+              if (
+                JSON.stringify(routeParams(next)) ===
+                JSON.stringify(routeParams(parseRoute(context.props)))
+              ) {
+                void load();
+                return;
+              }
+              open(next);
+            },
+          });
+        }
         placeFileBar(route);
         placeWorkBar(route);
         placePeopleBar(route);

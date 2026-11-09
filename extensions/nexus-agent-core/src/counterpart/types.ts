@@ -115,6 +115,66 @@ export type MergeImpact = {
   } | null;
 };
 
+/** What splitting one record into two reaches (design 4.3.4, 7.5): what moves to the new person and what stays. */
+export type SplitImpact = {
+  movedContacts: number;
+  keptContacts: number;
+  movedAliases: number;
+  keptAliases: number;
+  /** Open commitments that move start a new responsibility version for the new person (communication and acceptance reset). */
+  movedOpenCommitments: number;
+  /** Resolved or cancelled commitments that move keep their result: only the person they point at changes. */
+  movedResolvedCommitments: number;
+  keptOpenCommitments: number;
+  keptResolvedCommitments: number;
+  /** Participant links are not moved: they stay with the record that was split. */
+  participantLinksStaying: number;
+  works: Array<{ workId: string; title: string }>;
+};
+
+/** What moving one contact method to another person (or to nobody) reaches (design 7.6 b). */
+export type ContactMoveImpact = {
+  contact: ContactRecord;
+  /** The person it moves to; null when it belongs to nobody. */
+  to: { id: string; displayName: string } | null;
+  /** The new person already holds the same contact: the two become one. */
+  duplicate: boolean;
+  /** Evidence read through this contact that "from the start" would set aside and judge again. */
+  attributions: number;
+  /** Commitments those attributions belong to, and how many of them were already verified complete. */
+  attributedCommitments: number;
+  verifiedCommitments: number;
+};
+
+/** What clearing a deleted person reaches (the name stays; the contacts, other names and relations go for good). */
+export type PurgeImpact = {
+  /** Contact methods (endpoints) that are deleted with the person. */
+  contacts: number;
+  /** The attachments of contact methods to the person that are deleted (history of earlier attachments included). */
+  links: number;
+  /** Contact methods that another person also holds: only the attachment of this person goes, the contact stays. */
+  sharedContacts: number;
+  /** Other names (aliases, names typed in Commitments, earlier display names). */
+  aliases: number;
+  relations: number;
+  /** What stays: the Commitments that still point at the person (their name stays) and the participant records. */
+  commitmentsKept: number;
+  participantLinksKept: number;
+};
+
+/** One line of the purge receipts: ids, a hash and counts, never a name or a contact. */
+export type CounterpartPurgeReceipt = {
+  id: string;
+  counterpartId: string;
+  nameHash: string;
+  contactCount: number;
+  linkCount: number;
+  aliasCount: number;
+  relationCount: number;
+  requestedBy: string;
+  executedAt: number;
+};
+
 export const NOT_PERSON_DESTINATIONS = ["organization", "team", "self", "dismiss"] as const;
 export type NotPersonDestination = (typeof NOT_PERSON_DESTINATIONS)[number];
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_FILTER } from "../src/task-query.js";
 import {
+  CLEANUP_HOME,
   FILES_HOME,
   NAV_BASE,
   parseRoute,
@@ -209,7 +210,6 @@ describe("nexus work routes", () => {
     expect(routeFromHref(`${NAV_BASE}/people/cp_AB12?q=%E9%92%B1&seg=inactive`)).toEqual({
       view: "people",
       personId: "cp_AB12",
-      seg: "inactive",
       q: "钱",
     });
   });
@@ -228,5 +228,33 @@ describe("nexus work routes", () => {
     });
     expect(routeFromHref(`${NAV_BASE}/people/..%2Fx`)).toBeUndefined();
     expect(routeFromHref(`${NAV_BASE}/people/a/b`)).toBeUndefined();
+  });
+
+  it("keeps the clear-people page's search, page and size in the address, with 50 to a page unless chosen", () => {
+    expect(parseRoute({ view: "cleanup" })).toEqual(CLEANUP_HOME);
+    expect(CLEANUP_HOME).toEqual({ view: "cleanup", page: 1, size: 50 });
+    expect(routeParams(CLEANUP_HOME)).toEqual({ view: "cleanup" });
+    expect(parseRoute({ view: "cleanup", q: "  钱\n", page: "3", size: "100" })).toEqual({
+      view: "cleanup",
+      q: "钱",
+      page: 3,
+      size: 100,
+    });
+    // nonsense falls back to the defaults
+    expect(parseRoute({ view: "cleanup", page: "0", size: "7" })).toEqual(CLEANUP_HOME);
+    expect(parseRoute({ view: "cleanup", page: "abc", size: "x" })).toEqual(CLEANUP_HOME);
+    expect(routeParams({ view: "cleanup", q: "钱", page: 3, size: 20 })).toEqual({
+      view: "cleanup",
+      q: "钱",
+      page: "3",
+      size: "20",
+    });
+    expect(routeParams({ view: "cleanup", page: 1, size: 50 })).toEqual({ view: "cleanup" });
+    expect(routeFromHref(`${NAV_BASE}/cleanup?page=2&size=20`)).toEqual({
+      view: "cleanup",
+      page: 2,
+      size: 20,
+    });
+    expect(routeFromHref(`${NAV_BASE}/cleanup/x`)).toBeUndefined();
   });
 });

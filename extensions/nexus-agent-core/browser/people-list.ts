@@ -138,8 +138,7 @@ export function attachPeopleList(options: {
       const people: CounterpartSummary[] = page.items;
       const html = renderPeopleListRows(
         {
-          items: init.seg === "inactive" ? [] : people,
-          inactive: init.seg === "inactive" ? people : [],
+          items: people,
           pending: init.pending,
           ...(init.seg ? { seg: init.seg } : {}),
           ...(q ? { q } : {}),

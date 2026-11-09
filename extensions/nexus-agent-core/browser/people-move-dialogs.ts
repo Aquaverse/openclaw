@@ -52,6 +52,7 @@ export function deactivateDialog(ctx: ActionContext): void {
     ],
     build: (body, changed) => {
       body.append(
+        el("p", "", tr(lang, "pp.dlg.off.intro")),
         field(
           tr(lang, "pp.f.reason"),
           textarea("", 500, (v) => {
@@ -77,6 +78,7 @@ export function deactivateDialog(ctx: ActionContext): void {
           status.remove();
           slot.replaceChildren(
             impactList([
+              { tone: "stop", text: tr(lang, "pp.imp.stop") },
               impact.openCommitments > 0
                 ? { tone: "stop", text: tr(lang, "pp.imp.open", { n: impact.openCommitments }) }
                 : { tone: "keep", text: tr(lang, "pp.imp.noOpen") },
@@ -100,6 +102,8 @@ export function deactivateDialog(ctx: ActionContext): void {
                     },
                   ]
                 : []),
+              { tone: "keep", text: tr(lang, "pp.imp.keep") },
+              { tone: "note", text: tr(lang, "pp.imp.notForget") },
             ]),
           );
           loaded = true;

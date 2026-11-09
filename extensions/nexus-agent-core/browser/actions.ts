@@ -565,6 +565,8 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
     case "pp-record":
     case "pp-claim":
     case "pp-merge":
+    case "pp-split":
+    case "pp-cmove":
     case "pp-notperson":
     case "pp-undismiss":
       return runPeopleAction(ctx, action);

@@ -76,6 +76,8 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
     /** Which people the rows are: the live ones (default) or the inactive. The counts always cover both. */
     lifecycle?: "live" | "inactive";
     keyword?: string;
+    /** Row order: by attention (default) or by name. */
+    order?: "attention" | "name";
     /** Only the people who need a look: something overdue or waiting for confirmation. */
     attention?: boolean;
     includeSelf?: boolean;
@@ -96,13 +98,16 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
       let everyone: CounterpartSummary[] = rows.map((row) =>
         Object.assign(cp.toCounterpart(owner, row), stats.get(String(row.id)) ?? EMPTY),
       );
-      // Whom to look at first: overdue, then waiting for confirmation, then the earliest due date; names break ties.
+      // Whom to look at first: overdue, then waiting for confirmation, then the earliest due date; names break ties. order:"name" is plain name order.
       everyone.sort(
         (a, b) =>
-          b.overdue - a.overdue ||
-          b.needsConfirmation - a.needsConfirmation ||
-          (a.earliestDueAt ?? Infinity) - (b.earliestDueAt ?? Infinity) ||
-          a.displayName.localeCompare(b.displayName, "zh"),
+          (input.order === "name"
+            ? 0
+            : b.overdue - a.overdue ||
+              b.needsConfirmation - a.needsConfirmation ||
+              (a.earliestDueAt ?? Infinity) - (b.earliestDueAt ?? Infinity)) ||
+          a.displayName.localeCompare(b.displayName, "zh") ||
+          a.id.localeCompare(b.id),
       );
       // The search narrows everything, the counts included: the numbers beside the segments describe what it finds.
       const keyword = normalizeName(input.keyword ?? "");

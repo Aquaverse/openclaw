@@ -1,5 +1,5 @@
 // Gateway RPC for people (design 10.2, slice W3a): nexus.counterpart.list / get / resolve / pending / create / update / contactAdd /
-// contactRemove / deactivate / restore / claim / merge / notPerson / dismissed / dismissalRestore. Reads need operator.read, writes operator.write. The console is the user, so these
+// contactRemove / deactivate / restore / claim / merge / split / contactMove / notPerson / dismissed / dismissalRestore. Reads need operator.read, writes operator.write. The console is the user, so these
 // write as the user (and the user alone may confirm a person); the Agent has its own narrower tools. A change that moves a
 // Commitment reaches the Work page through `work_changed` (ids only). Replies carry ownerId.
 import {
@@ -115,6 +115,16 @@ function parseNames(raw: unknown): string[] | undefined | "invalid" {
   return raw as string[];
 }
 
+/** A list of ids: undefined when absent, "invalid" when it is not a short list of usable ids. */
+function parseIds(raw: unknown): string[] | undefined | "invalid" {
+  if (raw === undefined) {
+    return undefined;
+  }
+  return Array.isArray(raw) && raw.length <= 200 && raw.every((item) => id(item) !== undefined)
+    ? (raw as string[])
+    : "invalid";
+}
+
 /** The outcomes every mutating call can answer besides its success; true when it answered with an error. */
 function refuse(respond: Respond, result: { outcome: string } & Record<string, unknown>): boolean {
   switch (result.outcome) {
@@ -168,12 +178,14 @@ export function createCounterpartRpcHandlers(deps: CounterpartRpcDeps) {
           const keyword = str(params.keyword, 200);
           const lifecycle = params.lifecycle;
           const attention = params.attention;
+          const order = params.order;
           if (
             keyword === null ||
+            (order !== undefined && order !== "name" && order !== "attention") ||
             (lifecycle !== undefined && lifecycle !== "live" && lifecycle !== "inactive") ||
             (attention !== undefined && typeof attention !== "boolean")
           ) {
-            need(respond, "keyword, lifecycle or attention is invalid");
+            need(respond, "keyword, lifecycle, order or attention is invalid");
             return;
           }
           const limit =
@@ -190,6 +202,7 @@ export function createCounterpartRpcHandlers(deps: CounterpartRpcDeps) {
             ...(keyword ? { keyword } : {}),
             ...(lifecycle ? { lifecycle } : {}),
             ...(attention ? { attention } : {}),
+            ...(order ? { order } : {}),
             limit,
             offset,
           });
@@ -447,6 +460,100 @@ export function createCounterpartRpcHandlers(deps: CounterpartRpcDeps) {
             return;
           }
           if (result.outcome === "merged") {
+            for (const workId of result.workIds) {
+              deps.events.workChanged({ ownerId: principal.ownerId, workId, action: "commitment" });
+            }
+          }
+          respond(true, { ownerId: principal.ownerId, ...result });
+        }),
+        "operator.write",
+      ],
+      [
+        "nexus.counterpart.split",
+        guarded(async ({ principal, store, params, respond }) => {
+          const counterpartId = id(params.counterpartId);
+          const displayName = str(params.displayName, COUNTERPART_LIMITS.name);
+          const kind = parseKind(params.kind);
+          const relation = parseRelation(params.relation);
+          const aliases = parseNames(params.aliases);
+          const contactIds = parseIds(params.contactIds);
+          const commitmentIds = parseIds(params.commitmentIds);
+          const expected = params.expectedRevision;
+          if (
+            !counterpartId ||
+            !displayName ||
+            kind === "invalid" ||
+            relation === "invalid" ||
+            aliases === "invalid" ||
+            contactIds === "invalid" ||
+            commitmentIds === "invalid" ||
+            (expected !== undefined && !Number.isInteger(expected))
+          ) {
+            need(
+              respond,
+              "counterpartId and displayName are required; kind, relation, aliases, contactIds and commitmentIds must be valid",
+            );
+            return;
+          }
+          const result = await store.counterpartSplit({
+            principal,
+            counterpartId,
+            displayName,
+            ...(kind ? { kind } : {}),
+            ...(relation ? { relation } : {}),
+            ...(aliases ? { aliases } : {}),
+            ...(contactIds ? { contactIds } : {}),
+            ...(commitmentIds ? { commitmentIds } : {}),
+            ...(params.allowSameName === true ? { allowSameName: true } : {}),
+            ...(params.dryRun === true ? { dryRun: true } : {}),
+            ...(typeof expected === "number" ? { expectedRevision: expected } : {}),
+            now: now(),
+          });
+          if (refuse(respond, result)) {
+            return;
+          }
+          if (result.outcome === "split") {
+            for (const workId of result.workIds) {
+              deps.events.workChanged({ ownerId: principal.ownerId, workId, action: "commitment" });
+            }
+          }
+          respond(true, { ownerId: principal.ownerId, ...result });
+        }),
+        "operator.write",
+      ],
+      [
+        "nexus.counterpart.contactMove",
+        guarded(async ({ principal, store, params, respond }) => {
+          const counterpartId = id(params.counterpartId);
+          const endpointId = id(params.endpointId);
+          const toId = params.toId === undefined || params.toId === null ? null : id(params.toId);
+          const expected = params.expectedRevision;
+          if (
+            !counterpartId ||
+            !endpointId ||
+            toId === undefined ||
+            (expected !== undefined && !Number.isInteger(expected))
+          ) {
+            need(
+              respond,
+              "counterpartId and endpointId are required; toId and expectedRevision must be valid",
+            );
+            return;
+          }
+          const result = await store.counterpartContactMove({
+            principal,
+            counterpartId,
+            endpointId,
+            ...(toId ? { toId } : {}),
+            ...(params.fromStart === true ? { fromStart: true } : {}),
+            ...(params.dryRun === true ? { dryRun: true } : {}),
+            ...(typeof expected === "number" ? { expectedRevision: expected } : {}),
+            now: now(),
+          });
+          if (refuse(respond, result)) {
+            return;
+          }
+          if (result.outcome === "moved") {
             for (const workId of result.workIds) {
               deps.events.workChanged({ ownerId: principal.ownerId, workId, action: "commitment" });
             }

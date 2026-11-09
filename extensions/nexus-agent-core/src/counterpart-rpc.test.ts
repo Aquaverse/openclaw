@@ -298,6 +298,89 @@ describe("counterpart rpc", () => {
     assert.equal(again.error?.code, "nexus_counterpart_state");
   });
 
+  it("splits one record into two people and moves a contact to the right one, through the console methods", async () => {
+    const one = (
+      await create("接口一分二", { contacts: [{ type: "email", value: "split@example.com" }] })
+    ).payload?.counterpart;
+    const w = await s.call("nexus.work.create", { title: "拆分的工作" });
+    const workId = w.payload?.workId ?? w.payload?.work?.id;
+    const cm = await s.call("nexus.commitment.create", {
+      requirementText: "拆分前的承诺",
+      responsible: { kind: "counterpart", counterpartId: one.id },
+      workId,
+    });
+    assert.equal(cm.ok, true, JSON.stringify(cm.error));
+    const commitmentId = cm.payload?.commitment?.id;
+    // Malformed picks are refused before anything is read.
+    for (const bad of [
+      { counterpartId: one.id },
+      { counterpartId: one.id, displayName: "新", contactIds: "ep_1" },
+      { counterpartId: one.id, displayName: "新", commitmentIds: [5] },
+      { counterpartId: one.id, displayName: "新", kind: "robot" },
+    ]) {
+      assert.equal(
+        (await s.call("nexus.counterpart.split", bad)).error?.code,
+        "nexus_invalid_params",
+        JSON.stringify(bad),
+      );
+    }
+    const stranger = await s.call("nexus.counterpart.split", {
+      counterpartId: one.id,
+      displayName: "接口另一位",
+      commitmentIds: ["cm_not_mine"],
+    });
+    assert.equal(stranger.error?.code, "nexus_invalid_params");
+    assert.match(stranger.error?.message ?? "", /bad_selection/);
+    const preview = await s.call("nexus.counterpart.split", {
+      counterpartId: one.id,
+      displayName: "接口另一位",
+      commitmentIds: [commitmentId],
+      contactIds: [one.contacts[0].id],
+      dryRun: true,
+    });
+    assert.equal(preview.payload?.outcome, "preview");
+    assert.equal(preview.payload?.impact.movedOpenCommitments, 1);
+    s.emitted.length = 0;
+    const done = await s.call("nexus.counterpart.split", {
+      counterpartId: one.id,
+      displayName: "接口另一位",
+      commitmentIds: [commitmentId],
+      contactIds: [one.contacts[0].id],
+      expectedRevision: one.revision,
+    });
+    assert.equal(done.payload?.outcome, "split", JSON.stringify(done));
+    assert.ok(
+      s.emitted.some((e) => e.workId === workId),
+      "the Work page hears about it",
+    );
+    const other = done.payload?.created;
+    // A contact on the wrong person: move it back, and a bad request is refused.
+    assert.equal(
+      (await s.call("nexus.counterpart.contactMove", { counterpartId: other.id })).error?.code,
+      "nexus_invalid_params",
+    );
+    const missing = await s.call("nexus.counterpart.contactMove", {
+      counterpartId: other.id,
+      endpointId: "ep_nope",
+    });
+    assert.equal(missing.error?.code, "nexus_not_found");
+    const back = await s.call("nexus.counterpart.contactMove", {
+      counterpartId: other.id,
+      endpointId: one.contacts[0].id,
+      toId: one.id,
+      dryRun: true,
+    });
+    assert.equal(back.payload?.impact.to.displayName, "接口一分二");
+    const moved = await s.call("nexus.counterpart.contactMove", {
+      counterpartId: other.id,
+      endpointId: one.contacts[0].id,
+      toId: one.id,
+      fromStart: true,
+    });
+    assert.equal(moved.payload?.outcome, "moved", JSON.stringify(moved));
+    assert.equal(moved.payload?.target.contacts.length, 1);
+  });
+
   it("answers 'not a person' for each destination, and keeps the dismissed names listed until they are restored", async () => {
     for (const text of ["接口会场", "接口市场部"]) {
       const out = await s.call("nexus.commitment.create", {

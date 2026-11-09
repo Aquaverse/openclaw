@@ -42,7 +42,7 @@ type PeoplePage = {
   counts: PeopleCounts;
 };
 
-/** One page of the live or inactive people, by segment and name search (the server filters and orders). */
+/** One page of the live people, by segment and name search (the server filters and orders). */
 export async function readPeoplePage(
   request: NexusRequest,
   list: { seg?: PeopleSeg | undefined; q?: string | undefined },
@@ -50,7 +50,7 @@ export async function readPeoplePage(
   limit: number,
 ): Promise<PeoplePage> {
   const answer = await request<Partial<PeoplePage>>("nexus.counterpart.list", {
-    lifecycle: list.seg === "inactive" ? "inactive" : "live",
+    lifecycle: "live",
     ...(list.seg === "attention" ? { attention: true } : {}),
     ...(list.q ? { keyword: list.q } : {}),
     limit,
@@ -110,13 +110,13 @@ export async function loadPeopleView(
 ): Promise<NexusView> {
   const lang = options.lang ?? DEFAULT_LANG;
   const q = route.q ?? "";
-  const list = { seg: route.seg, q: route.seg === "pending" ? "" : q };
+  const list = { seg: route.seg, q };
   const want = Math.max(PEOPLE_PAGE_SIZE, options.rows ?? 0);
   const [first, whole, pending, dismissed, choices] = await Promise.all([
     // The rows of the segment shown. The pending segment lists typed names, not people, so it reads no rows (one is read
     // for the counts, and dropped).
     route.seg === "pending"
-      ? readPeoplePage(request, {}, 0, 1).then((page) => ({ ...page, items: [], total: 0 }))
+      ? readPeoplePage(request, { q }, 0, 1).then((page) => ({ ...page, items: [], total: 0 }))
       : readPeoplePage(request, list, 0, Math.min(want, PEOPLE_MAX)),
     // The greeting speaks for the whole account, so a search needs its own read of the unsearched counts.
     list.q === "" ? Promise.resolve(undefined) : readPeoplePage(request, {}, 0, 1),
@@ -177,8 +177,7 @@ export async function loadPeopleView(
     title: tr(lang, "pp.title"),
     html: renderPeoplePage(
       {
-        items: route.seg === "inactive" ? [] : shown,
-        inactive: route.seg === "inactive" ? shown : [],
+        items: shown,
         counts,
         overall,
         ...(list.q ? { q: list.q } : {}),
@@ -210,7 +209,18 @@ export async function loadPeopleView(
       people: choices ?? personChoices(shown),
       pending: groups,
       dismissed: dismissed.items ?? [],
-      ...(view ? { person: personActionModel(view.counterpart) } : {}),
+      ...(view
+        ? {
+            person: personActionModel(
+              view.counterpart,
+              lines.map(({ commitment }) => ({
+                id: commitment.id,
+                text: commitment.requirementText,
+                open: commitment.lifecycle === "open" || commitment.lifecycle === "waiting",
+              })),
+            ),
+          }
+        : {}),
       commitments: lines,
     },
   };

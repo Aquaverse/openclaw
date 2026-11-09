@@ -1,3 +1,5 @@
+import { renderCleanup, renderPersonReceipts } from "../src/cleanup-ui.js";
+import type { CounterpartPurgeReceipt, CounterpartSummary } from "../src/counterpart/types.js";
 import { renderGoalPage } from "../src/goal-ui.js";
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
 import type { EvidenceBlobView } from "../src/store/blob-types.js";
@@ -26,6 +28,7 @@ import {
 } from "../src/ui-render.js";
 import { fileListParams, type FileQuery } from "../src/vault-ui.js";
 import { EMPTY_MODEL, type NexusModel } from "./actions.ts";
+import type { CleanupInit } from "./cleanup-view.ts";
 import { DEFAULT_GOAL_PREFS, type GoalPrefs } from "./goal-prefs.ts";
 import { loadPeopleView, type PeopleListInit } from "./people-data.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
@@ -83,6 +86,8 @@ export type NexusView = {
   workList?: WorkListInit;
   /** The People list pane's paging state; only the People page sets it. */
   peopleList?: PeopleListInit;
+  /** The clear-people list the page mounts into its slot; only the clear-people page sets it. */
+  cleanup?: CleanupInit;
 };
 
 export type LoadOptions = {
@@ -120,6 +125,29 @@ export async function loadView(
         lang,
         ...(options.peopleRows ? { rows: options.peopleRows } : {}),
       });
+    case "cleanup": {
+      const read = (page: number) =>
+        request<{ items: CounterpartSummary[]; total: number }>("nexus.counterpart.list", {
+          lifecycle: "inactive",
+          order: "name",
+          ...(route.q ? { keyword: route.q } : {}),
+          limit: route.size,
+          offset: (page - 1) * route.size,
+        });
+      let page = route.page;
+      let list = await read(page);
+      // People were cleared since the link was made: land on the last page that still has rows.
+      if (list.items.length === 0 && list.total > 0 && page > 1) {
+        page = Math.max(1, Math.ceil(list.total / route.size));
+        list = await read(page);
+      }
+      return {
+        title: tr(lang, "title.cleanup"),
+        html: renderCleanup(lang),
+        model: EMPTY_MODEL,
+        cleanup: { items: list.items, total: list.total, page, size: route.size, q: route.q ?? "" },
+      };
+    }
     case "tasks": {
       let filter = route.filter;
       const fetchList = (next: TaskFilter) =>
@@ -282,7 +310,7 @@ export async function loadView(
       };
     }
     default: {
-      const [tasks, preferences] = await Promise.all([
+      const [tasks, preferences, people] = await Promise.all([
         request<{ receipts: PurgeReceiptRow[] }>("nexus.task.purgeReceipts", { limit: 100 }),
         features.preferences
           ? optional(() =>
@@ -291,10 +319,20 @@ export async function loadView(
               }),
             )
           : Promise.resolve(undefined),
+        features.works === true
+          ? optional(() =>
+              request<{
+                items: (CounterpartPurgeReceipt & { displayName: string })[];
+                total: number;
+              }>("nexus.counterpart.purgeReceipts", { limit: 100 }),
+            )
+          : Promise.resolve(undefined),
       ]);
       return {
         title: tr(lang, "title.receipts"),
-        html: renderReceipts(tasks.receipts, preferences?.receipts, lang),
+        html:
+          renderReceipts(tasks.receipts, preferences?.receipts, lang) +
+          (people ? `\n${renderPersonReceipts(people.items, people.total, lang)}` : ""),
         model: EMPTY_MODEL,
       };
     }

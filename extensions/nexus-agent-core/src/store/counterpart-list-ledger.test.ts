@@ -123,4 +123,36 @@ describe("counterpart list: search, attention and paging", () => {
     // Another owner's people never show.
     assert.equal(list({ keyword: "分页" }, A).total, 0);
   });
+
+  it("orders by name when asked, ignoring who needs attention, and pages the same way", () => {
+    const c1 = person("排序丙", {}, B);
+    person("排序甲", {}, B);
+    person("排序乙", {}, B);
+    // c1 is overdue, so the default order puts it first; the name order does not
+    const out = k.commitmentCreate({
+      principal: B,
+      spec: {
+        requirementText: "排序丙：逾期的事",
+        responsible: { kind: "counterpart", counterpartId: c1.id },
+        due: { kind: "known" as const, at: 5, tz: "Asia/Shanghai" },
+        origin: { kind: "native_record", refId: "ui_order_1" },
+      },
+      createdBy: "user",
+      now: now(),
+    });
+    assert.equal(out.outcome, "created", JSON.stringify(out));
+    const byName = list({ keyword: "排序", order: "name" }, B).items.map((p) => p.displayName);
+    assert.deepEqual(
+      byName,
+      [...byName].toSorted((x, y) => x.localeCompare(y, "zh")),
+    );
+    assert.equal(list({ keyword: "排序" }, B).items[0]?.displayName, "排序丙");
+    assert.deepEqual(
+      [
+        ...list({ keyword: "排序", order: "name", limit: 2, offset: 0 }, B).items,
+        ...list({ keyword: "排序", order: "name", limit: 2, offset: 2 }, B).items,
+      ].map((p) => p.displayName),
+      byName,
+    );
+  });
 });

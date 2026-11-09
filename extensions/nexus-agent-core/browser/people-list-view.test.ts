@@ -64,10 +64,10 @@ describe("people list: paging", () => {
     const pills = [...f.container.querySelectorAll(".nx-wlist .nx-seg > a")].map(
       (a) => a.textContent,
     );
-    // The first segment is the live people ("有效"), and the stopped ones are counted on theirs.
-    assert.equal(pills[0], "有效121");
+    // Everyone first; deleted people have no segment of their own.
+    assert.equal(pills[0], "全部121");
     assert.equal(pills[1], "需要关注1");
-    assert.equal(pills[3], "已停用1");
+    assert.equal(pills.length, 3);
     assert.match(f.container.textContent ?? "", /有 1 位需要你关注/);
   });
 
@@ -114,7 +114,7 @@ describe("people list: search", () => {
     const pills = [...f.container.querySelectorAll(".nx-wlist .nx-seg > a")].map(
       (a) => a.textContent,
     );
-    assert.deepEqual(pills, ["有效10", "需要关注0", "待确认人员0", "已停用0"]);
+    assert.deepEqual(pills, ["全部10", "需要关注0", "待确认人员0"]);
     assert.match(f.container.textContent ?? "", /有 1 位需要你关注/);
     // A row link carries the search.
     assert.ok(q(f.container, ".nx-wlist .nx-seg > a")?.getAttribute("href")?.includes("q="));
@@ -196,11 +196,54 @@ describe("people list: search", () => {
     assert.equal(rows(f.container), 1);
   });
 
-  it("has no search box where the typed names are listed, since those are not people", async () => {
-    const f = mount({ view: "people", seg: "pending" }, serve());
+  it("keeps the search box where the typed names are listed, and searches them by the name as typed", async () => {
+    const group = (raw: string, id: string) => ({
+      key: raw,
+      raw,
+      total: 1,
+      open: 1,
+      overdue: 0,
+      earliestDueAt: null,
+      commitmentIds: [id],
+      suggestions: [],
+    });
+    const groups = { groups: [group("韩梅梅", "cm_h"), group("市场部", "cm_m")] };
+    // Without a search both names are listed and the box is there, so the layout is the same as on the other segments.
+    const plain = mount(
+      { view: "people", seg: "pending" },
+      { ...serve(), "nexus.counterpart.pending": groups },
+    );
     await flush();
-    assert.equal(q(f.container, ".nx-wsearch"), null);
+    assert.ok(q(plain.container, ".nx-search-slot .nx-wsearch input"), "the box stays");
+    assert.equal(plain.container.querySelectorAll(".nx-prow").length, 2);
     // Only the counts of the segments are read (one row), never a page of people.
-    assert.ok(listCalls(f).every((c) => c.params?.limit === 1));
+    assert.ok(listCalls(plain).every((c) => c.params?.limit === 1));
+    // With a search only the matching names remain; their buttons still point at their place in the full list.
+    const f = mount(
+      { view: "people", seg: "pending", q: "市场" },
+      { ...serve(), "nexus.counterpart.pending": groups },
+    );
+    await flush();
+    assert.equal((q(f.container, ".nx-wsearch input") as HTMLInputElement).value, "市场");
+    const found = [...f.container.querySelectorAll(".nx-prow")].map((r) => r.textContent ?? "");
+    assert.equal(found.length, 1);
+    assert.match(found[0] ?? "", /市场部/);
+    assert.ok(q(f.container, 'button[data-nx-act="pp-claim"][data-nx-id="g1"]'));
+    assert.equal(q(f.container, 'button[data-nx-act="pp-claim"][data-nx-id="g0"]'), null);
+    const pills = [...f.container.querySelectorAll(".nx-wlist .nx-seg > a")].map(
+      (a) => a.textContent,
+    );
+    assert.equal(pills[2], "待确认人员1");
+    // The other segments' links carry the search.
+    assert.ok(q(f.container, ".nx-wlist .nx-seg > a")?.getAttribute("href")?.includes("q="));
+    // A search that finds nothing offers the way back.
+    const none = mount(
+      { view: "people", seg: "pending", q: "不存在" },
+      { ...serve(), "nexus.counterpart.pending": groups },
+    );
+    await flush();
+    assert.equal(none.container.querySelectorAll(".nx-prow").length, 0);
+    assert.match(q(none.container, ".nx-rows")?.textContent ?? "", /没有找到匹配的人员/);
+    assert.ok(q(none.container, ".nx-rows .nx-wempty a"), "a link to clear the search");
   });
 });

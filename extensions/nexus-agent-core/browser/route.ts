@@ -1,3 +1,4 @@
+import { CLEANUP_DEFAULT_SIZE, CLEANUP_PAGE_SIZES } from "../src/cleanup-ui.js";
 import { PEOPLE_SEGS, PERSON_TABS, type PeopleSeg, type PersonTab } from "../src/people-ui.js";
 // Page routing for the Nexus Control UI module. The state lives in the host's page parameters (`p.view`, `p.task`), so
 // reload and the browser's back button work without any state of our own. The shared renderers (src/ui-render.ts) write
@@ -22,6 +23,9 @@ export type WorkFilter = { state?: WorkPrimaryState; q?: string };
 /** The People page: the segment of the list, a name search, the person shown and the tab of that person. All optional. */
 export type PeopleQuery = { personId?: string; seg?: PeopleSeg; tab?: PersonTab; q?: string };
 
+/** The clear-people page: a name search, the page (1-based) and the page size (50 unless chosen). */
+export type CleanupQuery = { q?: string; page: number; size: number };
+
 /** The prototype pages that only show their design for now; the host's left rail links to each. */
 export const HUB_PAGES = ["goals", "library", "status"] as const;
 export type HubPage = (typeof HUB_PAGES)[number];
@@ -36,7 +40,34 @@ export type NexusRoute =
   | { view: "preferences" }
   | { view: "goals" }
   | { view: "receipts" }
+  | ({ view: "cleanup" } & CleanupQuery)
   | ({ view: "files" } & FileQuery);
+
+/** The clear-people page with nothing chosen. */
+export const CLEANUP_HOME: Extract<NexusRoute, { view: "cleanup" }> = {
+  view: "cleanup",
+  page: 1,
+  size: CLEANUP_DEFAULT_SIZE,
+};
+
+/** The search, page and size of a clear-people link; anything unknown falls back to the default. */
+export function parseCleanupQuery(get: (name: string) => string | undefined): CleanupQuery {
+  const q = (get("q") ?? "").trim().slice(0, WORK_Q_MAX);
+  const page = Math.floor(Number(get("page")));
+  const size = Number(get("size"));
+  return {
+    ...(q ? { q } : {}),
+    page: Number.isFinite(page) && page >= 1 ? Math.min(page, 100_000) : 1,
+    size: (CLEANUP_PAGE_SIZES as readonly number[]).includes(size) ? size : CLEANUP_DEFAULT_SIZE,
+  };
+}
+
+const cleanupParams = (route: CleanupQuery): Record<string, string> => ({
+  view: "cleanup",
+  ...(route.q ? { q: route.q } : {}),
+  ...(route.page > 1 ? { page: String(route.page) } : {}),
+  ...(route.size !== CLEANUP_DEFAULT_SIZE ? { size: String(route.size) } : {}),
+});
 
 /** The unfiltered first page of the list. */
 export const TASKS_HOME: NexusRoute = { view: "tasks", filter: EMPTY_FILTER };
@@ -122,6 +153,9 @@ export function parseRoute(props: Readonly<Record<string, string>>): NexusRoute 
   if (props.view === "goals") {
     return { view: "goals" };
   }
+  if (props.view === "cleanup") {
+    return { view: "cleanup", ...parseCleanupQuery((name) => props[name]) };
+  }
   if (props.view === "files") {
     return { view: "files", ...parseFileQuery((name) => props[name]) };
   }
@@ -143,6 +177,8 @@ export function routeParams(route: NexusRoute): Record<string, string> {
       return { view: "files", ...fileQueryToParams(route) };
     case "people":
       return { view: "people", ...peopleParams(route) };
+    case "cleanup":
+      return cleanupParams(route);
     case "hub":
       return { view: "hub", hub: route.hub };
     default:
@@ -187,6 +223,9 @@ export function routeFromHref(href: string): NexusRoute | undefined {
     (first === "preferences" || first === "receipts" || first === "goals")
   ) {
     return { view: first };
+  }
+  if (segments.length === 1 && first === "cleanup") {
+    return { view: "cleanup", ...parseCleanupQuery((name) => query.get(name) ?? undefined) };
   }
   if (segments.length === 1 && first === "files") {
     return { view: "files", ...parseFileQuery((name) => query.get(name) ?? undefined) };
