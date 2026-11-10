@@ -11,7 +11,7 @@ import type {
 import { toCommitment, COMMITMENT_SELECT } from "./commitment-common.js";
 import type { CounterpartCommon } from "./counterpart-common.js";
 import { normalizeName } from "./counterpart-common.js";
-import { createPossibleSame } from "./counterpart-same.js";
+import { createNotSameOf, createPossibleSame } from "./counterpart-same.js";
 import type { TransactionRunner } from "./kernel.js";
 import type { Principal } from "./types.js";
 import type { Row, WorkCommon } from "./work-ledger-common.js";
@@ -35,6 +35,7 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
   const { transaction, c, cp } = deps;
   const { one, all } = c;
   const possibleSameOf = createPossibleSame(c);
+  const notSameOf = createNotSameOf(c);
 
   /** Per person: the open or waiting Commitments they answer for. Each Commitment counts once however many Works cite it. */
   const statsFor = (owner: string, now: number, counterpartId?: string): Map<string, Stats> => {
@@ -156,6 +157,9 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
     transaction(() => cp.resolveName(input.principal.ownerId, input.name));
 
   /** Typed-name Commitments, grouped by the normalized name. Groups with nothing open are history and stay out of the list. */
+  /** How many still-open "several people" commitments a pending group names by id (the rest are counted). */
+  const JOINT_SHOWN = 5;
+
   const counterpartPending = (input: { principal: Principal; now: number }) =>
     transaction(() => {
       const owner = input.principal.ownerId;
@@ -187,6 +191,14 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
         group.total += 1;
         if (row.ambiguity_json != null) {
           group.joint = true;
+          if (["open", "waiting"].includes(String(row.lifecycle))) {
+            // The still-open ones are what the user can act on from the list (the page shows these as cards).
+            group.jointOpen = (group.jointOpen ?? 0) + 1;
+            const ids = (group.jointIds ??= []);
+            if (ids.length < JOINT_SHOWN) {
+              ids.push(String(row.id));
+            }
+          }
         }
         if (group.commitmentIds.length < 50) {
           group.commitmentIds.push(String(row.id));
@@ -305,6 +317,7 @@ export function createCounterpartReadOps(deps: CounterpartReadDeps) {
         related: works,
         assisting,
         possibleSame: possibleSameOf(owner).get(input.counterpartId) ?? [],
+        notSame: notSameOf(owner, input.counterpartId),
         counts: {
           unresolved: stats.unresolved,
           overdue: stats.overdue,

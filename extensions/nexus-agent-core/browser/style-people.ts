@@ -4,6 +4,7 @@ export const NEXUS_PEOPLE_CSS = `
 .nx-lhr{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .nx-people .nx-prow{align-items:flex-start}
 .nx-people .nx-prow .nx-btn{align-self:center;flex:none}
+.nx-people .nx-pjoint{margin:0 0 14px 22px}
 .nx-people .nx-pst{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;text-align:center}
 .nx-pn{display:flex;flex-direction:column;gap:4px}
 .nx-pnn{font-size:28px;font-weight:650;font-variant-numeric:tabular-nums}

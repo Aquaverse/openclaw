@@ -9,6 +9,7 @@ import {
   type PeriodSpec,
 } from "../commitment/types.js";
 import { createCommitmentAssistOps } from "./commitment-assist-ledger.js";
+import { createCommitmentBackfillOps } from "./commitment-backfill-ledger.js";
 import {
   COMMITMENT_SELECT,
   createCommitmentCommon,
@@ -623,6 +624,8 @@ export function createCommitmentLedger(
     addHelperInTx: assistAddInTx,
   });
 
+  const backfill = createCommitmentBackfillOps({ transaction, c, k });
+
   return {
     commitmentCreate,
     commitmentGeneratePeriods: generatePeriods,
@@ -632,6 +635,7 @@ export function createCommitmentLedger(
     ...flow,
     ...assist,
     ...joint,
+    ...backfill,
   };
 }
 

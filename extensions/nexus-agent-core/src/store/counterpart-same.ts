@@ -9,6 +9,10 @@ import type { Row, WorkCommon } from "./work-ledger-common.js";
 
 const ORDER: readonly PossibleSameReason[] = ["name", "alias", "contact"];
 
+/** The unordered pair as stored in `counterpart_not_same`: the smaller id first. */
+export const pairKey = (x: string, y: string): string =>
+  x < y ? `${x}\u0000${y}` : `${y}\u0000${x}`;
+
 export function createPossibleSame(c: WorkCommon) {
   const { all } = c;
 
@@ -26,11 +30,17 @@ export function createPossibleSame(c: WorkCommon) {
         kind: String(row.kind),
       });
     }
+    // Pairs the user said are two people: the hint stays quiet for them.
+    const apart = new Set(
+      all("SELECT low_id, high_id FROM counterpart_not_same WHERE owner_id = ?", owner).map(
+        (row) => `${String(row.low_id)}\u0000${String(row.high_id)}`,
+      ),
+    );
     const found = new Map<string, Map<string, Set<PossibleSameReason>>>();
     const note = (x: string, y: string, reason: PossibleSameReason) => {
       const a = eligible.get(x);
       const b = eligible.get(y);
-      if (!a || !b || a.kind !== b.kind || x === y) {
+      if (!a || !b || a.kind !== b.kind || x === y || apart.has(pairKey(x, y))) {
         return;
       }
       for (const [from, to] of [
@@ -91,4 +101,19 @@ export function createPossibleSame(c: WorkCommon) {
     }
     return out;
   };
+}
+
+/** The records this person was marked "not the same person" against (live ones only), by name. */
+export function createNotSameOf(c: WorkCommon) {
+  const { all } = c;
+  return (owner: string, id: string): Array<{ id: string; displayName: string }> =>
+    all(
+      "SELECT cp.id, cp.display_name FROM counterpart_not_same n JOIN counterparts cp ON cp.owner_id = n.owner_id " +
+        "AND cp.id = CASE WHEN n.low_id = ? THEN n.high_id ELSE n.low_id END " +
+        "WHERE n.owner_id = ? AND (n.low_id = ? OR n.high_id = ?) AND cp.lifecycle = 'live' ORDER BY cp.display_name, cp.id",
+      id,
+      owner,
+      id,
+      id,
+    ).map((row) => ({ id: String(row.id), displayName: String(row.display_name) }));
 }

@@ -97,6 +97,27 @@ export function createCommitmentJointRpcHandlers(deps: CommitmentJointRpcDeps) {
       }),
       "operator.write",
     ],
+    [
+      "nexus.commitment.backfillJoint",
+      guarded(async ({ principal, store, params, respond }) => {
+        // Marks OLD open Commitments whose typed words named several people (made before W3c-2), so the console asks the user
+        // to choose. dryRun (default true) only reports; "任一人完成即可" wordings are listed and never changed.
+        if (params.dryRun !== undefined && typeof params.dryRun !== "boolean") {
+          reject(respond, "nexus_invalid_params", "dryRun must be a boolean");
+          return;
+        }
+        const result = await store.commitmentJointBackfill({
+          principal,
+          dryRun: params.dryRun !== false,
+          now: now(),
+        });
+        for (const workId of result.workIds) {
+          deps.events.workChanged({ ownerId: principal.ownerId, workId, action: "commitment" });
+        }
+        respond(true, { ownerId: principal.ownerId, ...result });
+      }),
+      "operator.write",
+    ],
   ];
   return methods;
 }

@@ -5,8 +5,13 @@ import { Type } from "typebox";
 import type { AnyAgentTool } from "../../api.js";
 import { EITHER_RESPONSIBLE_MESSAGE } from "../commitment/joint.js";
 import type { CommitmentRecord } from "../commitment/types.js";
-import { COMMITMENT_LIFECYCLES, COMMITMENT_LIMITS } from "../commitment/types.js";
+import {
+  COMMITMENT_LIFECYCLES,
+  COMMITMENT_LIMITS,
+  COMMITMENT_PARTICIPANT_ROLES,
+} from "../commitment/types.js";
 import type { EventBridge } from "../events.js";
+import type { JointChoice } from "../store/commitment-joint-ledger.js";
 import type { TaskStore } from "../store/host.js";
 import type { Principal } from "../store/types.js";
 import { jsonResult } from "./task-tools.js";
@@ -15,6 +20,8 @@ export const COMMITMENT_TOOL_NAMES = [
   "nexus_commitment_record",
   "nexus_commitment_get",
   "nexus_commitment_search",
+  "nexus_commitment_add_helper",
+  "nexus_commitment_choose_responsible",
 ] as const;
 
 export type CommitmentToolDeps = {
@@ -29,6 +36,8 @@ const COMMITMENT_ID = /^cm_[A-Za-z0-9_]{4,80}$/;
 const WORK_ID = /^w_[A-Za-z0-9_]{4,80}$/;
 const COUNTERPART_ID = /^[A-Za-z0-9_#:.-]{1,200}$/;
 const ISO_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+const trimmed = (raw: unknown): string => (typeof raw === "string" ? raw.trim() : "");
 
 function fail(code: string, message: string) {
   return {
@@ -49,7 +58,7 @@ function view(c: CommitmentRecord) {
     ...(c.ambiguity
       ? {
           waitingForUserChoice:
-            "Several people were named, so nobody answers for this yet. Only the user can choose, in the console: one commitment each, or one responsible person with the others helping. Do not choose for them and do not record a second commitment.",
+            "Several people were named, so nobody answers for this yet. Only the user can choose: one commitment each, or one responsible person with the others helping. Do not choose for them and do not record a second commitment. If the user has ALREADY told you their choice in this conversation, apply it with nexus_commitment_choose_responsible and quote their words; otherwise ask them (or tell them they can choose in the console).",
         }
       : {}),
     lifecycle: c.lifecycle,
@@ -85,6 +94,23 @@ export function createCommitmentTools(deps: CommitmentToolDeps, ctx: ToolContext
       return jsonResult(
         fail("store_error", error instanceof Error ? error.message : String(error)),
       );
+    }
+  };
+
+  const announce = async (store: TaskStore, principal: Principal, commitmentId: string) => {
+    try {
+      const out = await store.commitmentImpact({ principal, commitmentId });
+      if (out.outcome === "ok") {
+        for (const work of out.impact.works) {
+          deps.events.workChanged({
+            ownerId: principal.ownerId,
+            workId: work.workId,
+            action: "commitment",
+          });
+        }
+      }
+    } catch {
+      // best effort after the commit
     }
   };
 
@@ -325,6 +351,207 @@ export function createCommitmentTools(deps: CommitmentToolDeps, ctx: ToolContext
             ok: true,
             total: found.total,
             commitments: found.items.map((i) => view(i.commitment)),
+          };
+        });
+      },
+    },
+    {
+      name: "nexus_commitment_add_helper",
+      label: "Nexus: add a helper to a commitment",
+      description:
+        'Add someone who HELPS with an open commitment (participant, approver or recipient) when the user said so in their own words, e.g. "小李协助小王" or "发给张总审批". Quote the user in userStatementRef. A helper does not answer for the commitment and is not allowed to send anything for it. The person must already be known: get the id with nexus_counterpart_ensure. You cannot remove helpers or change who is responsible here.',
+      parameters: Type.Object({
+        commitmentId: Type.String({ description: "A commitment id such as cm_ABC123." }),
+        counterpartId: Type.String({
+          description: "The helper's person id (from nexus_counterpart_ensure).",
+        }),
+        role: Type.String({
+          description: `One of ${COMMITMENT_PARTICIPANT_ROLES.join(", ")}.`,
+        }),
+        userStatementRef: Type.String({
+          description: `A short quote (at most ${COMMITMENT_LIMITS.ref} characters) of the user's own words that say this person helps.`,
+        }),
+        purpose: Type.Optional(
+          Type.String({
+            description: `What they help with, at most ${COMMITMENT_LIMITS.purpose} characters, only if the user said.`,
+          }),
+        ),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        return withPrincipal(async (principal, store) => {
+          const commitmentId = trimmed(params.commitmentId);
+          const counterpartId = trimmed(params.counterpartId);
+          const ref = trimmed(params.userStatementRef);
+          const role = (COMMITMENT_PARTICIPANT_ROLES as readonly unknown[]).find(
+            (r) => r === params.role,
+          ) as (typeof COMMITMENT_PARTICIPANT_ROLES)[number] | undefined;
+          if (!COMMITMENT_ID.test(commitmentId) || !COUNTERPART_ID.test(counterpartId)) {
+            return fail(
+              "invalid_params",
+              "commitmentId looks like cm_ABC123; counterpartId is a person id.",
+            );
+          }
+          if (!role || !ref) {
+            return fail(
+              "invalid_params",
+              `role (${COMMITMENT_PARTICIPANT_ROLES.join(", ")}) and userStatementRef (the user's words) are required.`,
+            );
+          }
+          const purpose = trimmed(params.purpose);
+          const result = await store.commitmentAssistAdd({
+            principal,
+            commitmentId,
+            counterpartId,
+            role,
+            ...(purpose ? { purpose } : {}),
+            actor: "agent",
+            userStatementRef: ref,
+            now: now(),
+          });
+          if (result.outcome === "not_found") {
+            return fail("not_found", "Commitment not found.");
+          }
+          if (result.outcome === "closed") {
+            return fail(
+              "commitment_closed",
+              `The commitment is ${result.lifecycle}; helpers cannot be added.`,
+            );
+          }
+          if (result.outcome === "invalid") {
+            return fail(
+              result.code,
+              result.code === "is_responsible"
+                ? "This person is the responsible one; a responsible person is never also a helper."
+                : result.code === "counterpart_not_confirmed"
+                  ? "This person was not stated by the user. Ask the user who they mean first."
+                  : `Not accepted: ${result.code}.`,
+            );
+          }
+          await announce(store, principal, commitmentId);
+          return {
+            ok: true,
+            added: result.outcome === "added",
+            alreadyHelping: result.outcome === "exists",
+            commitmentId,
+            counterpartId,
+            role,
+          };
+        });
+      },
+    },
+    {
+      name: "nexus_commitment_choose_responsible",
+      label: "Nexus: apply the user's choice of who answers",
+      description:
+        "Apply the choice the USER has already made for a commitment that is waiting (the record shows waitingForUserChoice). Two forms: form=lead (one person answers: leadId, with optional helperIds who help) or form=each (one commitment per person: counterpartIds, two or more). Call this ONLY when the user said which form and which people in this conversation, and quote them in userStatementRef. If they have not, ask; never infer, never pick a lead for them. People must already be known (nexus_counterpart_ensure). The user can also do this in the console.",
+      parameters: Type.Object({
+        commitmentId: Type.String({ description: "The waiting commitment's id (cm_...)." }),
+        form: Type.String({ description: 'Either "lead" or "each".' }),
+        leadId: Type.Optional(
+          Type.String({ description: "form=lead: the one person who answers." }),
+        ),
+        helperIds: Type.Optional(
+          Type.Array(Type.String(), { description: "form=lead: people who help (optional)." }),
+        ),
+        helperRole: Type.Optional(
+          Type.String({
+            description: `form=lead: ${COMMITMENT_PARTICIPANT_ROLES.join(", ")}; default participant.`,
+          }),
+        ),
+        counterpartIds: Type.Optional(
+          Type.Array(Type.String(), {
+            description: "form=each: everyone who gets their own commitment.",
+          }),
+        ),
+        userStatementRef: Type.String({
+          description: `A short quote (at most ${COMMITMENT_LIMITS.ref} characters) of the user's own words that make this choice.`,
+        }),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        return withPrincipal(async (principal, store) => {
+          const commitmentId = trimmed(params.commitmentId);
+          const ref = trimmed(params.userStatementRef);
+          if (!COMMITMENT_ID.test(commitmentId) || !ref) {
+            return fail(
+              "invalid_params",
+              "commitmentId (cm_...) and userStatementRef (the user's words) are required.",
+            );
+          }
+          const ids = (raw: unknown): string[] | undefined =>
+            raw === undefined
+              ? []
+              : Array.isArray(raw) &&
+                  raw.length <= 40 &&
+                  raw.every((id) => typeof id === "string" && COUNTERPART_ID.test(id.trim()))
+                ? raw.map((id: string) => id.trim())
+                : undefined;
+          const helperIds = ids(params.helperIds);
+          const counterpartIds = ids(params.counterpartIds);
+          const role =
+            params.helperRole === undefined
+              ? "participant"
+              : (COMMITMENT_PARTICIPANT_ROLES as readonly unknown[]).find(
+                  (r) => r === params.helperRole,
+                );
+          const leadId = trimmed(params.leadId);
+          let choice: JointChoice | undefined;
+          if (
+            params.form === "lead" &&
+            leadId &&
+            COUNTERPART_ID.test(leadId) &&
+            helperIds &&
+            role
+          ) {
+            choice = {
+              kind: "lead",
+              leadId,
+              helperIds,
+              helperRole: role as (typeof COMMITMENT_PARTICIPANT_ROLES)[number],
+            };
+          } else if (params.form === "each" && counterpartIds) {
+            choice = { kind: "each", counterpartIds };
+          }
+          if (!choice) {
+            return fail(
+              "invalid_params",
+              'form "lead" needs leadId (optional helperIds, helperRole); form "each" needs counterpartIds. Ids must be person ids.',
+            );
+          }
+          const result = await store.commitmentResolveJoint({
+            principal,
+            commitmentId,
+            choice,
+            actor: "agent",
+            userStatementRef: ref,
+            now: now(),
+          });
+          if (result.outcome === "not_found") {
+            return fail("not_found", "Commitment not found.");
+          }
+          if (result.outcome === "closed") {
+            return fail("commitment_closed", `The commitment is ${result.lifecycle}.`);
+          }
+          if (result.outcome === "not_joint") {
+            return fail(
+              "not_waiting",
+              "This commitment is not waiting for a choice of who answers.",
+            );
+          }
+          if (result.outcome === "invalid") {
+            return fail(
+              result.code,
+              result.code === "counterpart_not_confirmed"
+                ? "One of these people was not stated by the user. Ask the user who they mean first."
+                : `Not accepted: ${result.code}.`,
+            );
+          }
+          for (const workId of result.workIds) {
+            deps.events.workChanged({ ownerId: principal.ownerId, workId, action: "commitment" });
+          }
+          return {
+            ok: true,
+            form: result.form,
+            commitments: result.commitments.map((record) => view(record)),
           };
         });
       },

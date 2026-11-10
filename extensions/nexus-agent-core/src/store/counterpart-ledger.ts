@@ -25,6 +25,7 @@ import {
 } from "./counterpart-common.js";
 import { createCounterpartMergeOps } from "./counterpart-merge-ledger.js";
 import { createCounterpartMoveOps } from "./counterpart-move-ledger.js";
+import { createCounterpartNotSameOps } from "./counterpart-notsame-ledger.js";
 import { createCounterpartPurgeOps } from "./counterpart-purge-ledger.js";
 import { createCounterpartReadOps } from "./counterpart-read-ledger.js";
 import { createCounterpartSplitOps } from "./counterpart-split-ledger.js";
@@ -564,6 +565,7 @@ export function createCounterpartLedger(
   const merges = createCounterpartMergeOps({ transaction, c, k, cp, fetch, reevaluate });
   const splits = createCounterpartSplitOps({ transaction, c, k, cp, fetch, reevaluate });
   const purges = createCounterpartPurgeOps({ transaction, c, cp });
+  const notSame = createCounterpartNotSameOps({ transaction, c, cp });
 
   return {
     counterpartCreate,
@@ -575,6 +577,7 @@ export function createCounterpartLedger(
     ...merges,
     ...splits,
     ...purges,
+    ...notSame,
     ...read,
   };
 }

@@ -254,7 +254,7 @@ export const COMMITMENT_MESSAGES = {
     "Recorded, but several people were named, so nobody answers yet: use “Decide who answers” to choose.",
   ],
   "pp.pending.joint": [
-    "这里写了几个人一起做：不能指向某一个人，请到承诺上点“分责”。",
-    "Several people were named together: it cannot be pointed at one person. Use “Decide who answers” on the commitment.",
+    "这里写了几个人一起做：不能指向某一个人，请在下面的承诺上点“分责”。",
+    "Several people were named together: it cannot be pointed at one person. Use “Decide who answers” on a commitment below.",
   ],
 } as const satisfies Record<string, readonly [string, string]>;

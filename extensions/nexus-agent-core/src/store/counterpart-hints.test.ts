@@ -212,3 +212,85 @@ describe("integrity: the same commitment cited twice in one Work", () => {
     assert.deepEqual(dups(), []);
   });
 });
+
+describe("marking two records as not the same person", () => {
+  const mark = (id: string, other: string, owner = A) =>
+    k.counterpartNotSame({ principal: owner, counterpartId: id, otherId: other, now: now() });
+  const unmark = (id: string, other: string) =>
+    k.counterpartNotSameRestore({ principal: A, counterpartId: id, otherId: other, now: now() });
+
+  it("silences the hint for that pair from both sides, lists the mark, and the undo brings it back", () => {
+    const x = person("标记甲");
+    const y = person("标记甲", { allowSameName: true });
+    const z = person("标记甲", { allowSameName: true });
+    assert.equal(view(x.id).possibleSame?.length, 2);
+    assert.equal(mark(x.id, y.id).outcome, "marked");
+    assert.deepEqual(
+      sameOf(x.id).map(([n]) => n),
+      ["标记甲"],
+      "only z is left",
+    );
+    assert.equal(view(x.id).possibleSame?.[0]?.id, z.id);
+    assert.equal(
+      view(y.id).possibleSame?.some((p) => p.id === x.id),
+      false,
+      "from y's side too",
+    );
+    assert.equal(
+      view(y.id).possibleSame?.some((p) => p.id === z.id),
+      true,
+      "other pairs stay",
+    );
+    assert.deepEqual(view(x.id).notSame, [{ id: y.id, displayName: "标记甲" }]);
+    assert.deepEqual(view(y.id).notSame, [{ id: x.id, displayName: "标记甲" }]);
+    assert.equal(inList(x.id)?.possibleSame, 1);
+    assert.equal(unmark(y.id, x.id).outcome, "restored", "either side can take it back");
+    assert.equal(view(x.id).possibleSame?.length, 2);
+    assert.deepEqual(view(x.id).notSame, []);
+  });
+
+  it("marks once, changes no name or merge rule, and refuses nonsense", () => {
+    const x = person("标记乙");
+    const y = person("标记乙", { allowSameName: true });
+    assert.equal(mark(x.id, y.id).outcome, "marked");
+    assert.equal(mark(y.id, x.id).outcome, "exists");
+    assert.equal(
+      k.counterpartResolveName({ principal: A, name: "标记乙" }).candidates.length,
+      2,
+      "the name still points at both",
+    );
+    assert.deepEqual(mark(x.id, x.id), { outcome: "invalid", code: "same_record" });
+    assert.equal(mark(x.id, "cp_nobody").outcome, "not_found");
+    assert.equal(unmark(x.id, "cp_nobody").outcome, "not_found");
+    const stopped = person("标记停用");
+    assert.equal(stop(stopped.id).outcome, "deactivated");
+    assert.equal(mark(x.id, stopped.id).outcome, "closed");
+    const selfRow = db
+      .prepare("SELECT self_counterpart_id AS id FROM owner_identity WHERE owner_id = ?")
+      .get(A.ownerId) as { id: string } | undefined;
+    if (selfRow) {
+      assert.equal(mark(x.id, selfRow.id).outcome, "forbidden");
+    }
+  });
+
+  it("is per owner, and clearing a person removes the marks that name them", () => {
+    const x = person("标记丙");
+    const y = person("标记丙", { allowSameName: true });
+    assert.equal(mark(x.id, y.id).outcome, "marked");
+    const theirs = person("标记丙", {}, B);
+    assert.equal(mark(x.id, theirs.id, B).outcome, "not_found", "not another owner's person");
+    assert.equal(stop(y.id).outcome, "deactivated");
+    const out = k.counterpartPurge({ principal: A, counterpartIds: [y.id], now: now() });
+    assert.equal(out.outcome, "purged", JSON.stringify(out));
+    const left = db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM counterpart_not_same WHERE owner_id = ? AND (low_id = ? OR high_id = ?)",
+      )
+      .get(A.ownerId, y.id, y.id) as { n: number };
+    assert.equal(left.n, 0);
+  });
+
+  function stop(id: string) {
+    return k.counterpartDeactivate({ principal: A, counterpartId: id, reason: "测试", now: now() });
+  }
+});

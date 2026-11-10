@@ -193,3 +193,15 @@ CREATE INDEX counterpart_purge_receipts_time ON counterpart_purge_receipts(owner
 export const STAGE7_LAST_STOP_REASON_SQL = `
 ALTER TABLE counterparts ADD COLUMN last_stop_reason TEXT;
 `;
+
+// stage7-0007: "these two records are NOT the same person" (the user looked at a "may be the same person" hint and said no). One row per
+// unordered pair (the smaller id first); it only silences that hint between the two records and changes nothing else. Ids only.
+export const STAGE7_NOT_SAME_SQL = `
+CREATE TABLE counterpart_not_same (
+  owner_id TEXT NOT NULL,
+  low_id TEXT NOT NULL, high_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, low_id, high_id),
+  CHECK (low_id < high_id)
+) STRICT;
+`;

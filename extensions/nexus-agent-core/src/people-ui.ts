@@ -35,6 +35,9 @@ export type PersonActionModel = {
   contacts: readonly ContactRecord[];
   /** The reason written the last time this person was deleted, if they were (the delete dialog starts from it). */
   lastStopReason?: string | null;
+  /** Records that may be the same person (`s<index>` in a marker), and the ones marked "not the same" (`u<index>`). */
+  same?: ReadonlyArray<{ id: string; name: string }>;
+  notSame?: ReadonlyArray<{ id: string; name: string }>;
   /** The commitments this person answers for (the split dialog offers them); `open` = still open or waiting. */
   commitments: ReadonlyArray<{ id: string; text: string; open: boolean }>;
 };
@@ -42,6 +45,10 @@ export type PersonActionModel = {
 export function personActionModel(
   c: CounterpartRecord,
   commitments: PersonActionModel["commitments"] = [],
+  hints: {
+    same?: PersonView["possibleSame"];
+    notSame?: PersonView["notSame"];
+  } = {},
 ): PersonActionModel {
   return {
     id: c.id,
@@ -55,6 +62,8 @@ export function personActionModel(
     relation: c.relation,
     contacts: c.contacts,
     lastStopReason: c.lastStopReason ?? null,
+    same: (hints.same ?? []).map((p) => ({ id: p.id, name: p.displayName })),
+    notSame: (hints.notSame ?? []).map((p) => ({ id: p.id, name: p.displayName })),
     commitments,
   };
 }
@@ -72,6 +81,8 @@ export type PeoplePageData = {
   q?: string;
   /** Typed names with open commitments that point at no one yet. */
   pending: readonly PendingPersonGroup[];
+  /** The cards of the still-open "several people" commitments, by pending group key (read only while the pending segment is open). */
+  jointLines?: Readonly<Record<string, readonly CommitmentLine[]>>;
   /** Typed names the user said point at nobody; read only while the pending segment is open. */
   dismissed?: readonly DismissedName[];
   seg?: PeopleSeg;
@@ -198,6 +209,33 @@ function pendingRow(
   );
 }
 
+/** The "several people" commitments of a pending group as cards, so "decide who answers" is one click from the list. */
+function jointCards(
+  group: PendingPersonGroup,
+  lines: readonly CommitmentLine[] | undefined,
+  lang: Lang,
+  now: number,
+  withActions: boolean,
+  base: string,
+): string {
+  if (!group.joint || !lines || lines.length === 0) {
+    return "";
+  }
+  const more = (group.jointOpen ?? lines.length) - lines.length;
+  return (
+    `<div class="nx-pjoint">` +
+    lines
+      .map((line) =>
+        renderCommitmentBox(line, lang, now, withActions, { base, attach: true, linkWho: false }),
+      )
+      .join("") +
+    (more > 0
+      ? `<p class="nx-cm-hint">${esc(tr(lang, "pp.pend.jointMore", { n: more }))}</p>`
+      : "") +
+    `</div>`
+  );
+}
+
 const fold = (text: string): string => text.normalize("NFKC").trim().toLowerCase();
 
 /** The typed names a search leaves in "to confirm" (they are matched by the name as typed), each with its place in the full list. */
@@ -306,7 +344,11 @@ function listPane(
             : "") +
           `</p>`
         : found
-            .map(({ item, index }) => pendingRow(item, index, lang, data.now, withActions))
+            .map(
+              ({ item, index }) =>
+                pendingRow(item, index, lang, data.now, withActions) +
+                jointCards(item, data.jointLines?.[item.key], lang, data.now, withActions, base),
+            )
             .join("");
     const ignored = pendingMatches(data.dismissed ?? [], data.q);
     if (ignored.length > 0) {
@@ -475,13 +517,35 @@ function detailPane(data: PeoplePageData, lang: Lang, base: string, withActions:
     );
   }
   if (live && !c.isSelf) {
-    for (const same of (view.possibleSame ?? []).slice(0, SAME_SHOWN)) {
+    for (const [index, same] of (view.possibleSame ?? []).slice(0, SAME_SHOWN).entries()) {
       const why = same.reasons.map((r) => tr(lang, `pp.same.${r}` as MsgKey)).join("、");
       notes.push(
         callout(
           "amber",
           `<p>${esc(tr(lang, "pp.same.note", { name: same.displayName, why }))}</p>` +
-            `<p><a href="${href(base, same.id, {})}">${esc(tr(lang, "pp.same.link", { name: same.displayName }))}</a></p>`,
+            `<p><a href="${href(base, same.id, {})}">${esc(tr(lang, "pp.same.link", { name: same.displayName }))}</a>` +
+            (withActions
+              ? ` ${marker("pp-notsame", `s${index}`, "nx-btn", esc(tr(lang, "pp.same.btn")))}`
+              : "") +
+            `</p>`,
+        ),
+      );
+    }
+    const marked = view.notSame ?? [];
+    if (marked.length > 0) {
+      notes.push(
+        callout(
+          "plain",
+          marked
+            .map(
+              (other, index) =>
+                `<p>${esc(tr(lang, "pp.same.marked", { name: other.displayName }))}` +
+                (withActions
+                  ? ` ${marker("pp-unsame", `u${index}`, "nx-btn", esc(tr(lang, "pp.same.undo")))}`
+                  : "") +
+                `</p>`,
+            )
+            .join(""),
         ),
       );
     }

@@ -9,6 +9,10 @@ export const PEOPLE_HINT_MESSAGES = {
     "还有 {n} 对类似的承诺没有在这里列出。",
     "{n} more similar pairs are not listed here.",
   ],
+  "pp.pend.jointMore": [
+    "还有 {n} 条这样的承诺没有列在这里；分好上面的，剩下的会接着出现。",
+    "{n} more like these are not listed here; decide the ones above and the rest will show.",
+  ],
   "pp.same.chip": ["疑似重复", "May be a duplicate"],
   "pp.same.name": ["名字一样", "same name"],
   "pp.same.alias": ["别名重合", "shared alias"],
@@ -18,6 +22,23 @@ export const PEOPLE_HINT_MESSAGES = {
     "“{name}” may be the same person as this one ({why}). If so, use “Merge into…” above; if they really are two people, ignore this: it is only a hint.",
   ],
   "pp.same.link": ["看看“{name}”", "Open “{name}”"],
+  "pp.same.btn": ["不是同一个人", "Not the same person"],
+  "pp.same.dlg": ["确认是两个人", "Confirm they are two people"],
+  "pp.same.dlg.body": [
+    "“{a}”和“{b}”是两个人。以后不再提醒这两条记录可能是同一个人。这不会改变任何名字、联系方式或承诺，之后可以撤销。",
+    "“{a}” and “{b}” are two people. You will no longer be told these two records may be the same person. No name, contact or commitment changes, and you can take it back.",
+  ],
+  "pp.same.dlg.ok": ["确认是两个人", "They are two people"],
+  "pp.same.notice": [
+    "已记下：“{a}”和“{b}”是两个人，不再提醒。",
+    "Noted: “{a}” and “{b}” are two people; no more reminders.",
+  ],
+  "pp.same.marked": ["已标记为不是同一个人：{name}", "Marked as not the same person: {name}"],
+  "pp.same.undo": ["撤销", "Undo"],
+  "pp.same.undone": [
+    "已撤销，如果“{name}”仍然符合条件，提醒会重新出现。",
+    "Undone; if “{name}” still matches, the reminder comes back.",
+  ],
   "pp.dlg.off.prefill": [
     "原因里预填的是上次删除他时写的，请按这次的情况修改。",
     "The reason is filled in from the last time this person was deleted; change it to fit this time.",

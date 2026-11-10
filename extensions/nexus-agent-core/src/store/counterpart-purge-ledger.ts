@@ -176,6 +176,13 @@ export function createCounterpartPurgeOps(deps: CounterpartPurgeDeps) {
           owner,
           item.id,
         );
+        // Marks that said "this is not the same person as X" name the cleared person by id: they go with them.
+        run(
+          "DELETE FROM counterpart_not_same WHERE owner_id = ? AND (low_id = ? OR high_id = ?)",
+          owner,
+          item.id,
+          item.id,
+        );
         cp.bump(owner, item.id, input.now);
         const receiptId = newId("cpr_");
         run(

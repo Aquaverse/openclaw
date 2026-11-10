@@ -75,6 +75,7 @@ describe("task store kernel", () => {
       "stage7-0004-counterpart-dismissals",
       "stage7-0005-counterpart-purge-receipts",
       "stage7-0006-counterpart-last-stop-reason",
+      "stage7-0007-counterpart-not-same",
     ]);
     assert.deepEqual(applyMigrations(db, tx), []);
   });

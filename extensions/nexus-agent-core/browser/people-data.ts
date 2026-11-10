@@ -18,6 +18,7 @@ import {
 import { EMPTY_MODEL } from "./actions.ts";
 import type { PersonChoice } from "./commitment-form.ts";
 import type { NexusRequest, NexusView } from "./data.ts";
+import { readJointLines } from "./people-joint-data.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
 
 /** At most this many people are read in one answer; the server's limit. */
@@ -148,6 +149,8 @@ export async function loadPeopleView(
     shown.push(...more.items);
   }
   const groups = pending.groups ?? [];
+  // The pending segment shows the "several people" commitments as cards, so the user can decide who answers right there.
+  const jointLines = route.seg === "pending" ? await readJointLines(request, groups) : {};
   const explicit = route.personId !== undefined;
   // With no one named, the first row of the list is shown (as the Work page does); the "to confirm" names have no detail.
   const selectedId = route.personId ?? shown[0]?.id;
@@ -176,6 +179,8 @@ export async function loadPeopleView(
   const lines: CommitmentLine[] = [
     ...answers,
     ...(view?.assisting ?? []).map(({ commitment }) => asLine(commitment)),
+    // The buttons of the cards under the "to confirm" names find their commitment here.
+    ...Object.values(jointLines).flat(),
   ];
   return {
     title: tr(lang, "pp.title"),
@@ -186,6 +191,7 @@ export async function loadPeopleView(
         overall,
         ...(list.q ? { q: list.q } : {}),
         pending: groups,
+        jointLines,
         dismissed: dismissed.items ?? [],
         ...(route.seg ? { seg: route.seg } : {}),
         tab: route.tab ?? "responsible",
@@ -222,6 +228,7 @@ export async function loadPeopleView(
                 text: commitment.requirementText,
                 open: commitment.lifecycle === "open" || commitment.lifecycle === "waiting",
               })),
+              { same: view.possibleSame, notSame: view.notSame },
             ),
           }
         : {}),

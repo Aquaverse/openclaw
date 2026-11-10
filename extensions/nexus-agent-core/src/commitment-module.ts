@@ -6,6 +6,7 @@ import { createCommitmentRpcHandlers } from "./commitment-rpc.js";
 import { NEXUS_COMMITMENT_PROTOCOL } from "./commitment/commitment-prompt.js";
 import { createCounterpartPurgeRpcHandlers } from "./counterpart-purge-rpc.js";
 import { createCounterpartRpcHandlers } from "./counterpart-rpc.js";
+import { createCounterpartSameRpcHandlers } from "./counterpart-same-rpc.js";
 import type { EventBridge } from "./events.js";
 import type { TaskStore } from "./store/host.js";
 import type { Principal } from "./store/types.js";
@@ -57,6 +58,7 @@ export function registerCommitmentModule(params: CommitmentModuleParams): void {
     ...createCommitmentJointRpcHandlers(rpcDeps),
     ...createCounterpartRpcHandlers(rpcDeps),
     ...createCounterpartPurgeRpcHandlers(rpcDeps),
+    ...createCounterpartSameRpcHandlers(rpcDeps),
   ]) {
     api.registerGatewayMethod(method, handler, { scope });
   }

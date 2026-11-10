@@ -219,6 +219,10 @@ export type PendingPersonGroup = {
   suggestions: NameMatch["candidates"];
   /** Some commitment here has words that named several people: it needs "who answers" chosen, not a person to point at. */
   joint?: boolean;
+  /** The still-open "several people" commitments of this group (at most 5, oldest first), so the list can show them as cards. */
+  jointIds?: string[];
+  /** How many still-open "several people" commitments the group holds (may be more than `jointIds` names). */
+  jointOpen?: number;
 };
 
 export type PersonView = {
@@ -236,5 +240,7 @@ export type PersonView = {
   assisting?: Array<{ commitment: CommitmentRecord; roles: string[] }>;
   /** Other live people who may be the same person (hint only; the page offers the merge, nothing happens by itself). */
   possibleSame?: PossibleSame[];
+  /** Records the user marked "not the same person" against this one (live ones), so the mark can be taken back. */
+  notSame?: Array<{ id: string; displayName: string }>;
   counts: { unresolved: number; overdue: number; needsConfirmation: number };
 };

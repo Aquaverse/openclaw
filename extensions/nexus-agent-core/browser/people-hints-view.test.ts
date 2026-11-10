@@ -292,3 +292,96 @@ describe("helpers of a commitment", () => {
     );
   });
 });
+
+describe("not the same person", () => {
+  const withHint = (over: Record<string, unknown> = {}, replies: Record<string, unknown> = {}) =>
+    mount(
+      { view: "people", person: "cp_1" },
+      {
+        "nexus.counterpart.get": {
+          outcome: "ok",
+          view: viewOf(record("cp_1", "钱经理"), {
+            possibleSame: [
+              { id: "cp_9", displayName: "钱老板", reasons: ["name"] },
+              { id: "cp_8", displayName: "小钱", reasons: ["alias"] },
+            ],
+            ...over,
+          }),
+        },
+        ...replies,
+      },
+    );
+
+  it("asks first, then marks the pair named by the clicked note and says what it did", async () => {
+    const f = withHint({}, { "nexus.counterpart.notSame": { outcome: "marked" } });
+    await flush();
+    const buttons = [
+      ...f.container.querySelectorAll<HTMLElement>('button[data-nx-act="pp-notsame"]'),
+    ];
+    assert.equal(buttons.length, 2);
+    buttons[1]?.click();
+    await flush();
+    const dialog = q(f.container, ".nx-dialog")?.textContent ?? "";
+    assert.match(dialog, /“钱经理”和“小钱”是两个人/);
+    assert.match(dialog, /不会改变任何名字、联系方式或承诺/);
+    assert.equal(
+      f.calls.filter((c) => c.method === "nexus.counterpart.notSame").length,
+      0,
+      "nothing yet",
+    );
+    dialogButton(f.container, "确认是两个人")?.click();
+    await flush();
+    const sent = f.calls.find((c) => c.method === "nexus.counterpart.notSame");
+    assert.deepEqual(sent?.params, { counterpartId: "cp_1", otherId: "cp_8" });
+    assert.equal(q(f.container, ".nx-dialog"), null);
+    assert.match(
+      q(f.container, ".nx-notice")?.textContent ?? "",
+      /“钱经理”和“小钱”是两个人，不再提醒/,
+    );
+  });
+
+  it("keeps the dialog's Cancel harmless", async () => {
+    const f = withHint();
+    await flush();
+    click(f.container, 'button[data-nx-act="pp-notsame"]');
+    await flush();
+    dialogButton(f.container, "取消")?.click();
+    await flush();
+    assert.equal(q(f.container, ".nx-dialog"), null);
+    assert.equal(f.calls.filter((c) => c.method === "nexus.counterpart.notSame").length, 0);
+  });
+
+  it("lists the marks quietly and undoes one with a click", async () => {
+    const f = withHint(
+      { possibleSame: [], notSame: [{ id: "cp_7", displayName: "钱小姐" }] },
+      { "nexus.counterpart.notSameRestore": { outcome: "restored" } },
+    );
+    await flush();
+    assert.match(f.container.textContent ?? "", /已标记为不是同一个人：钱小姐/);
+    click(f.container, 'button[data-nx-act="pp-unsame"]');
+    await flush();
+    const sent = f.calls.find((c) => c.method === "nexus.counterpart.notSameRestore");
+    assert.deepEqual(sent?.params, { counterpartId: "cp_1", otherId: "cp_7" });
+    assert.match(q(f.container, ".nx-notice")?.textContent ?? "", /已撤销/);
+  });
+
+  it("offers neither button when the console is read-only", async () => {
+    const f = mount(
+      { view: "people", person: "cp_1" },
+      {
+        "nexus.counterpart.get": {
+          outcome: "ok",
+          view: viewOf(record("cp_1", "钱经理"), {
+            possibleSame: [{ id: "cp_9", displayName: "钱老板", reasons: ["name"] }],
+            notSame: [{ id: "cp_7", displayName: "钱小姐" }],
+          }),
+        },
+      },
+      { canWrite: false },
+    );
+    await flush();
+    assert.match(f.container.textContent ?? "", /钱老板/);
+    assert.equal(q(f.container, 'button[data-nx-act="pp-notsame"]'), null);
+    assert.equal(q(f.container, 'button[data-nx-act="pp-unsame"]'), null);
+  });
+});

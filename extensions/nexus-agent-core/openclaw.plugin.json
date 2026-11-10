@@ -302,6 +302,8 @@
       "nexus_commitment_record",
       "nexus_commitment_get",
       "nexus_commitment_search",
+      "nexus_commitment_add_helper",
+      "nexus_commitment_choose_responsible",
       "nexus_counterpart_ensure",
       "nexus_counterpart_get",
       "nexus_counterpart_search",
@@ -418,6 +420,12 @@
       "optional": true
     },
     "nexus_commitment_search": {
+      "optional": true
+    },
+    "nexus_commitment_add_helper": {
+      "optional": true
+    },
+    "nexus_commitment_choose_responsible": {
       "optional": true
     },
     "nexus_counterpart_ensure": {

@@ -39,6 +39,9 @@ export function createCommitmentAssistOps(deps: CommitmentAssistDeps) {
     counterpartId: string;
     role: CommitmentParticipantRole;
     purpose?: string;
+    /** Who writes: the console (default) or the Agent, which must quote the user's words and may only name people the user stated. */
+    actor?: "user" | "agent";
+    userStatementRef?: string;
     now: number;
   };
 
@@ -60,13 +63,21 @@ export function createCommitmentAssistOps(deps: CommitmentAssistDeps) {
     if (purpose.length > COMMITMENT_LIMITS.purpose) {
       return { outcome: "invalid" as const, code: "bad_purpose" };
     }
+    const by = input.actor ?? "user";
+    const ref = clean(input.userStatementRef);
+    if (by === "agent" && (ref.length === 0 || ref.length > COMMITMENT_LIMITS.ref)) {
+      return { outcome: "invalid" as const, code: "statement_ref_required" };
+    }
     const person = one(
-      "SELECT lifecycle FROM counterparts WHERE owner_id = ? AND id = ?",
+      "SELECT lifecycle, confirmation FROM counterparts WHERE owner_id = ? AND id = ?",
       owner,
       input.counterpartId,
     );
     if (!person || String(person.lifecycle) !== "live") {
       return { outcome: "invalid" as const, code: "counterpart_not_found" };
+    }
+    if (by === "agent" && !["stated", "confirmed"].includes(String(person.confirmation))) {
+      return { outcome: "invalid" as const, code: "counterpart_not_confirmed" };
     }
     if (String(row.responsible_counterpart_id ?? "") === input.counterpartId) {
       return { outcome: "invalid" as const, code: "is_responsible" };
@@ -88,7 +99,7 @@ export function createCommitmentAssistOps(deps: CommitmentAssistDeps) {
     const id = newId("cpl_");
     run(
       "INSERT INTO commitment_participant_links (owner_id, id, commitment_id, counterpart_id, role, responsibility_version, purpose, basis_text, status, valid_from, created_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, 'added by the user in the console', 'confirmed', ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       owner,
       id,
       input.commitmentId,
@@ -96,6 +107,10 @@ export function createCommitmentAssistOps(deps: CommitmentAssistDeps) {
       input.role,
       Number(row.responsibility_version),
       purpose === "" ? null : purpose,
+      by === "agent"
+        ? `recorded by the Agent from the user's words: ${ref}`
+        : "added by the user in the console",
+      by === "agent" ? "stated" : "confirmed",
       input.now,
       input.now,
     );
@@ -103,7 +118,7 @@ export function createCommitmentAssistOps(deps: CommitmentAssistDeps) {
       owner,
       input.commitmentId,
       "edited",
-      "user",
+      by,
       {
         changed: ["helper_added"],
         helper: { linkId: id, counterpartId: input.counterpartId, role: input.role },

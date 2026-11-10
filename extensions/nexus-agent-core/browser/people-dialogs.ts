@@ -28,6 +28,7 @@ import {
   type PersonDraft,
 } from "./people-form.ts";
 import { deactivateDialog, claimDialog, restoreDialog } from "./people-move-dialogs.ts";
+import { notSameDialog, unsameAction } from "./people-notsame-dialog.ts";
 import { contactMoveDialog, splitDialog } from "./people-split-dialogs.ts";
 import type { NexusAction } from "./sanitize.ts";
 
@@ -489,6 +490,12 @@ export function runPeopleAction(ctx: ActionContext, action: PeopleAction): void 
   }
   if (action.kind === "pp-undismiss") {
     return undismissAction(ctx, action.id);
+  }
+  if (action.kind === "pp-notsame") {
+    return notSameDialog(ctx, action.id);
+  }
+  if (action.kind === "pp-unsame") {
+    return unsameAction(ctx, action.id);
   }
   const byIndex = action.kind === "pp-cdel" || action.kind === "pp-cmove";
   if (!model.person || (!byIndex && model.person.id !== action.id)) {

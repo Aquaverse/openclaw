@@ -278,3 +278,39 @@ describe("commitment kernel: several people named together", () => {
     assert.deepEqual(either, { outcome: "invalid", code: "either_responsible" });
   });
 });
+
+describe("commitment kernel: pending groups name the open joint commitments", () => {
+  it("lists the still-open joint ones by id (at most 5), counts them all, and leaves closed ones out", () => {
+    const made = Array.from({ length: 7 }, (_, i) =>
+      created(typed("寄托甲和寄托乙一起", { text: `寄托报价 ${i}` })),
+    );
+    const first = made[0] as { id: string };
+    k.commitmentCancel({ principal: A, commitmentId: first.id, reason: "不做了", now: now() });
+    const group = (
+      k.counterpartPending({ principal: A, now: now() }).groups as Array<{
+        raw: string;
+        jointIds?: string[];
+        jointOpen?: number;
+      }>
+    ).find((g) => g.raw === "寄托甲和寄托乙一起");
+    assert.equal(group?.jointOpen, 6);
+    assert.equal(group?.jointIds?.length, 5);
+    assert.equal(group?.jointIds?.includes(first.id), false);
+    assert.deepEqual(
+      group?.jointIds,
+      made.slice(1, 6).map((c) => c.id),
+    );
+  });
+
+  it("gives an ordinary typed name no joint ids", () => {
+    created(typed("普通寄托"));
+    const group = (
+      k.counterpartPending({ principal: A, now: now() }).groups as Array<{
+        raw: string;
+        jointIds?: string[];
+      }>
+    ).find((g) => g.raw === "普通寄托");
+    assert.ok(group);
+    assert.equal(group?.jointIds, undefined);
+  });
+});

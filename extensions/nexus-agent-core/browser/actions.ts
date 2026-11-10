@@ -571,6 +571,8 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
     case "pp-cmove":
     case "pp-notperson":
     case "pp-undismiss":
+    case "pp-notsame":
+    case "pp-unsame":
       return runPeopleAction(ctx, action);
     case "goal-menu":
       return goalMenu(ctx);

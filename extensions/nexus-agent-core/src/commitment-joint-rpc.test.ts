@@ -83,7 +83,7 @@ function setup() {
   const as = (p: Principal | undefined) => {
     principal = p;
   };
-  return { call, handlers, as, changed };
+  return { call, handlers, as, changed, db };
 }
 
 const person = async (call: ReturnType<typeof setup>["call"], name: string) =>
@@ -215,5 +215,48 @@ describe("joint responsibility methods", () => {
     // chosen once, not again
     const again = await bad({ choice: "lead", leadId: b });
     assert.equal(again.error?.code, "nexus_commitment_state");
+  });
+
+  it("backfillJoint previews by default, marks old rows when told to, and tells the Works", async () => {
+    const { call, handlers, changed, db } = setup();
+    assert.equal(handlers.get("nexus.commitment.backfillJoint")?.scope, "operator.write");
+    const workId = await work(call, "旧项目");
+    const c = await joint(call, "小周和小吴一起", workId);
+    db.prepare("UPDATE commitments SET ambiguity_json = NULL WHERE id = ?").run(c.id);
+    changed.length = 0;
+    const preview = await call("nexus.commitment.backfillJoint", {});
+    assert.equal(preview.ok, true, JSON.stringify(preview));
+    assert.equal(preview.payload?.dryRun, true);
+    assert.equal(preview.payload?.ownerId, "owner-a");
+    assert.deepEqual(
+      preview.payload?.marked.map((m: { id: string }) => m.id),
+      [c.id],
+    );
+    assert.equal(changed.length, 0);
+    assert.equal(
+      (await call("nexus.commitment.get", { commitmentId: c.id })).payload?.commitment.ambiguity,
+      undefined,
+    );
+
+    const done = await call("nexus.commitment.backfillJoint", { dryRun: false });
+    assert.equal(done.payload?.dryRun, false);
+    assert.deepEqual(done.payload?.workIds, [workId]);
+    assert.equal(
+      changed.some((e) => e.workId === workId),
+      true,
+    );
+    assert.equal(
+      (await call("nexus.commitment.get", { commitmentId: c.id })).payload?.commitment.ambiguity
+        ?.kind,
+      "joint",
+    );
+    assert.equal(
+      (await call("nexus.commitment.backfillJoint", { dryRun: false })).payload?.marked.length,
+      0,
+    );
+    assert.equal(
+      (await call("nexus.commitment.backfillJoint", { dryRun: "no" })).error?.code,
+      "nexus_invalid_params",
+    );
   });
 });

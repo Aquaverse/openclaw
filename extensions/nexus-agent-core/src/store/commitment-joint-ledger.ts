@@ -34,7 +34,8 @@ export type CommitmentJointDeps = {
     principal: Principal;
     commitmentId: string;
     changes: { responsible: { kind: "counterpart"; counterpartId: string } };
-    actor: "user";
+    actor: "user" | "agent";
+    userStatementRef?: string;
     reason: string;
     now: number;
   }) => { outcome: string } & Record<string, unknown>;
@@ -48,8 +49,9 @@ export type CommitmentJointDeps = {
       nextStep: string | null;
       origin: { kind: CommitmentRecord["originKind"]; refId: string };
     };
-    createdBy: "user";
-    actor: "user";
+    createdBy: "user" | "agent";
+    actor: "user" | "agent";
+    userStatementRef?: string;
     now: number;
   }) => Problem | { outcome: "inserted"; id: string };
   linkInTx: (
@@ -57,7 +59,7 @@ export type CommitmentJointDeps = {
     commitmentId: string,
     workId: string,
     role: "required" | "reference",
-    actor: "user",
+    actor: "user" | "agent",
     now: number,
   ) => void;
   reevaluate: (owner: string, commitmentId: string, now: number) => void;
@@ -67,6 +69,8 @@ export type CommitmentJointDeps = {
     commitmentId: string;
     counterpartId: string;
     role: CommitmentParticipantRole;
+    actor?: "user" | "agent";
+    userStatementRef?: string;
     now: number;
   }) => { outcome: string };
 };
@@ -88,6 +92,15 @@ export function createCommitmentJointOps(deps: CommitmentJointDeps) {
     return row !== undefined && String(row.lifecycle) === "live";
   };
 
+  const stated = (owner: string, id: string): boolean => {
+    const row = one(
+      "SELECT confirmation FROM counterparts WHERE owner_id = ? AND id = ?",
+      owner,
+      id,
+    );
+    return row !== undefined && ["stated", "confirmed"].includes(String(row.confirmation));
+  };
+
   const dueOf = (row: Row): DueSpec => {
     const state = String(row.due_state);
     return state === "known"
@@ -99,8 +112,13 @@ export function createCommitmentJointOps(deps: CommitmentJointDeps) {
     principal: Principal;
     commitmentId: string;
     choice: JointChoice;
+    /** The Agent may apply a choice the USER stated in chat: it must quote the words, and may only name people the user stated. */
+    actor?: "user" | "agent";
+    userStatementRef?: string;
     now: number;
   }) => {
+    const by = input.actor ?? "user";
+    const ref = typeof input.userStatementRef === "string" ? input.userStatementRef.trim() : "";
     try {
       return transaction(() => {
         const owner = input.principal.ownerId;
@@ -149,8 +167,14 @@ export function createCommitmentJointOps(deps: CommitmentJointDeps) {
             return bad("period_commitment");
           }
         }
+        if (by === "agent" && (ref.length === 0 || ref.length > COMMITMENT_LIMITS.ref)) {
+          return bad("statement_ref_required");
+        }
         if (!people.every((id) => live(owner, id))) {
           return bad("counterpart_not_found");
+        }
+        if (by === "agent" && !people.every((id) => stated(owner, id))) {
+          return bad("counterpart_not_confirmed");
         }
         const first = people[0] as string;
         const reason =
@@ -161,7 +185,8 @@ export function createCommitmentJointOps(deps: CommitmentJointDeps) {
           principal: input.principal,
           commitmentId: input.commitmentId,
           changes: { responsible: { kind: "counterpart", counterpartId: first } },
-          actor: "user",
+          actor: by,
+          ...(by === "agent" ? { userStatementRef: ref } : {}),
           reason,
           now: input.now,
         });
@@ -176,6 +201,8 @@ export function createCommitmentJointOps(deps: CommitmentJointDeps) {
               commitmentId: input.commitmentId,
               counterpartId: helperId,
               role: choice.helperRole ?? "participant",
+              actor: by,
+              ...(by === "agent" ? { userStatementRef: ref } : {}),
               now: input.now,
             });
             if (added.outcome !== "added") {
@@ -198,8 +225,9 @@ export function createCommitmentJointOps(deps: CommitmentJointDeps) {
                   refId: String(row.origin_ref_id),
                 },
               },
-              createdBy: "user",
-              actor: "user",
+              createdBy: by,
+              actor: by,
+              ...(by === "agent" ? { userStatementRef: ref } : {}),
               now: input.now,
             });
             if (made.outcome !== "inserted") {
@@ -209,12 +237,20 @@ export function createCommitmentJointOps(deps: CommitmentJointDeps) {
               owner,
               made.id,
               "edited",
-              "user",
+              by,
               { changed: ["split_from"], from: input.commitmentId, reason },
               input.now,
             );
             for (const link of links) {
-              deps.linkInTx(owner, made.id, link.workId, link.role, "user", input.now);
+              // The Agent only ever cites a Work as a reference; making it a requirement stays with the user.
+              deps.linkInTx(
+                owner,
+                made.id,
+                link.workId,
+                by === "agent" ? "reference" : link.role,
+                by,
+                input.now,
+              );
             }
             ids.push(made.id);
           }
