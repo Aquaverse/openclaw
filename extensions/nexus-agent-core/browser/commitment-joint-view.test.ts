@@ -186,7 +186,7 @@ describe("joint responsibility: 'any one of them is enough' and the list of type
 
   it("does not offer to point a joint typed name at one person", async () => {
     const f = mount(
-      { view: "people", seg: "pending" },
+      { view: "people", seg: "pending", typed: "a" },
       {
         "nexus.counterpart.pending": {
           groups: [
@@ -217,13 +217,15 @@ describe("joint responsibility: 'any one of them is enough' and the list of type
       },
     );
     await flush();
-    const rows = [...f.container.querySelectorAll(".nx-prow")];
-    assert.equal(rows.length, 2);
-    assert.match(rows[0]?.textContent ?? "", /不能指向某一个人/);
-    assert.equal(rows[0]?.querySelector('button[data-nx-act="pp-claim"]'), null);
-    assert.equal(rows[0]?.querySelector('button[data-nx-act="pp-notperson"]'), null);
+    assert.equal(f.container.querySelectorAll(".nx-rows .nx-prow").length, 2);
+    assert.match(q(f.container, ".nx-detail")?.textContent ?? "", /不能指向某一个人/);
+    assert.equal(q(f.container, 'button[data-nx-act="pp-claim"]'), null);
+    assert.equal(q(f.container, 'button[data-nx-act="pp-notperson"]'), null);
+    // choosing the ordinary name in the list brings its buttons into the detail pane
+    f.container.querySelectorAll<HTMLElement>(".nx-rows a.nx-wrow")[1]?.click();
+    await flush();
     assert.ok(
-      rows[1]?.querySelector('button[data-nx-act="pp-claim"]'),
+      q(f.container, '.nx-detail button[data-nx-act="pp-claim"]'),
       "an ordinary typed name keeps its buttons",
     );
   });

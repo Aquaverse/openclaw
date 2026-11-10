@@ -6,6 +6,7 @@ import type { CounterpartSummary } from "../src/counterpart/types.js";
 import { tr, type Lang } from "../src/i18n.js";
 import { renderPeopleListRows, renderPeopleRows, renderPeopleSegs } from "../src/people-ui.js";
 import type { NexusRequest } from "./data.ts";
+import { attachPendingList } from "./pending-list.ts";
 import { PEOPLE_PAGE_SIZE, readPeoplePage, type PeopleListInit } from "./people-data.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
 import { sanitizeFragment } from "./sanitize.ts";
@@ -25,6 +26,10 @@ export function attachPeopleList(options: {
   lang: Lang;
   init: PeopleListInit;
 }): PeopleList | undefined {
+  // The typed names wait in one answer: they page and search in the browser, with the same behaviour.
+  if (options.init.seg === "pending") {
+    return attachPendingList(options);
+  }
   const { root, request, hrefOf, lang, init } = options;
   const rows = root.querySelector<HTMLElement>(".nx-rows");
   if (!rows) {

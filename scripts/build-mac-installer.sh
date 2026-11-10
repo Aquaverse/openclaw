@@ -843,7 +843,7 @@ fi
 # Without the flag nothing is baked and the plugin stays as shipped: off. Unlike the file above this carries no
 # secrets. NEXUS_PRESET_VERSION: bump to make already-installed machines apply the preset again.
 # OPENCLAW_INSTALLER_NEXUS_SWITCHES overrides the switch list (comma separated, letters only); unset = every switch below,
-# including the personal file vault (vaultEnabled), goals (goalsEnabled) and evidence bytes (evidenceBlobsEnabled). Version 2 added vault and evidence bytes; goals joined the list before the first release, so the version stays 2.
+# including the personal file vault (vaultEnabled), goals (goalsEnabled) and evidence bytes (evidenceBlobsEnabled). Version 2 added vault and evidence bytes; goals joined the list before the first release, so the version stayed 2. Version 3 (2026-11-10) makes already-installed machines pick up the Work/Commitment/People tools added since (41 tools in the allow list).
 # ---------------------------------------------------------------------
 NEXUS_PRESET_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_PRESET:-$(read_env_var OPENCLAW_INSTALLER_NEXUS_PRESET)}"
 rm -f "$APP/Contents/Resources/nexus-preset.env"
@@ -857,7 +857,7 @@ if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]; then
   echo "==> Baking the Nexus preset (switches: $NEXUS_SWITCHES_FOR_BUNDLE)"
   {
     echo "NEXUS_PRESET=1"
-    echo "NEXUS_PRESET_VERSION=2"
+    echo "NEXUS_PRESET_VERSION=3"
     echo "NEXUS_PRESET_SWITCHES=$NEXUS_SWITCHES_FOR_BUNDLE"
   } > "$APP/Contents/Resources/nexus-preset.env"
 else

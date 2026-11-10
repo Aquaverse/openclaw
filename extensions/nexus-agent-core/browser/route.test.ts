@@ -214,6 +214,34 @@ describe("nexus work routes", () => {
     });
   });
 
+  it("carries the typed name chosen on the to-confirm segment, and only there", () => {
+    const route = { view: "people", seg: "pending", typed: "钱经理和孙工一起", q: "钱" } as const;
+    expect(routeParams(route)).toEqual({
+      view: "people",
+      seg: "pending",
+      q: "钱",
+      typed: "钱经理和孙工一起",
+    });
+    expect(
+      parseRoute({ view: "people", seg: "pending", q: "钱", typed: "钱经理和孙工一起" }),
+    ).toEqual(route);
+    // a typed name means nothing on the other segments, and is bounded
+    expect(parseRoute({ view: "people", seg: "attention", typed: "钱" })).toEqual({
+      view: "people",
+      seg: "attention",
+    });
+    expect(parseRoute({ view: "people", seg: "pending", typed: "x".repeat(300) })).toEqual({
+      view: "people",
+      seg: "pending",
+      typed: "x".repeat(100),
+    });
+    expect(routeFromHref(`${NAV_BASE}/people?seg=pending&typed=%E8%80%81%E8%B5%B5`)).toEqual({
+      view: "people",
+      seg: "pending",
+      typed: "老赵",
+    });
+  });
+
   it("maps people links to routes and refuses a path that is not an id", () => {
     expect(routeFromHref(`${NAV_BASE}/people`)).toEqual({ view: "people" });
     expect(routeFromHref(`${NAV_BASE}/people?seg=pending`)).toEqual({

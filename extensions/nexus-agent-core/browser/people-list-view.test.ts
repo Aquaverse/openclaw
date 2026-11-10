@@ -349,7 +349,7 @@ describe("people list: search", () => {
     assert.ok(listCalls(plain).every((c) => c.params?.limit === 1));
     // With a search only the matching names remain; their buttons still point at their place in the full list.
     const f = mount(
-      { view: "people", seg: "pending", q: "市场" },
+      { view: "people", seg: "pending", q: "市场", typed: "市场部" },
       { ...serve(), "nexus.counterpart.pending": groups },
     );
     await flush();

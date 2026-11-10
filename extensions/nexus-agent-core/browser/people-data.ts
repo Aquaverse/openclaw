@@ -9,6 +9,7 @@ import type {
   PersonView,
 } from "../src/counterpart/types.js";
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
+import { PENDING_PAGE_SIZE, pendingMatches } from "../src/people-pending-ui.js";
 import {
   personActionModel,
   renderPeoplePage,
@@ -18,7 +19,7 @@ import {
 import { EMPTY_MODEL } from "./actions.ts";
 import type { PersonChoice } from "./commitment-form.ts";
 import type { NexusRequest, NexusView } from "./data.ts";
-import { readJointLines } from "./people-joint-data.ts";
+import { readGroupLines } from "./people-joint-data.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
 
 /** At most this many people are read in one answer; the server's limit. */
@@ -33,8 +34,9 @@ export type PeopleListInit = {
   total: number;
   loaded: number;
   selected: string | undefined;
-  /** The typed names waiting to be confirmed (the full list shows a note about them above the rows). */
+  /** The typed names waiting to be confirmed (the full list shows a note about them above the rows; their own segment lists them). */
   pending: readonly PendingPersonGroup[];
+  dismissed?: readonly DismissedName[];
 };
 
 type PeoplePage = {
@@ -149,11 +151,17 @@ export async function loadPeopleView(
     shown.push(...more.items);
   }
   const groups = pending.groups ?? [];
-  // The pending segment shows the "several people" commitments as cards, so the user can decide who answers right there.
-  const jointLines = route.seg === "pending" ? await readJointLines(request, groups) : {};
-  const explicit = route.personId !== undefined;
-  // With no one named, the first row of the list is shown (as the Work page does); the "to confirm" names have no detail.
-  const selectedId = route.personId ?? shown[0]?.id;
+  // The "to confirm" segment shows the chosen name's commitments as cards in the detail pane (where "decide who answers" lives).
+  const onPending = route.seg === "pending";
+  const chosen = onPending ? groups.find((group) => group.key === route.typed) : undefined;
+  const pendingLines = chosen ? await readGroupLines(request, chosen) : [];
+  // The list lists at least the pages already scrolled in, and always the chosen name.
+  const matches = onPending ? pendingMatches(groups, q) : [];
+  const chosenAt = matches.findIndex(({ item }) => item.key === chosen?.key);
+  const pendingRows = Math.max(PENDING_PAGE_SIZE, options.rows ?? 0, chosenAt + 1);
+  const explicit = onPending ? route.typed !== undefined : route.personId !== undefined;
+  // With no one named, the first row of the list is shown (as the Work page does); the "to confirm" names are chosen by name.
+  const selectedId = onPending ? undefined : (route.personId ?? shown[0]?.id);
   let view: PersonView | undefined;
   let missing = false;
   if (selectedId) {
@@ -179,8 +187,8 @@ export async function loadPeopleView(
   const lines: CommitmentLine[] = [
     ...answers,
     ...(view?.assisting ?? []).map(({ commitment }) => asLine(commitment)),
-    // The buttons of the cards under the "to confirm" names find their commitment here.
-    ...Object.values(jointLines).flat(),
+    // The buttons of the cards of the chosen "to confirm" name find their commitment here.
+    ...pendingLines,
   ];
   return {
     title: tr(lang, "pp.title"),
@@ -191,7 +199,8 @@ export async function loadPeopleView(
         overall,
         ...(list.q ? { q: list.q } : {}),
         pending: groups,
-        jointLines,
+        ...(chosen ? { pendingKey: chosen.key, pendingLines } : {}),
+        ...(onPending ? { pendingRows } : {}),
         dismissed: dismissed.items ?? [],
         ...(route.seg ? { seg: route.seg } : {}),
         tab: route.tab ?? "responsible",
@@ -202,18 +211,25 @@ export async function loadPeopleView(
       },
       { actions: options.actions, lang, basePath: NAV_BASE },
     ),
-    ...(route.seg === "pending"
-      ? {}
+    // The "to confirm" list pages through the names already read (they all come in one answer), the others through the server.
+    peopleList: onPending
+      ? {
+          seg: route.seg,
+          q: list.q,
+          total: matches.length,
+          loaded: Math.min(pendingRows, matches.length),
+          selected: chosen?.key,
+          pending: groups,
+          dismissed: dismissed.items ?? [],
+        }
       : {
-          peopleList: {
-            seg: route.seg,
-            q: list.q,
-            total: first.total,
-            loaded: shown.length,
-            selected: selectedId,
-            pending: groups,
-          },
-        }),
+          seg: route.seg,
+          q: list.q,
+          total: first.total,
+          loaded: shown.length,
+          selected: selectedId,
+          pending: groups,
+        },
     model: {
       ...EMPTY_MODEL,
       people: choices ?? personChoices(shown),

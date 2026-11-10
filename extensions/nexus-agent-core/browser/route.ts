@@ -21,7 +21,14 @@ import { WORK_PRIMARY_STATES, type WorkPrimaryState } from "../src/work/types.js
 export type WorkFilter = { state?: WorkPrimaryState; q?: string };
 
 /** The People page: the segment of the list, a name search, the person shown and the tab of that person. All optional. */
-export type PeopleQuery = { personId?: string; seg?: PeopleSeg; tab?: PersonTab; q?: string };
+export type PeopleQuery = {
+  personId?: string;
+  seg?: PeopleSeg;
+  tab?: PersonTab;
+  q?: string;
+  /** The typed name chosen on the "to confirm" segment (its group key; a name is not an id, so it has its own parameter). */
+  typed?: string;
+};
 
 /** The clear-people page: a name search, the page (1-based) and the page size (50 unless chosen). */
 export type CleanupQuery = { q?: string; page: number; size: number };
@@ -103,11 +110,14 @@ function parsePeopleQuery(
   const seg = PEOPLE_SEGS.find((known) => known === get("seg"));
   const tab = PERSON_TABS.find((known) => known === get("tab"));
   const q = (get("q") ?? "").trim().slice(0, WORK_Q_MAX);
+  const typed = (get("typed") ?? "").slice(0, WORK_Q_MAX);
   return {
     ...(personId !== undefined && TASK_ID.test(personId) ? { personId } : {}),
     ...(seg ? { seg } : {}),
     ...(tab ? { tab } : {}),
     ...(q ? { q } : {}),
+    // Only the "to confirm" segment has typed names; elsewhere the parameter means nothing.
+    ...(seg === "pending" && typed ? { typed } : {}),
   };
 }
 
@@ -116,6 +126,7 @@ const peopleParams = (route: PeopleQuery): Record<string, string> => ({
   ...(route.seg ? { seg: route.seg } : {}),
   ...(route.tab ? { tab: route.tab } : {}),
   ...(route.q ? { q: route.q } : {}),
+  ...(route.typed ? { typed: route.typed } : {}),
 });
 
 /** The People page with nothing chosen. */

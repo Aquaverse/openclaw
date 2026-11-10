@@ -13,6 +13,17 @@ export const PEOPLE_HINT_MESSAGES = {
     "还有 {n} 条这样的承诺没有列在这里；分好上面的，剩下的会接着出现。",
     "{n} more like these are not listed here; decide the ones above and the rest will show.",
   ],
+  "pp.row.joint": ["几个人一起 · 待分责", "several people · who answers?"],
+  "pp.pend.tag": ["待确认的名字", "Name to confirm"],
+  "pp.pend.sec": ["这个名字下的承诺", "Commitments under this name"],
+  "pp.pend.cardsMore": [
+    "还有 {n} 条未结案的承诺没有列在这里；处理好上面的，剩下的会接着出现。",
+    "{n} more open commitments are not listed here; deal with the ones above and the rest will show.",
+  ],
+  "pp.pend.pick": [
+    "从左边选一个名字，在这里处理它。",
+    "Pick a name on the left to deal with it here.",
+  ],
   "pp.same.chip": ["疑似重复", "May be a duplicate"],
   "pp.same.name": ["名字一样", "same name"],
   "pp.same.alias": ["别名重合", "shared alias"],

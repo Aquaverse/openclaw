@@ -153,9 +153,12 @@ describe("people page: merge and 'not a person'", () => {
       },
     );
     await flush();
+    // With no name chosen the right pane lists the ignored names; choosing a name shows its buttons there instead.
     assert.match(f.container.textContent ?? "", /已忽略的称呼/);
     assert.match(f.container.textContent ?? "", /会场/);
-    click(f.container, 'button[data-nx-act="pp-notperson"][data-nx-id="g0"]');
+    click(f.container, ".nx-rows a.nx-wrow");
+    await flush();
+    click(f.container, '.nx-detail button[data-nx-act="pp-notperson"][data-nx-id="g0"]');
     const ok = () => dialogButton(f.container, "确认");
     assert.ok(ok()?.disabled, "there is no default destination");
     const radios = [
@@ -198,7 +201,7 @@ describe("people page: merge and 'not a person'", () => {
 
   it("explains a taken name once, and takes the explanation away when the name is changed", async () => {
     const f = mount(
-      { view: "people", seg: "pending" },
+      { view: "people", seg: "pending", typed: "市场部" },
       {
         "nexus.counterpart.pending": {
           groups: [

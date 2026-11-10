@@ -13,6 +13,8 @@ import type {
   PersonView,
 } from "./counterpart/types.js";
 import { DEFAULT_LANG, tr, type Lang, type MsgKey } from "./i18n.js";
+import { peopleHref } from "./people-href.js";
+import { pendingMatches, renderPendingDetail, renderPendingListRows } from "./people-pending-ui.js";
 import { callout, chip, marker, row, section, shortTime, type Tone } from "./ui-kit.js";
 import { clip, esc } from "./ui-render.js";
 
@@ -81,10 +83,12 @@ export type PeoplePageData = {
   q?: string;
   /** Typed names with open commitments that point at no one yet. */
   pending: readonly PendingPersonGroup[];
-  /** The cards of the still-open "several people" commitments, by pending group key (read only while the pending segment is open). */
-  jointLines?: Readonly<Record<string, readonly CommitmentLine[]>>;
   /** Typed names the user said point at nobody; read only while the pending segment is open. */
   dismissed?: readonly DismissedName[];
+  /** The typed name shown in the detail pane of the "to confirm" segment, its commitments as cards, and how many rows the list shows. */
+  pendingKey?: string;
+  pendingLines?: readonly CommitmentLine[];
+  pendingRows?: number;
   seg?: PeopleSeg;
   tab: PersonTab;
   /** The person shown in the detail pane, if any. */
@@ -115,24 +119,7 @@ const relationText = (lang: Lang, c: Pick<CounterpartRecord, "relation">): strin
     ? `${tr(lang, `pp.rel.${c.relation.relation}` as MsgKey)}${c.relation.scopeLabel ? ` · ${c.relation.scopeLabel}` : ""}`
     : "";
 
-function href(
-  base: string,
-  id: string | undefined,
-  query: { seg?: PeopleSeg | undefined; tab?: PersonTab | undefined; q?: string | undefined },
-): string {
-  const params = new URLSearchParams();
-  if (query.seg) {
-    params.set("seg", query.seg);
-  }
-  if (query.q) {
-    params.set("q", query.q);
-  }
-  if (query.tab && query.tab !== "responsible") {
-    params.set("tab", query.tab);
-  }
-  const text = params.toString();
-  return esc(`${base}/people${id ? `/${id}` : ""}${text ? `?${text}` : ""}`);
-}
+const href = peopleHref;
 
 /** How many "may be the same person" notes the detail page shows (the rest stay in the data). */
 const SAME_SHOWN = 3;
@@ -175,78 +162,6 @@ export function renderPeopleRows(
   const base = (options.basePath ?? "nexus-nav:").replace(/\/$/, "");
   const filter = { seg: options.seg, q: options.q };
   return people.map((p) => personRow(p, lang, base, filter, options.selected)).join("");
-}
-
-function pendingRow(
-  group: PendingPersonGroup,
-  index: number,
-  lang: Lang,
-  now: number,
-  withActions: boolean,
-): string {
-  const parts = [
-    tr(lang, "pp.row.open", { n: group.open }),
-    ...(group.overdue > 0 ? [tr(lang, "pp.row.late", { n: group.overdue })] : []),
-    ...(group.earliestDueAt !== null
-      ? [tr(lang, "pp.pend.due", { time: shortTime(group.earliestDueAt, now, lang) })]
-      : []),
-  ];
-  const hint = group.joint
-    ? `<span class="nx-wnx">${esc(tr(lang, "pp.pending.joint"))}</span>`
-    : group.suggestions.length > 0
-      ? `<span class="nx-wnx">${esc(tr(lang, "pp.pend.maybe", { names: group.suggestions.map((s) => s.displayName).join("、") }))}</span>`
-      : "";
-  return (
-    `<div class="nx-wrow nx-prow nx-t-${group.overdue > 0 ? "rose" : "amber"}">` +
-    `<span class="nx-sd"></span><span class="nx-wm"><span class="nx-wt">` +
-    `<span class="nx-wtt">${esc(group.raw)}</span></span>` +
-    `<span class="nx-wnx">${esc(parts.join(" · "))}</span>${hint}</span>` +
-    (withActions && !group.joint
-      ? marker("pp-claim", `g${index}`, "nx-btn", esc(tr(lang, "pp.pend.claim"))) +
-        marker("pp-notperson", `g${index}`, "nx-btn", esc(tr(lang, "pp.pend.not")))
-      : "") +
-    `</div>`
-  );
-}
-
-/** The "several people" commitments of a pending group as cards, so "decide who answers" is one click from the list. */
-function jointCards(
-  group: PendingPersonGroup,
-  lines: readonly CommitmentLine[] | undefined,
-  lang: Lang,
-  now: number,
-  withActions: boolean,
-  base: string,
-): string {
-  if (!group.joint || !lines || lines.length === 0) {
-    return "";
-  }
-  const more = (group.jointOpen ?? lines.length) - lines.length;
-  return (
-    `<div class="nx-pjoint">` +
-    lines
-      .map((line) =>
-        renderCommitmentBox(line, lang, now, withActions, { base, attach: true, linkWho: false }),
-      )
-      .join("") +
-    (more > 0
-      ? `<p class="nx-cm-hint">${esc(tr(lang, "pp.pend.jointMore", { n: more }))}</p>`
-      : "") +
-    `</div>`
-  );
-}
-
-const fold = (text: string): string => text.normalize("NFKC").trim().toLowerCase();
-
-/** The typed names a search leaves in "to confirm" (they are matched by the name as typed), each with its place in the full list. */
-function pendingMatches<T extends { raw: string }>(
-  all: readonly T[],
-  q: string | undefined,
-): Array<{ item: T; index: number }> {
-  const needle = fold(q ?? "");
-  return all
-    .map((item, index) => ({ item, index }))
-    .filter(({ item }) => needle === "" || fold(item.raw).includes(needle));
 }
 
 /** The numbers beside the segments: the server's, or counted from what is loaded when a (test) server sends none. */
@@ -333,39 +248,7 @@ function listPane(
   const segs = renderPeopleSegs(data, lang, base);
   let rows: string;
   if (seg === "pending") {
-    const found = pendingMatches(data.pending, data.q);
-    const q = data.q || undefined;
-    rows =
-      found.length === 0
-        ? `<p class="nx-wempty">${esc(tr(lang, q ? "pp.empty.search" : "pp.pend.empty"))}` +
-          // A search that finds no one offers the way back: the same segment without the search.
-          (q
-            ? ` <a href="${href(base, undefined, { seg: "pending" })}">${esc(tr(lang, "pp.empty.clear"))}</a>`
-            : "") +
-          `</p>`
-        : found
-            .map(
-              ({ item, index }) =>
-                pendingRow(item, index, lang, data.now, withActions) +
-                jointCards(item, data.jointLines?.[item.key], lang, data.now, withActions, base),
-            )
-            .join("");
-    const ignored = pendingMatches(data.dismissed ?? [], data.q);
-    if (ignored.length > 0) {
-      rows +=
-        `<p class="nx-hello">${esc(tr(lang, "pp.dis.title"))}</p>` +
-        `<p class="nx-cm-hint">${esc(tr(lang, "pp.dis.note"))}</p>` +
-        ignored
-          .map(
-            ({ item: entry, index }) =>
-              `<div class="nx-wrow nx-prow"><span class="nx-wm"><span class="nx-wtt">${esc(entry.raw)}</span></span>` +
-              (withActions
-                ? marker("pp-undismiss", `d${index}`, "nx-btn", esc(tr(lang, "pp.dis.restore")))
-                : "") +
-              `</div>`,
-          )
-          .join("");
-    }
+    rows = renderPendingListRows(data, lang, base);
   } else {
     rows = renderPeopleListRows(data, lang, base, selected);
   }
@@ -470,16 +353,17 @@ function tabBody(
 }
 
 function detailPane(data: PeoplePageData, lang: Lang, base: string, withActions: boolean): string {
+  if (data.seg === "pending") {
+    return renderPendingDetail(data, lang, base, withActions);
+  }
   const back = `<a class="nx-back" href="${href(base, undefined, { seg: data.seg, q: data.q || undefined })}">${esc(tr(lang, "work.d.back"))}</a>`;
   const view = data.view;
   if (!view) {
     const text = data.missing
       ? tr(lang, "pp.d.missing")
-      : data.seg === "pending"
-        ? tr(lang, "pp.pend.explain")
-        : (data.counts?.all ?? data.items.length) + data.pending.length === 0
-          ? tr(lang, "pp.d.first")
-          : tr(lang, "pp.d.pick");
+      : (data.counts?.all ?? data.items.length) + data.pending.length === 0
+        ? tr(lang, "pp.d.first")
+        : tr(lang, "pp.d.pick");
     return `<div class="nx-detail"><div class="nx-dw"><div class="nx-top">${back}</div><p class="nx-wempty">${esc(text)}</p></div></div>`;
   }
   const { counterpart: c, counts } = view;

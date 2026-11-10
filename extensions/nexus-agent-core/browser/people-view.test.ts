@@ -68,7 +68,7 @@ describe("people page", () => {
 
   it("lists typed names on the pending segment and claims one for a person, naming what it does", async () => {
     const f = mount(
-      { view: "people", seg: "pending" },
+      { view: "people", seg: "pending", typed: "韩梅梅" },
       {
         "nexus.counterpart.pending": {
           groups: [
