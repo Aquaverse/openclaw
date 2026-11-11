@@ -8,6 +8,7 @@ import type {
   ScheduleStatus,
 } from "../schedule/types.js";
 import type { TransactionRunner } from "./kernel.js";
+import { createScheduleCheckOps } from "./schedule-check-ledger.js";
 import { badBlockReasons, createScheduleCommon, toTrigger } from "./schedule-common.js";
 import { createScheduleTriggerOps } from "./schedule-trigger-ledger.js";
 import type { Principal } from "./types.js";
@@ -507,6 +508,16 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
     });
 
   const triggerOps = createScheduleTriggerOps({ transaction, c, k, patch, load, fresh });
+  const checkOps = createScheduleCheckOps({
+    transaction,
+    c,
+    k,
+    patch,
+    load,
+    fresh,
+    gapsOf,
+    blockInTx,
+  });
 
   return {
     kernel: {
@@ -519,6 +530,7 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
       scheduleUnblock,
       scheduleSyncHost,
       ...triggerOps,
+      ...checkOps,
     },
     /** Building blocks shared with delegation-ledger.ts (same transaction runner). Not worker operations. */
     internals: { common: k, insertScheduleInTx, finishPlanSchedulesInTx, patch, gapsOf },

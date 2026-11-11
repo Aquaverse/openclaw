@@ -106,6 +106,8 @@ describe("task tools", () => {
   });
   it("reserve validates kind and returns a token", async () => {
     assert.equal((await a("nexus_task_reserve", { kind: "Flight Booking" })).code, "invalid_kind");
+    // the kind of the Tasks the schedule dispatcher creates is reserved: a model may not mint one (W4b)
+    assert.equal((await a("nexus_task_reserve", { kind: "schedule_check" })).code, "invalid_kind");
     const reserved = await a("nexus_task_reserve", { kind: "flight_booking", entities: trip });
     assert.equal(reserved.ok, true);
     token = String(reserved.operationToken);

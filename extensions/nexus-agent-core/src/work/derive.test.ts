@@ -252,6 +252,26 @@ describe("deriveWorkState", () => {
     assert.equal(state.primary, "ended_incomplete");
     assert.equal(state.reasons[0]?.code, "follow_up_ended");
   });
+  it("coverage flag ignores schedules that ended: a stale 'degraded' of an old one does not taint the live one", () => {
+    const live = (coverage: "on_plan" | "degraded") => ({
+      id: "s2",
+      status: "active" as const,
+      coverage,
+      needsUser: false,
+    });
+    const old = {
+      id: "s1",
+      status: "ended" as const,
+      coverage: "degraded" as const,
+      needsUser: false,
+    };
+    const flagsOf = (schedules: WorkFacts["schedules"]) =>
+      deriveWorkState(facts({ tasks: [task("t1", "completed")], schedules })).flags;
+    assert.ok(flagsOf([old, live("on_plan")]).includes("coverage_on_plan"));
+    assert.ok(!flagsOf([old, live("on_plan")]).includes("coverage_degraded"));
+    assert.ok(flagsOf([old, live("degraded")]).includes("coverage_degraded"));
+    assert.ok(!flagsOf([old]).some((flag) => flag.startsWith("coverage_")));
+  });
   it("finished read-only Task, open commitment, nothing watching: blocked no_follow_up", () => {
     const state = deriveWorkState(
       facts({

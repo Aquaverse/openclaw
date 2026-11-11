@@ -14,7 +14,8 @@
 # OPENCLAW_INSTALLER_NEXUS_PRESET=1, or the same variable in the build environment); otherwise it is a silent no-op.
 # It is applied ONCE per preset version (marker <prefix>/.nexus-preset-applied), so a user who later turns a switch
 # off, or removes a tool from the allow list, is not overridden on the next launch. Bump NEXUS_PRESET_VERSION in
-# scripts/build-mac-installer.sh to re-apply.
+# scripts/build-mac-installer.sh to re-apply (an upgrade re-applies the WHOLE preset, switches the user turned off included).
+# A build with a LOWER version than the marker (downgrade) changes nothing at all.
 #
 # Called from scripts/mac-pkg-postinstall.sh (after onboarding) and from scripts/mac-llama-fallback-setup.sh, which
 # OpenClaw.app starts on every launch; both already run as the logged-in user. Never exits non-zero.
@@ -60,7 +61,18 @@ SWITCHES="$(read_key NEXUS_PRESET_SWITCHES)"
 SWITCHES="${SWITCHES:-worksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,goalsEnabled,evidenceBlobsEnabled}"
 
 MARKER="$PREFIX/.nexus-preset-applied"
-if [[ -f "$MARKER" && "$(/bin/cat "$MARKER" 2>/dev/null)" == "$PRESET_VERSION" ]]; then
+MARKER_VERSION=""
+[[ -f "$MARKER" ]] && MARKER_VERSION="$(/bin/cat "$MARKER" 2>/dev/null)"
+if [[ "$MARKER_VERSION" == "$PRESET_VERSION" ]]; then
+  exit 0
+fi
+# Downgrade: this build is older than the preset already applied here. Leave the user's configuration exactly as it is:
+# no switch is turned on, no tool is added, the gateway is not restarted, and the marker keeps the higher version (so
+# installing the newer build again is a plain no-op). Only an upgrade (marker lower than this build, or no marker)
+# applies the full preset again, including switches the user had turned off since.
+if [[ "$MARKER_VERSION" =~ ^[0-9]+$ && "$PRESET_VERSION" =~ ^[0-9]+$ ]] \
+  && ((10#$MARKER_VERSION > 10#$PRESET_VERSION)); then
+  log "Preset v$MARKER_VERSION is already applied and this build carries v$PRESET_VERSION (downgrade): configuration left untouched"
   exit 0
 fi
 
@@ -71,7 +83,7 @@ NODE_BIN="${NODE_BIN_OVERRIDE:-$PREFIX/tools/node/bin/node}"
 
 # The tools Nexus registers (extensions/nexus-agent-core: *_TOOL_NAMES). The extension's manifest test keeps this
 # list in step with the plugin; `nexus_spike_probe` is a Stage 0 probe and is deliberately not listed.
-NEXUS_TOOLS="nexus_task_reserve nexus_task_create nexus_task_get nexus_task_update nexus_task_note nexus_task_search nexus_action_prepare nexus_action_authorize nexus_decision_request nexus_action_commit nexus_claim_add nexus_evidence_add nexus_claim_verify nexus_preference_get nexus_preference_set nexus_preference_confirm nexus_watch_create nexus_watch_cancel nexus_watch_report nexus_file_search nexus_file_get nexus_file_attach nexus_goal_search nexus_goal_get nexus_goal_create nexus_goal_propose nexus_goal_entry_add nexus_goal_link nexus_goal_review nexus_work_search nexus_work_get nexus_work_update nexus_work_link nexus_commitment_record nexus_commitment_get nexus_commitment_search nexus_commitment_add_helper nexus_commitment_choose_responsible nexus_counterpart_ensure nexus_counterpart_get nexus_counterpart_search"
+NEXUS_TOOLS="nexus_task_reserve nexus_task_create nexus_task_get nexus_task_update nexus_task_note nexus_task_search nexus_action_prepare nexus_action_authorize nexus_decision_request nexus_action_commit nexus_claim_add nexus_evidence_add nexus_claim_verify nexus_preference_get nexus_preference_set nexus_preference_confirm nexus_watch_create nexus_watch_cancel nexus_watch_report nexus_file_search nexus_file_get nexus_file_attach nexus_goal_search nexus_goal_get nexus_goal_create nexus_goal_propose nexus_goal_entry_add nexus_goal_link nexus_goal_review nexus_work_search nexus_work_get nexus_work_update nexus_work_link nexus_commitment_record nexus_commitment_get nexus_commitment_search nexus_commitment_add_helper nexus_commitment_choose_responsible nexus_counterpart_ensure nexus_counterpart_get nexus_counterpart_search nexus_schedule_check_report"
 
 log "=================================================="
 log "Nexus preset v$PRESET_VERSION starting (switches: $SWITCHES)"

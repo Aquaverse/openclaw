@@ -242,12 +242,14 @@ export function deriveWorkState(facts: WorkFacts): WorkState {
   if (facts.unknownEffects.some((effect) => effect.affectsRequired)) {
     flags.add("unknown_effect");
   }
-  if (
-    facts.schedules.some((schedule) => schedule.status !== "ended" && schedule.status !== "draft")
-  ) {
-    const worst = facts.schedules.some((s) => s.coverage === "unavailable")
+  // Only schedules that still stand count: an ended or cancelled one keeps its last coverage value, which says nothing about now.
+  const standing = facts.schedules.filter(
+    (schedule) => schedule.status !== "ended" && schedule.status !== "draft",
+  );
+  if (standing.length > 0) {
+    const worst = standing.some((s) => s.coverage === "unavailable")
       ? "coverage_unavailable"
-      : facts.schedules.some((s) => s.coverage === "degraded")
+      : standing.some((s) => s.coverage === "degraded")
         ? "coverage_degraded"
         : "coverage_on_plan";
     flags.add(worst);

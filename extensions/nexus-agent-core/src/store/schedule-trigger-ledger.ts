@@ -133,7 +133,7 @@ export function createScheduleTriggerOps(deps: {
       const id = newId("tg_");
       run(
         "INSERT INTO schedule_triggers (owner_id, id, schedule_id, schedule_revision, occurrence_key, plan_version, source, planned_at, outcome, " +
-          "skip_reason, merged_occurrence_keys_json, task_id, slot_open, fired_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "skip_reason, merged_occurrence_keys_json, task_id, slot_open, fired_at, created_at, turn_state, turn_changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         owner,
         id,
         s.id,
@@ -149,6 +149,8 @@ export function createScheduleTriggerOps(deps: {
         outcome === "created" ? 1 : 0,
         outcome === "created" ? input.now : null,
         input.now,
+        outcome === "created" ? "pending" : "none",
+        outcome === "created" ? input.now : null,
       );
       if (!final) {
         if (input.source === "manual") {
@@ -180,13 +182,17 @@ export function createScheduleTriggerOps(deps: {
             Math.max(input.plannedAt, input.now),
             s.createdAt,
           );
+          // A fired check restores coverage, a missed one degrades it; a skip or a merge record changes nothing about it.
           patch(
             owner,
             s.id,
             {
               next_due_at: next,
-              coverage_state: outcome === "missed" ? "degraded" : "on_plan",
-              coverage_note: outcome === "missed" ? "missed_window" : null,
+              ...(outcome === "created"
+                ? { coverage_state: "on_plan", coverage_note: null }
+                : outcome === "missed"
+                  ? { coverage_state: "degraded", coverage_note: "missed_window" }
+                  : {}),
             },
             input.now,
           );

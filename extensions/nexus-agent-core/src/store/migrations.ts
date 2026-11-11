@@ -6,6 +6,7 @@ import {
   STAGE7_NOT_SAME_SQL,
   STAGE7_PURGE_RECEIPTS_SQL,
 } from "./schema-counterparts.js";
+import { STAGE7_SCHEDULE_CHECKS_SQL } from "./schema-schedule-checks.js";
 import { STAGE7_SCHEDULES_SQL } from "./schema-schedules.js";
 import { STAGE7_WORKS_SQL } from "./schema-works.js";
 // The ordered migration list the kernel applies: the Stage 1-6 tables from schema.ts, then the Stage 7 tables (Work layer,
@@ -22,4 +23,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: "stage7-0006-counterpart-last-stop-reason", sql: STAGE7_LAST_STOP_REASON_SQL },
   { id: "stage7-0007-counterpart-not-same", sql: STAGE7_NOT_SAME_SQL },
   { id: "stage7-0008-schedules", sql: STAGE7_SCHEDULES_SQL },
+  { id: "stage7-0009-schedule-checks", sql: STAGE7_SCHEDULE_CHECKS_SQL },
 ];

@@ -5,6 +5,7 @@ import {
   BLOCK_CODES,
   SCHEDULE_LIMITS,
   type BlockReason,
+  type CheckReport,
   type DelegationPlanRecord,
   type PlanBody,
   type PlanGap,
@@ -102,6 +103,11 @@ export function toTrigger(row: Row): TriggerRecord {
     taskId: str(row.task_id),
     slotOpen: Number(row.slot_open) === 1,
     firedAt: num(row.fired_at),
+    turnState: String(row.turn_state ?? "none") as TriggerRecord["turnState"],
+    turnJobId: str(row.turn_job_id),
+    turnSessionKey: str(row.turn_session_key),
+    failReason: str(row.fail_reason),
+    report: parse<CheckReport | null>(row.report_json, null),
     createdAt: Number(row.created_at),
   };
 }

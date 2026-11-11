@@ -93,7 +93,9 @@ export function createWorkFacts(c: WorkCommon) {
         ids,
         (m) =>
           "SELECT o.work_id, t.id, t.title, t.status FROM task_work_owner o JOIN nexus_tasks t " +
-          `ON t.owner_id = o.owner_id AND t.id = o.task_id WHERE o.owner_id = ? AND o.work_id IN (${m}) AND t.deleted_at IS NULL`,
+          `ON t.owner_id = o.owner_id AND t.id = o.task_id WHERE o.owner_id = ? AND o.work_id IN (${m}) AND t.deleted_at IS NULL ` +
+          // A check Task is bookkeeping for one follow-up check; the schedule itself already says "following up" (W4b).
+          "AND t.kind <> 'schedule_check'",
       ),
       "work_id",
     );

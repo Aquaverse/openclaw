@@ -128,6 +128,21 @@ export type TriggerSource = (typeof TRIGGER_SOURCES)[number];
 export const TRIGGER_OUTCOMES = ["created", "skipped", "merged", "missed", "quarantined"] as const;
 export type TriggerOutcome = (typeof TRIGGER_OUTCOMES)[number];
 
+export const TURN_STATES = [
+  "none",
+  "pending",
+  "scheduled",
+  "claimed",
+  "reported",
+  "failed",
+] as const;
+export type TurnState = (typeof TURN_STATES)[number];
+
+/** What a check turn says when it finishes: only observations, never a decision (the check is read-only). */
+export const CHECK_OUTCOMES = ["no_change", "changed", "cannot_check"] as const;
+export type CheckOutcome = (typeof CHECK_OUTCOMES)[number];
+export type CheckReport = { outcome: CheckOutcome; summary: string };
+
 export type TriggerRecord = {
   id: string;
   scheduleId: string;
@@ -142,6 +157,12 @@ export type TriggerRecord = {
   taskId: string | null;
   slotOpen: boolean;
   firedAt: number | null;
+  /** Where the check turn of a fired trigger stands (W4b); `none` for triggers that fired no check. */
+  turnState: TurnState;
+  turnJobId: string | null;
+  turnSessionKey: string | null;
+  failReason: string | null;
+  report: CheckReport | null;
   createdAt: number;
 };
 
@@ -152,4 +173,5 @@ export const SCHEDULE_LIMITS = {
   ref: 200,
   schedulesPerPlan: 5,
   planJson: 8000,
+  reportSummary: 600,
 } as const;

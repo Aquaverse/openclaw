@@ -136,12 +136,12 @@ const writes = (calls: string[]) =>
 const restarts = (calls: string[]) => calls.filter((c) => c.startsWith("gateway restart"));
 
 describe("scripts/mac-nexus-preset.sh", () => {
-  it("first run appends the 41 tools once, keeps what was there, and restarts the gateway exactly once", () => {
+  it("first run appends the 42 tools once, keeps what was there, and restarts the gateway exactly once", () => {
     if (!runnable) {
       return;
     }
     const tools = nexusTools();
-    assert.equal(tools.length, 41);
+    assert.equal(tools.length, 42);
     const box = sandbox();
     // One user entry, plus one Nexus tool already present: it must not be added a second time.
     box.set("tools.alsoAllow", JSON.stringify(["web_search", "nexus_task_get"]));
@@ -205,6 +205,62 @@ describe("scripts/mac-nexus-preset.sh", () => {
     const result = box.run();
     assert.equal(result.status, 0);
     assert.equal(box.calls().length, callsAfterFirst, "marker short-circuits before any CLI call");
+  });
+});
+
+describe("scripts/mac-nexus-preset.sh across versions", () => {
+  const markerFile = (box: Sandbox) => path.join(box.prefix, ".nexus-preset-applied");
+
+  it("a downgrade (marker higher than the build) leaves config, tools, marker and gateway alone", () => {
+    if (!runnable) {
+      return;
+    }
+    const box = sandbox();
+    // The user turned a switch off and removed a tool; the machine had already been given a newer preset.
+    seedFullyConfigured(box, ["web_search"]);
+    box.set(`${PROVIDER}.config.watchersEnabled`, "false");
+    fs.writeFileSync(markerFile(box), String(Number(PRESET_VERSION) + 1));
+    const before = fs.readdirSync(path.join(box.state, "cfg")).toSorted();
+    const result = box.run();
+    assert.equal(result.status, 0);
+    assert.deepEqual(box.calls(), [], "no CLI call at all");
+    assert.equal(box.get(`${PROVIDER}.config.watchersEnabled`), "false");
+    assert.equal(box.get("tools.alsoAllow"), JSON.stringify(["web_search"]));
+    assert.deepEqual(fs.readdirSync(path.join(box.state, "cfg")).toSorted(), before);
+    assert.equal(box.marker(), String(Number(PRESET_VERSION) + 1));
+  });
+
+  it("an upgrade (marker lower than the build) applies the whole preset again, switches turned off included", () => {
+    if (!runnable) {
+      return;
+    }
+    const box = sandbox();
+    seedFullyConfigured(box, ["web_search"]);
+    box.set(`${PROVIDER}.config.watchersEnabled`, "false");
+    fs.writeFileSync(markerFile(box), String(Number(PRESET_VERSION) - 1));
+    const result = box.run();
+    assert.equal(result.status, 0);
+    assert.equal(box.get(`${PROVIDER}.config.watchersEnabled`), "true");
+    const allow = JSON.parse(box.get("tools.alsoAllow") ?? "[]") as string[];
+    assert.ok(allow.includes("web_search"));
+    for (const tool of nexusTools()) {
+      assert.ok(allow.includes(tool), tool);
+    }
+    assert.equal(restarts(box.calls()).length, 1);
+    assert.equal(box.marker(), PRESET_VERSION);
+  });
+
+  it("an unreadable marker is treated as no marker, not as a downgrade", () => {
+    if (!runnable) {
+      return;
+    }
+    const box = sandbox();
+    seedFullyConfigured(box, []);
+    fs.writeFileSync(markerFile(box), "not-a-number");
+    const result = box.run();
+    assert.equal(result.status, 0);
+    assert.equal(box.marker(), PRESET_VERSION);
+    assert.ok(box.get("tools.alsoAllow")?.includes("nexus_task_get"));
   });
 });
 

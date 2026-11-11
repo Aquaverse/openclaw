@@ -11,6 +11,7 @@ import { COUNTERPART_TOOL_NAMES } from "./tools/counterpart-tools.js";
 import { VAULT_TOOL_NAMES } from "./tools/file-tools.js";
 import { GOAL_TOOL_NAMES } from "./tools/goal-tools.js";
 import { PREFERENCE_TOOL_NAMES } from "./tools/preference-tools.js";
+import { SCHEDULE_CHECK_TOOL_NAMES } from "./tools/schedule-check-tools.js";
 import { TASK_TOOL_NAMES } from "./tools/task-tools.js";
 import { WATCH_TOOL_NAMES } from "./tools/watch-tools.js";
 import { WORK_TOOL_NAMES } from "./tools/work-tools.js";
@@ -35,6 +36,7 @@ describe("openclaw.plugin.json", () => {
     ...WORK_TOOL_NAMES,
     ...COMMITMENT_TOOL_NAMES,
     ...COUNTERPART_TOOL_NAMES,
+    ...SCHEDULE_CHECK_TOOL_NAMES,
   ];
 
   it("declares every registered tool in contracts.tools", () => {

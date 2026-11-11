@@ -72,7 +72,10 @@ export function createWorkLedger(
     }
     const tasks = all(
       "SELECT t.id, t.status FROM task_work_owner o JOIN nexus_tasks t ON t.owner_id = o.owner_id AND t.id = o.task_id " +
-        "WHERE o.owner_id = ? AND o.work_id = ? AND t.deleted_at IS NULL AND t.status NOT IN ('deleted','purging')",
+        "WHERE o.owner_id = ? AND o.work_id = ? AND t.deleted_at IS NULL AND t.status NOT IN ('deleted','purging')" +
+        // A check Task is bookkeeping for one follow-up check: it never counts toward the Work's outcome (W4b). The kind is
+        // there from the Task's first INSERT, so not even the create transaction counts it.
+        " AND t.kind <> 'schedule_check'",
       owner,
       workId,
     );

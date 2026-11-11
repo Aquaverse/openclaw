@@ -33,6 +33,8 @@ export const LIMITS = {
 } as const;
 
 const KIND = /^[a-z][a-z0-9_]{0,39}$/;
+/** The kind of the Tasks the schedule dispatcher creates (W4b). They never count toward a Work's outcome, so a model may not mint one. */
+const RESERVED_KIND = "schedule_check";
 const TASK_ID = /^#?(T[0-9A-Z]{4,16})$/;
 const WORK_ID = /^w_[A-Za-z0-9_]{4,80}$/;
 const NO_SESSION = "(no-session)";
@@ -84,7 +86,7 @@ function tooBig(value: unknown, max: number): boolean {
   return JSON.stringify(value).length > max;
 }
 
-function newTaskId(): string {
+export function newTaskId(): string {
   // 8 chars of Crockford-ish base32: collision-safe at personal scale, readable in a prompt list.
   const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
   const bytes = randomBytes(8);
@@ -189,7 +191,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
       async execute(_id: string, params: Record<string, unknown>) {
         return withPrincipal(async (principal) => {
           const kind = typeof params.kind === "string" ? params.kind : "";
-          if (!KIND.test(kind)) {
+          if (!KIND.test(kind) || kind === RESERVED_KIND) {
             return fail("invalid_kind", "kind must be lower_snake_case, at most 40 characters.");
           }
           const entities = params.entities ?? null;
@@ -244,7 +246,7 @@ export function createTaskTools(deps: TaskToolDeps, ctx: ToolContext): AnyAgentT
           }
           const goal = params.goal;
           const entities = params.entities ?? null;
-          if (!KIND.test(kind)) {
+          if (!KIND.test(kind) || kind === RESERVED_KIND) {
             return fail("invalid_kind", "kind must be lower_snake_case, at most 40 characters.");
           }
           if (!title || Array.from(title).length > LIMITS.title) {

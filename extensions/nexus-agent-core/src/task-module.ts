@@ -40,6 +40,8 @@ import {
 import { createPurgeReceiptsRpcHandlers, createPurgeRpcHandlers } from "./purge-rpc.js";
 import { createPurgeService, type PurgeService } from "./purge/purge-service.js";
 import { createTaskRpcHandlers } from "./rpc.js";
+import { registerScheduleModule } from "./schedule-module.js";
+import { recordProcessIncarnation, reconcileEvidenceAtStart } from "./startup-passes.js";
 import {
   createStoreHost,
   resolveNexusDatabasePath,
@@ -531,6 +533,16 @@ export function registerTaskModule(
     api.on("before_tool_call", async (event, ctx) => watchers.beforeToolCall(event, ctx));
   }
 
+  // ---- Slice W4b: follow-up checks. The schedule layer follows worksEnabled (design 12.4); the dispatcher timer lives in the service. ----
+  const scheduleModule = registerScheduleModule({
+    api,
+    getStore,
+    events,
+    principalFor,
+    ...(config.watcherExtraTools ? { watcherExtraTools: config.watcherExtraTools } : {}),
+    ...(runtime ? { recordTrigger: (ctx) => runtime.recordTrigger(ctx) } : {}),
+  });
+
   // ---- Stage 5: the personal file vault (Vault design). Files stay on this computer, next to nexus.sqlite. ----
   let vault: VaultService | undefined;
   let vaultUploads: VaultUploadHandler | undefined;
@@ -616,6 +628,13 @@ export function registerTaskModule(
       const watcherTurn = await watchRuntime.authenticate(event, ctx);
       if (watcherTurn) {
         return watcherTurn;
+      }
+    }
+    // The follow-up check branch (W4b) is the same idea with its own marker: ours, or no tools at all.
+    if (ctx.trigger === "cron") {
+      const checkTurn = await scheduleModule.authenticate(event, ctx);
+      if (checkTurn) {
+        return checkTurn;
       }
     }
     // Every trigger is recorded (cron and heartbeat too): the tool phase reads it back and fails closed (section 8.8.1).
@@ -872,28 +891,19 @@ export function registerTaskModule(
           return;
         }
         if (claimsEnabled || vaultEnabled) {
-          // Provenance only (section 9.5.1): a row per process start. Nothing here marks another incarnation gone.
-          try {
-            const principal = principalFor();
-            if (principal) {
-              // An unreadable boot id is recorded as the constant `unavailable` (DESIGN 9.5.1), never invented: the row is
-              // the FK target of blob_objects.writer_incarnation, and incarnation_gone refuses such rows.
-              await host.store.registerIncarnation({
-                principal,
-                incarnationId: ownIncarnationId,
-                bootId: bootId ?? "unavailable",
-                supersedeOthers: config.evidenceIncarnationGoneEnabled === true,
-                now: Date.now(),
-              });
-              processIncarnation.id = ownIncarnationId;
-              incarnationRegistered = true;
-            }
-          } catch (error) {
-            api.logger.warn(
-              `nexus-agent-core: could not record the process incarnation: ${error instanceof Error ? error.message : String(error)}`,
-            );
+          incarnationRegistered = await recordProcessIncarnation({
+            store: host.store,
+            principal: principalFor(),
+            incarnationId: ownIncarnationId,
+            bootId,
+            supersedeOthers: config.evidenceIncarnationGoneEnabled === true,
+            logger: api.logger,
+          });
+          if (incarnationRegistered) {
+            processIncarnation.id = ownIncarnationId;
           }
         }
+        await scheduleModule.start();
         if (goals) {
           await maintainGoals();
           goalTimer = setInterval(() => void maintainGoals(), GOAL_MAINTAIN_MS);
@@ -939,30 +949,18 @@ export function registerTaskModule(
           }
           if (evidence && incarnationRegistered && evidenceBytesUnavailable === undefined) {
             // gateway_start (DESIGN 9.4): look for orphans in both directions, then run one reclaim pass.
-            try {
-              const principal = principalFor();
-              if (principal) {
-                const report = await evidence.reconcile(principal);
-                api.logger.info(
-                  `nexus-agent-core: evidence reconcile objects=${report.objects} storeKeys=${report.storeKeys} missing=${report.missing.length} sizeMismatch=${report.sizeMismatch.length} untracked=${report.untracked.length}`,
-                );
-                if (report.missing.length > 0 || report.sizeMismatch.length > 0) {
-                  api.logger.warn(
-                    `nexus-agent-core: evidence store disagrees with the object table: missing=${report.missing.join(",")} sizeMismatch=${report.sizeMismatch.join(",")}`,
-                  );
-                }
-              }
-            } catch (error) {
-              api.logger.warn(
-                `nexus-agent-core: evidence reconcile failed: ${error instanceof Error ? error.message : String(error)}`,
-              );
-            }
+            await reconcileEvidenceAtStart({
+              evidence,
+              principal: principalFor(),
+              logger: api.logger,
+            });
             await maintainEvidence();
             await resumePurges();
           }
         }
       },
       async stop() {
+        scheduleModule.stop();
         if (timer) {
           clearInterval(timer);
           timer = undefined;
