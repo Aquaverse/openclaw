@@ -7,6 +7,7 @@ import {
   type ControlFact,
   type OutcomeFact,
   type PrereqFact,
+  type ScheduleFact,
   type TaskFact,
   type TerminalFact,
   type UnknownEffectFact,
@@ -128,6 +129,16 @@ export function createWorkFacts(c: WorkCommon) {
           "SELECT DISTINCT w.task_id FROM watches w JOIN task_work_owner o ON o.owner_id = w.owner_id AND o.task_id = w.task_id " +
           `WHERE o.owner_id = ? AND o.work_id IN (${m}) AND w.status IN ('pending_schedule','scheduled','firing')`,
       ).map((row) => String(row.task_id)),
+    );
+    // The follow-up schedules of each Work (design 4.5.2). Cancelled counts as ended; the stored stop reason travels with it.
+    const scheduleRows = group(
+      inChunks(
+        owner,
+        ids,
+        (m) =>
+          `SELECT work_id, id, status, coverage_state, stop_reason FROM schedules WHERE owner_id = ? AND work_id IN (${m}) ORDER BY created_at, id`,
+      ),
+      "work_id",
     );
     const controls = group(
       inChunks(
@@ -344,7 +355,20 @@ export function createWorkFacts(c: WorkCommon) {
         prerequisites: prereqFacts,
         tasks: taskFacts,
         commitments: commitmentFacts,
-        schedules: [],
+        schedules: (scheduleRows.get(work.id) ?? []).map((row): ScheduleFact => {
+          const fact: ScheduleFact = {
+            id: String(row.id),
+            status: (String(row.status) === "cancelled"
+              ? "ended"
+              : String(row.status)) as ScheduleFact["status"],
+            coverage: String(row.coverage_state) as ScheduleFact["coverage"],
+            needsUser: false,
+          };
+          if (typeof row.stop_reason === "string") {
+            fact.stopReason = row.stop_reason;
+          }
+          return fact;
+        }),
         controls: controlFacts,
         unknownEffects: effects,
         evaluatedAt: now,

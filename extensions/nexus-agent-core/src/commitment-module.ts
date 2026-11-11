@@ -1,4 +1,5 @@
-// Slice W2/W3 wiring (Commitments and people): the Agent tools and the gateway methods, behind `worksEnabled` (no switch of its own).
+// Slice W2/W3/W4 wiring (Commitments, people, follow-up plans and schedules): the Agent tools and the gateway methods, behind
+// `worksEnabled` (no switch of its own, design 12.4 note of 2026-11).
 import type { OpenClawPluginApi } from "../api.js";
 import { createCommitmentAssistRpcHandlers } from "./commitment-assist-rpc.js";
 import { createCommitmentJointRpcHandlers } from "./commitment-joint-rpc.js";
@@ -8,6 +9,7 @@ import { createCounterpartPurgeRpcHandlers } from "./counterpart-purge-rpc.js";
 import { createCounterpartRpcHandlers } from "./counterpart-rpc.js";
 import { createCounterpartSameRpcHandlers } from "./counterpart-same-rpc.js";
 import type { EventBridge } from "./events.js";
+import { createScheduleRpcHandlers } from "./schedule-rpc.js";
 import type { TaskStore } from "./store/host.js";
 import type { Principal } from "./store/types.js";
 import { COMMITMENT_TOOL_NAMES, createCommitmentTools } from "./tools/commitment-tools.js";
@@ -59,6 +61,7 @@ export function registerCommitmentModule(params: CommitmentModuleParams): void {
     ...createCounterpartRpcHandlers(rpcDeps),
     ...createCounterpartPurgeRpcHandlers(rpcDeps),
     ...createCounterpartSameRpcHandlers(rpcDeps),
+    ...createScheduleRpcHandlers(rpcDeps),
   ]) {
     api.registerGatewayMethod(method, handler, { scope });
   }
