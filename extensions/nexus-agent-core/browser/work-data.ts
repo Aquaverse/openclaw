@@ -1,6 +1,7 @@
 // Reads for the Work page: the counts, the filtered list and the Work shown in the detail pane. Everything goes through the
 // read-only `nexus.work.*` methods (operator.read), so the page sees exactly what any RPC client would.
 import type { CommitmentLine } from "../src/commitment-ui.js";
+import type { FollowUpData } from "../src/follow-ui.js";
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
 import type { DecisionRecord } from "../src/store/decision-types.js";
 import type { WorkView } from "../src/store/work-facts.js";
@@ -129,15 +130,21 @@ export async function loadWorksView(
   let missing = false;
   if (selectedId) {
     try {
-      const [got, cited] = await Promise.all([
+      const [got, cited, followed] = await Promise.all([
         request<WorkDetail>("nexus.work.get", { workId: selectedId }),
         // The Commitments block only exists when commitments are switched on: a refusal means "not available", not an error.
         request<{ items: CommitmentLine[] }>("nexus.commitment.list", {
           workId: selectedId,
           limit: 100,
         }).catch(() => undefined),
+        // Plans are optional too: a refusal means the follow-up block is not offered, not that the page failed.
+        request<FollowUpData>("nexus.work.followUp", { workId: selectedId }).catch(() => undefined),
       ]);
-      detail = cited ? { ...got, commitments: cited.items } : got;
+      detail = {
+        ...got,
+        ...(cited ? { commitments: cited.items } : {}),
+        ...(followed ? { followUp: followed } : {}),
+      };
     } catch (error) {
       if (!isNotFound(error)) {
         throw error;
@@ -178,6 +185,7 @@ export async function loadWorksView(
       decisions,
       ...(detail ? { work: workActionModel(detail) } : {}),
       ...(detail?.commitments ? { commitments: detail.commitments } : {}),
+      ...(detail?.followUp ? { followUp: detail.followUp } : {}),
       ...(people ? { people } : {}),
     },
   };

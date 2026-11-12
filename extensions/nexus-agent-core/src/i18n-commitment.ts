@@ -100,6 +100,10 @@ export const COMMITMENT_MESSAGES = {
     "『{title}』只是参考它，不受影响。",
     "“{title}” only refers to it and is not affected.",
   ],
+  "cm.imp.plan": [
+    "跟进方案『{purpose}』会收尾：已经在跑的检查先跑完（最多 30 分钟），之后不再检查，重新打开承诺也不会恢复它。",
+    "The follow-up plan “{purpose}” wraps up: checks already running finish first (at most 30 minutes), then it stops for good; reopening the commitment does not bring it back.",
+  ],
   "cm.imp.versioned": [
     "改负责人、期限或内容，算作新的责任版本：之前记录的告知和对方回应不再沿用。",
     "Changing who, when or what makes a new version: earlier ‘told’ and ‘response’ notes no longer carry over.",

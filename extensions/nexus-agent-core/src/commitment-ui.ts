@@ -51,6 +51,8 @@ export type CommitmentBoxOptions = {
   attach?: boolean;
   /** Name the responsible one as a link to their page (off on that person's own page). Default on. */
   linkWho?: boolean;
+  /** Offer "keep following up" and "remind" (the people page: the person answers for the commitment). */
+  follow?: boolean;
   /** The roles the person whose page this is has in the commitment as a helper (he does not answer for it). */
   helperRoles?: readonly string[];
 };
@@ -136,6 +138,9 @@ export function renderCommitmentBox(
               btn("cm-assist", "cm.btn.assist"),
               btn("cm-resolve", "cm.btn.resolve"),
               btn("cm-cancel", "cm.btn.cancel"),
+              ...(options.follow
+                ? [btn("cm-follow", "fp.btn.follow"), btn("cm-nudge", "fp.btn.nudge")]
+                : []),
             ]
           : []),
         ...(options.attach ? [btn("cm-attach", "pp.btn.attachTo")] : []),

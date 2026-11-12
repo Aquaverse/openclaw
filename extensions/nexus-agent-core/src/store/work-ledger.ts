@@ -16,7 +16,12 @@ import { createWorkFacts, type WorkView } from "./work-facts.js";
 import { createWorkGoalOps } from "./work-goal-ledger.js";
 import { workKeywordFilter } from "./work-keyword.js";
 import { createWorkCommon, toWork, type Row, type WorkActor } from "./work-ledger-common.js";
-import { createRequireLive, TERMINAL_TASK, type WorkOpsDeps } from "./work-ledger-deps.js";
+import {
+  createRequireLive,
+  TERMINAL_TASK,
+  type FollowUpSlot,
+  type WorkOpsDeps,
+} from "./work-ledger-deps.js";
 import { createWorkLinkOps } from "./work-link-ledger.js";
 import { createWorkLinkLines } from "./work-link-lines.js";
 
@@ -638,11 +643,19 @@ export function createWorkLedger(
         input.workId,
       );
       appendEvent(owner, input.workId, "deleted", input.actor, {}, input.now);
-      return { outcome: "deleted" as const };
+      // Its follow-up goes with it (design 6.6): live schedules end, an accepted plan ends, a draft is withdrawn. Without this the
+      // dispatcher would keep checking for a Work nobody can see. A Commitment is never touched.
+      const followed = followUp.hooks?.endInTx(owner, input.workId, "work_deleted", input.now);
+      return {
+        outcome: "deleted" as const,
+        endedSchedules: followed?.schedules ?? [],
+        endedPlans: followed?.plans ?? [],
+      };
     });
 
   // ------------------------------------------------------------------ Goal
 
+  const followUp: FollowUpSlot = { hooks: null };
   const deps: WorkOpsDeps = {
     transaction,
     c,
@@ -650,6 +663,7 @@ export function createWorkLedger(
     requireLive,
     evaluateOutcomeInTx,
     syncGoalShadow,
+    followUp,
   };
   const { workSetGoal } = createWorkGoalOps(deps);
   const { workLinkAdd, linkAddInTx, workLinkEnd, workPrereqAdd, workPrereqResolve } =
@@ -682,6 +696,7 @@ export function createWorkLedger(
       evaluateOutcomeInTx,
       requireLive,
       linkAddInTx,
+      followUp,
     },
   };
 }

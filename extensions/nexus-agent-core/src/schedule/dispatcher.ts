@@ -77,6 +77,33 @@ export function getSharedDispatcherState(): { running: boolean } {
   return (root[SHARED] ??= { running: false });
 }
 
+/** What a "check now" request can come to: started, or why not (the user is told which). */
+export type CheckNowResult =
+  | { outcome: "started"; triggerId: string }
+  | { outcome: "cooldown"; retryAt: number }
+  | {
+      outcome:
+        | "slot_busy"
+        | "not_active"
+        | "not_check_task"
+        | "blocked"
+        | "wrapping_up"
+        | "not_found"
+        | "failed";
+    };
+
+/**
+ * The console reaches the dispatcher through this process-wide slot: the schedule module fills it while the service runs (the host
+ * can start turns) and empties it when the service stops, so a request made while no dispatcher exists is told so, never queued.
+ */
+const SHARED_NOW = Symbol.for("nexus-agent-core.schedule.check-now");
+export function getSharedCheckNow(): {
+  run?: (principal: Principal, scheduleId: string) => Promise<CheckNowResult>;
+} {
+  const root = globalThis as { [SHARED_NOW]?: { run?: never } };
+  return (root[SHARED_NOW] ??= {}) as ReturnType<typeof getSharedCheckNow>;
+}
+
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export function createDispatcher(deps: DispatcherDeps) {
@@ -148,6 +175,16 @@ export function createDispatcher(deps: DispatcherDeps) {
     if (begun.outcome !== "go") {
       return "other";
     }
+    return (await launch(store, principal, schedule, action)).result;
+  }
+
+  /** The gate said go: make the check Task, record the trigger, and tell the Work page. `triggerId` is set when it fired. */
+  async function launch(
+    store: TaskStore,
+    principal: Principal,
+    schedule: ScheduleRecord,
+    action: Extract<DispatchAction, { kind: "fire" }>,
+  ): Promise<{ result: "fired" | "other"; triggerId?: string }> {
     const key = `schedcheck:${schedule.id}:${action.occurrenceKey}`;
     const title = `跟进检查 · ${schedule.purpose}`.slice(0, 190);
     const created = await store.create({
@@ -168,7 +205,7 @@ export function createDispatcher(deps: DispatcherDeps) {
       deps.logger.warn(
         `nexus: check not fired for schedule ${schedule.id}: ${created.outcome === "work_unusable" ? created.reason : created.outcome}`,
       );
-      return "other";
+      return { result: "other" };
     }
     const recorded = await store.scheduleRecordTrigger({
       principal,
@@ -191,12 +228,12 @@ export function createDispatcher(deps: DispatcherDeps) {
       if (created.outcome === "created" && recorded.outcome !== "duplicate") {
         await store.abort({ principal, taskId: created.task.id, now: now() });
       }
-      return "other";
+      return { result: "other" };
     }
     // The new Task joined the Work before its trigger existed; re-evaluate so nothing keeps counting it.
     await store.workEvaluate({ principal, workId: schedule.workId, now: now() });
     deps.onWorkChanged?.(schedule.workId);
-    return "fired";
+    return { result: "fired", triggerId: recorded.trigger.id };
   }
 
   /** Ask the host to run every fired check whose turn is not scheduled yet. */
@@ -266,6 +303,9 @@ export function createDispatcher(deps: DispatcherDeps) {
         return report;
       }
       const store = await deps.getStore();
+      // A plan whose accepted end time has passed stops following up before anything else is looked at.
+      await store.scheduleExpireDue({ principal, now: now() });
+      await store.scheduleWrapUpDue({ principal, now: now() });
       await store.scheduleReconcileSlots({ principal, now: now() });
       const due = await store.scheduleDueList({ principal, now: now(), limit: 50 });
       report.due = due.schedules.length;
@@ -338,7 +378,53 @@ export function createDispatcher(deps: DispatcherDeps) {
     return store.scheduleSyncHost({ principal, dispatchReady: ready, now: now() });
   }
 
-  return { tick, syncHost, tickMs: TICK_MS };
+  /**
+   * "Check now" (the user's own request, design 4.5.3): the same gate and the same check Task as a due time, with source `manual`.
+   * It is an extra check: the schedule's own beat does not move, a busy slot or a pause refuses it, and one manual check per
+   * cooldown. The host is asked to run it right away instead of at the next timer pass.
+   */
+  async function checkNow(principal: Principal, scheduleId: string): Promise<CheckNowResult> {
+    const store = await deps.getStore();
+    const at = now();
+    const occurrenceKey = `manual:${at}`;
+    const begun = await store.scheduleDispatchBegin({
+      principal,
+      scheduleId,
+      occurrenceKey,
+      manual: true,
+      now: at,
+    });
+    switch (begun.outcome) {
+      case "cooldown":
+        return { outcome: "cooldown", retryAt: begun.retryAt };
+      case "slot_busy":
+      case "duplicate":
+        return { outcome: "slot_busy" };
+      case "not_active":
+      case "not_check_task":
+      case "blocked":
+      case "wrapping_up":
+      case "not_found":
+        return { outcome: begun.outcome };
+      case "go":
+        break;
+      default:
+        return { outcome: "failed" };
+    }
+    const launched = await launch(store, principal, begun.schedule, {
+      kind: "fire",
+      occurrenceKey,
+      plannedAt: at,
+      source: "manual",
+    });
+    if (launched.result !== "fired" || !launched.triggerId) {
+      return { outcome: "failed" };
+    }
+    await startTurns(store, principal, emptyReport());
+    return { outcome: "started", triggerId: launched.triggerId };
+  }
+
+  return { tick, syncHost, checkNow, tickMs: TICK_MS };
 }
 
 export type Dispatcher = ReturnType<typeof createDispatcher>;

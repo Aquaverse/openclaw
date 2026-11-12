@@ -308,6 +308,8 @@
       "nexus_counterpart_get",
       "nexus_counterpart_search",
       "nexus_schedule_check_report",
+      "nexus_schedule_propose",
+      "nexus_schedule_get",
       "nexus_spike_probe"
     ]
   },
@@ -439,6 +441,12 @@
       "optional": true
     },
     "nexus_schedule_check_report": {
+      "optional": true
+    },
+    "nexus_schedule_propose": {
+      "optional": true
+    },
+    "nexus_schedule_get": {
       "optional": true
     }
   },

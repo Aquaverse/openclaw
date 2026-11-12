@@ -89,6 +89,16 @@ ${RING_CLASSES}
 .nx-cm-late{color:var(--nx-rose);font-weight:600}
 .nx-cm-n{margin:6px 0 0;font-size:12.5px;color:var(--nx-sub);word-break:break-word}
 .nx-cm-a{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.nx-cm-h+.nx-kv{margin-top:10px}
+.nx-dw .nx-fu-plan:not(:last-child){border-bottom:6px solid color-mix(in srgb,var(--nx-sub) 22%,var(--nx-line))}
+.nx-fu-s{margin-top:14px;padding-top:14px;border-top:1px solid var(--nx-line)}
+.nx-fu-bad{color:var(--nx-rose)}
+.nx-fu-hist{margin:0;padding:0;list-style:none}
+.nx-fu-hist li{padding:10px 0;border-top:1px solid var(--nx-line);word-break:break-word}
+.nx-fu-hist li:first-child{border-top:0}
+.nx-fu-hist .nx-fu-hh{font-size:12.5px;color:var(--nx-sub)}
+.nx-fu-hist .nx-fu-hw{font-weight:600;margin:2px 0}
+.nx-fu-hist .nx-fu-hn{font-size:13px;white-space:pre-wrap}
 .nx-cm-closed .nx-cm-t{color:var(--nx-mute)}
 .nx-cm-hint{margin:10px 0 0;font-size:12.5px;color:var(--nx-mute)}
 .nx-feed .nx-ev{grid-template-columns:92px minmax(0,1fr) auto;padding:7px 0;border-bottom:0;font-size:13.5px}

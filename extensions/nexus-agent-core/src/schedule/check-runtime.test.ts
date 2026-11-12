@@ -178,16 +178,47 @@ describe("check turn: authentication", () => {
 
   it("refuses when the prerequisite is gone (INV-11) and does not run the check", async () => {
     const w = await world();
-    w.k.commitmentCancel({
-      principal: A,
-      commitmentId: w.f.commitmentId,
-      reason: "x",
-      now: w.now(),
-    });
+    // Closed behind the ledger's back (no wrap-up was registered), so the gate itself is what is tested.
+    w.db
+      .prepare("UPDATE commitments SET lifecycle = 'cancelled', cancelled_at = 1 WHERE id = ?")
+      .run(w.f.commitmentId);
     await w.started();
     const out = await w.runtime.authenticate({ prompt: w.call.message }, ctx(w.sessionKey));
     assert.deepEqual(out?.toolsAllow, []);
     assert.match(w.triggers(w.f.scheduleId)[0]?.failReason ?? "", /prerequisite_missing|schedule_/);
+  });
+
+  it("a check fired before the commitment ended may still run during the wrap-up window (design 6.4)", async () => {
+    const w = await world();
+    w.k.commitmentCancel({
+      principal: A,
+      commitmentId: w.f.commitmentId,
+      reason: "不做了",
+      now: w.now(),
+    });
+    await w.started();
+    const out = await w.runtime.authenticate({ prompt: w.call.message }, ctx(w.sessionKey));
+    assert.ok(
+      out?.toolsAllow.includes("nexus_schedule_check_report"),
+      "the running check is not cut off",
+    );
+    assert.equal(w.triggers(w.f.scheduleId)[0]?.turnState, "claimed");
+  });
+
+  it("after the wrap-up window the check is refused and the plan is over", async () => {
+    const w = await world();
+    w.k.commitmentCancel({
+      principal: A,
+      commitmentId: w.f.commitmentId,
+      reason: "不做了",
+      now: w.now(),
+    });
+    w.advance(31 * 60_000);
+    await w.dispatcher.tick();
+    assert.equal(w.schedule(w.f.scheduleId).status, "cancelled");
+    await w.started();
+    const out = await w.runtime.authenticate({ prompt: w.call.message }, ctx(w.sessionKey));
+    assert.deepEqual(out?.toolsAllow, []);
   });
 
   it("another owner cannot claim", async () => {

@@ -48,6 +48,8 @@ export function toPlan(row: Row): DelegationPlanRecord {
     acceptedContractVersion: num(row.accepted_contract_version),
     replacesPlanId: str(row.replaces_plan_id),
     endReason: str(row.end_reason),
+    endRequestedAt: num(row.end_requested_at),
+    wrapupUntil: num(row.wrapup_until),
     createdBy: String(row.created_by) as "user" | "agent",
     createdAt: Number(row.created_at),
     acceptedAt: num(row.accepted_at),

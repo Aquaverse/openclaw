@@ -150,8 +150,8 @@ export type CommitmentChanges = {
 /** The people a lifecycle change reaches: shown to the user before it is applied (design 6.5). */
 export type CommitmentImpact = {
   works: { workId: string; title: string; role: "required" | "reference"; linkId: string }[];
-  /** Follow-up plans owned by this commitment that would be wrapped up (design 6.4). Empty until the plan layer exists. */
-  plansToWrapUp: { planId: string }[];
+  /** Follow-up plans owned by this commitment that would be wrapped up when it ends (design 6.4). */
+  plansToWrapUp: { planId: string; purpose: string }[];
   /** The people who help (live links). Their records are not changed by closing, cancelling or reopening the commitment. */
   helpers: { counterpartId: string; displayName: string; role: CommitmentParticipantRole }[];
 };

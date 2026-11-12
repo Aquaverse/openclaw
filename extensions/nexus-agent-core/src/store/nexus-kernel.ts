@@ -39,6 +39,7 @@ export function createNexusKernel(
   const commitments = createCommitmentLedger(transaction, work.internals);
   const counterparts = createCounterpartLedger(transaction, work.internals);
   const schedules = createScheduleLedger(transaction, work.internals.common);
+  work.internals.followUp.hooks = schedules.followUpHooks;
   const delegations = createDelegationLedger(transaction, work.internals, schedules.internals);
   const briefings = createGoalBriefingOps({ transaction, c: work.internals.common });
   const tasks = createTaskKernel(db, transaction, {

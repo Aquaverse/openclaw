@@ -67,6 +67,7 @@ const LEGACY_CSS = `
 .nexus-page .nx-tabs a.on{opacity:1;font-weight:600}
 .nexus-page .nx-footer{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;position:sticky;bottom:-16px;z-index:2;background:Canvas;margin:12px -20px -16px;padding:8px 20px 16px}
 .nexus-page .nx-footer .nx-btn{white-space:nowrap}
+.nexus-page .nx-footer .error{flex:1 0 100%;margin:0 0 4px;text-align:left}
 .nexus-page .gl-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .nexus-page .gl-head h1{margin-bottom:4px}
 .nexus-page .gl-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}

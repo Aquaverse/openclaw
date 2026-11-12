@@ -857,7 +857,7 @@ if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]; then
   echo "==> Baking the Nexus preset (switches: $NEXUS_SWITCHES_FOR_BUNDLE)"
   {
     echo "NEXUS_PRESET=1"
-    echo "NEXUS_PRESET_VERSION=4"
+    echo "NEXUS_PRESET_VERSION=5"
     echo "NEXUS_PRESET_SWITCHES=$NEXUS_SWITCHES_FOR_BUNDLE"
   } > "$APP/Contents/Resources/nexus-preset.env"
 else

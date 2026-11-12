@@ -5,6 +5,7 @@
 // A change tells the Work page through work_changed (ids and an action only). Replies carry ownerId.
 import type { EventBridge } from "./events.js";
 import { createGuard, reject, type GatewayRequestHandler, type TaskRpcDeps } from "./rpc.js";
+import { getSharedCheckNow, type CheckNowResult } from "./schedule/dispatcher.js";
 import { scheduledDispatchReady } from "./schedule/host-capability.js";
 import {
   PLAN_OWNER_TYPES,
@@ -23,6 +24,8 @@ export type ScheduleRpcDeps = Pick<TaskRpcDeps, "getStore" | "resolvePrincipal" 
   events: EventBridge;
   /** Overrides the host check (tests only). */
   dispatchReady?: () => boolean;
+  /** Starts one check at once; the running dispatcher by default (tests only override it). */
+  checkNow?: (principal: Principal, scheduleId: string) => Promise<CheckNowResult>;
 };
 
 type Respond = Parameters<GatewayRequestHandler>[0]["respond"];
@@ -59,7 +62,12 @@ function refuse(respond: Respond, result: { outcome: string } & Record<string, u
     case "not_paused":
     case "is_blocked":
     case "manual_pause_kept":
+    case "work_paused":
+    case "wrapping_up":
     case "not_blocked":
+    case "commitment_closed":
+    case "carrier_changed":
+    case "work_not_candidate":
       reject(respond, "nexus_schedule_state", result.outcome.replace(/_/g, " "));
       return true;
     default:
@@ -79,6 +87,12 @@ export function createScheduleRpcHandlers(deps: ScheduleRpcDeps) {
   const now = deps.now ?? Date.now;
   const ready = deps.dispatchReady ?? scheduledDispatchReady;
   const guarded = createGuard(deps);
+  const checkNow =
+    deps.checkNow ??
+    ((principal: Principal, scheduleId: string): Promise<CheckNowResult> => {
+      const run = getSharedCheckNow().run;
+      return run ? run(principal, scheduleId) : Promise.resolve({ outcome: "failed" });
+    });
 
   const announce = (principal: Principal, workId: string | undefined, action: string): void => {
     if (workId) {
@@ -205,6 +219,60 @@ export function createScheduleRpcHandlers(deps: ScheduleRpcDeps) {
             announce(principal, workId, "plan");
           }
           respond(true, { ownerId: principal.ownerId, ...out });
+        }),
+        "operator.write",
+      ],
+      [
+        "nexus.delegation.followStart",
+        // "Keep following up" from the people page: choose or create the carrier Work, write and accept the plan, in one step.
+        guarded(async ({ principal, store, params, respond }) => {
+          const commitmentId = idOf(params.commitmentId);
+          const kinds = ["unique", "multi", "none", "replace"] as const;
+          const expectedKind = kinds.find((kind) => kind === params.expectedKind);
+          const workId = params.workId === undefined ? undefined : idOf(params.workId);
+          if (
+            !commitmentId ||
+            !expectedKind ||
+            typeof params.purpose !== "string" ||
+            !isObject(params.plan) ||
+            (params.workId !== undefined && !workId) ||
+            (params.newWorkTitle !== undefined && typeof params.newWorkTitle !== "string") ||
+            (workId === undefined) === (params.newWorkTitle === undefined) ||
+            (params.startIntent !== undefined &&
+              !(START_INTENTS as readonly unknown[]).includes(params.startIntent)) ||
+            (params.requestRef !== undefined && !idOf(params.requestRef))
+          ) {
+            reject(
+              respond,
+              "nexus_invalid_params",
+              "commitmentId, expectedKind, purpose and plan are required, plus exactly one of workId or newWorkTitle",
+            );
+            return;
+          }
+          const out = await store.delegationFollowStart({
+            principal,
+            commitmentId,
+            expectedKind,
+            ...(workId ? { workId } : {}),
+            ...(typeof params.newWorkTitle === "string"
+              ? { newWorkTitle: params.newWorkTitle }
+              : {}),
+            purpose: params.purpose,
+            plan: params.plan as PlanBody,
+            ...(params.startIntent !== undefined
+              ? { startIntent: params.startIntent as StartIntent }
+              : {}),
+            ...(params.requestRef !== undefined ? { requestRef: params.requestRef as string } : {}),
+            dispatchReady: ready(),
+            now: now(),
+          });
+          if (refuse(respond, out)) {
+            return;
+          }
+          if (out.outcome === "started" && typeof out.workId === "string") {
+            announce(principal, out.workId, "plan_accepted");
+          }
+          respond(true, { ownerId: principal.ownerId, dispatchReady: ready(), ...out });
         }),
         "operator.write",
       ],
@@ -373,6 +441,31 @@ export function createScheduleRpcHandlers(deps: ScheduleRpcDeps) {
         "operator.read",
       ],
       [
+        "nexus.schedule.history",
+        guarded(async ({ principal, store, params, respond }) => {
+          const scheduleId = idOf(params.scheduleId);
+          const limit = intOf(params.limit);
+          if (!scheduleId || (params.before !== undefined && typeof params.before !== "string")) {
+            reject(
+              respond,
+              "nexus_invalid_params",
+              "scheduleId is required; before is the cursor text",
+            );
+            return;
+          }
+          const out = await store.scheduleTriggerList({
+            principal,
+            scheduleId,
+            ...(limit !== undefined ? { limit } : {}),
+            ...(typeof params.before === "string" ? { before: params.before } : {}),
+          });
+          if (!refuse(respond, out)) {
+            respond(true, { ownerId: principal.ownerId, ...out });
+          }
+        }),
+        "operator.read",
+      ],
+      [
         "nexus.schedule.list",
         guarded(async ({ principal, store, params, respond }) => {
           const statuses = params.statuses;
@@ -397,7 +490,72 @@ export function createScheduleRpcHandlers(deps: ScheduleRpcDeps) {
         }),
         "operator.read",
       ],
+      [
+        "nexus.work.followUp",
+        // The whole "follow-up" block of one Work in one read: its plans, its schedules, and the last few checks of the live ones.
+        guarded(async ({ principal, store, params, respond }) => {
+          const workId = idOf(params.workId);
+          if (!workId) {
+            reject(respond, "nexus_invalid_params", "workId is required");
+            return;
+          }
+          const [plans, schedules] = await Promise.all([
+            store.delegationPlanList({ principal, workId, limit: 50 }),
+            store.scheduleList({ principal, workId, limit: 50 }),
+          ]);
+          const triggers: Record<string, unknown[]> = {};
+          for (const schedule of schedules.schedules
+            .filter((s) => s.status !== "ended" && s.status !== "cancelled")
+            .slice(0, 10)) {
+            const got = await store.scheduleGet({
+              principal,
+              scheduleId: schedule.id,
+              triggers: 5,
+            });
+            if (got.outcome === "ok") {
+              triggers[schedule.id] = got.triggers;
+            }
+          }
+          respond(true, {
+            ownerId: principal.ownerId,
+            dispatchReady: ready(),
+            plans: plans.plans,
+            schedules: schedules.schedules,
+            triggers,
+          });
+        }),
+        "operator.read",
+      ],
       // ------------------------------------------------------------------ schedules: write
+      [
+        "nexus.schedule.checkNow",
+        guarded(async ({ principal, store, params, respond }) => {
+          const scheduleId = idOf(params.scheduleId);
+          if (!scheduleId) {
+            reject(respond, "nexus_invalid_params", "scheduleId is required");
+            return;
+          }
+          // The answer is always an outcome the page can say in words; only an unknown schedule is an error.
+          if (!ready()) {
+            respond(true, { ownerId: principal.ownerId, outcome: "host_unavailable" });
+            return;
+          }
+          const out = await checkNow(principal, scheduleId);
+          if (out.outcome === "not_found") {
+            reject(respond, "nexus_not_found", "schedule not found");
+            return;
+          }
+          if (out.outcome === "started" || out.outcome === "blocked") {
+            announce(
+              principal,
+              await workOfSchedule(store, principal, scheduleId),
+              out.outcome === "started" ? "check_now" : "schedule",
+            );
+          }
+          respond(true, { ownerId: principal.ownerId, ...out });
+        }),
+        "operator.write",
+      ],
       [
         "nexus.schedule.pause",
         guarded(async ({ principal, store, params, respond }) => {

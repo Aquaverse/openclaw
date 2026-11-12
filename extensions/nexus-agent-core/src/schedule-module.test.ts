@@ -44,7 +44,10 @@ describe("registerScheduleModule", () => {
       events: createEventBridge(),
       principalFor: () => A,
     });
-    assert.deepEqual(f.registered.tools, [["nexus_schedule_check_report"]]);
+    assert.deepEqual(f.registered.tools, [
+      ["nexus_schedule_check_report"],
+      ["nexus_schedule_propose", "nexus_schedule_get"],
+    ]);
     assert.deepEqual(f.registered.hooks.toSorted(), ["before_tool_call", "cron_changed"]);
     assert.equal(scheduledDispatchReady(), false);
     // an accepted plan before the dispatcher exists waits, blocked

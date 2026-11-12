@@ -3,10 +3,13 @@
 // the end-fact methods (stop, end partial) take their `decisionRef` from the request itself. Replies carry ownerId.
 import type { EventBridge } from "./events.js";
 import { createGuard, reject, type GatewayRequestHandler, type TaskRpcDeps } from "./rpc.js";
+import { scheduledDispatchReady } from "./schedule/host-capability.js";
 import { CONTEXT_MODES, WORK_PRIMARY_STATES, type ContextMode } from "./work/types.js";
 
 export type WorkRpcDeps = Pick<TaskRpcDeps, "getStore" | "resolvePrincipal" | "now"> & {
   events: EventBridge;
+  /** Overrides the host check (tests only); by default whether the host can start scheduled checks. */
+  dispatchReady?: () => boolean;
 };
 
 const LIST_LIMIT_MAX = 200;
@@ -31,6 +34,7 @@ const mode = (raw: unknown): ContextMode | undefined | "invalid" =>
 export function createWorkRpcHandlers(deps: WorkRpcDeps) {
   const now = deps.now ?? Date.now;
   const guarded = createGuard(deps);
+  const dispatchReady = deps.dispatchReady ?? scheduledDispatchReady;
   const notFound = "work not found";
 
   const methods: (readonly [string, GatewayRequestHandler, "operator.read" | "operator.write"])[] =
@@ -412,7 +416,14 @@ export function createWorkRpcHandlers(deps: WorkRpcDeps) {
         "nexus.work.control",
         guarded(async ({ principal, store, params, respond }) => {
           const workId = id(params.workId);
-          const actions = ["pause", "resume", "stop_work", "end_partial", "reopen"] as const;
+          const actions = [
+            "pause",
+            "resume",
+            "stop_follow_up",
+            "stop_work",
+            "end_partial",
+            "reopen",
+          ] as const;
           const action = actions.find((a) => a === params.action);
           const reopenBasis = text(params.reopenBasis, 400);
           const reason = text(params.reason, 100);
@@ -430,6 +441,8 @@ export function createWorkRpcHandlers(deps: WorkRpcDeps) {
             ...(id(params.scopeId) ? { scopeId: id(params.scopeId) as string } : {}),
             ...(reason ? { reason } : {}),
             ...(id(params.controlId) ? { controlId: id(params.controlId) as string } : {}),
+            ...(id(params.scheduleId) ? { scheduleId: id(params.scheduleId) as string } : {}),
+            dispatchReady: dispatchReady(),
             reconcileOnly: params.reconcileOnly === true,
             decisionRef: `console:${requestId}`,
             ...(reopenBasis ? { reopenBasis } : {}),
@@ -445,7 +458,12 @@ export function createWorkRpcHandlers(deps: WorkRpcDeps) {
             reject(respond, "nexus_invalid_params", result.code);
             return;
           }
-          if (!dryRun && ["applied", "released", "ended", "reopened"].includes(result.outcome)) {
+          if (
+            !dryRun &&
+            ["applied", "released", "ended", "reopened", "follow_up_stopped"].includes(
+              result.outcome,
+            )
+          ) {
             deps.events.workChanged({ ownerId: principal.ownerId, workId, action });
           }
           respond(true, { ownerId: principal.ownerId, ...result });

@@ -176,19 +176,15 @@ describe("dispatcher: firing a check", () => {
   it("blocks the schedule with the real gap instead of firing when its prerequisite is gone (INV-11)", async () => {
     const w = dispatchKit();
     const f = w.follow();
-    w.k.commitmentCancel({
-      principal: A,
-      commitmentId: f.commitmentId,
-      reason: "不做了",
-      now: w.now(),
-    });
+    // The carrier Work stops citing the commitment: a real gap while the commitment itself is still open.
+    w.db.prepare("UPDATE work_links SET ended_at = 1 WHERE target_id = ?").run(f.commitmentId);
     w.advance(10_000);
     const report = await w.dispatcher.tick();
     assert.equal(report?.blocked, 1);
     assert.equal(report?.fired, 0);
     const s = w.schedule(f.scheduleId);
     assert.equal(s.status, "blocked");
-    assert.match(s.blockReasons[0]?.ref ?? "", /owner_closed/);
+    assert.match(s.blockReasons[0]?.ref ?? "", /carrier_link_missing/);
     assert.equal(w.host.scheduled.length, 0);
   });
 

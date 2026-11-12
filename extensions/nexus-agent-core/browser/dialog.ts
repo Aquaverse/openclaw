@@ -53,7 +53,9 @@ export function openDialog(options: DialogOptions): () => void {
   closeX.title = options.cancelLabel;
   closeX.setAttribute("aria-label", options.cancelLabel);
   head.append(title, closeX);
-  dialog.append(head, body, error, footer);
+  // The message lives in the (sticky) footer, so a long form that scrolls can never push it out of sight.
+  footer.append(error);
+  dialog.append(head, body, footer);
   overlay.append(dialog);
 
   let busy = false;

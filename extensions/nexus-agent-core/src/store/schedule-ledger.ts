@@ -10,6 +10,7 @@ import type {
 import type { TransactionRunner } from "./kernel.js";
 import { createScheduleCheckOps } from "./schedule-check-ledger.js";
 import { badBlockReasons, createScheduleCommon, toTrigger } from "./schedule-common.js";
+import { createScheduleExpiry, createScheduleFollowHooks } from "./schedule-follow-ledger.js";
 import { createScheduleTriggerOps } from "./schedule-trigger-ledger.js";
 import type { Principal } from "./types.js";
 import type { WorkCommon } from "./work-ledger-common.js";
@@ -32,7 +33,7 @@ const isHostOnly = (reasons: readonly BlockReason[]): boolean =>
 const LIST_MAX = 200;
 
 export function createScheduleLedger(transaction: TransactionRunner, c: WorkCommon) {
-  const { all, run, newId } = c;
+  const { one, all, run, newId } = c;
   const k = createScheduleCommon(c);
 
   /** Write the given columns, bump the revision and the update time. Column names come from this file only. */
@@ -64,7 +65,8 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
       return gaps;
     }
     const problem = k.ownerProblem(owner, plan.planOwnerType, plan.planOwnerId);
-    if (problem) {
+    // While a plan wraps up after its commitment ended, the closed commitment is not a gap: checks already running may finish.
+    if (problem && !(problem === "owner_closed" && plan.endRequestedAt !== null)) {
       gaps.push({ code: problem, ref: `${plan.planOwnerType}:${plan.planOwnerId}` });
     }
     if (!k.carrierLinked(owner, plan.planOwnerType, plan.planOwnerId, s.workId)) {
@@ -102,6 +104,16 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
     const { owner, plan, spec, cadence, now } = input;
     const executor = spec.executorKind ?? "check_task";
     const blocked = executor === "check_task" && !input.dispatchReady;
+    // A plan accepted while the Work is paused starts paused: the pause is the Work's, and resuming the Work releases it.
+    const workPaused =
+      !blocked &&
+      Boolean(
+        one(
+          "SELECT 1 AS found FROM work_controls WHERE owner_id = ? AND work_id = ? AND scope_kind = 'work' AND state <> 'released'",
+          owner,
+          plan.workId,
+        ),
+      );
     const first =
       cadence.kind === "once"
         ? cadence.at
@@ -139,6 +151,19 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
       now,
       now,
     );
+    if (workPaused) {
+      patch(
+        owner,
+        id,
+        {
+          status: "paused",
+          pause_source: "work_control",
+          next_due_at: null,
+          coverage_state: "unavailable",
+        },
+        now,
+      );
+    }
     return id;
   };
 
@@ -213,6 +238,48 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
       return { outcome: "ok" as const, schedule, triggers, gaps: gapsOf(owner, schedule) };
     });
 
+  /**
+   * Every check record of one schedule, newest first, a page at a time. `before` is the `next` of the previous page; `next` is
+   * absent on the last page. This is the full history behind the few recent records `scheduleGet` returns.
+   */
+  const scheduleTriggerList = (input: {
+    principal: Principal;
+    scheduleId: string;
+    limit?: number;
+    before?: string;
+  }) =>
+    transaction(() => {
+      const owner = input.principal.ownerId;
+      if (!k.schedule(owner, input.scheduleId)) {
+        return { outcome: "not_found" as const };
+      }
+      const limit = Math.min(Math.max(Math.trunc(input.limit ?? 20), 1), 50);
+      const cut = /^(\d+):(\d+):(.+)$/.exec(input.before ?? "");
+      if (input.before !== undefined && !cut) {
+        return { outcome: "invalid" as const, code: "bad_cursor" };
+      }
+      const rows = all(
+        "SELECT * FROM schedule_triggers WHERE owner_id = ? AND schedule_id = ?" +
+          (cut
+            ? " AND (planned_at < ? OR (planned_at = ? AND (created_at < ? OR (created_at = ? AND id < ?))))"
+            : "") +
+          " ORDER BY planned_at DESC, created_at DESC, id DESC LIMIT ?",
+        owner,
+        input.scheduleId,
+        ...(cut ? [Number(cut[1]), Number(cut[1]), Number(cut[2]), Number(cut[2]), cut[3]!] : []),
+        limit + 1,
+      );
+      const page = rows.slice(0, limit).map(toTrigger);
+      const last = page.at(-1);
+      return {
+        outcome: "ok" as const,
+        triggers: page,
+        ...(rows.length > limit && last
+          ? { next: `${last.plannedAt}:${last.createdAt}:${last.id}` }
+          : {}),
+      };
+    });
+
   const scheduleList = (input: {
     principal: Principal;
     workId?: string;
@@ -252,6 +319,32 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
 
   // ------------------------------------------------------------------ pause / resume / cancel
 
+  /** The pause rules on a loaded schedule; shared by the user's call and the Work-level control (schedule-follow-ledger.ts). */
+  const pauseCore = (owner: string, s: ScheduleRecord, source: PauseSource, now: number) => {
+    if (isFinal(s.status)) {
+      return { outcome: "already_final" as const, schedule: s };
+    }
+    if (s.status === "blocked") {
+      // A blocked schedule is waiting for a real fix; pausing it would hide the reason (R-11).
+      return { outcome: "is_blocked" as const, schedule: s };
+    }
+    if (s.status === "paused") {
+      if (source === "user" && s.pauseSource !== "user") {
+        // The user's own pause wins: from now on only the user resumes it.
+        patch(owner, s.id, { pause_source: "user" }, now);
+        return { outcome: "paused" as const, schedule: fresh(owner, s.id) };
+      }
+      return { outcome: "unchanged" as const, schedule: s };
+    }
+    patch(
+      owner,
+      s.id,
+      { status: "paused", pause_source: source, next_due_at: null, coverage_state: "unavailable" },
+      now,
+    );
+    return { outcome: "paused" as const, schedule: fresh(owner, s.id) };
+  };
+
   const schedulePause = (input: {
     principal: Principal;
     scheduleId: string;
@@ -265,35 +358,65 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
       if ("outcome" in found) {
         return found;
       }
-      const s = found.schedule;
-      if (isFinal(s.status)) {
-        return { outcome: "already_final" as const, schedule: s };
-      }
-      if (s.status === "blocked") {
-        // A blocked schedule is waiting for a real fix; pausing it would hide the reason (R-11).
-        return { outcome: "is_blocked" as const, schedule: s };
-      }
-      if (s.status === "paused") {
-        if (input.source === "user" && s.pauseSource !== "user") {
-          // The user's own pause wins: from now on only the user resumes it.
-          patch(owner, s.id, { pause_source: "user" }, input.now);
-          return { outcome: "paused" as const, schedule: fresh(owner, s.id) };
-        }
-        return { outcome: "unchanged" as const, schedule: s };
-      }
+      return pauseCore(owner, found.schedule, input.source, input.now);
+    });
+
+  /** Resume rules on a loaded schedule (WK-04: the system and Work controls only undo their own pause). */
+  const resumeCore = (
+    owner: string,
+    s: ScheduleRecord,
+    by: PauseSource,
+    dispatchReady: boolean | undefined,
+    now: number,
+  ) => {
+    if (isFinal(s.status)) {
+      return { outcome: "already_final" as const, schedule: s };
+    }
+    if (s.status !== "paused") {
+      return { outcome: "not_paused" as const, schedule: s };
+    }
+    if (by !== "user" && s.pauseSource !== by) {
+      // Work control or the system only undo their own pause, never one the user made (WK-04).
+      return { outcome: "manual_pause_kept" as const, schedule: s };
+    }
+    // The commitment of this plan ended: the plan is only waiting for its last checks, nothing comes back (INV-10).
+    if (s.planId && k.plan(owner, s.planId)?.endRequestedAt != null) {
+      return { outcome: "wrapping_up" as const, schedule: s };
+    }
+    const gaps = gapsOf(owner, s);
+    if (gaps.length > 0) {
+      return { outcome: "gaps" as const, schedule: s, gaps };
+    }
+    if (s.executorKind === "check_task" && dispatchReady !== true) {
+      blockInTx(owner, s.id, [HOST_DISPATCH_REASON], now);
+      return { outcome: "resumed" as const, schedule: fresh(owner, s.id) };
+    }
+    const next =
+      s.cadence.kind === "once" ? s.cadence.at : nextDueAfter(s.cadence, s.tz, now, s.createdAt);
+    if (next === null || (s.cadence.kind === "once" && s.cadence.at <= now)) {
+      // A one-time check whose time passed while it was paused is never turned into an immediate task (R-16).
       patch(
         owner,
         s.id,
         {
-          status: "paused",
-          pause_source: input.source,
+          status: "ended",
+          stop_reason: "missed_window",
+          ended_at: now,
+          pause_source: null,
           next_due_at: null,
-          coverage_state: "unavailable",
         },
-        input.now,
+        now,
       );
-      return { outcome: "paused" as const, schedule: fresh(owner, s.id) };
-    });
+      return { outcome: "missed_window" as const, schedule: fresh(owner, s.id) };
+    }
+    patch(
+      owner,
+      s.id,
+      { status: "active", pause_source: null, next_due_at: next, coverage_state: "on_plan" },
+      now,
+    );
+    return { outcome: "resumed" as const, schedule: fresh(owner, s.id) };
+  };
 
   const scheduleResume = (input: {
     principal: Principal;
@@ -309,53 +432,42 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
       if ("outcome" in found) {
         return found;
       }
-      const s = found.schedule;
-      if (isFinal(s.status)) {
-        return { outcome: "already_final" as const, schedule: s };
+      if (
+        input.by === "user" &&
+        found.schedule.status === "paused" &&
+        found.schedule.pauseSource === "work_control"
+      ) {
+        // The Work is paused: only releasing that pause lets its checks run again (WK-04), a click on the check itself does not.
+        return { outcome: "work_paused" as const, schedule: found.schedule };
       }
-      if (s.status !== "paused") {
-        return { outcome: "not_paused" as const, schedule: s };
-      }
-      if (input.by !== "user" && s.pauseSource !== input.by) {
-        // Work control or the system only undo their own pause, never one the user made (WK-04).
-        return { outcome: "manual_pause_kept" as const, schedule: s };
-      }
-      const gaps = gapsOf(owner, s);
-      if (gaps.length > 0) {
-        return { outcome: "gaps" as const, schedule: s, gaps };
-      }
-      if (s.executorKind === "check_task" && input.dispatchReady !== true) {
-        blockInTx(owner, s.id, [HOST_DISPATCH_REASON], input.now);
-        return { outcome: "resumed" as const, schedule: fresh(owner, s.id) };
-      }
-      const next =
-        s.cadence.kind === "once"
-          ? s.cadence.at
-          : nextDueAfter(s.cadence, s.tz, input.now, s.createdAt);
-      if (next === null || (s.cadence.kind === "once" && s.cadence.at <= input.now)) {
-        // A one-time check whose time passed while it was paused is never turned into an immediate task (R-16).
-        patch(
-          owner,
-          s.id,
-          {
-            status: "ended",
-            stop_reason: "missed_window",
-            ended_at: input.now,
-            pause_source: null,
-            next_due_at: null,
-          },
-          input.now,
-        );
-        return { outcome: "missed_window" as const, schedule: fresh(owner, s.id) };
-      }
-      patch(
-        owner,
-        s.id,
-        { status: "active", pause_source: null, next_due_at: next, coverage_state: "on_plan" },
-        input.now,
-      );
-      return { outcome: "resumed" as const, schedule: fresh(owner, s.id) };
+      return resumeCore(owner, found.schedule, input.by, input.dispatchReady, input.now);
     });
+
+  const cancelCore = (
+    owner: string,
+    s: ScheduleRecord,
+    reasonText: string | undefined,
+    now: number,
+  ) => {
+    if (isFinal(s.status)) {
+      return { outcome: "already_final" as const, schedule: s };
+    }
+    const reason = (reasonText ?? "user_cancelled").trim().slice(0, 100) || "user_cancelled";
+    patch(
+      owner,
+      s.id,
+      {
+        status: "cancelled",
+        stop_reason: reason,
+        ended_at: now,
+        next_due_at: null,
+        pause_source: null,
+        block_reasons_json: null,
+      },
+      now,
+    );
+    return { outcome: "cancelled" as const, schedule: fresh(owner, s.id) };
+  };
 
   const scheduleCancel = (input: {
     principal: Principal;
@@ -370,25 +482,7 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
       if ("outcome" in found) {
         return found;
       }
-      const s = found.schedule;
-      if (isFinal(s.status)) {
-        return { outcome: "already_final" as const, schedule: s };
-      }
-      const reason = (input.reason ?? "user_cancelled").trim().slice(0, 100) || "user_cancelled";
-      patch(
-        owner,
-        s.id,
-        {
-          status: "cancelled",
-          stop_reason: reason,
-          ended_at: input.now,
-          next_due_at: null,
-          pause_source: null,
-          block_reasons_json: null,
-        },
-        input.now,
-      );
-      return { outcome: "cancelled" as const, schedule: fresh(owner, s.id) };
+      return cancelCore(owner, found.schedule, input.reason, input.now);
     });
 
   // ------------------------------------------------------------------ block / unblock
@@ -519,9 +613,23 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
     blockInTx,
   });
 
+  const followUpHooks = createScheduleFollowHooks({
+    c,
+    schedule: k.schedule,
+    pauseCore,
+    resumeCore,
+    cancelCore,
+    patch,
+  });
+
+  const expiry = createScheduleExpiry(transaction, { c, schedule: k.schedule, patch });
+
   return {
+    followUpHooks,
     kernel: {
+      ...expiry,
       scheduleGet,
+      scheduleTriggerList,
       scheduleList,
       schedulePause,
       scheduleResume,

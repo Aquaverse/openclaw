@@ -1,5 +1,6 @@
 import {
   CHECK_OUTCOMES,
+  MANUAL_TRIGGER_COOLDOWN_MS,
   SCHEDULE_LIMITS,
   type BlockReason,
   type CheckOutcome,
@@ -162,6 +163,8 @@ export function createScheduleCheckOps(deps: {
     principal: Principal;
     scheduleId: string;
     occurrenceKey: string;
+    /** A check the user asked for now: it also has to respect the cooldown between manual checks. */
+    manual?: boolean;
     now: number;
   }) =>
     transaction(() => {
@@ -186,6 +189,11 @@ export function createScheduleCheckOps(deps: {
       if (s.executorKind !== "check_task") {
         return { outcome: "not_check_task" as const, schedule: s };
       }
+      // Nothing new starts once the plan's commitment has ended; what is already running may finish (design 6.4).
+      const wrapping = s.planId ? k.plan(owner, s.planId) : undefined;
+      if (wrapping && wrapping.endRequestedAt !== null) {
+        return { outcome: "wrapping_up" as const, schedule: s };
+      }
       const gaps = gapsOf(owner, s);
       if (gaps.length > 0) {
         const reasons: BlockReason[] = gaps.map((gap) => ({
@@ -195,6 +203,17 @@ export function createScheduleCheckOps(deps: {
         }));
         blockInTx(owner, s.id, reasons, input.now);
         return { outcome: "blocked" as const, schedule: fresh(owner, s.id), reasons };
+      }
+      if (
+        input.manual === true &&
+        s.lastManualTriggerAt !== null &&
+        input.now - s.lastManualTriggerAt < MANUAL_TRIGGER_COOLDOWN_MS
+      ) {
+        return {
+          outcome: "cooldown" as const,
+          schedule: s,
+          retryAt: s.lastManualTriggerAt + MANUAL_TRIGGER_COOLDOWN_MS,
+        };
       }
       const open = one(
         "SELECT id, task_id FROM schedule_triggers WHERE owner_id = ? AND schedule_id = ? AND slot_open = 1",

@@ -16,7 +16,12 @@ type ControlReply = {
   outcome?: string;
   affectedTasks?: TaskRef[];
   tasksToCancel?: TaskRef[];
+  /** The follow-up checks the action would pause, bring back or end (design 6.6, WK-04). */
+  schedulesToPause?: ScheduleRef[];
+  schedulesToResume?: ScheduleRef[];
+  schedulesToEnd?: ScheduleRef[];
 };
+type ScheduleRef = { id: string; purpose: string };
 type Impact = { tone: "keep" | "stop" | "note"; text: string };
 
 const MARK = { keep: "✓", stop: "✕", note: "!" } as const;
@@ -87,10 +92,26 @@ const DONE = {
   reopen: "work.notice.reopened",
 } as const satisfies Record<ControlAction, MsgKey>;
 const APPLIED = new Set(["applied", "released", "ended", "reopened"]);
+const SCHEDULE_IMPACT = {
+  pause: ["schedulesToPause", "work.imp.pauseSchedule"],
+  resume: ["schedulesToResume", "work.imp.resumeSchedule"],
+  stop_work: ["schedulesToEnd", "work.imp.endSchedule"],
+  end_partial: ["schedulesToEnd", "work.imp.endSchedule"],
+} as const;
 
 /** What the server said the action would touch, as the impact list. */
 function impactsOf(lang: Lang, action: ControlAction, reply: ControlReply): Impact[] {
   const out: Impact[] = [];
+  const lines =
+    action in SCHEDULE_IMPACT ? SCHEDULE_IMPACT[action as keyof typeof SCHEDULE_IMPACT] : undefined;
+  if (lines) {
+    for (const item of reply[lines[0]] ?? []) {
+      out.push({
+        tone: action === "pause" || action === "resume" ? "note" : "stop",
+        text: tr(lang, lines[1], { title: item.purpose }),
+      });
+    }
+  }
   if (action === "pause") {
     for (const task of reply.affectedTasks ?? []) {
       out.push({ tone: "note", text: tr(lang, "work.imp.pauseTask", { title: task.title }) });
@@ -273,10 +294,18 @@ function simpleDialog(ctx: ActionContext, work: WorkActionModel, kind: SimpleKin
         : unhide
           ? "work.notice.unhidden"
           : "work.notice.hidden";
-  const impact: Impact =
+  const impacts: Impact[] =
     kind === "delete"
-      ? { tone: "stop", text: tr(lang, "work.imp.delete") }
-      : { tone: "keep", text: tr(lang, kind === "archive" ? "work.imp.archive" : "work.imp.hide") };
+      ? [
+          { tone: "stop", text: tr(lang, "work.imp.delete") },
+          { tone: "stop", text: tr(lang, "work.imp.deleteFollow") },
+        ]
+      : [
+          {
+            tone: "keep",
+            text: tr(lang, kind === "archive" ? "work.imp.archive" : "work.imp.hide"),
+          },
+        ];
   openDialog({
     parent: ctx.parent,
     signal: ctx.signal,
@@ -303,7 +332,7 @@ function simpleDialog(ctx: ActionContext, work: WorkActionModel, kind: SimpleKin
       },
     ],
     build: (body) => {
-      body.append(impactList([impact]));
+      body.append(impactList(impacts));
     },
   });
 }

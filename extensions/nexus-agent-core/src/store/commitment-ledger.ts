@@ -62,7 +62,7 @@ export function createCommitmentLedger(
 ) {
   const c = work.common;
   const { one, run, newId } = c;
-  const k = createCommitmentCommon(c);
+  const k = createCommitmentCommon(c, work.followUp);
 
   /** Re-evaluate every Work that requires this Commitment, and refresh the list order of every Work that cites it. */
   const reevaluate = (owner: string, commitmentId: string, now: number): void => {
@@ -72,6 +72,20 @@ export function createCommitmentLedger(
         work.evaluateOutcomeInTx(owner, link.workId, now);
       }
       c.touch(owner, link.workId, now);
+    }
+    // A commitment that ended takes its follow-up plan with it, in the bounded way of design 6.4 (CD-04).
+    const ended = one(
+      "SELECT lifecycle FROM commitments WHERE owner_id = ? AND id = ?",
+      owner,
+      commitmentId,
+    );
+    if (ended && (ended.lifecycle === "resolved" || ended.lifecycle === "cancelled")) {
+      work.followUp.hooks?.wrapUpInTx(
+        owner,
+        commitmentId,
+        ended.lifecycle === "resolved" ? "commitment_resolved" : "commitment_cancelled",
+        now,
+      );
     }
   };
 

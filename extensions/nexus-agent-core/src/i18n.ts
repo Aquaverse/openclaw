@@ -3,6 +3,7 @@
 // itself defines (task statuses, risk tiers, RPC names, ids) are never translated: they are what the model and the logs
 // say. Plain functions, no node or DOM imports, so the HTTP page and the browser module share it.
 import { COMMITMENT_MESSAGES } from "./i18n-commitment.js";
+import { FOLLOW_MESSAGES } from "./i18n-follow.js";
 import { GOAL_MESSAGES } from "./i18n-goals.js";
 import { PEOPLE_FIX_MESSAGES } from "./i18n-people-fix.js";
 import { PEOPLE_HINT_MESSAGES } from "./i18n-people-hints.js";
@@ -625,6 +626,8 @@ const CATALOG = {
   ...WORK_MESSAGES,
   // Commitments block (i18n-commitment.ts)
   ...COMMITMENT_MESSAGES,
+  // Follow-up block, plan dialogs and the review panel (i18n-follow.ts)
+  ...FOLLOW_MESSAGES,
   // People page (i18n-people.ts)
   ...PEOPLE_MESSAGES,
   ...PEOPLE_FIX_MESSAGES,

@@ -7,11 +7,15 @@ import { TERMINAL_TASK, type WorkOpsDeps } from "./work-ledger-deps.js";
 export type WorkControlInput = {
   principal: Principal;
   workId: string;
-  action: "pause" | "resume" | "stop_work" | "end_partial" | "reopen";
+  action: "pause" | "resume" | "stop_follow_up" | "stop_work" | "end_partial" | "reopen";
   scopeKind?: "work" | "task";
   scopeId?: string;
   reason?: string;
   controlId?: string;
+  /** stop_follow_up: the one schedule the user picked. */
+  scheduleId?: string;
+  /** Whether the host can start scheduled checks right now; a schedule resumed without it is saved blocked, never active. */
+  dispatchReady?: boolean;
   reconcileOnly?: boolean;
   /** The user decision that justifies stop_work / end_partial (a request id); required by the end-fact CHECK. */
   decisionRef?: string;
@@ -22,7 +26,7 @@ export type WorkControlInput = {
 };
 
 export function createWorkControlOps(deps: WorkOpsDeps) {
-  const { transaction, c, facts, requireLive, evaluateOutcomeInTx } = deps;
+  const { transaction, c, facts, requireLive, evaluateOutcomeInTx, followUp } = deps;
   const { one, all, run, newId, appendEvent, touch } = c;
 
   const openTasks = (owner: string, workId: string) =>
@@ -62,6 +66,21 @@ export function createWorkControlOps(deps: WorkOpsDeps) {
     }
   };
 
+  const live = (owner: string, workId: string) => followUp.hooks?.liveOfWork(owner, workId) ?? [];
+
+  /** Pauses of the whole Work still in force, not counting the one being released. */
+  const workControlsLeft = (owner: string, workId: string, except: string | undefined): number =>
+    Number(
+      (
+        one(
+          "SELECT COUNT(*) AS c FROM work_controls WHERE owner_id = ? AND work_id = ? AND scope_kind = 'work' AND state <> 'released' AND id <> ?",
+          owner,
+          workId,
+          except ?? "",
+        ) as Row
+      ).c,
+    );
+
   const workControl = (input: WorkControlInput) =>
     transaction(() => {
       const owner = input.principal.ownerId;
@@ -95,6 +114,10 @@ export function createWorkControlOps(deps: WorkOpsDeps) {
             outcome: "preview" as const,
             action: "pause",
             affectedTasks: openTasks(owner, work.id),
+            schedulesToPause:
+              scopeKind === "work"
+                ? live(owner, work.id).filter((line) => line.status === "active")
+                : [],
           };
         }
         const id = newId("wc_");
@@ -119,8 +142,11 @@ export function createWorkControlOps(deps: WorkOpsDeps) {
           { controlId: id, scopeKind, reason },
           input.now,
         );
+        // Pausing the whole Work pauses the follow-up it carries; a Task-level pause touches no schedule.
+        const pausedSchedules =
+          scopeKind === "work" ? (followUp.hooks?.pauseInTx(owner, work.id, input.now) ?? []) : [];
         touch(owner, work.id, input.now);
-        return { outcome: "applied" as const, controlId: id };
+        return { outcome: "applied" as const, controlId: id, pausedSchedules };
       }
       if (input.action === "resume") {
         // Controls stack; resume releases exactly the one the caller named (or the plain user pause at work scope), nothing else.
@@ -140,7 +166,17 @@ export function createWorkControlOps(deps: WorkOpsDeps) {
           return { outcome: "no_such_control" as const };
         }
         if (input.dryRun) {
-          return { outcome: "preview" as const, action: "resume", controlId: String(target.id) };
+          return {
+            outcome: "preview" as const,
+            action: "resume",
+            controlId: String(target.id),
+            schedulesToResume:
+              workControlsLeft(owner, work.id, String(target.id)) === 0
+                ? live(owner, work.id).filter(
+                    (line) => line.status === "paused" && line.pauseSource === "work_control",
+                  )
+                : [],
+          };
         }
         run(
           "UPDATE work_controls SET state = 'released', released_at = ? WHERE owner_id = ? AND id = ?",
@@ -166,10 +202,47 @@ export function createWorkControlOps(deps: WorkOpsDeps) {
             ) as Row
           ).c,
         );
+        // The schedules come back only when no other pause of the whole Work is left (INV-22), and only the ones the Work paused.
+        const followed =
+          workControlsLeft(owner, work.id, undefined) === 0
+            ? followUp.hooks?.resumeInTx(owner, work.id, input.dispatchReady === true, input.now)
+            : undefined;
         return {
           outcome: "released" as const,
           controlId: String(target.id),
           stillControlled: remaining > 0,
+          ...(followed ? { schedules: followed } : {}),
+        };
+      }
+      if (input.action === "stop_follow_up") {
+        const line = input.scheduleId
+          ? live(owner, work.id).find((entry) => entry.id === input.scheduleId)
+          : undefined;
+        if (!input.scheduleId || !line) {
+          const known = input.scheduleId
+            ? one(
+                "SELECT status FROM schedules WHERE owner_id = ? AND work_id = ? AND id = ?",
+                owner,
+                work.id,
+                input.scheduleId,
+              )
+            : undefined;
+          return known
+            ? { outcome: "already_final" as const }
+            : { outcome: "invalid" as const, code: "schedule_not_in_work" };
+        }
+        if (input.dryRun) {
+          return { outcome: "preview" as const, action: "stop_follow_up", schedule: line };
+        }
+        const stopped = followUp.hooks?.stopOneInTx(owner, work.id, line.id, input.now);
+        if (stopped?.outcome !== "stopped") {
+          return { outcome: "already_final" as const };
+        }
+        touch(owner, work.id, input.now);
+        return {
+          outcome: "follow_up_stopped" as const,
+          scheduleId: line.id,
+          planEnded: stopped.planEnded,
         };
       }
       if (input.action === "stop_work" || input.action === "end_partial") {
@@ -183,7 +256,12 @@ export function createWorkControlOps(deps: WorkOpsDeps) {
         }
         const tasks = openTasks(owner, work.id);
         if (input.dryRun) {
-          return { outcome: "preview" as const, action: input.action, tasksToCancel: tasks };
+          return {
+            outcome: "preview" as const,
+            action: input.action,
+            tasksToCancel: tasks,
+            schedulesToEnd: live(owner, work.id),
+          };
         }
         if (!input.decisionRef) {
           return { outcome: "needs_decision_ref" as const };
@@ -215,11 +293,20 @@ export function createWorkControlOps(deps: WorkOpsDeps) {
         );
         // Cancelling can withdraw nothing and achieve nothing here, but the evaluation also honours the new end fact.
         evaluateOutcomeInTx(owner, work.id, input.now);
+        // The Work's own follow-up ends with it (design 6.6); a Commitment is never touched and a reopen does not bring it back.
+        const followed = followUp.hooks?.endInTx(
+          owner,
+          work.id,
+          partial ? "work_ended_partial" : "work_stopped",
+          input.now,
+        );
         touch(owner, work.id, input.now);
         return {
           outcome: "ended" as const,
           terminalId: id,
           cancelledTasks: tasks.map((task) => task.id),
+          endedSchedules: followed?.schedules ?? [],
+          endedPlans: followed?.plans ?? [],
         };
       }
       // reopen

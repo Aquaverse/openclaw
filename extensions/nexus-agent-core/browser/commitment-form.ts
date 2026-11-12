@@ -8,6 +8,7 @@ import { foldName, personPicker, type PersonChoice } from "./person-picker.ts";
 export type Impact = {
   works?: { workId: string; title: string; role: "required" | "reference" }[];
   helpers?: { counterpartId: string; displayName: string; role: string }[];
+  plansToWrapUp?: { planId: string; purpose: string }[];
 };
 export type Reply = {
   outcome?: string;
@@ -78,6 +79,16 @@ export function worksImpact(lang: Lang, impact: Impact | undefined) {
       ? { tone: "stop" as const, text: tr(lang, "cm.imp.required", { title: work.title }) }
       : { tone: "keep" as const, text: tr(lang, "cm.imp.reference", { title: work.title }) },
   );
+}
+
+/** The follow-up plans that wrap up when the commitment ends (design 6.4): said before the user confirms. */
+export function plansImpact(lang: Lang, impact: Impact | undefined) {
+  return (impact?.plansToWrapUp ?? []).map((plan) => ({
+    tone: "stop" as const,
+    text: tr(lang, "cm.imp.plan", {
+      purpose: plan.purpose.length > 60 ? `${plan.purpose.slice(0, 59)}…` : plan.purpose,
+    }),
+  }));
 }
 
 /** "N people help" in the impact list: their records stay as they are, so this only tells the user they exist. */

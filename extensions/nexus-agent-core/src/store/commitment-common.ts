@@ -16,6 +16,7 @@ import type {
 } from "../commitment/types.js";
 import { createCounterpartCommon } from "./counterpart-common.js";
 import type { Row, WorkCommon } from "./work-ledger-common.js";
+import type { FollowUpSlot } from "./work-ledger-deps.js";
 
 /** How many people help with the commitment (a live link). Added to every select that builds a CommitmentRecord. */
 export const PARTICIPANT_COUNT =
@@ -138,7 +139,7 @@ export function validTimeZone(tz: unknown): tz is string {
   }
 }
 
-export function createCommitmentCommon(c: WorkCommon) {
+export function createCommitmentCommon(c: WorkCommon, followUp?: FollowUpSlot) {
   const { one, all, run, newId } = c;
   const names = createCounterpartCommon(c);
 
@@ -372,8 +373,7 @@ export function createCommitmentCommon(c: WorkCommon) {
 
   const impactOf = (owner: string, commitmentId: string): CommitmentImpact => ({
     works: linkedWorks(owner, commitmentId),
-    // Follow-up plans arrive with slice W4: until then no plan can be owned by a commitment.
-    plansToWrapUp: [],
+    plansToWrapUp: followUp?.hooks?.plansOfCommitment(owner, commitmentId) ?? [],
     helpers: helpersOf(owner, commitmentId).map((h) => ({
       counterpartId: h.counterpartId,
       displayName: h.displayName,

@@ -49,6 +49,18 @@ export type NexusAction =
   | { kind: "cm-attach"; id: string }
   | { kind: "cm-assist"; id: string }
   | { kind: "cm-joint"; id: string }
+  | { kind: "cm-follow"; id: string }
+  | { kind: "cm-nudge"; id: string }
+  | { kind: "fu-new"; id: string }
+  | { kind: "fu-start"; id: string }
+  | { kind: "fu-edit"; id: string }
+  | { kind: "fu-skip"; id: string }
+  | { kind: "fu-end"; id: string }
+  | { kind: "fu-history"; id: string }
+  | { kind: "fu-check"; id: string }
+  | { kind: "fu-pause"; id: string }
+  | { kind: "fu-resume"; id: string }
+  | { kind: "fu-stop"; id: string }
   | { kind: "pp-new" }
   | { kind: "pp-edit"; id: string }
   | { kind: "pp-confirm"; id: string }
@@ -104,6 +116,18 @@ const ID_ACTIONS: ReadonlySet<string> = new Set<NexusAction["kind"]>([
   "cm-attach",
   "cm-assist",
   "cm-joint",
+  "cm-follow",
+  "cm-nudge",
+  "fu-new",
+  "fu-start",
+  "fu-edit",
+  "fu-skip",
+  "fu-end",
+  "fu-history",
+  "fu-check",
+  "fu-pause",
+  "fu-resume",
+  "fu-stop",
   "pp-edit",
   "pp-confirm",
   "pp-contact",

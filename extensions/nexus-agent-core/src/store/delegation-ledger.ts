@@ -9,6 +9,7 @@ import {
   type StartIntent,
 } from "../schedule/types.js";
 import { createDelegationConfirmOps } from "./delegation-confirm-ledger.js";
+import { createDelegationFollowOps } from "./delegation-follow-ledger.js";
 import type { TransactionRunner } from "./kernel.js";
 import { checkSpecs, toPlan } from "./schedule-common.js";
 import type { ScheduleLedger } from "./schedule-ledger.js";
@@ -79,7 +80,7 @@ export function createDelegationLedger(
   const { one, all, run, newId } = c;
   const k = schedules.common;
 
-  const delegationPlanCreate = (input: {
+  type CreatePlanInput = {
     principal: Principal;
     workId: string;
     planOwnerType: PlanOwnerType;
@@ -93,106 +94,110 @@ export function createDelegationLedger(
     createdBy: "user" | "agent";
     requestRef?: string;
     now: number;
-  }) =>
-    transaction(() => {
-      const owner = input.principal.ownerId;
-      const requestRef = clean(input.requestRef);
-      if (requestRef !== "") {
-        const same = one(
-          "SELECT * FROM delegation_plans WHERE owner_id = ? AND request_ref = ?",
-          owner,
-          requestRef,
-        );
-        if (same) {
-          // A replayed create (a double click, a retried call) answers with the plan it already made.
-          return { outcome: "exists" as const, plan: toPlan(same) };
-        }
-      }
-      if (input.createdBy !== "user" && input.createdBy !== "agent") {
-        return { outcome: "invalid" as const, code: "bad_created_by" };
-      }
-      const purpose = clean(input.purpose);
-      if (purpose.length === 0 || purpose.length > SCHEDULE_LIMITS.purpose) {
-        return { outcome: "invalid" as const, code: "bad_purpose" };
-      }
-      if (!(PLAN_OWNER_TYPES as readonly string[]).includes(input.planOwnerType)) {
-        return { outcome: "invalid" as const, code: "bad_plan_owner_type" };
-      }
-      const ownerId = clean(input.planOwnerId);
-      if (
-        ownerId === "" ||
-        ownerId.length > SCHEDULE_LIMITS.ref ||
-        requestRef.length > SCHEDULE_LIMITS.ref
-      ) {
-        return { outcome: "invalid" as const, code: "bad_plan_owner_id" };
-      }
-      const found = work.requireLive(owner, input.workId);
-      if (found.problem || found.work.lifecycle !== "live") {
-        return { outcome: "work_not_found" as const };
-      }
-      const carrier = found.work;
-      const problem = k.ownerProblem(owner, input.planOwnerType, ownerId);
-      if (problem) {
-        return { outcome: problem };
-      }
-      if (input.planOwnerType === "personal_goal" && carrier.contextMode !== "personal") {
-        return { outcome: "executive_work" as const };
-      }
-      const body = input.plan ?? {};
-      const bad = badBody(body, input.now);
-      if (bad) {
-        return { outcome: "invalid" as const, code: bad };
-      }
-      const gaps = input.gaps ?? [];
-      const badGap = badGaps(gaps);
-      if (badGap) {
-        return { outcome: "invalid" as const, code: badGap };
-      }
-      const intent = input.startIntent ?? "none";
-      if (!(START_INTENTS as readonly string[]).includes(intent)) {
-        return { outcome: "invalid" as const, code: "bad_start_intent" };
-      }
-      if (input.replacesPlanId !== undefined) {
-        const old = k.plan(owner, input.replacesPlanId);
-        if (
-          !old ||
-          old.status !== "accepted" ||
-          old.planOwnerType !== input.planOwnerType ||
-          old.planOwnerId !== ownerId
-        ) {
-          return { outcome: "invalid" as const, code: "bad_replaces" };
-        }
-      }
-      if (
-        input.handoffFromWorkId !== undefined &&
-        !work.requireLive(owner, input.handoffFromWorkId).work
-      ) {
-        return { outcome: "invalid" as const, code: "bad_handoff" };
-      }
-      const id = newId("dp_");
-      run(
-        "INSERT INTO delegation_plans (owner_id, id, work_id, work_version, plan_owner_type, plan_owner_id, purpose, plan_version, status, plan_json, " +
-          "gaps_json, start_intent, replaces_plan_id, handoff_from_work_id, request_ref, created_by, created_at) " +
-          "VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)",
+  };
+
+  /** Create a draft inside the caller's transaction (the one-step follow-up start uses it). */
+  const createPlanInTx = (input: CreatePlanInput) => {
+    const owner = input.principal.ownerId;
+    const requestRef = clean(input.requestRef);
+    if (requestRef !== "") {
+      const same = one(
+        "SELECT * FROM delegation_plans WHERE owner_id = ? AND request_ref = ?",
         owner,
-        id,
-        carrier.id,
-        carrier.currentWorkVersion,
-        input.planOwnerType,
-        ownerId,
-        purpose,
-        JSON.stringify(body),
-        gaps.length > 0 ? JSON.stringify(gaps) : null,
-        intent,
-        input.replacesPlanId ?? null,
-        input.handoffFromWorkId ?? null,
-        requestRef === "" ? null : requestRef,
-        input.createdBy,
-        input.now,
+        requestRef,
       );
-      c.touch(owner, carrier.id, input.now);
-      return { outcome: "created" as const, plan: k.plan(owner, id) };
-    });
+      if (same) {
+        // A replayed create (a double click, a retried call) answers with the plan it already made.
+        return { outcome: "exists" as const, plan: toPlan(same) };
+      }
+    }
+    if (input.createdBy !== "user" && input.createdBy !== "agent") {
+      return { outcome: "invalid" as const, code: "bad_created_by" };
+    }
+    const purpose = clean(input.purpose);
+    if (purpose.length === 0 || purpose.length > SCHEDULE_LIMITS.purpose) {
+      return { outcome: "invalid" as const, code: "bad_purpose" };
+    }
+    if (!(PLAN_OWNER_TYPES as readonly string[]).includes(input.planOwnerType)) {
+      return { outcome: "invalid" as const, code: "bad_plan_owner_type" };
+    }
+    const ownerId = clean(input.planOwnerId);
+    if (
+      ownerId === "" ||
+      ownerId.length > SCHEDULE_LIMITS.ref ||
+      requestRef.length > SCHEDULE_LIMITS.ref
+    ) {
+      return { outcome: "invalid" as const, code: "bad_plan_owner_id" };
+    }
+    const found = work.requireLive(owner, input.workId);
+    if (found.problem || found.work.lifecycle !== "live") {
+      return { outcome: "work_not_found" as const };
+    }
+    const carrier = found.work;
+    const problem = k.ownerProblem(owner, input.planOwnerType, ownerId);
+    if (problem) {
+      return { outcome: problem };
+    }
+    if (input.planOwnerType === "personal_goal" && carrier.contextMode !== "personal") {
+      return { outcome: "executive_work" as const };
+    }
+    const body = input.plan ?? {};
+    const bad = badBody(body, input.now);
+    if (bad) {
+      return { outcome: "invalid" as const, code: bad };
+    }
+    const gaps = input.gaps ?? [];
+    const badGap = badGaps(gaps);
+    if (badGap) {
+      return { outcome: "invalid" as const, code: badGap };
+    }
+    const intent = input.startIntent ?? "none";
+    if (!(START_INTENTS as readonly string[]).includes(intent)) {
+      return { outcome: "invalid" as const, code: "bad_start_intent" };
+    }
+    if (input.replacesPlanId !== undefined) {
+      const old = k.plan(owner, input.replacesPlanId);
+      if (
+        !old ||
+        old.status !== "accepted" ||
+        old.planOwnerType !== input.planOwnerType ||
+        old.planOwnerId !== ownerId
+      ) {
+        return { outcome: "invalid" as const, code: "bad_replaces" };
+      }
+    }
+    if (
+      input.handoffFromWorkId !== undefined &&
+      !work.requireLive(owner, input.handoffFromWorkId).work
+    ) {
+      return { outcome: "invalid" as const, code: "bad_handoff" };
+    }
+    const id = newId("dp_");
+    run(
+      "INSERT INTO delegation_plans (owner_id, id, work_id, work_version, plan_owner_type, plan_owner_id, purpose, plan_version, status, plan_json, " +
+        "gaps_json, start_intent, replaces_plan_id, handoff_from_work_id, request_ref, created_by, created_at) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)",
+      owner,
+      id,
+      carrier.id,
+      carrier.currentWorkVersion,
+      input.planOwnerType,
+      ownerId,
+      purpose,
+      JSON.stringify(body),
+      gaps.length > 0 ? JSON.stringify(gaps) : null,
+      intent,
+      input.replacesPlanId ?? null,
+      input.handoffFromWorkId ?? null,
+      requestRef === "" ? null : requestRef,
+      input.createdBy,
+      input.now,
+    );
+    c.touch(owner, carrier.id, input.now);
+    return { outcome: "created" as const, plan: k.plan(owner, id) };
+  };
+
+  const delegationPlanCreate = (input: CreatePlanInput) => transaction(() => createPlanInTx(input));
 
   const delegationPlanGet = (input: { principal: Principal; planId: string }) =>
     transaction(() => {
@@ -393,7 +398,18 @@ export function createDelegationLedger(
       };
     });
 
-  const confirmOps = createDelegationConfirmOps({ transaction, work, schedules });
+  const { confirmInTx, carrierInTx, ...confirmKernel } = createDelegationConfirmOps({
+    transaction,
+    work,
+    schedules,
+  });
+  const followOps = createDelegationFollowOps({
+    transaction,
+    work,
+    createPlanInTx,
+    confirmInTx,
+    carrierInTx,
+  });
 
   return {
     delegationPlanCreate,
@@ -402,6 +418,7 @@ export function createDelegationLedger(
     delegationPlanUpdate,
     delegationPlanRevoke,
     delegationPlanEnd,
-    ...confirmOps,
+    ...confirmKernel,
+    ...followOps,
   };
 }

@@ -202,6 +202,18 @@ export const WORK_MESSAGES = {
     "『{title}』：暂停期间不会继续推进。",
     "“{title}”: will not move on while paused.",
   ],
+  "work.imp.pauseSchedule": [
+    "跟进检查『{title}』会一起暂停。",
+    "The follow-up check “{title}” is paused too.",
+  ],
+  "work.imp.resumeSchedule": [
+    "跟进检查『{title}』会恢复（你自己暂停的不会动）。",
+    "The follow-up check “{title}” resumes (one you paused yourself stays paused).",
+  ],
+  "work.imp.endSchedule": [
+    "跟进检查『{title}』及它的方案会结束。",
+    "The follow-up check “{title}” and its plan end.",
+  ],
   "work.imp.cancelTask": ["『{title}』将被取消。", "“{title}” will be cancelled."],
   "work.imp.resume": [
     "只放开这一条暂停；如果还有别的暂停，工作仍保持暂停。",
@@ -222,6 +234,10 @@ export const WORK_MESSAGES = {
   "work.imp.delete": [
     "这件工作将被删除，不能恢复。",
     "This work will be deleted and cannot be restored.",
+  ],
+  "work.imp.deleteFollow": [
+    "它的跟进也会结束：正在跑的日程停止，没确认的方案草稿撤回。",
+    "Its follow-up ends too: running schedules stop and unaccepted plan drafts are withdrawn.",
   ],
   "work.foot.stop": [
     "重新打开不会恢复已取消的步骤。",

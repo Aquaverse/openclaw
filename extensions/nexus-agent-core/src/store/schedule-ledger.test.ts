@@ -117,12 +117,10 @@ describe("schedule state machine", () => {
   it("will not resume while a prerequisite is missing, and says which", () => {
     const a = acceptedPlan();
     k.schedulePause({ principal: A, scheduleId: a.scheduleId, source: "user", now: now() });
-    k.commitmentCancel({
-      principal: A,
-      commitmentId: a.commitmentId,
-      reason: "不做了",
-      now: now(),
-    });
+    // Closed behind the ledger's back, so the gap itself is what is tested (a normal close wraps the plan up instead).
+    db.prepare("UPDATE commitments SET lifecycle = 'cancelled', cancelled_at = 1 WHERE id = ?").run(
+      a.commitmentId,
+    );
     const out = k.scheduleResume({
       principal: A,
       scheduleId: a.scheduleId,
@@ -351,12 +349,10 @@ describe("schedule blocking", () => {
       reasons: [{ code: "permission_missing", actor: "user" }],
       now: now(),
     });
-    k.commitmentCancel({
-      principal: A,
-      commitmentId: a.commitmentId,
-      reason: "不做了",
-      now: now(),
-    });
+    // Closed behind the ledger's back, so the gap itself is what is tested (a normal close wraps the plan up instead).
+    db.prepare("UPDATE commitments SET lifecycle = 'cancelled', cancelled_at = 1 WHERE id = ?").run(
+      a.commitmentId,
+    );
     const out = k.scheduleUnblock({
       principal: A,
       scheduleId: a.scheduleId,

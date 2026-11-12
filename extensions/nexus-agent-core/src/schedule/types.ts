@@ -86,6 +86,9 @@ export type DelegationPlanRecord = {
   acceptedContractVersion: number | null;
   replacesPlanId: string | null;
   endReason: string | null;
+  /** Set when the plan's owner (a commitment) ended: the plan is "wrapping up" until `wrapupUntil` (design 6.4, CD-04). */
+  endRequestedAt: number | null;
+  wrapupUntil: number | null;
   createdBy: "user" | "agent";
   createdAt: number;
   acceptedAt: number | null;
@@ -168,6 +171,8 @@ export type TriggerRecord = {
 
 /** Two accepted manual triggers of one schedule are at least this far apart (R-16). */
 export const MANUAL_TRIGGER_COOLDOWN_MS = 5 * 60_000;
+/** After a commitment ends, checks already running may finish for at most this long before the plan ends (design 6.4). */
+export const PLAN_WRAPUP_MS = 30 * 60_000;
 export const SCHEDULE_LIMITS = {
   purpose: 300,
   ref: 200,

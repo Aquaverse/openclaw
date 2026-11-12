@@ -7,6 +7,7 @@ import { createCommitmentRpcHandlers } from "./commitment-rpc.js";
 import { createCounterpartRpcHandlers } from "./counterpart-rpc.js";
 import { createEventBridge } from "./events.js";
 import { createScheduleRpcHandlers } from "./schedule-rpc.js";
+import type { CheckNowResult } from "./schedule/dispatcher.js";
 import type { TaskStore } from "./store/host.js";
 import { applyMigrations } from "./store/kernel.js";
 import { createNexusKernel } from "./store/nexus-kernel.js";
@@ -16,7 +17,10 @@ import { createWorkRpcHandlers } from "./work-rpc.js";
 const A: Principal = { ownerId: "owner-a" };
 const B: Principal = { ownerId: "owner-b" };
 
-function setup(dispatchReady = false) {
+function setup(
+  dispatchReady = false,
+  checkNow?: (p: Principal, id: string) => Promise<CheckNowResult>,
+) {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   const tx = <T>(run: () => T): T => {
@@ -56,6 +60,7 @@ function setup(dispatchReady = false) {
     resolvePrincipal: () => principal,
     now: () => (clock += 1000),
     dispatchReady: () => dispatchReady,
+    ...(checkNow ? { checkNow } : {}),
   };
   const handlers = new Map<string, { run: (o: never) => unknown; scope: string }>();
   for (const [method, run, scope] of [
@@ -118,7 +123,9 @@ describe("schedule methods: registration", () => {
       "nexus.delegation.list",
       "nexus.delegation.carrier",
       "nexus.schedule.get",
+      "nexus.schedule.history",
       "nexus.schedule.list",
+      "nexus.work.followUp",
       "nexus.goal.briefing.get",
     ]) {
       assert.equal(handlers.get(m)?.scope, "operator.read", m);
@@ -127,8 +134,10 @@ describe("schedule methods: registration", () => {
       "nexus.delegation.create",
       "nexus.delegation.update",
       "nexus.delegation.confirm",
+      "nexus.delegation.followStart",
       "nexus.delegation.revoke",
       "nexus.delegation.end",
+      "nexus.schedule.checkNow",
       "nexus.schedule.pause",
       "nexus.schedule.resume",
       "nexus.schedule.cancel",
@@ -343,7 +352,10 @@ describe("schedule methods: the accept flow", () => {
     const id = (await s.call("nexus.delegation.confirm", { planId, expectedPlanVersion: 1 }))
       .payload?.schedules[0].id as string;
     await s.call("nexus.schedule.pause", { scheduleId: id });
-    await s.call("nexus.commitment.cancel", { commitmentId: c, reason: "不做了" });
+    // Closed behind the ledger's back: the gap itself is what is tested (a normal close wraps the plan up instead).
+    s.db
+      .prepare("UPDATE commitments SET lifecycle = 'cancelled', cancelled_at = 1 WHERE id = ?")
+      .run(c);
     const out = await s.call("nexus.schedule.resume", { scheduleId: id });
     assert.equal(out.ok, true);
     assert.equal(out.payload?.outcome, "gaps");
@@ -437,6 +449,256 @@ describe("schedule methods: owners and the goal letter", () => {
     assert.equal(
       (await s.call("nexus.goal.briefing.set", { goalId })).error?.code,
       "nexus_invalid_params",
+    );
+  });
+});
+
+describe("work-level controls and the follow-up read", () => {
+  async function accepted(s: ReturnType<typeof setup>) {
+    const k = kit(s);
+    const workId = await k.work();
+    const c = await k.commitment();
+    const planId = (
+      await s.call("nexus.delegation.create", {
+        workId,
+        planOwnerType: "commitment",
+        planOwnerId: c,
+        purpose: "跟进小王",
+        plan,
+      })
+    ).payload?.plan.id as string;
+    const done = await s.call("nexus.delegation.confirm", { planId, expectedPlanVersion: 1 });
+    return { workId, planId, scheduleId: done.payload?.schedules[0].id as string };
+  }
+
+  it("reads plans, schedules and the last checks of one Work in one call", async () => {
+    const s = setup(true);
+    const a = await accepted(s);
+    const out = await s.call("nexus.work.followUp", { workId: a.workId });
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(out.payload?.dispatchReady, true);
+    assert.equal(out.payload?.plans.length, 1);
+    assert.equal(out.payload?.schedules[0].id, a.scheduleId);
+    assert.ok(Array.isArray(out.payload?.triggers[a.scheduleId]));
+    s.as(B);
+    const other = await s.call("nexus.work.followUp", { workId: a.workId });
+    assert.equal(other.payload?.plans.length, 0, "another owner sees nothing");
+    assert.equal(other.payload?.schedules.length, 0);
+  });
+
+  it("pausing the Work pauses its schedule through nexus.work.control, and resuming brings it back", async () => {
+    const s = setup(true);
+    const a = await accepted(s);
+    const preview = await s.call("nexus.work.control", {
+      workId: a.workId,
+      action: "pause",
+      dryRun: true,
+    });
+    assert.equal(preview.payload?.schedulesToPause.length, 1);
+    const paused = await s.call("nexus.work.control", { workId: a.workId, action: "pause" });
+    assert.equal(paused.payload?.outcome, "applied");
+    const get = async () =>
+      (await s.call("nexus.schedule.get", { scheduleId: a.scheduleId })).payload?.schedule;
+    assert.equal((await get()).status, "paused");
+    assert.equal((await get()).pauseSource, "work_control");
+    const resumed = await s.call("nexus.work.control", { workId: a.workId, action: "resume" });
+    assert.equal(resumed.payload?.outcome, "released");
+    assert.equal(
+      (await get()).status,
+      "active",
+      "the host can start checks, so it comes back active",
+    );
+  });
+
+  it("a check the Work's pause holds cannot be resumed by itself", async () => {
+    const s = setup(true);
+    const a = await accepted(s);
+    await s.call("nexus.work.control", { workId: a.workId, action: "pause" });
+    const refused = await s.call("nexus.schedule.resume", { scheduleId: a.scheduleId });
+    assert.equal(refused.ok, false);
+    assert.equal(refused.error?.code, "nexus_schedule_state");
+    const get = async () =>
+      (await s.call("nexus.schedule.get", { scheduleId: a.scheduleId })).payload?.schedule;
+    assert.equal((await get()).status, "paused");
+    await s.call("nexus.work.control", { workId: a.workId, action: "resume" });
+    assert.equal((await get()).status, "active");
+  });
+
+  it("stop_follow_up cancels the picked schedule and ends the plan that has none left", async () => {
+    const s = setup(true);
+    const a = await accepted(s);
+    const missing = await s.call("nexus.work.control", {
+      workId: a.workId,
+      action: "stop_follow_up",
+    });
+    assert.equal(missing.ok, false);
+    const out = await s.call("nexus.work.control", {
+      workId: a.workId,
+      action: "stop_follow_up",
+      scheduleId: a.scheduleId,
+    });
+    assert.equal(out.payload?.outcome, "follow_up_stopped");
+    assert.equal(out.payload?.planEnded, true);
+    assert.ok(s.changed.some((e) => e.workId === a.workId && e.action === "stop_follow_up"));
+    const plans = (await s.call("nexus.delegation.list", { workId: a.workId })).payload?.plans;
+    assert.equal(plans[0].status, "ended");
+  });
+});
+
+describe("keeping a commitment followed up from the people page", () => {
+  it("creates the carrier Work and accepts the plan in one call, and refuses a second one", async () => {
+    const s = setup(true);
+    const c = await kit(s).commitment();
+    const bad = await s.call("nexus.delegation.followStart", {
+      commitmentId: c,
+      expectedKind: "none",
+      purpose: "跟进",
+      plan,
+    });
+    assert.equal(bad.ok, false, "exactly one of workId or newWorkTitle");
+    const out = await s.call("nexus.delegation.followStart", {
+      commitmentId: c,
+      expectedKind: "none",
+      newWorkTitle: "跟进小王：提交报告",
+      purpose: "跟进小王",
+      plan,
+      requestRef: "ui-follow-1",
+    });
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(out.payload?.outcome, "started");
+    assert.equal(out.payload?.plan.status, "accepted");
+    assert.ok(
+      s.changed.some((e) => e.workId === out.payload?.workId && e.action === "plan_accepted"),
+    );
+    const again = await s.call("nexus.delegation.followStart", {
+      commitmentId: c,
+      expectedKind: "none",
+      newWorkTitle: "又一件",
+      purpose: "跟进小王",
+      plan,
+    });
+    assert.equal(again.ok, false);
+    assert.equal(again.error?.code, "nexus_schedule_state");
+    assert.equal(
+      (await s.call("nexus.work.list", {})).payload?.works.length,
+      1,
+      "no second Work was made",
+    );
+  });
+});
+
+describe("nexus.schedule.checkNow", () => {
+  const started = async (s: ReturnType<typeof setup>) => {
+    const workId = await kit(s).work();
+    const c = await kit(s).commitment();
+    const planId = (
+      await s.call("nexus.delegation.create", {
+        workId,
+        planOwnerType: "commitment",
+        planOwnerId: c,
+        purpose: "跟进",
+        plan,
+      })
+    ).payload?.plan.id as string;
+    const done = await s.call("nexus.delegation.confirm", { planId, expectedPlanVersion: 1 });
+    return { workId, id: done.payload?.schedules[0].id as string };
+  };
+
+  it("needs a schedule id and says plainly when the host cannot run checks", async () => {
+    const s = setup(false);
+    assert.equal((await s.call("nexus.schedule.checkNow", {})).error?.code, "nexus_invalid_params");
+    assert.equal(
+      (await s.call("nexus.schedule.checkNow", { scheduleId: 7 })).error?.code,
+      "nexus_invalid_params",
+    );
+    const out = await s.call("nexus.schedule.checkNow", { scheduleId: "any" });
+    assert.equal(out.ok, true);
+    assert.equal(out.payload?.outcome, "host_unavailable");
+  });
+
+  it("answers every outcome as data, and only an unknown schedule is an error", async () => {
+    const calls: string[] = [];
+    let next: CheckNowResult = { outcome: "started", triggerId: "t-1" };
+    const s = setup(true, async (_p, id) => {
+      calls.push(id);
+      return next;
+    });
+    const { workId, id } = await started(s);
+    s.changed.length = 0;
+    const out = await s.call("nexus.schedule.checkNow", { scheduleId: id });
+    assert.equal(out.payload?.outcome, "started");
+    assert.equal(out.payload?.triggerId, "t-1");
+    assert.deepEqual(calls, [id]);
+    assert.ok(s.changed.some((e) => e.workId === workId && e.action === "check_now"));
+    s.changed.length = 0;
+    next = { outcome: "cooldown", retryAt: 123 };
+    const cool = await s.call("nexus.schedule.checkNow", { scheduleId: id });
+    assert.equal(cool.ok, true);
+    assert.equal(cool.payload?.retryAt, 123);
+    assert.equal(s.changed.length, 0, "a refusal changes nothing, so nothing is announced");
+    next = { outcome: "blocked" };
+    await s.call("nexus.schedule.checkNow", { scheduleId: id });
+    assert.ok(s.changed.some((e) => e.workId === workId && e.action === "schedule"));
+    next = { outcome: "not_found" };
+    assert.equal(
+      (await s.call("nexus.schedule.checkNow", { scheduleId: id })).error?.code,
+      "nexus_not_found",
+    );
+  });
+});
+
+describe("nexus.schedule.history", () => {
+  it("reads the whole history a page at a time, and refuses bad input and other owners", async () => {
+    const s = setup(true);
+    const workId = await kit(s).work();
+    const c = await kit(s).commitment();
+    const planId = (
+      await s.call("nexus.delegation.create", {
+        workId,
+        planOwnerType: "commitment",
+        planOwnerId: c,
+        purpose: "跟进",
+        plan,
+      })
+    ).payload?.plan.id as string;
+    const id = (await s.call("nexus.delegation.confirm", { planId, expectedPlanVersion: 1 }))
+      .payload?.schedules[0].id as string;
+    for (let i = 0; i < 5; i++) {
+      s.kernel.scheduleRecordTrigger({
+        principal: A,
+        scheduleId: id,
+        occurrenceKey: `r${i}`,
+        plannedAt: 7_000_000 + i * 1000,
+        source: "scheduled",
+        outcome: "skipped",
+        skipReason: "previous_check_open",
+        now: 90_000_000 + i,
+      } as never);
+    }
+    const first = await s.call("nexus.schedule.history", { scheduleId: id, limit: 3 });
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(first.payload?.triggers.length, 3);
+    assert.equal(typeof first.payload?.next, "string");
+    const rest = await s.call("nexus.schedule.history", {
+      scheduleId: id,
+      limit: 3,
+      before: first.payload?.next,
+    });
+    assert.equal(rest.payload?.triggers.length, 2);
+    assert.equal(rest.payload?.next, undefined);
+    assert.equal((await s.call("nexus.schedule.history", {})).error?.code, "nexus_invalid_params");
+    assert.equal(
+      (await s.call("nexus.schedule.history", { scheduleId: id, before: 5 })).error?.code,
+      "nexus_invalid_params",
+    );
+    assert.equal(
+      (await s.call("nexus.schedule.history", { scheduleId: id, before: "x" })).error?.code,
+      "nexus_invalid_params",
+    );
+    s.as(B);
+    assert.equal(
+      (await s.call("nexus.schedule.history", { scheduleId: id })).error?.code,
+      "nexus_not_found",
     );
   });
 });

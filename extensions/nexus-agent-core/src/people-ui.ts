@@ -290,7 +290,12 @@ function boxes(
   return lines.length === 0
     ? [`<p class="nx-wempty">${esc(tr(lang, emptyKey))}</p>`]
     : lines.map((line) =>
-        renderCommitmentBox(line, lang, now, withActions, { base, attach: true, linkWho: false }),
+        renderCommitmentBox(line, lang, now, withActions, {
+          base,
+          attach: true,
+          linkWho: false,
+          follow: true,
+        }),
       );
 }
 

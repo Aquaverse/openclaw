@@ -4,6 +4,7 @@ import type { DismissedName, PendingPersonGroup } from "../src/counterpart/types
 // dialog built from the records the page itself loaded (never from the clicked markup, which only carries an id), then
 // calls the existing operator.write RPC. The RPCs stay the authority: they re-check status, revision and authority hash,
 // so a stale dialog can at worst be refused, never wrongly applied.
+import type { FollowUpData } from "../src/follow-ui.js";
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
 import type { PersonActionModel } from "../src/people-ui.js";
 import type { EvidenceBlobView } from "../src/store/blob-types.js";
@@ -33,6 +34,8 @@ import {
   fileSearchDialog,
   fileUploadDialog,
 } from "./files-view.ts";
+import { runFollowAction } from "./follow-dialogs.ts";
+import { runFollowPanel } from "./follow-panel.ts";
 import type { GoalPrefs } from "./goal-prefs.ts";
 import {
   goalCheckAsk,
@@ -65,6 +68,8 @@ export type NexusModel = {
   work?: WorkActionModel;
   /** The commitments that Work (or the person) shows: what the commitment dialogs are built from; absent when commitments are off. */
   commitments?: readonly CommitmentLine[];
+  /** The follow-up plans and schedules that Work shows: what the follow-up dialogs are built from; absent when plans are off. */
+  followUp?: FollowUpData;
   /** The people a commitment can point at (live, confirmed or stated); absent when people are not available. */
   people?: readonly PersonChoice[];
   /** The person the people page shows in its detail pane. */
@@ -557,6 +562,20 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
     case "cm-assist":
     case "cm-joint":
       return runCommitmentAction(ctx, action);
+    case "cm-follow":
+    case "cm-nudge":
+      return runFollowPanel(ctx, action.kind, action.id);
+    case "fu-new":
+    case "fu-start":
+    case "fu-edit":
+    case "fu-skip":
+    case "fu-end":
+    case "fu-history":
+    case "fu-check":
+    case "fu-pause":
+    case "fu-resume":
+    case "fu-stop":
+      return runFollowAction(ctx, action);
     case "pp-new":
     case "pp-edit":
     case "pp-confirm":

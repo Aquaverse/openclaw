@@ -14,6 +14,7 @@ import {
   formValid,
   guarded,
   helpersImpact,
+  plansImpact,
   impactList,
   localInput,
   newRequestId,
@@ -470,6 +471,7 @@ function lifecycleDialog(ctx: ActionContext, line: CommitmentLine, kind: Kind): 
           slot.replaceChildren(
             impactList([
               ...worksImpact(lang, reply.impact),
+              ...plansImpact(lang, reply.impact),
               ...helpersImpact(lang, reply.impact),
               ...(foot ? [{ tone: "note" as const, text: tr(lang, foot) }] : []),
             ]),

@@ -11,7 +11,11 @@ import {
   getSharedCheckState,
   type CheckPromptCtx,
 } from "./schedule/check-runtime.js";
-import { createDispatcher, getSharedDispatcherState } from "./schedule/dispatcher.js";
+import {
+  createDispatcher,
+  getSharedCheckNow,
+  getSharedDispatcherState,
+} from "./schedule/dispatcher.js";
 import { setScheduledDispatchReady } from "./schedule/host-capability.js";
 import type { TaskStore } from "./store/host.js";
 import type { Principal } from "./store/types.js";
@@ -19,6 +23,7 @@ import {
   createScheduleCheckTools,
   SCHEDULE_CHECK_TOOL_NAMES,
 } from "./tools/schedule-check-tools.js";
+import { createSchedulePlanTools, SCHEDULE_PLAN_TOOL_NAMES } from "./tools/schedule-plan-tools.js";
 
 export type ScheduleModuleDeps = {
   api: OpenClawPluginApi;
@@ -85,6 +90,18 @@ export function registerScheduleModule(deps: ScheduleModuleDeps) {
       ),
     { names: [...SCHEDULE_CHECK_TOOL_NAMES], optional: true },
   );
+  api.registerTool(
+    (ctx) =>
+      createSchedulePlanTools(
+        {
+          getStore,
+          resolvePrincipal: principalFor,
+          onProposed: (workId) => workChanged(principalFor(), workId),
+        },
+        ctx,
+      ),
+    { names: [...SCHEDULE_PLAN_TOOL_NAMES], optional: true },
+  );
   // The host's statement of which job runs / ended, and the gate in front of the report tool.
   api.on("cron_changed", async (event) => checks.onCronChanged(event));
   api.on("before_tool_call", async (event, ctx) => checks.beforeToolCall(event, ctx));
@@ -104,6 +121,7 @@ export function registerScheduleModule(deps: ScheduleModuleDeps) {
         return;
       }
       setScheduledDispatchReady(true);
+      getSharedCheckNow().run = dispatcher.checkNow;
       try {
         const synced = await dispatcher.syncHost(true);
         if (synced.unblocked.length > 0) {
@@ -126,6 +144,7 @@ export function registerScheduleModule(deps: ScheduleModuleDeps) {
         timer = undefined;
       }
       setScheduledDispatchReady(false);
+      delete getSharedCheckNow().run;
     },
     dispatcher,
   };
