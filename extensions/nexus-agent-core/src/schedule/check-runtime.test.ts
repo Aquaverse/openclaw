@@ -163,6 +163,44 @@ describe("check turn: authentication", () => {
     assert.deepEqual(again?.toolsAllow, []);
   });
 
+  it("a retry of the same run (same model again, or a fallback model) is still the check turn: same tools and brief", async () => {
+    const w = await world();
+    await w.started();
+    const first = await w.runtime.authenticate({ prompt: w.call.message }, ctx(w.sessionKey));
+    assert.ok(first?.toolsAllow.includes("nexus_schedule_check_report"));
+    const retry = await w.runtime.authenticate({ prompt: w.call.message }, ctx(w.sessionKey));
+    assert.deepEqual(retry?.toolsAllow, first?.toolsAllow);
+    assert.equal(retry?.prependContext, first?.prependContext);
+    assert.equal(retry?.prependSystemContext, first?.prependSystemContext);
+    assert.ok(w.logs.some((m) => /re-authenticated for a retry of the same run/.test(m)));
+    // The trigger was claimed once, and the retried turn can still report.
+    const t = w.triggers(w.f.scheduleId)[0]!;
+    assert.equal(t.turnState, "claimed");
+  });
+
+  it("a retry does not let another run, another trigger or a finished job borrow the grant", async () => {
+    const w = await world();
+    await w.started();
+    await w.runtime.authenticate({ prompt: w.call.message }, ctx(w.sessionKey));
+    const otherRun = await w.runtime.authenticate(
+      { prompt: w.call.message },
+      ctx(w.sessionKey, "run2"),
+    );
+    assert.deepEqual(otherRun?.toolsAllow, []);
+    const otherTrigger = await w.runtime.authenticate(
+      { prompt: w.call.message.replace(w.trigger.id, "tg_OTHER") },
+      ctx(w.sessionKey),
+    );
+    assert.deepEqual(otherTrigger?.toolsAllow, []);
+    await w.runtime.onCronChanged({
+      action: "finished",
+      jobId: w.trigger.turnJobId!,
+      status: "ok",
+    });
+    const afterEnd = await w.runtime.authenticate({ prompt: w.call.message }, ctx(w.sessionKey));
+    assert.deepEqual(afterEnd?.toolsAllow, []);
+  });
+
   it("refuses to run a check whose schedule was paused after the check was fired, and closes it", async () => {
     const w = await world();
     w.k.schedulePause({ principal: A, scheduleId: w.f.scheduleId, source: "user", now: w.now() });

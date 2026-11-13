@@ -39,7 +39,19 @@ export type CheckPromptCtx = {
   agentId?: string;
 };
 
-type Pending = { jobId: string; sessionKey: string; startedAt: number; claimed: boolean };
+type CheckTurnGrant = {
+  prependSystemContext: string;
+  prependContext: string;
+  toolsAllow: string[];
+};
+/** `grant` is what the one authenticated run was given: the same run asking again (a retry) gets it again. */
+type Pending = {
+  jobId: string;
+  sessionKey: string;
+  startedAt: number;
+  claimed: boolean;
+  grant?: { runId: string; triggerId: string; result: CheckTurnGrant };
+};
 
 /** One per process: the host loads the plugin more than once and routes hooks to different registrations. */
 export type CheckSharedState = { pending: Map<string, Pending> };
@@ -188,6 +200,21 @@ export function createCheckRuntime(deps: CheckRuntimeDeps) {
     if (!sessionKey || !principal || !ctx.runId) {
       return failClosed("no session, run or owner");
     }
+    // The host retries a failed model call (same model again, or the next fallback model) as a new prompt build of the SAME run:
+    // that run has already proven it is this job's turn, so it gets the same grant. Another run never does.
+    const sameRun = [...pending.values()].find(
+      (entry) =>
+        entry.claimed &&
+        entry.sessionKey.toLowerCase() === sessionKey.toLowerCase() &&
+        entry.grant?.runId === ctx.runId &&
+        entry.grant.triggerId === triggerId,
+    );
+    if (sameRun?.grant) {
+      deps.logger.info(
+        `nexus: check turn re-authenticated for a retry of the same run (job=${sameRun.jobId} trigger=${triggerId})`,
+      );
+      return { ...sameRun.grant.result, toolsAllow: [...allowedTools] };
+    }
     // The host's `started` event is detached from the run: give it a moment before deciding there is no job.
     const deadline = now() + claimWaitMs;
     let candidates: Pending[] = [];
@@ -227,7 +254,7 @@ export function createCheckRuntime(deps: CheckRuntimeDeps) {
       }
       await deps.recordTrigger?.({ ...ctx, jobId: entry.jobId });
       deps.onChanged?.(claimed.brief.taskId);
-      return {
+      const result: CheckTurnGrant = {
         prependSystemContext: NEXUS_CHECK_PROTOCOL,
         prependContext: renderCheckBrief({
           triggerId: claimed.brief.triggerId,
@@ -243,6 +270,8 @@ export function createCheckRuntime(deps: CheckRuntimeDeps) {
         }),
         toolsAllow: [...allowedTools],
       };
+      entry.grant = { runId: ctx.runId, triggerId, result };
+      return result;
     } catch (error) {
       return failClosed(`store error: ${messageOf(error)}`);
     }

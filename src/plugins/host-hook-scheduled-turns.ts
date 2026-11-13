@@ -5,6 +5,10 @@ import {
 } from "@openclaw/normalization-core/number-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { resolveDefaultAgentId } from "../agents/agent-scope.js";
+import type { AuthProfileAuthorization } from "../agents/auth-profiles/authorization-contract.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import type { CronInferenceBinding } from "../cron/inference-binding.js";
 import type { CronServiceContract } from "../cron/service-contract.js";
 import {
   readCanonicalCronListPage,
@@ -13,6 +17,7 @@ import {
 import type { CronJob, CronJobCreate } from "../cron/types.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
 import {
   deletePluginSessionSchedulerJob,
   registerPluginSessionSchedulerJob,
@@ -166,6 +171,62 @@ async function listAllCronJobsForPluginTagCleanup(
   throw new Error("cron.list pagination exceeded maximum pages");
 }
 
+/** The config may not be published yet (early start, tests): then there is nothing to record, and scheduling goes on. */
+function readPublishedConfig(read: (() => OpenClawConfig | undefined) | undefined) {
+  try {
+    return read?.();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A cron-backed turn runs with the inference account recorded at creation; an unrecorded stored account is refused when it runs.
+ * Record the account the turn's agent would use (default model, normal account order), never a personal account that needs its
+ * owner's authorization. Capture failing keeps the old behavior: the job is added unbound.
+ */
+async function capturePluginTurnInference(params: {
+  cfg: OpenClawConfig;
+  sessionKey: string;
+  agentId?: string;
+}): Promise<{ inferenceBinding?: CronInferenceBinding; dispose: () => void }> {
+  let authority: AuthProfileAuthorization | undefined;
+  try {
+    // Loaded on use: the account store binds native plugin services when it loads, which scheduling itself must not need.
+    const [{ captureCronInferenceBinding }, { isUserModelAuthProfileId }] = await Promise.all([
+      import("../cron/inference-binding.runtime.js"),
+      import("../state/user-model-account-id.js"),
+    ]);
+    const agentId =
+      normalizeOptionalString(params.agentId) ??
+      parseAgentSessionKey(params.sessionKey)?.agentId ??
+      resolveDefaultAgentId(params.cfg);
+    const inferenceBinding = await captureCronInferenceBinding({
+      cfg: params.cfg,
+      agentId,
+      retainAuthorization: (captured) => {
+        authority = captured;
+      },
+      authorizeProfile: async (profileId) => {
+        if (isUserModelAuthProfileId(profileId)) {
+          throw new Error("a personal model account needs its owner's authorization");
+        }
+        return undefined;
+      },
+    });
+    return {
+      ...(inferenceBinding ? { inferenceBinding } : {}),
+      dispose: () => authority?.dispose(),
+    };
+  } catch (error) {
+    authority?.dispose();
+    log.warn(
+      `plugin session turn inference account not recorded (${formatErrorMessage(error)}); the job is added unbound`,
+    );
+    return { dispose: () => undefined };
+  }
+}
+
 export async function schedulePluginSessionTurn(params: {
   pluginId: string;
   pluginName?: string;
@@ -174,6 +235,8 @@ export async function schedulePluginSessionTurn(params: {
   shouldCommit?: () => boolean;
   cron?: CronServiceContract;
   ownerRegistry?: PluginRegistry;
+  /** Reads the published config; when it is missing or not ready, no inference account is recorded (the job is added unbound). */
+  readConfig?: () => OpenClawConfig | undefined;
 }): Promise<PluginSessionSchedulerJobHandle | undefined> {
   if (params.origin !== "bundled") {
     return undefined;
@@ -231,8 +294,16 @@ export async function schedulePluginSessionTurn(params: {
     message,
   };
   let result: Awaited<ReturnType<CronServiceContract["add"]>>;
+  const publishedConfig = readPublishedConfig(params.readConfig);
+  const inference = publishedConfig
+    ? await capturePluginTurnInference({
+        cfg: publishedConfig,
+        sessionKey,
+        ...(params.schedule.agentId ? { agentId: params.schedule.agentId } : {}),
+      })
+    : undefined;
   try {
-    result = await cron.add({
+    const jobCreate: CronJobCreate = {
       name: cronJobName,
       enabled: true,
       schedule: cronSchedule,
@@ -245,10 +316,15 @@ export async function schedulePluginSessionTurn(params: {
         mode: cronDeliveryMode,
         ...(cronDeliveryMode === "announce" ? { channel: "last" } : {}),
       },
-    });
+    };
+    result = inference?.inferenceBinding
+      ? await cron.add(jobCreate, { inferenceBinding: inference.inferenceBinding })
+      : await cron.add(jobCreate);
   } catch (error) {
     logSchedulingFailure(formatErrorMessage(error), cronJobName);
     return undefined;
+  } finally {
+    inference?.dispose();
   }
   const jobId = result.id;
   if (!jobId) {

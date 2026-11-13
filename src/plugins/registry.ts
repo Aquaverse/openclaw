@@ -474,6 +474,8 @@ export function createPluginRegistry(registryOptions: PluginRegistryParams) {
                   cron: getHostCronService(),
                   shouldCommit: shouldCommitWorkflowSideEffect,
                   ownerRegistry: getPluginRecordRegistry(registry, record),
+                  // SAFETY: Scheduling reads the published config without mutating it.
+                  readConfig: () => registryParams.runtime.config?.current?.() as OpenClawConfig,
                 });
               },
               unscheduleSessionTurnsByTag: async (request) => {
