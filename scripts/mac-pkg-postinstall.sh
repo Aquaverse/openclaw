@@ -162,6 +162,56 @@ if [[ ! -x "$OPENCLAW_BIN" ]]; then
 fi
 
 # ---------------------------------------------------------------------
+# Upgrade over an existing install: migrate the state/agent databases.
+# A new CLI refuses to open databases written by an older schema ("uses
+# schema version N; run openclaw doctor --fix"), so without this step the
+# Gateway LaunchAgent started by onboarding below would crash-loop on a
+# machine that already had an older OpenClaw. A fresh machine has no state
+# yet, so nothing runs there. Best-effort like everything else here: a
+# failure is logged and the install continues. Order matters:
+#   1. stop the Gateway (it holds the databases; doctor refuses otherwise),
+#   2. back up the databases (a migrated database cannot be opened by the
+#      older CLI, so this is the only way back),
+#   3. doctor --fix --non-interactive (safe migrations only, no prompts).
+# ---------------------------------------------------------------------
+if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
+  log "==> Existing OpenClaw data found in $PREFIX -- migrating databases before the Gateway starts..."
+  run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+      "$OPENCLAW_BIN" gateway stop >>"$LOG_FILE" 2>&1 \
+    || log "Gateway stop returned non-zero (probably not installed or not running); continuing."
+  # Give a launchd-managed Gateway a moment to release its database locks.
+  /bin/sleep 3
+
+  BACKUP_DIR="$PREFIX/backups/pre-upgrade-$(/bin/date '+%Y%m%d-%H%M%S')"
+  BACKUP_OK=1
+  run_as_console_user /bin/mkdir -p "$BACKUP_DIR" || BACKUP_OK=0
+  if [[ -d "$PREFIX/state" ]]; then
+    run_as_console_user /bin/cp -a "$PREFIX/state" "$BACKUP_DIR/state" >>"$LOG_FILE" 2>&1 || BACKUP_OK=0
+  fi
+  if [[ -d "$PREFIX/agents" ]]; then
+    # Only the databases (and their WAL/SHM files), not session transcripts or media.
+    while IFS= read -r DB_FILE; do
+      REL="${DB_FILE#"$PREFIX"/}"
+      # </dev/null: keep launchctl/sudo from swallowing the loop's file list.
+      run_as_console_user /bin/mkdir -p "$BACKUP_DIR/$(/usr/bin/dirname "$REL")" </dev/null || BACKUP_OK=0
+      run_as_console_user /bin/cp -a "$DB_FILE" "$BACKUP_DIR/$REL" >>"$LOG_FILE" 2>&1 </dev/null || BACKUP_OK=0
+    done < <(/usr/bin/find "$PREFIX/agents" \( -name '*.sqlite' -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \) -type f 2>/dev/null)
+  fi
+
+  if [[ "$BACKUP_OK" == "1" ]]; then
+    log "Database backup written to $BACKUP_DIR"
+    if run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+        "$OPENCLAW_BIN" doctor --fix --non-interactive >>"$LOG_FILE" 2>&1; then
+      log "Database migration (doctor --fix --non-interactive) finished."
+    else
+      log "WARN: doctor --fix --non-interactive failed (see $LOG_FILE above). Backup is in $BACKUP_DIR. The Gateway may not start until 'openclaw doctor --fix' succeeds."
+    fi
+  else
+    log "WARN: could not back up the existing databases to $BACKUP_DIR -- skipping the automatic migration so nothing is changed without a backup. Run 'openclaw doctor --fix' manually after backing up ~/.openclaw."
+  fi
+fi
+
+# ---------------------------------------------------------------------
 # Default AI provider (optional): read the plain installer.env values
 # scripts/build-mac-installer.sh baked into Contents/Resources/
 # default-ai-provider.env, if any -- see installer.env.example. No file,

@@ -76,7 +76,7 @@ set -euo pipefail
 #                          install-cli.sh runs) fall back to downloading
 #                          Node from nodejs.org at install time instead.
 #   OPENCLAW_NODE_VERSION   Node version to bundle/install (default: the
-#                          same 24.19.0 default scripts/install-cli.sh uses).
+#                          same 24.22.1 default scripts/install-cli.sh uses).
 #   SKIP_CLI_BUNDLE=1      Don't bundle this checkout's OpenClaw CLI package --
 #                          installs then fetch openclaw from the npm registry
 #                          (install-cli.sh --version latest) as before, and
@@ -206,7 +206,7 @@ fi
 # script both still work fine without it, install-cli.sh just downloads
 # Node itself at install time like it always did.
 # ---------------------------------------------------------------------
-NODE_VERSION_FOR_BUNDLE="${OPENCLAW_NODE_VERSION:-24.19.0}"
+NODE_VERSION_FOR_BUNDLE="${OPENCLAW_NODE_VERSION:-24.22.1}"
 rm -rf "$APP/Contents/Resources/node-runtime"
 if [[ "${SKIP_NODE_BUNDLE:-0}" == "1" ]]; then
   echo "==> SKIP_NODE_BUNDLE=1 -- not bundling a Node runtime; installs will fetch Node from nodejs.org"
@@ -288,8 +288,15 @@ cp "$ROOT_DIR/scripts/postinstall-bundled-plugins.mjs" "$APP/Contents/Resources/
 # `pnpm mac:installer:wrap` path -- exactly the mismatch that first
 # shipped the "2b" step above without actually being exercised.
 # ---------------------------------------------------------------------
-cp "$ROOT_DIR/scripts/install-cli.sh" "$APP/Contents/Resources/install-cli.sh"
+# install-cli.sh sources scripts/install-policy.sh; only the standalone build
+# (scripts/build-installers.mjs) inlines it, so ship that one, never the raw
+# source file (a raw copy fails with "./install-policy.sh: No such file").
+STANDALONE_INSTALLERS_DIR="$(mktemp -d)"
+node "$ROOT_DIR/scripts/build-installers.mjs" "$STANDALONE_INSTALLERS_DIR"
+[[ -f "$STANDALONE_INSTALLERS_DIR/install-cli.sh" ]] || { echo "ERROR: standalone install-cli.sh was not generated" >&2; exit 1; }
+cp "$STANDALONE_INSTALLERS_DIR/install-cli.sh" "$APP/Contents/Resources/install-cli.sh"
 chmod 0644 "$APP/Contents/Resources/install-cli.sh"
+rm -rf "$STANDALONE_INSTALLERS_DIR"
 # Same reasoning for the llama.cpp fallback setup script: package-mac-app.sh
 # copies it, so a `pnpm mac:installer:wrap`-only run would otherwise ship
 # whatever copy the last full build left in the bundle.
