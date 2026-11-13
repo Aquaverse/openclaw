@@ -166,7 +166,7 @@ final class ConnectionModeCoordinator {
             // recovery), just off the critical path. Local mode only; the
             // remote-with-local-gateway path keeps the original ordering.
             if mode == .local,
-               GatewayAutostartPolicy.shouldEnsureLaunchAgent(
+               GatewayAutostartPolicy.shouldStartGateway(
                    mode: mode, paused: paused, hostsLocalGateway: hostsLocalGateway),
                case .attachedExisting = GatewayProcessManager.shared.status
             {
@@ -179,7 +179,7 @@ final class ConnectionModeCoordinator {
                 return
             }
             var launchAgentInstalled = false
-            if GatewayAutostartPolicy.shouldEnsureLaunchAgent(
+            if GatewayAutostartPolicy.shouldStartGateway(
                 mode: mode, paused: paused, hostsLocalGateway: hostsLocalGateway)
             {
                 traceLog("applyLocalGateway: awaiting ensureLaunchAgentEnabledIfNeeded()")
