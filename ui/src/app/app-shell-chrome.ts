@@ -78,6 +78,7 @@ import {
   type ShellNavigationSurfaces,
 } from "./navigation-surface.ts";
 import { isCustodianPanelAvailable, isHomePanelAvailable } from "./panel-availability.ts";
+import { pluginRouteFoldsNavigation } from "./plugin-nav-fold.ts";
 import { NAV_WIDTH_MAX, NAV_WIDTH_MIN } from "./settings.ts";
 import { retryStaleChunkReloadWhenReachable } from "./stale-chunk-reload.ts";
 
@@ -215,6 +216,12 @@ export class ShellChromeOwner {
           focusWithoutTooltip(target, { preventScroll: true });
         }
       });
+      return;
+    }
+    // A page that folds the list away (plugin-nav-fold.ts) is opened and closed per tab; the saved preference stays.
+    if (!host.navDrawerOpen && pluginRouteFoldsNavigation(host.routeState, context.basePath)) {
+      host.desktopNavigationExpanded = !host.desktopNavigationExpanded;
+      host.invalidate();
       return;
     }
     // A responsive handoff expands this shell without overwriting the desktop preference.
@@ -751,5 +758,6 @@ export class ShellChromeOwner {
     isSettingsTakeover(this.host.routeState.routeId) ||
     (!this.host.navDrawerOpen &&
       !this.host.desktopNavigationExpanded &&
-      (this.host.context?.navigation.snapshot.navCollapsed ?? false));
+      ((this.host.context?.navigation.snapshot.navCollapsed ?? false) ||
+        pluginRouteFoldsNavigation(this.host.routeState, this.host.context?.basePath ?? "")));
 }

@@ -508,18 +508,37 @@ describe("counterpart tools", () => {
     assert.equal(many.counterpartId, undefined);
   });
 
-  it("never shows contact values, searches by name, and rejects bad ids and kinds", async () => {
+  it("shows a live person's contact values to the Agent, withholds an inactive one's, searches by name, and rejects bad ids and kinds", async () => {
     const made = await s.call("nexus.counterpart.create", {
       displayName: "吴总",
-      contacts: [{ type: "phone", value: "13800000000" }],
+      contacts: [{ type: "phone", value: "13800000000", label: "手机" }],
     });
     const id = made.payload?.counterpart.id;
     const got = await s.tool("nexus_counterpart_get", { counterpartId: id });
     assert.equal(got.hasContactInfo, true);
-    assert.equal(JSON.stringify(got).includes("13800000000"), false);
+    assert.deepEqual(got.contacts, [{ type: "phone", label: "手机", value: "13800000000" }]);
     const found = await s.tool("nexus_counterpart_search", { keyword: "吴" });
     assert.equal(found.people[0]?.counterpartId, id);
-    assert.equal(JSON.stringify(found).includes("13800000000"), false);
+    assert.deepEqual(found.people[0]?.contacts, [
+      { type: "phone", label: "手机", value: "13800000000" },
+    ]);
+    // A person with no contact details has no contacts key at all.
+    const bare = await s.call("nexus.counterpart.create", { displayName: "无联系方式者" });
+    const bareGot = await s.tool("nexus_counterpart_get", {
+      counterpartId: bare.payload?.counterpart.id,
+    });
+    assert.equal(bareGot.hasContactInfo, false);
+    assert.equal(bareGot.contacts, undefined);
+    // Once the person is deactivated they are no longer someone to reach: the values are withheld.
+    const stopped = await s.call("nexus.counterpart.deactivate", {
+      counterpartId: id,
+      reason: "不再合作",
+    });
+    assert.equal(stopped.payload?.outcome, "deactivated");
+    const after = await s.tool("nexus_counterpart_get", { counterpartId: id });
+    assert.equal(after.hasContactInfo, true);
+    assert.equal(after.contacts, undefined);
+    assert.equal(JSON.stringify(after).includes("13800000000"), false);
     assert.equal(
       (await s.tool("nexus_counterpart_get", { counterpartId: "../x" })).code,
       "invalid_counterpart_id",

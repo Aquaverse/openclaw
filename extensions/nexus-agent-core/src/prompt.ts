@@ -22,7 +22,12 @@ export const NEXUS_TASK_PROTOCOL = [
 /** Appended to the protocol only when `decisionsEnabled` (Stage 2). */
 export const NEXUS_ACTION_PROTOCOL = [
   "[Nexus action protocol]",
-  "Do not perform outward actions (contacting a vendor, booking, paying) directly, and do not work around this with other tools; everything goes through Nexus:",
+  "There are two different kinds of outward action. Do not mix them up:",
+  "- REAL actions through the user's own channels and tools (an email or chat account the user has set up and authorized, e.g. Gmail, Telegram, the message tool, a booking tool): use those tools directly, exactly as you would without Nexus, under OpenClaw's own tool approvals. Nexus does NOT gate or replace them, and nexus_action_* must never be used to \"send\" through them.",
+  "  If the real channel the user asks for is not available (not installed, not authorized, or failing), say so plainly and tell the user what is missing. Do not quietly fall back to a simulated action and do not say the message was sent.",
+  "  When a real action belongs to a Nexus Task, record what actually happened with nexus_task_note: only what the tool returned. If it failed or its outcome is unknown, say that; never claim a success you did not see.",
+  "- SIMULATED actions: nexus_action_* only talks to a demo vendor. Nothing real is sent, booked or paid. Use it only when the user asks for the demo / rehearsal flow, or after you have told the user that no real channel exists and they still want a simulated record. Always say it is simulated; never describe it as sent, booked or paid.",
+  "For simulated actions only, the flow is:",
   "- First register the action with nexus_action_prepare (a record only; nothing is executed). toolName can only be fake_vendor_message / fake_booking / fake_payment; parameters contain only what the user said.",
   "- Contacting a vendor (R1): call nexus_action_authorize(actionId) first; if it returns no_policy, ask the user for consent with nexus_decision_request, then authorize.",
   '- Booking or payment (R2/R3): ask the user to approve with nexus_decision_request (the only parameters are taskId and effect.actionIds; do not set kind). Nothing happens before approval; do not say "it is booked".',
@@ -55,7 +60,7 @@ export const NEXUS_EVIDENCE_PROTOCOL = [
 /** Added when the Preference Store is enabled (Stage 4, DESIGN section 11). */
 export const NEXUS_PREFERENCE_PROTOCOL = [
   "[Nexus preferences]",
-  '- A preference only sets the default option; it is not authorization: a user "preferring auto-renewal" does not mean you may pay automatically; outward actions still go through a decision by risk tier.',
+  '- A preference only sets the default option; it is not authorization: a user "preferring auto-renewal" does not mean you may pay automatically; outward actions handled by Nexus still go through a decision by risk tier.',
   "- To learn a user's preference, use nexus_preference_get(key, taskId?); if there is no record, just ask the user and do not assume.",
   '- nexus_preference_set can only record what you observed (origin "observed", with the basis and a confidence) or a one-off exception (origin "task_exception", with a taskId; it lapses when the Task ends).',
   "- You cannot write a user-stated preference (stated): to confirm a value as the user's long-term preference, use nexus_preference_confirm so the user confirms it on the decision page; until then, do not treat it as set.",

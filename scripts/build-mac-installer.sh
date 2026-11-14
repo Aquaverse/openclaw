@@ -1043,6 +1043,40 @@ else
     "$COMPONENT_PKG"
   rm -f "$COMPONENT_PLIST"
 
+  # Wrap the component package in a product archive so Installer.app shows a
+  # proper title ("Install Nexus AI" / "Installing Nexus AI"). A bare component
+  # package has no distribution, so Installer falls back to the .pkg file name
+  # ("OpenClaw-<version>-Install"). Only the display title changes: the app
+  # bundle, the install location and the postinstall script are untouched.
+  # Override with PKG_INSTALLER_TITLE=... if needed.
+  PKG_INSTALLER_TITLE="${PKG_INSTALLER_TITLE:-Nexus AI}"
+  PKG_DIST_WORK="$(mktemp -d)"
+  cp "$COMPONENT_PKG" "$PKG_DIST_WORK/component.pkg"
+  cat > "$PKG_DIST_WORK/distribution.xml" <<DISTXML
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>${PKG_INSTALLER_TITLE}</title>
+    <options customize="never" rootVolumeOnly="true"/>
+    <choices-outline>
+        <line choice="default">
+            <line choice="${PKG_BUNDLE_ID}.installer"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="${PKG_BUNDLE_ID}.installer" visible="false" title="${PKG_INSTALLER_TITLE}">
+        <pkg-ref id="${PKG_BUNDLE_ID}.installer"/>
+    </choice>
+    <pkg-ref id="${PKG_BUNDLE_ID}.installer" version="${APP_VERSION}" onConclusion="none" auth="root">component.pkg</pkg-ref>
+</installer-gui-script>
+DISTXML
+  PKG_PRODUCT="$DIST_DIR/.OpenClaw-product.pkg"
+  rm -f "$PKG_PRODUCT"
+  productbuild --distribution "$PKG_DIST_WORK/distribution.xml" \
+    --package-path "$PKG_DIST_WORK" \
+    "$PKG_PRODUCT"
+  rm -rf "$PKG_DIST_WORK" "$COMPONENT_PKG"
+  COMPONENT_PKG="$PKG_PRODUCT"
+
   OUT_PKG="$DIST_DIR/OpenClaw-${APP_VERSION}-Install.pkg"
   rm -f "$OUT_PKG"
   if PKG_IDENTITY="$(select_installer_identity)"; then

@@ -32,6 +32,7 @@ import {
   isDesktopPanelAvailable,
   isHomePanelAvailable,
 } from "./panel-availability.ts";
+import { pluginRouteFoldsNavigation } from "./plugin-nav-fold.ts";
 import { resolveProfileAppearancePrefs } from "./server-prefs-profile.ts";
 import { NAV_WIDTH_MAX, normalizeCatalogOpenTarget } from "./settings.ts";
 import type { ShellLayoutOwner } from "./shell-layout-owner.ts";
@@ -142,7 +143,8 @@ export function readShellView(host: ShellViewHost) {
   // The settings sidebar has a fixed width, so the collapse state pauses too.
   const navCollapsed =
     !nativeEmbed &&
-    navigationSnapshot.navCollapsed &&
+    (navigationSnapshot.navCollapsed ||
+      pluginRouteFoldsNavigation(host.routeState, context.basePath)) &&
     !host.desktopNavigationExpanded &&
     !navDrawerOpen &&
     !settingsTakeover;

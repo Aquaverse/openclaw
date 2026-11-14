@@ -1,6 +1,7 @@
 // Agent tools for people (design 7.3, 10.3, slice W3a): nexus_counterpart_ensure / get / search. The Agent names a person the user
-// mentioned and reads the records; it never confirms an identity, merges, deactivates, claims a Commitment for someone or sees
-// a contact value. A name is not a key: several people with one name come back as candidates for the user to choose.
+// mentioned and reads the records; it never confirms an identity, merges, deactivates or claims a Commitment for someone, and it
+// cannot write a contact value. It DOES read the contact details of a live person (the user stored them for this purpose; an
+// inactive person's are withheld). A name is not a key: several people with one name come back as candidates for the user to choose.
 import { Type } from "typebox";
 import type { AnyAgentTool } from "../../api.js";
 import {
@@ -38,7 +39,7 @@ function fail(code: string, message: string) {
   };
 }
 
-/** What the Agent sees: who, how sure Nexus is, and the open-promise counts; never contact values or the user's notes. */
+/** What the Agent sees: who, how sure Nexus is, the open-promise counts and, for a live person, how to reach them; never the user's notes. */
 function view(c: CounterpartRecord | CounterpartSummary) {
   const counts = "unresolved" in c ? { unresolved: c.unresolved, overdue: c.overdue } : {};
   return {
@@ -49,6 +50,16 @@ function view(c: CounterpartRecord | CounterpartSummary) {
     confirmedByUser: c.confirmation === "confirmed",
     active: c.lifecycle === "live",
     hasContactInfo: c.contacts.length > 0,
+    // Only a live person's contact details: an inactive or merged person is no longer someone to reach.
+    ...(c.lifecycle === "live" && c.contacts.length > 0
+      ? {
+          contacts: c.contacts.map((contact) => ({
+            type: contact.type,
+            label: contact.label,
+            value: contact.value,
+          })),
+        }
+      : {}),
     ...counts,
   };
 }
@@ -84,7 +95,7 @@ export function createCounterpartTools(
       name: "nexus_counterpart_ensure",
       label: "Nexus: name a person",
       description:
-        "Look up a person the user mentioned by the name the user used, or note a new one. One match: you get that person. Several people share the name: you get the candidates back and MUST ask the user which one; never pick. No match: a new record is created that the user has only STATED, tied to their words in userStatementRef. You cannot confirm who someone is, merge people, or store contact details.",
+        "Look up a person the user mentioned by the name the user used, or note a new one. One match: you get that person. Several people share the name: you get the candidates back and MUST ask the user which one; never pick. No match: a new record is created that the user has only STATED, tied to their words in userStatementRef. You cannot confirm who someone is, merge people, or store contact details. If the person has contact details the user saved, they come back in contacts.",
       parameters: Type.Object({
         name: Type.String({
           description: `The name exactly as the user used it, at most ${COUNTERPART_LIMITS.name} characters.`,
@@ -171,7 +182,7 @@ export function createCounterpartTools(
       name: "nexus_counterpart_get",
       label: "Nexus: read a person",
       description:
-        "Read one person record by id: name, kind, relation, whether the user confirmed it, and how many open or overdue promises they owe. Contact details are not shown to you.",
+        "Read one person record by id: name, kind, relation, whether the user confirmed it, how many open or overdue promises they owe, and the contact details the user saved for them (contacts: type, label, value). Reading a contact is not permission to message anyone.",
       parameters: Type.Object({
         counterpartId: Type.String({ description: "A person id such as cp_ABC123." }),
       }),
@@ -194,7 +205,7 @@ export function createCounterpartTools(
       name: "nexus_counterpart_search",
       label: "Nexus: find people",
       description:
-        "Find known people by a word in their name or alias, most in need of attention first. Use it before naming someone new, and to see who has overdue promises.",
+        "Find known people by a word in their name or alias, most in need of attention first (each with the contact details the user saved, if any). Use it before naming someone new, and to see who has overdue promises.",
       parameters: Type.Object({
         keyword: Type.Optional(Type.String({ description: "A word or part of a name." })),
         limit: Type.Optional(Type.Number({ description: "At most 20; default 8." })),

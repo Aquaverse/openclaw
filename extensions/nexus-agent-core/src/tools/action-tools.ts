@@ -152,7 +152,7 @@ export function createActionTools(deps: ActionToolDeps, ctx: ToolContext): AnyAg
       name: "nexus_action_prepare",
       label: "Nexus: register a candidate action",
       description:
-        "Register an external action you want to do (contact a vendor, book, pay) on a Task. This only RECORDS the action: nothing is sent, booked or paid. The server decides the risk tier from toolName and returns an actionId plus the next step. Parameters must come from what the user stated; never guess vendor names, dates or amounts.",
+        "Register a SIMULATED external action (demo vendor message, booking or payment) on a Task. Nothing real is sent, booked or paid, and this is NOT the way to send email or chat messages through the user's real accounts: for those, use the user's own channel tools directly. This only RECORDS the action. The server decides the risk tier from toolName and returns an actionId plus the next step. Parameters must come from what the user stated; never guess vendor names, dates or amounts.",
       parameters: Type.Object({
         taskId: Type.String({ description: "Explicit Task id." }),
         toolName: Type.Union(FAKE_TOOL_NAMES.map((name) => Type.Literal(name))),
