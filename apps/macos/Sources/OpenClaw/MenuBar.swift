@@ -732,9 +732,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func scheduleFirstRunOnboardingIfNeeded() async {
-        if await OnboardingController.shared.startFirstRunIfFresh() {
-            return
-        }
         let connectionMode = AppStateStore.shared.connectionMode
         let onboardingSeen = AppStateStore.shared.onboardingSeen
         // connectionMode/onboardingSeen live in UserDefaults keyed by bundle
@@ -775,9 +772,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func scheduleFirstRunOnboardingPresentation() {
-        let seenVersion = AppDefaults.standard.integer(forKey: onboardingVersionKey)
-        let shouldShow = seenVersion < currentOnboardingVersion || !AppStateStore.shared.onboardingSeen
-        guard shouldShow else { return }
         OnboardingFirstRun.presentIfNeeded(
             connectionMode: AppStateStore.shared.connectionMode,
             onboardingSeen: AppStateStore.shared.onboardingSeen,

@@ -117,7 +117,7 @@ export function renderSidebarRail(host: AppSidebarRenderHost): JSX.Element {
                     aria-label={viewLabel(view)}
                     aria-pressed={
                       host.navigationVisible &&
-                    !host.onExitSettings &&
+                      !host.onExitSettings &&
                       !host.navigationCollapsed &&
                       host.navigationView === view
                         ? "true"
@@ -126,9 +126,9 @@ export function renderSidebarRail(host: AppSidebarRenderHost): JSX.Element {
                     onClick={() => {
                       const active = host.navigationView === view;
                       host.navigationView = view;
-                    if (host.onExitSettings) {
-                      host.onExitSettings();
-                    } else if (
+                      if (host.onExitSettings) {
+                        host.onExitSettings();
+                      } else if (
                         !isMobileNavLayout() &&
                         ((active && view !== "online") || host.navigationCollapsed)
                       ) {

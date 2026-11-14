@@ -1218,11 +1218,6 @@ install_openclaw() {
 
   publish_executable_wrapper "${PREFIX}/bin/openclaw" \
     "${PREFIX}/tools/node/bin/node" "$(node_dir)/lib/node_modules/openclaw/dist/entry.js"
-  publish_executable_wrapper "${PREFIX}/bin/openclaw" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-exec "${PREFIX}/tools/node/bin/node" "$(node_dir)/lib/node_modules/openclaw/dist/entry.js" "\$@"
-EOF
   # Record which bundled package is installed. An app bundle rebuilt from a
   # newer checkout keeps the same version string (only the commit differs),
   # so the app compares this sha256 -- not the version -- to decide whether an
