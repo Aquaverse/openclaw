@@ -734,6 +734,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func scheduleFirstRunOnboardingIfNeeded() async {
         let connectionMode = AppStateStore.shared.connectionMode
         let onboardingSeen = AppStateStore.shared.onboardingSeen
+        let gateDiagnostics = await CLIInstaller.launchGateDiagnostics()
+        traceLog("scheduleFirstRunOnboardingIfNeeded: connectionMode=\(connectionMode) onboardingSeen=\(onboardingSeen) \(gateDiagnostics)")
         // connectionMode/onboardingSeen live in UserDefaults keyed by bundle
         // id, which survives deleting OpenClaw.app and reinstalling a fresh
         // copy in its place (macOS does not clear a bundle id's preferences

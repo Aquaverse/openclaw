@@ -279,7 +279,23 @@ enum CLIInstaller {
     private static func bundledStatus() -> Status {
         let location = self.managedExecutableLocation()
         do {
-            guard let runtime = try BundledRuntime.seeded() else { return .missing(location: location) }
+            guard let runtime = try BundledRuntime.seeded() else {
+                // No seeded runtime (<state>/runtime/current). A pkg install never
+                // creates one: scripts/mac-pkg-postinstall.sh provisions the CLI
+                // package under <prefix> with install-cli.sh and installs the Gateway
+                // LaunchAgent against it, and the app then attaches to that Gateway.
+                // Reporting that as "missing" made every launch re-run the whole
+                // setup pipeline (progress panel + forced Gateway restart). Treat it
+                // as ready when the managed CLI is on disk and install-cli.sh's
+                // marker says it is this app build's bundled package.
+                let appVersion = GatewayEnvironment.appVersionString() ?? "unknown"
+                if FileManager.default.isExecutableFile(atPath: location),
+                   !self.bundledCLIPackageNeedsInstall(installedVersion: appVersion)
+                {
+                    return .ready(location: location, version: appVersion)
+                }
+                return .missing(location: location)
+            }
             _ = try BundledRuntime.resolve(root: runtime.root, bundle: .main)
             let version = GatewayEnvironment.appVersionString() ?? "unknown"
             return .ready(location: runtime.packageRoot.appendingPathComponent("openclaw.mjs").path, version: version)
@@ -518,6 +534,51 @@ enum CLIInstaller {
         let installedSHA256 = (try? String(contentsOf: markerURL, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return installedSHA256 != bundledSHA256
+    }
+
+    /// Marks this app build's bundled CLI package as handled. In a bundled-runtime
+    /// app, install() runs the app's own preparation instead of install-cli.sh, so
+    /// nothing else ever writes <prefix>/.bundled-cli-package.sha256 -- and
+    /// bundledCLIPackageNeedsInstall() would then stay true on every launch,
+    /// re-running the whole setup pipeline (progress panel included) each time.
+    /// Call this once that pipeline has completed. A no-op outside bundled apps
+    /// (install-cli.sh records the marker itself there) and for builds without a
+    /// bundled CLI package.
+    @discardableResult
+    static func recordBundledCLIPackageSetupCompleted() -> Bool {
+        guard BundledRuntime.isBundledApp, let sha256 = self.bundledCLIPackage()?.sha256 else { return false }
+        let prefix = URL(fileURLWithPath: self.installPrefix())
+        do {
+            try FileManager.default.createDirectory(at: prefix, withIntermediateDirectories: true)
+            try (sha256 + "\n").write(
+                to: prefix.appendingPathComponent(".bundled-cli-package.sha256"),
+                atomically: true,
+                encoding: .utf8)
+            return true
+        } catch {
+            traceLog("recordBundledCLIPackageSetupCompleted: write failed: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// One line describing every input of the launch-time "is setup already done?" gate
+    /// (managed CLI status, bundled package version/sha, recorded marker sha), for
+    /// launch-trace.log only. Lets a report of "the setup panel shows on every launch"
+    /// say which clause of the gate keeps failing.
+    static func launchGateDiagnostics() async -> String {
+        let status = await self.managedStatus()
+        let package = self.bundledCLIPackage()
+        let markerURL = URL(fileURLWithPath: self.installPrefix())
+            .appendingPathComponent(".bundled-cli-package.sha256")
+        let marker = (try? String(contentsOf: markerURL, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var needsInstall = "n/a (status not ready)"
+        if case let .ready(_, version) = status {
+            needsInstall = String(self.bundledCLIPackageNeedsInstall(installedVersion: version))
+        }
+        return "status=\(status) bundledPackageVersion=\(package?.version ?? "nil") " +
+            "bundledPackageSHA=\(package?.sha256 ?? "nil") markerSHA=\(marker ?? "nil") " +
+            "needsInstall=\(needsInstall) prefix=\(self.installPrefix())"
     }
 
     private static func bundledNodeTarballEnv() -> [String: String]? {

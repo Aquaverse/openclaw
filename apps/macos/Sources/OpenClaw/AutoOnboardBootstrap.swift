@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Observation
 import SwiftUI
 
@@ -87,6 +88,8 @@ final class AutoOnboardBootstrap {
         defer { self.isProvisioning = false }
         self.logger.notice("runIfEligible: entered")
         traceLog("runIfEligible: entered")
+        let gateDiagnostics = await CLIInstaller.launchGateDiagnostics()
+        traceLog("runIfEligible: gate \(gateDiagnostics)")
 
         // A kept ~/.openclaw whose CLI came from an older bundle (or the npm
         // registry, at the same or an older version) is not "ready" for this
@@ -139,9 +142,14 @@ final class AutoOnboardBootstrap {
             // process activateLocalGateway() attaches to or starts next
             // reads the already-correct config from its own first boot.
             if let provider = Self.bundledDefaultProvider() {
-                traceLog("runIfEligible: fast path re-applying bundled default provider")
-                let applied = await Self.applyDefaultProvider(provider)
-                traceLog("runIfEligible: fast path applyDefaultProvider() returned \(applied)")
+                if Self.defaultProviderNeedsApply(provider) {
+                    traceLog("runIfEligible: fast path applying bundled default provider (first launch of this install/upgrade)")
+                    let applied = await Self.applyDefaultProvider(provider)
+                    traceLog("runIfEligible: fast path applyDefaultProvider() returned \(applied)")
+                    if applied { Self.recordDefaultProviderApplied(provider) }
+                } else {
+                    traceLog("runIfEligible: fast path bundled default provider already applied for this install -- skipping")
+                }
             } else {
                 traceLog("runIfEligible: fast path found no bundled default provider -- skipping")
             }
@@ -227,9 +235,14 @@ final class AutoOnboardBootstrap {
         // nothing left running beforehand.
         if let provider = Self.bundledDefaultProvider() {
             traceLog("runIfEligible: bundledDefaultProvider() found provider id=\(provider.id ?? "nil"), baseURL=\(provider.baseURL), modelID=\(provider.modelID), hasAPIKey=\(provider.apiKey != nil)")
-            self.status.step = String(localized: "Configuring default model…")
-            let applied = await Self.applyDefaultProvider(provider)
-            traceLog("runIfEligible: applyDefaultProvider() returned \(applied)")
+            if Self.defaultProviderNeedsApply(provider) {
+                self.status.step = String(localized: "Configuring default model…")
+                let applied = await Self.applyDefaultProvider(provider)
+                traceLog("runIfEligible: applyDefaultProvider() returned \(applied)")
+                if applied { Self.recordDefaultProviderApplied(provider) }
+            } else {
+                traceLog("runIfEligible: bundled default provider already applied for this install -- skipping")
+            }
         } else {
             traceLog("runIfEligible: bundledDefaultProvider() found no provider (missing/unreadable default-ai-provider.env, or empty baseURL/modelID) -- skipping default model configuration")
         }
@@ -270,6 +283,11 @@ final class AutoOnboardBootstrap {
             return false
         }
 
+        // This app build's setup has now run to completion; record it so the
+        // next launch takes the fast path instead of repeating this pipeline
+        // (and its progress panel) forever. See the function's doc comment.
+        let recordedCLIMarker = CLIInstaller.recordBundledCLIPackageSetupCompleted()
+        traceLog("runIfEligible: recordBundledCLIPackageSetupCompleted() returned \(recordedCLIMarker)")
         AppStateStore.shared.onboardingSeen = true
         AppNavigationActions.openChat()
         Self.launchLlamaFallbackSetupInBackground()
@@ -356,6 +374,10 @@ final class AutoOnboardBootstrap {
         let baseURL: String
         let modelID: String
         let apiKey: String?
+        /// SHA-256 (hex) of default-ai-provider.env's bytes. Part of the
+        /// "already applied" marker below, so a rebuilt installer with a
+        /// different default model is applied again, an unchanged one never is.
+        let fingerprint: String
     }
 
     private static func bundledDefaultProvider() -> DefaultProvider? {
@@ -379,11 +401,50 @@ final class AutoOnboardBootstrap {
         }
         let providerID = values["DEFAULT_AI_PROVIDER"]
         let apiKey = values["DEFAULT_AI_API_KEY"]
+        let fingerprint = SHA256.hash(data: Data(contents.utf8)).map { String(format: "%02x", $0) }.joined()
         return DefaultProvider(
             id: (providerID?.isEmpty ?? true) ? nil : providerID,
             baseURL: baseURL,
             modelID: modelID,
-            apiKey: (apiKey?.isEmpty ?? true) ? nil : apiKey)
+            apiKey: (apiKey?.isEmpty ?? true) ? nil : apiKey,
+            fingerprint: fingerprint)
+    }
+
+    // MARK: Applied marker
+    //
+    // The bundled default provider is written to the user's config exactly
+    // once per installed build: by scripts/mac-pkg-postinstall.sh for a pkg
+    // install/upgrade, or by the first launch after a dmg install/upgrade.
+    // <prefix>/.default-provider-applied records "<env sha256>:<bundled CLI
+    // package sha256>" once that has happened (the postinstall writes the same
+    // value). Every later launch finds the marker and skips the step -- no
+    // progress text, no `openclaw onboard` -- so a model the user switched to
+    // afterwards is never overridden again until the next install/upgrade.
+
+    private static func defaultProviderMarkerURL() -> URL {
+        URL(fileURLWithPath: CLIInstaller.installPrefix()).appendingPathComponent(".default-provider-applied")
+    }
+
+    private static func defaultProviderMarkerValue(_ provider: DefaultProvider) -> String {
+        "\(provider.fingerprint):\(CLIInstaller.bundledCLIPackage()?.sha256 ?? "none")"
+    }
+
+    private static func defaultProviderNeedsApply(_ provider: DefaultProvider) -> Bool {
+        let stored = (try? String(contentsOf: self.defaultProviderMarkerURL(), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stored != self.defaultProviderMarkerValue(provider)
+    }
+
+    private static func recordDefaultProviderApplied(_ provider: DefaultProvider) {
+        let url = self.defaultProviderMarkerURL()
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try (self.defaultProviderMarkerValue(provider) + "\n").write(to: url, atomically: true, encoding: .utf8)
+            traceLog("recordDefaultProviderApplied: wrote \(url.path)")
+        } catch {
+            traceLog("recordDefaultProviderApplied: write failed: \(error.localizedDescription)")
+        }
     }
 
     /// Shells out to the just-installed CLI's own `openclaw onboard
@@ -399,6 +460,19 @@ final class AutoOnboardBootstrap {
     /// activateLocalGateway() below is solely responsible for starting (or
     /// restarting) the Gateway, and does so only after this config write
     /// has already landed on disk.
+    /// True when `models.providers` in the user's config already has an entry
+    /// with this base URL and a credential (the CLI prints secrets redacted,
+    /// but the `apiKey` key itself is still present).
+    private static func providerAlreadyConfigured(_ provider: DefaultProvider, executable: String) async -> Bool {
+        let command = AppProfile.current.localCLICommand(
+            prefix: [executable], arguments: ["config", "get", "models.providers", "--json"])
+        let result = await ShellExecutor.runDetailed(command: command, cwd: nil, env: nil, timeout: 30)
+        guard result.success else { return false }
+        let out = result.stdout
+        let normalizedURL = provider.baseURL.hasSuffix("/") ? String(provider.baseURL.dropLast()) : provider.baseURL
+        return out.contains(normalizedURL) && out.contains("\"apiKey\"")
+    }
+
     private static func applyDefaultProvider(_ provider: DefaultProvider) async -> Bool {
         let executable = CLIInstaller.managedExecutableLocation()
         guard FileManager.default.isExecutableFile(atPath: executable) else {
@@ -430,8 +504,18 @@ final class AutoOnboardBootstrap {
         // resolveNonInteractiveApiKey; local/auth-choice.ts).
         // ShellExecutor treats a non-nil env as a full replacement
         // (.custom), so start from this process's environment.
+        // Re-applying over a config that already holds this provider (upgrade,
+        // or a launch whose marker was lost): do NOT hand onboard the key
+        // again. With a key in hand onboard treats an already-credentialed
+        // provider as a "replacement", saves an inactive `<provider>:setup-<uuid>`
+        // profile and exits non-zero ("Replacement credential saved but
+        // inactive"), so the default model was never applied and the step
+        // reran on every launch. Without a key it keeps the stored credential,
+        // upserts the model and makes it primary -- other providers/models stay.
+        let alreadyConfigured = await Self.providerAlreadyConfigured(provider, executable: executable)
+        traceLog("applyDefaultProvider: providerAlreadyConfigured=\(alreadyConfigured)")
         var environment: [String: String]? = nil
-        if let apiKey = provider.apiKey, !apiKey.isEmpty {
+        if !alreadyConfigured, let apiKey = provider.apiKey, !apiKey.isEmpty {
             var merged = ProcessInfo.processInfo.environment
             merged["CUSTOM_API_KEY"] = apiKey
             environment = merged

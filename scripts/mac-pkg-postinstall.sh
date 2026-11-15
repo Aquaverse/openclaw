@@ -21,6 +21,11 @@
 
 set -uo pipefail
 
+# Installer.app starts this script inside its own temporary sandbox directory, which is removed if the
+# installer is cancelled or closed. A long step (the database migration below can take many minutes)
+# would then fail with "ENOENT: process.cwd failed ... uv_cwd". Run from a directory that always exists.
+cd / || true
+
 LOG_FILE="/var/log/openclaw-installer-postinstall.log"
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE" >/dev/null
@@ -177,7 +182,7 @@ fi
 if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
   log "==> Existing OpenClaw data found in $PREFIX -- migrating databases before the Gateway starts..."
   run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-      "$OPENCLAW_BIN" gateway stop >>"$LOG_FILE" 2>&1 \
+      "$OPENCLAW_BIN" gateway stop --force >>"$LOG_FILE" 2>&1 \
     || log "Gateway stop returned non-zero (probably not installed or not running); continuing."
   # Give a launchd-managed Gateway a moment to release its database locks.
   /bin/sleep 3
@@ -209,6 +214,7 @@ if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
   else
     log "WARN: could not back up the existing databases to $BACKUP_DIR -- skipping the automatic migration so nothing is changed without a backup. Run 'openclaw doctor --fix' manually after backing up ~/.openclaw."
   fi
+
 fi
 
 # ---------------------------------------------------------------------
@@ -258,6 +264,23 @@ else
   log "No default AI provider baked into this build -- setting up the Gateway/daemon only; the app will still ask for a model on first launch."
 fi
 
+# Upgrade / reinstall over an existing config: if the user's config already
+# holds this provider (same base URL, with a credential), do not hand onboard
+# the key again -- it would treat that as a "replacement credential", save an
+# inactive <provider>:setup-<uuid> profile and exit non-zero without applying
+# the default model. Without the key onboard keeps the stored credential,
+# upserts the model and makes it primary; other providers/models are kept.
+if [[ -n "$ONBOARD_KEY_FILE" ]]; then
+  EXISTING_PROVIDERS="$(run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+      "$OPENCLAW_BIN" config get models.providers --json 2>/dev/null || true)"
+  AI_BASE_URL_TRIMMED="${AI_BASE_URL%/}"
+  if [[ "$EXISTING_PROVIDERS" == *"$AI_BASE_URL_TRIMMED"* && "$EXISTING_PROVIDERS" == *'"apiKey"'* ]]; then
+    log "Default AI provider already configured for $AI_BASE_URL -- re-applying the default model without re-sending the API key."
+    /bin/rm -f "$ONBOARD_KEY_FILE"
+    ONBOARD_KEY_FILE=""
+  fi
+fi
+
 log "==> Running non-interactive onboarding (installs the Gateway LaunchAgent)..."
 ONBOARD_OK=0
 # shellcheck disable=SC2016 # expanded by the inner (console-user) bash
@@ -268,6 +291,19 @@ run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" 
 [[ -n "$ONBOARD_KEY_FILE" ]] && /bin/rm -f "$ONBOARD_KEY_FILE"
 if [[ "$ONBOARD_OK" == "1" ]]; then
   log "Onboarding finished."
+  # The bundled default provider was just written (install and upgrade alike;
+  # other providers/models in the user's config are kept, only the default model
+  # is pointed at it). Record that, so the app does not apply it again on its
+  # first launch or on any later one. Must match AutoOnboardBootstrap's
+  # defaultProviderMarkerValue(): "<sha256 of default-ai-provider.env>:<bundled
+  # CLI package sha256, or 'none'>".
+  if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
+    ENV_SHA256="$(/usr/bin/shasum -a 256 "$ENV_FILE" | /usr/bin/awk '{print $1}')"
+    DEFAULT_PROVIDER_MARKER="${ENV_SHA256}:${CLI_PACKAGE_TGZ_SHA256:-none}"
+    run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+        /bin/bash -c 'printf "%s\n" "$1" > "$2"' _ "$DEFAULT_PROVIDER_MARKER" "$PREFIX/.default-provider-applied" >>"$LOG_FILE" 2>&1 \
+      || log "WARN: could not record the default provider marker (non-fatal; the app may apply it once more on first launch)."
+  fi
 else
   log "WARN: non-interactive onboarding failed (see $LOG_FILE above) -- first launch will fall back to the app's own onboarding UI."
   exit 0
