@@ -243,7 +243,7 @@ describe("Pages navigation identity", () => {
     expect(daily.row.isConnected).toBe(false);
   });
 
-  it("places plugin destinations that declare a rail slot directly below the Sessions button", async () => {
+  it("places plugin destinations that declare a rail slot beside the Sessions avatar", async () => {
     const state = await fixture();
     const { sidebar } = state;
     const railItem = (id: string, label: string, order: number) => ({
@@ -267,7 +267,9 @@ describe("Pages navigation identity", () => {
       ...views.querySelectorAll<HTMLElement>("[data-navigation-view],[data-rail-navigation]"),
     ].map((node) => node.dataset.navigationView ?? node.dataset.railNavigation);
     // The ordinary destination ("fleet/overview") declares no rail slot and stays out of the rail.
-    expect(order).toEqual(["pages", "sessions", "fleet/a", "fleet/b", "online"]);
+    // Rail destinations sit above the People button, sorted by order; Pages/Sessions are no longer
+    // buttons in this view (Sessions is the avatar above it, Pages lives in the "more" menu).
+    expect(order).toEqual(["fleet/a", "fleet/b", "online"]);
     // The Pages list does not repeat the rail destinations, and still lists the ordinary one.
     expect(pageRow(sidebar, "plugin:fleet/a")).toBeNull();
     expect(pageRow(sidebar, "plugin:fleet/b")).toBeNull();

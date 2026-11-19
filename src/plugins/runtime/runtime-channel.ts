@@ -116,10 +116,6 @@ const dispatchLowLevelChannelReplyFromConfig = createLazyRuntimeMethod(
   createLazyRuntimeModule(() => import("../../auto-reply/reply/dispatch-from-config.js")),
   (runtime) => runtime.dispatchLowLevelChannelReplyFromConfig,
 );
-const dispatchReplyWithBufferedBlockDispatcherCore = createLazyRuntimeMethod(
-  createLazyRuntimeModule(() => import("../../auto-reply/reply/provider-dispatcher.js")),
-  (runtime) => runtime.dispatchReplyWithBufferedBlockDispatcherCore,
-);
 // The directory-backed destination resolver is only needed when a plugin sends to a named destination.
 const loadOutboundTargetResolver = createLazyRuntimeModule(
   () => import("../../infra/outbound/target-resolver.js"),

@@ -245,9 +245,9 @@ export function renderSidebarRail(host: AppSidebarRenderHost): JSX.Element {
     );
   });
   const standsForSection = (key: string) => !sectionsYielding().has(key);
-  return [
-  const views = ["pages", "sessions", "online"] as const;
-  // Plugin destinations that declare `rail: "sessions"` sit directly below the Sessions button, in their own order.
+  // Plugin destinations that declare `rail: "sessions"` sit just below the Sessions avatar
+  // (the agent card) and above the People button, in their own order. They are a plugin-declared
+  // placement, not user pins, so they never enter sidebarEntries.
   const railNavigationKeys = createMemo(() =>
     host
       .pluginNavigation()
@@ -260,13 +260,7 @@ export function renderSidebarRail(host: AppSidebarRenderHost): JSX.Element {
   );
   const railNavigationLabel = (key: string) =>
     host.pluginNavigation().find((entry) => entry.key === key)?.value.label ?? "";
-  const viewLabel = (view: (typeof views)[number]) =>
-    view === "pages"
-      ? t("nav.pages")
-      : view === "sessions"
-        ? titleForRoute("sessions")
-        : t("presence.usersTitle");
-  return (
+  return [
     <nav
       ref={elementRef((element: HTMLElement) => attachRailPeek(host, element))}
       class="sidebar-rail"
@@ -276,12 +270,39 @@ export function renderSidebarRail(host: AppSidebarRenderHost): JSX.Element {
     >
       {renderSidebarAgentCard(host)}
       <div class="sidebar-rail__views">
+        <For each={railNavigationKeys()}>
+          {(key) => (
+            <openclaw-tooltip prop:content={railNavigationLabel(key)}>
+              <div
+                class="sidebar-rail__pin sidebar-rail__navigation"
+                data-rail-navigation={key}
+                onClick={(event) => {
+                  // These destinations bring their own list, so the conversation panel steps aside (it
+                  // never opens a closed panel; the Sessions avatar above expands it again).
+                  if (
+                    !isMobileNavLayout() &&
+                    !host.navigationCollapsed &&
+                    event.button === 0 &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    host.onToggleSidebar?.();
+                  }
+                }}
+              >
+                <openclaw-plugin-contributions
+                  prop:kind={"navigation"}
+                  prop:navigationKey={key}
+                  prop:navigationChildren={false}
+                  prop:navigationMenus={host.sidebarMenus}
+                />
+              </div>
+            </openclaw-tooltip>
+          )}
+        </For>
         <openclaw-tooltip prop:content={t("presence.peopleTitle")}>
-        <For each={views}>
-          {(view) => {
-            return (
-              <>
-                <openclaw-tooltip prop:content={viewLabel(view)}>
           <button
             ref={[
               elementRef((element: HTMLButtonElement) => {
@@ -316,44 +337,6 @@ export function renderSidebarRail(host: AppSidebarRenderHost): JSX.Element {
             <Icon name="users" filled={peoplePressed()} />
           </button>
         </openclaw-tooltip>
-                <Show when={view === "sessions"}>
-                  <For each={railNavigationKeys()}>
-                    {(key) => (
-                      <openclaw-tooltip prop:content={railNavigationLabel(key)}>
-                        <div
-                          class="sidebar-rail__pin sidebar-rail__navigation"
-                          data-rail-navigation={key}
-                          onClick={(event) => {
-                            // These destinations bring their own list, so the conversation panel steps aside (it
-                            // never opens a closed panel; the Sessions button above expands it again).
-                            if (
-                              !isMobileNavLayout() &&
-                              !host.navigationCollapsed &&
-                              event.button === 0 &&
-                              !event.metaKey &&
-                              !event.ctrlKey &&
-                              !event.shiftKey &&
-                              !event.altKey
-                            ) {
-                              host.onToggleSidebar?.();
-                            }
-                          }}
-                        >
-                          <openclaw-plugin-contributions
-                            prop:kind={"navigation"}
-                            prop:navigationKey={key}
-                            prop:navigationChildren={false}
-                            prop:navigationMenus={host.sidebarMenus}
-                          />
-                        </div>
-                      </openclaw-tooltip>
-                    )}
-                  </For>
-                </Show>
-              </>
-            );
-          }}
-        </For>
       </div>
       <div
         class={[

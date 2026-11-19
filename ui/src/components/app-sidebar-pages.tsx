@@ -65,8 +65,10 @@ export function SidebarPagesMenu(props: {
       ...new Set([
         ...zone().pluginTabs.keys(),
         // A plugin's child items (Workboard's boards) live in its own sidebar, not here.
+        // Destinations with a fixed rail button are reached from the rail; the Pages menu does not repeat them.
         ...props.host
           .pluginNavigation()
+          .filter((entry) => !entry.value.rail)
           .filter((entry, _, all) => !isNavigationSectionChild(all, entry))
           .map((entry) => entry.key),
       ]),
@@ -76,29 +78,6 @@ export function SidebarPagesMenu(props: {
       .map((key) => serializeSidebarEntry({ type: "plugin", key })),
   );
   const Entry = (entry: { key: string }) => {
-      // Destinations with a fixed rail button are reached from the rail; the Pages list does not repeat them.
-      ...props.host
-        .pluginNavigation()
-        .filter((entry) => !entry.value.rail)
-        .map((entry) => entry.key),
-    ])) {
-      result.push(serializeSidebarEntry({ type: "plugin", key }));
-    }
-    for (const row of dashboardRows()) {
-      result.push(serializeSidebarEntry({ type: "session", key: row.key }));
-    }
-    return result;
-  });
-  return (
-    <nav
-      class="sidebar-pages"
-      aria-label={t("nav.pages")}
-      onDragOver={(event) => props.host.sessionOrganizer.handleSessionListDragOver(event)}
-      onDrop={(event) => props.host.sessionOrganizer.handleSessionListDrop(event)}
-    >
-      <McpAppCatalog surface="sidebar" />
-      <For each={entries()}>
-        {(key) => {
     // Allocate once per entry; the rendered link owns its reactive fields.
     const content = renderAppSidebarPageEntry(
       props.host,

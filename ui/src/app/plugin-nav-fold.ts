@@ -1,4 +1,4 @@
-import { pluginTabRefFromSearch } from "../pages/plugin/route.tsx";
+import { pluginTabRefFromSearch } from "../app-route-paths.ts";
 import type { ShellRouteState } from "./app-host-route-state.ts";
 
 /**

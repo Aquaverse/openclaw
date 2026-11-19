@@ -219,8 +219,8 @@ export function readShellView(host: ShellViewHost) {
       (pageSidebar === "automations" && !sectionListsItems("automations")));
   const navCollapsed = () =>
     !nativeEmbed &&
-    (navigationSnapshot.navCollapsed || navPageHidden) &&
     (navigationSnapshot.navCollapsed ||
+      navPageHidden ||
       pluginRouteFoldsNavigation(host.routeState, context.basePath)) &&
     !host.desktopNavigationExpanded &&
     !navDrawerOpen() &&
