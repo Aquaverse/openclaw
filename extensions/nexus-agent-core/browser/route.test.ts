@@ -164,22 +164,21 @@ describe("nexus work routes", () => {
     expect(routeFromHref(`${NAV_BASE}/works/..%2Fx`)).toBeUndefined();
     expect(routeFromHref(`${NAV_BASE}/works/a/b`)).toBeUndefined();
   });
-  it("opens the rail pages that only show their design, and drops an unknown one", () => {
-    for (const hub of ["goals", "library", "status"] as const) {
-      expect(routeParams({ view: "hub", hub })).toEqual({ view: "hub", hub });
-      expect(parseRoute({ view: "hub", hub })).toEqual({ view: "hub", hub });
-    }
-    expect(parseRoute({ view: "hub", hub: "nowhere" })).toEqual(TASKS_HOME);
-    expect(parseRoute({ view: "hub" })).toEqual(TASKS_HOME);
-    // A renderer link never reaches them: they have no data to link to.
-    expect(routeFromHref(`${NAV_BASE}/hub`)).toBeUndefined();
+  it("opens the Goals page with its segment and the chosen goal, and drops what it does not know", () => {
+    expect(parseRoute({ view: "goals" })).toEqual({ view: "goals" });
+    expect(routeParams({ view: "goals" })).toEqual({ view: "goals" });
+    const chosen = { view: "goals", seg: "done", goalId: "g_AB12" } as const;
+    expect(parseRoute({ view: "goals", goal: "g_AB12", seg: "done" })).toEqual(chosen);
+    expect(routeParams(chosen)).toEqual({ view: "goals", seg: "done", goal: "g_AB12" });
+    expect(parseRoute({ view: "goals", goal: "../x", seg: "nope" })).toEqual({ view: "goals" });
+    expect(routeFromHref(`${NAV_BASE}/goals`)).toEqual({ view: "goals" });
+    expect(routeFromHref(`${NAV_BASE}/goals/g_AB12?seg=done`)).toEqual(chosen);
+    expect(routeFromHref(`${NAV_BASE}/goals/a/b`)).toBeUndefined();
   });
 
   it("opens the People page with a segment, a person and a tab, and drops what it does not know", () => {
     expect(parseRoute({ view: "people" })).toEqual({ view: "people" });
     expect(routeParams({ view: "people" })).toEqual({ view: "people" });
-    // The old design link still lands on the real page.
-    expect(parseRoute({ view: "hub", hub: "people" })).toEqual({ view: "people" });
     const route = { view: "people", personId: "cp_AB12", seg: "pending", tab: "history" } as const;
     expect(routeParams(route)).toEqual({
       view: "people",

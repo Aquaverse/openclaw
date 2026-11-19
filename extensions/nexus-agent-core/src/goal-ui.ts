@@ -50,7 +50,13 @@ export function statusLabel(lang: Lang, status: GoalStatus): string {
   return tr(lang, `goal.status.${status}` as MsgKey);
 }
 
-const marker = (act: string, id: string | undefined, className: string, inner: string): string =>
+/** A clickable thing the Control UI module turns back into an action (the sanitizer allows nothing else). */
+export const marker = (
+  act: string,
+  id: string | undefined,
+  className: string,
+  inner: string,
+): string =>
   `<button class="${className}" data-nx-act="${act}"${id ? ` data-nx-id="${esc(id)}"` : ""}>${inner}</button>`;
 
 /** Top-level goals in the given order, each followed by its sub-goals; a sub-goal whose parent is not listed stands alone. */

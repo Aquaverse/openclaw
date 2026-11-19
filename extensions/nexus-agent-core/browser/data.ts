@@ -1,13 +1,14 @@
 import { renderCleanup, renderPersonReceipts } from "../src/cleanup-ui.js";
 import type { CounterpartPurgeReceipt, CounterpartSummary } from "../src/counterpart/types.js";
-import { renderGoalPage } from "../src/goal-ui.js";
+import { renderFilesPage } from "../src/files-page-ui.js";
+import { renderGoalsPage } from "../src/goals-page-ui.js";
 import { DEFAULT_LANG, tr, type Lang } from "../src/i18n.js";
 import type { EvidenceBlobView } from "../src/store/blob-types.js";
 import type { ClaimRecord } from "../src/store/claim-types.js";
 // Reads for the Nexus Control UI module. Everything goes through the plugin's existing read-only gateway methods
 // (operator.read); the store is never reached directly, so the page sees exactly what any RPC client would.
 import type { DecisionRecord, ExecutionRecord } from "../src/store/decision-types.js";
-import type { GoalSummaryRecord } from "../src/store/goal-types.js";
+import type { GoalDetailRecord, GoalForFile, GoalSummaryRecord } from "../src/store/goal-types.js";
 import type { PreferenceReceiptRow, PreferenceRecord } from "../src/store/preference-types.js";
 import type { PurgeReceiptRow } from "../src/store/purge-types.js";
 import type { TaskDetail, TaskRecord } from "../src/store/types.js";
@@ -20,7 +21,7 @@ import type {
 import type { WatchRecord } from "../src/store/watch-types.js";
 import { filterToRpc, pageInfo, type TaskFilter } from "../src/task-query.js";
 import {
-  renderFiles,
+  esc,
   renderPreferences,
   renderReceipts,
   renderTaskDetail,
@@ -88,6 +89,8 @@ export type NexusView = {
   peopleList?: PeopleListInit;
   /** The clear-people list the page mounts into its slot; only the clear-people page sets it. */
   cleanup?: CleanupInit;
+  /** The row a list page shows in its detail pane (Goals, Library); choosing another row patches the pane in place. */
+  selected?: string;
 };
 
 export type LoadOptions = {
@@ -243,24 +246,47 @@ export async function loadView(
     }
     case "goals": {
       const prefs = options.goalPrefs ?? DEFAULT_GOAL_PREFS;
-      const [active, proposed] = await Promise.all([
-        request<{ goals: GoalSummaryRecord[] }>("nexus.goal.list", {
+      if (features.goals !== true) {
+        return {
+          title: tr(lang, "title.goals"),
+          html: `<p class="muted">${esc(tr(lang, "goals.unavailable"))}</p>`,
+          model: EMPTY_MODEL,
+        };
+      }
+      const seg = route.seg === "done" ? "done" : "active";
+      type GoalPage = { goals: GoalSummaryRecord[]; total: number };
+      const [active, done, proposed] = await Promise.all([
+        request<GoalPage>("nexus.goal.list", {
           status: "active",
           limit: 200,
           orderBy: prefs.autoSort ? "recent" : "manual",
         }),
-        request<{ goals: GoalSummaryRecord[] }>("nexus.goal.list", {
-          status: "proposed",
-          limit: 50,
-        }),
+        request<GoalPage>("nexus.goal.list", { status: "completed", limit: 200 }),
+        request<GoalPage>("nexus.goal.list", { status: "proposed", limit: 50 }),
       ]);
+      // The goal the detail pane shows; a goal deleted since the link was made leaves the pane empty rather than failing.
+      const detail = route.goalId
+        ? await optional(() =>
+            request<GoalDetailRecord>("nexus.goal.get", {
+              goalId: route.goalId,
+              entryLimit: 50,
+            }),
+          )
+        : undefined;
       return {
         title: tr(lang, "title.goals"),
-        html: renderGoalPage(
-          { active: active.goals, proposed: proposed.goals },
-          { actions, lang, showSubtitle: prefs.showSubtitle, manualSort: !prefs.autoSort },
+        html: renderGoalsPage(
+          {
+            seg,
+            goals: seg === "done" ? done.goals : active.goals,
+            counts: { active: active.total, done: done.total },
+            proposed: proposed.goals,
+            ...(detail ? { detail } : {}),
+          },
+          { actions, lang, basePath: NAV_BASE, manualSort: !prefs.autoSort },
         ),
         model: { ...EMPTY_MODEL, goals: active.goals },
+        ...(route.goalId === undefined ? {} : { selected: route.goalId }),
       };
     }
     case "files": {
@@ -281,21 +307,53 @@ export async function loadView(
         list = await listFiles({ ...route, page });
       }
       const files: VaultFileRecord[] = list.items;
+      const query: FileQuery = {
+        tab: route.tab,
+        name: route.name,
+        kind: route.kind,
+        favorite: route.favorite,
+        sensitivity: route.sensitivity,
+        page,
+        size: route.size,
+        ...(route.file === undefined ? {} : { file: route.file }),
+      };
+      // The file the detail pane shows, read on its own: it stays visible when the list beside it is filtered or paged.
+      const picked = route.file
+        ? await optional(() =>
+            request<{ file: VaultFileRecord; extraction: VaultExtractionStatus | null }>(
+              "nexus.vault.get",
+              { fileId: route.file },
+            ),
+          )
+        : undefined;
+      const goalRead =
+        picked !== undefined && features.goals === true
+          ? await optional(() =>
+              request<{ goals: GoalForFile[] }>("nexus.goal.forFile", {
+                fileId: picked.file.id,
+              }),
+            )
+          : undefined;
       return {
         title: tr(lang, "title.files"),
-        html: renderFiles(
+        html: renderFilesPage(
           {
             files,
             total: list.total,
-            tab: route.tab,
-            name: route.name,
-            kind: route.kind,
-            favorite: route.favorite,
-            sensitivity: route.sensitivity,
-            page,
-            size: route.size,
+            query,
             stats,
             ...(list.extraction ? { extraction: list.extraction } : {}),
+            ...(picked === undefined
+              ? {}
+              : {
+                  detail: {
+                    file: picked.file,
+                    ...(picked.extraction === null || picked.extraction === undefined
+                      ? {}
+                      : { extraction: picked.extraction }),
+                    ...(goalRead === undefined ? {} : { goals: goalRead.goals }),
+                  },
+                }),
           },
           { actions, lang, basePath: NAV_BASE },
         ),
@@ -307,6 +365,7 @@ export async function loadView(
           files,
           ...(list.extraction ? { extraction: list.extraction } : {}),
         },
+        ...(route.file === undefined ? {} : { selected: route.file }),
       };
     }
     default: {

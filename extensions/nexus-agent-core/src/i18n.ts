@@ -21,9 +21,9 @@ const CATALOG = {
   "nav.preferences": ["偏好", "Preferences"],
   "nav.receipts": ["清除回执", "Purge receipts"],
   "nav.refresh": ["刷新", "Refresh"],
-  "nav.rail.people": ["人员", "People"],
+  // The host's own People page is a different thing: this one lists the people a commitment can point at.
+  "nav.rail.people": ["人员", "Counterpart"],
   "nav.rail.library": ["资料库", "Library"],
-  "nav.rail.status": ["状态", "Status"],
   "page.connecting": ["正在连接网关…", "Connecting to the gateway…"],
   "page.loadFailed": ["Nexus 读取失败：{message}", "Nexus could not load: {message}"],
   "title.tasks": ["事项", "Tasks"],
@@ -301,6 +301,19 @@ const CATALOG = {
   "files.d.where": ["位置", "Where"],
   "files.d.type": ["类型", "Type"],
   "files.d.size": ["大小", "Size"],
+  // The Library destination of the host's left rail (list pane + detail pane, like the prototype).
+  "files.count": ["共 {n} 个文件", "{n} files"],
+  "files.d.pick": [
+    "从左侧选一个文件，查看它的来源、版本和关联。",
+    "Pick a file on the left to see where it came from and what it is linked to.",
+  ],
+  "files.d.about": ["文件信息", "About this file"],
+  "files.d.updatedOn": ["更新于 {date}", "Updated {date}"],
+  "files.d.manage": ["更多操作", "More actions"],
+  "files.d.manageHint": [
+    "重命名、移动、固定、替换内容和删除都在「更多操作」里。",
+    "Renaming, moving, pinning, replacing and deleting live under “More actions”.",
+  ],
   "files.d.hash": ["内容哈希", "Content hash"],
   "files.d.source": ["来源", "Source"],
   "files.d.created": ["导入时间", "Imported"],

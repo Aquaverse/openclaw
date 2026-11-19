@@ -13,7 +13,6 @@ import {
 } from "./actions.ts";
 import { attachCleanup, type CleanupPicked } from "./cleanup-view.ts";
 import { goalsDueCount, loadView, probeFeatures, type NexusFeatures } from "./data.ts";
-import { mountDesignPage } from "./design-view.ts";
 import { createFileBar } from "./file-bar.ts";
 import { createFilterBar } from "./filters.ts";
 import { readGoalPrefs, writeGoalPrefs } from "./goal-prefs.ts";
@@ -264,7 +263,15 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
       // go: a navigation makes the host build the page again (blank for a moment, scroll regions reset), the jolt on clicks.
       const shown = settling ?? parseRoute(context.props);
       const family = (view: string) =>
-        view === "people" ? "people" : view === "works" || view === "work" ? "work" : "";
+        view === "people"
+          ? "people"
+          : view === "works" || view === "work"
+            ? "work"
+            : view === "goals"
+              ? "goals"
+              : view === "files"
+                ? "files"
+                : "";
       if (family(shown.view) !== "" && family(shown.view) === family(to.view)) {
         settling = to;
         void load();
@@ -479,22 +486,18 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
       if (route.view === "files") {
         rememberedFiles = route;
       }
-      // Work, People and the prototype pages are reached from the host's left rail: they take the whole width and no inner navigation.
+      // Work, People, Goals and Library are reached from the host's left rail: they take the whole width and no inner
+      // navigation.
       const railView =
         route.view === "works" ||
         route.view === "work" ||
         route.view === "people" ||
-        route.view === "hub";
+        route.view === "goals" ||
+        route.view === "files";
       root.classList.toggle("nx-split", railView);
       root.classList.toggle("nx-rail", railView);
       renderNav(route);
       syncBar(route);
-      if (route.view === "hub") {
-        // Static design only: nothing to read from the gateway, so it shows even while disconnected.
-        clearMain();
-        mountDesignPage(main, route.hub);
-        return;
-      }
       if (!context.host.connection.connected) {
         showMessage(tr(lang, "page.connecting"), "muted");
         return;
@@ -538,14 +541,18 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
         }
         const base = JSON.stringify([lang, context.host.connection.canWrite]);
         const sig = listSignature(view.html);
-        const listInit = view.peopleList ?? view.workList;
+        // Work and People page their rows themselves; Goals and Library only need the row they show in the detail pane.
+        const listInit: { selected: string | undefined } | undefined =
+          view.peopleList ??
+          view.workList ??
+          (view.selected === undefined ? undefined : { selected: view.selected });
         if (
           listInit &&
           shownInit &&
           sig !== undefined &&
           mounted?.sig === sig &&
           mounted.base === base &&
-          (workList !== undefined || peopleList !== undefined) &&
+          (workList !== undefined || peopleList !== undefined || view.selected !== undefined) &&
           shownListKey === listKey(route) &&
           patchSelection(main, view.html, hrefOf)
         ) {
@@ -651,8 +658,17 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
       }, REFRESH_DEBOUNCE_MS);
     };
 
+    // The language the page was last drawn in: the host pushes a locale change through the same subscription as everything
+    // else, and every label on the page has to follow it without a manual reload.
+    let shownLang = currentLang();
     const disposers = [
       context.host.subscribe(() => {
+        const lang = currentLang();
+        if (lang !== shownLang) {
+          shownLang = lang;
+          void load();
+          return;
+        }
         const connected = context.host.connection.connected;
         if (connected !== lastConnected) {
           lastConnected = connected;

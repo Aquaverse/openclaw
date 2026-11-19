@@ -13,6 +13,8 @@ import { parseFileKind, type FileKind } from "./vault-kind.js";
 export const VAULT_UPLOAD_MAX_BYTES = 16 * 1024 * 1024;
 const MAX_PAGE = 100_000;
 const MAX_NAME = 200;
+/** A file id as the links carry it (the store's own ids are alphanumeric with a `vf_` prefix). */
+const FILE_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
 export const FILE_TABS = ["all", "inbox", "vault", "deliverable", "trash", "damaged"] as const;
 export type FileTab = (typeof FILE_TABS)[number];
@@ -34,6 +36,8 @@ export type FileQuery = {
   sensitivity: VaultSensitivity | "";
   page: number;
   size: number;
+  /** The file the detail pane shows, when one is chosen. Not a filter: it never narrows the list. */
+  file?: string;
 };
 export const DEFAULT_FILE_QUERY: FileQuery = {
   tab: DEFAULT_FILE_TAB,
@@ -54,6 +58,7 @@ export const FILE_PARAMS = {
   sensitivity: "qsens",
   page: "page",
   size: "size",
+  file: "file",
 } as const;
 
 /** The parts a search changes (everything but the tab and the page). */
@@ -79,6 +84,7 @@ function cleanName(raw: string | undefined): string {
 export function parseFileQuery(read: (name: string) => string | undefined): FileQuery {
   const page = Number(read(FILE_PARAMS.page));
   const size = Number(read(FILE_PARAMS.size));
+  const file = read(FILE_PARAMS.file) ?? "";
   return {
     tab: parseFileTab(read(FILE_PARAMS.tab)),
     name: cleanName(read(FILE_PARAMS.name)),
@@ -89,6 +95,7 @@ export function parseFileQuery(read: (name: string) => string | undefined): File
     ),
     page: Number.isInteger(page) && page >= 1 ? Math.min(page, MAX_PAGE) : 1,
     size: (PAGE_SIZES as readonly number[]).includes(size) ? size : DEFAULT_PAGE_SIZE,
+    ...(FILE_ID.test(file) ? { file } : {}),
   };
 }
 
@@ -115,6 +122,9 @@ export function fileQueryToParams(query: FileQuery): Record<string, string> {
   }
   if (query.size !== DEFAULT_PAGE_SIZE) {
     out[FILE_PARAMS.size] = String(query.size);
+  }
+  if (query.file !== undefined && query.file !== "") {
+    out[FILE_PARAMS.file] = query.file;
   }
   return out;
 }

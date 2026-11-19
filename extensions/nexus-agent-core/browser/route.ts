@@ -33,19 +33,15 @@ export type PeopleQuery = {
 /** The clear-people page: a name search, the page (1-based) and the page size (50 unless chosen). */
 export type CleanupQuery = { q?: string; page: number; size: number };
 
-/** The prototype pages that only show their design for now; the host's left rail links to each. */
-export const HUB_PAGES = ["goals", "library", "status"] as const;
-export type HubPage = (typeof HUB_PAGES)[number];
-
 export type NexusRoute =
   | { view: "tasks"; filter: TaskFilter }
-  | { view: "hub"; hub: HubPage }
   | ({ view: "works" } & WorkFilter)
   | ({ view: "work"; workId: string } & WorkFilter)
   | { view: "task"; taskId: string }
   | ({ view: "people" } & PeopleQuery)
   | { view: "preferences" }
-  | { view: "goals" }
+  /** The Goals page: the segment of the list (in progress or done) and the goal shown in the detail pane. */
+  | { view: "goals"; seg?: "done"; goalId?: string }
   | { view: "receipts" }
   | ({ view: "cleanup" } & CleanupQuery)
   | ({ view: "files" } & FileQuery);
@@ -146,14 +142,8 @@ export function parseRoute(props: Readonly<Record<string, string>>): NexusRoute 
   if (props.view === "works" || props.view === "work") {
     return { view: "works", ...parseWorkFilter((name) => props[name]) };
   }
-  if (props.view === "people" || (props.view === "hub" && props.hub === "people")) {
+  if (props.view === "people") {
     return { view: "people", ...parsePeopleQuery((name) => props[name], props.person) };
-  }
-  if (props.view === "hub") {
-    const hub = HUB_PAGES.find((known) => known === props.hub);
-    if (hub) {
-      return { view: "hub", hub };
-    }
   }
   if (props.view === "preferences") {
     return { view: "preferences" };
@@ -162,7 +152,11 @@ export function parseRoute(props: Readonly<Record<string, string>>): NexusRoute 
     return { view: "receipts" };
   }
   if (props.view === "goals") {
-    return { view: "goals" };
+    return {
+      view: "goals",
+      ...(props.seg === "done" ? { seg: "done" as const } : {}),
+      ...(props.goal !== undefined && TASK_ID.test(props.goal) ? { goalId: props.goal } : {}),
+    };
   }
   if (props.view === "cleanup") {
     return { view: "cleanup", ...parseCleanupQuery((name) => props[name]) };
@@ -190,8 +184,12 @@ export function routeParams(route: NexusRoute): Record<string, string> {
       return { view: "people", ...peopleParams(route) };
     case "cleanup":
       return cleanupParams(route);
-    case "hub":
-      return { view: "hub", hub: route.hub };
+    case "goals":
+      return {
+        view: "goals",
+        ...(route.seg === "done" ? { seg: "done" } : {}),
+        ...(route.goalId ? { goal: route.goalId } : {}),
+      };
     default:
       return { view: route.view };
   }
@@ -229,10 +227,17 @@ export function routeFromHref(href: string): NexusRoute | undefined {
   if (first === "tasks" && second !== undefined && segments.length === 2) {
     return TASK_ID.test(second) ? { view: "task", taskId: second } : undefined;
   }
-  if (
-    segments.length === 1 &&
-    (first === "preferences" || first === "receipts" || first === "goals")
-  ) {
+  if (first === "goals" && segments.length <= 2) {
+    if (second !== undefined && !TASK_ID.test(second)) {
+      return undefined;
+    }
+    return {
+      view: "goals",
+      ...(query.get("seg") === "done" ? { seg: "done" as const } : {}),
+      ...(second !== undefined ? { goalId: second } : {}),
+    };
+  }
+  if (segments.length === 1 && (first === "preferences" || first === "receipts")) {
     return { view: first };
   }
   if (segments.length === 1 && first === "cleanup") {

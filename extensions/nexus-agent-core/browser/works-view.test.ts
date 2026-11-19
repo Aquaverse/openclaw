@@ -846,38 +846,3 @@ describe("commitments in the work page", () => {
     assert.match(q(f.container, ".nx-notice")?.textContent ?? "", /已经是别的状态/);
   });
 });
-
-describe("rail pages without function yet", () => {
-  const pages = [
-    ["goals", "提升英语口语表达"],
-    ["library", "资料库"],
-    ["status", "状态"],
-  ] as const;
-
-  for (const [hub, sample] of pages) {
-    it(`shows the ${hub} design as a static page, with no data read and no inner navigation`, async () => {
-      const f = mount({ view: "hub", hub });
-      await flush();
-      const page = q(f.container, ".nexus-page");
-      assert.ok(page?.classList.contains("nx-rail"));
-      assert.ok(q(f.container, ".nx-dz .app"), "the design is mounted");
-      assert.ok((f.container.textContent ?? "").includes(sample));
-      assert.equal(q(f.container, ".nx-dz nav.rail"), null, "the prototype's own rail is gone");
-      assert.equal(q(f.container, ".nx-dz script"), null);
-      assert.equal(f.container.querySelector("[onclick]"), null);
-      assert.deepEqual(
-        f.calls.filter(
-          (c) => c.method.startsWith("nexus.work.") || c.method.startsWith("nexus.task."),
-        ),
-        [],
-      );
-    });
-  }
-
-  it("falls back to the task list for a page it does not know", async () => {
-    const f = mount({ view: "hub", hub: "nowhere" });
-    await flush();
-    assert.equal(q(f.container, ".nx-dz"), null);
-    assert.equal(q(f.container, ".nexus-page")?.classList.contains("nx-rail"), false);
-  });
-});

@@ -269,4 +269,33 @@ export const GOAL_MESSAGES = {
     "我想给目标「{title}」添加一个子目标",
     "I'd like to add a sub-goal to “{title}”",
   ],
+
+  // The Goals destination of the host's left rail (list pane + detail pane, like the prototype).
+  "goals.page.hello": [
+    "你想长期坚持和达成的个人事情",
+    "The personal things you want to keep up and reach",
+  ],
+  "goals.meta.sub": ["{n} 个子目标", "{n} sub-goals"],
+  "goals.tag.proposal": ["待你确认", "Waiting for you"],
+  "goals.menu.review": ["看看", "Review"],
+  "goals.list.onlyProposals": [
+    "只有待确认的目标；批准后才会出现在这里。",
+    "Only proposals so far; they show up here once you approve them.",
+  ],
+  "goals.d.pick": [
+    "从左侧选一个目标，查看它的进展与关联。",
+    "Pick a goal on the left to see its progress and what it is linked to.",
+  ],
+  "goals.d.since": ["创建于 {date}", "Created {date}"],
+  "goals.d.want": ["我想达到", "What I want to reach"],
+  "goals.d.now": ["现在情况", "Where I am now"],
+  "goals.d.recent": ["最近进展 {date}", "Last update {date}"],
+  "goals.d.entries": ["进展", "Updates"],
+  "goals.stat.entries": ["条进展记录", "updates"],
+  "goals.stat.sub": ["个子目标", "sub-goals"],
+  "goals.stat.links": ["件关联", "links"],
+  "goals.link.task": ["事项", "Task"],
+  "goals.link.file": ["文件", "File"],
+  "goals.link.preference": ["偏好", "Preference"],
+  "goals.link.watch": ["监视", "Watch"],
 } as const satisfies Record<string, readonly [string, string]>;
