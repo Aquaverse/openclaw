@@ -79,6 +79,7 @@ describe("task store kernel", () => {
       "stage7-0008-schedules",
       "stage7-0009-schedule-checks",
       "stage7-0010-schedule-restore",
+      "stage7-0011-schedule-sources",
     ]);
     assert.deepEqual(applyMigrations(db, tx), []);
   });
