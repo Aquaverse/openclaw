@@ -6,7 +6,7 @@ export const CLEANUP_MESSAGES = {
   "cl.title": ["清理人员", "Clear people"],
   "cl.intro": [
     "这里只列出你已经“删除”的人。清除会永久去掉他们的联系方式、其他称呼和关系；名字保留，他们名下的承诺历史也不动。要先在“人员”页删除一个人，他才会出现在这里。",
-    "Only people you have already deleted are listed. Clearing removes their contacts, other names and relations for good; the name stays and their commitment history is not touched. Delete a person on the People page first, then they show up here.",
+    "Only people you have already deleted are listed. Clearing removes their contacts, other names and relations for good; the name stays and their commitment history is not touched. Delete a person on the Counterpart page first, then they show up here.",
   ],
   "cl.search.ph": ["按人名或称呼搜索", "Search by name or alias"],
   "cl.search.btn": ["搜索", "Search"],
@@ -15,7 +15,7 @@ export const CLEANUP_MESSAGES = {
   "cl.size.option": ["{n} 人", "{n}"],
   "cl.empty": [
     "没有需要清理的人。先在“人员”页删除一个人，才会出现在这里。",
-    "Nobody to clear. Delete a person on the People page first and they will appear here.",
+    "Nobody to clear. Delete a person on the Counterpart page first and they will appear here.",
   ],
   "cl.empty.search": ["没有找到与“{q}”对应的已删除的人。", "No deleted person matches “{q}”."],
   "cl.meta": [
