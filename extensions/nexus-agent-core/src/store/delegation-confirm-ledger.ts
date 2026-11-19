@@ -132,6 +132,14 @@ export function createDelegationConfirmOps(deps: {
     }
 
     // ---- every check passed: the writes follow, all in this transaction ----
+    // What the replaced plan's checks were doing, read before they are ended: a check the edit leaves alone keeps that state.
+    const before = replaced
+      ? all(
+          "SELECT purpose, tz, cadence_json, status, pause_source, stop_reason FROM schedules WHERE owner_id = ? AND plan_id = ? ORDER BY created_at, id",
+          owner,
+          replaced,
+        )
+      : [];
     if (replaced) {
       run(
         "UPDATE delegation_plans SET status = 'ended', ended_at = ?, end_reason = 'replaced', end_requested_at = ? WHERE owner_id = ? AND id = ?",
@@ -153,17 +161,71 @@ export function createDelegationConfirmOps(deps: {
       plan.id,
     );
     const accepted = k.plan(owner, plan.id) as NonNullable<ReturnType<typeof k.plan>>;
-    const scheduleIds = specs.map((spec, index) =>
-      schedules.insertScheduleInTx({
+    // The same check as before: same words, same cadence. Only a new or changed check follows the chosen way of starting;
+    // an unchanged one is paused or stopped exactly as it was, or keeps its place in the schedule if it was running.
+    const claimed = new Set<number>();
+    const sameCheck = (spec: (typeof specs)[number], index: number) => {
+      const cadenceText = JSON.stringify(checked.cadences[index]);
+      const at = before.findIndex(
+        (old, i) =>
+          !claimed.has(i) &&
+          String(old.purpose).trim() === spec.purpose.trim() &&
+          String(old.tz) === spec.tz &&
+          String(old.cadence_json) === cadenceText,
+      );
+      if (at >= 0) {
+        claimed.add(at);
+      }
+      return at >= 0 ? before[at] : undefined;
+    };
+    const scheduleIds = specs.map((spec, index) => {
+      const old = sameCheck(spec, index);
+      const id = schedules.insertScheduleInTx({
         owner,
         plan: accepted,
         spec,
         cadence: checked.cadences[index]!,
         dispatchReady: input.dispatchReady === true,
-        startNow: accepted.startIntent === "now",
+        startNow: accepted.startIntent === "now" && old === undefined,
         now: input.now,
-      }),
-    );
+      });
+      if (old) {
+        const was = String(old.status);
+        if (was === "ended" || was === "cancelled") {
+          schedules.patch(
+            owner,
+            id,
+            {
+              status: was,
+              stop_reason: old.stop_reason === null ? null : String(old.stop_reason),
+              ended_at: input.now,
+              next_due_at: null,
+              pause_source: null,
+              block_reasons_json: null,
+              coverage_state: "unavailable",
+            },
+            input.now,
+          );
+        } else if (
+          was === "paused" &&
+          old.pause_source !== "work_control" &&
+          String(k.schedule(owner, id)?.status) === "active"
+        ) {
+          schedules.patch(
+            owner,
+            id,
+            {
+              status: "paused",
+              pause_source: old.pause_source === null ? "user" : String(old.pause_source),
+              next_due_at: null,
+              coverage_state: "unavailable",
+            },
+            input.now,
+          );
+        }
+      }
+      return id;
+    });
     let carrierLink: "existing" | "added" = "existing";
     if (!k.carrierLinked(owner, plan.planOwnerType, plan.planOwnerId, plan.workId)) {
       carrierLink = "added";

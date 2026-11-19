@@ -20,6 +20,8 @@ export type ScheduleCheckToolDeps = {
   now?: () => number;
   /** After a report was stored: tell the console (never throws into the tool). */
   onReported?: (taskId: string | null) => void;
+  /** After a NEW report was stored: send the notification the user chose for this check, if any. It handles its own errors. */
+  afterReport?: (principal: Principal, triggerId: string) => void;
   /** Refusals are logged by code (never the content), so a check that ends without a report can be explained. */
   logger?: { info(message: string): void; warn(message: string): void };
 };
@@ -107,6 +109,9 @@ export function createScheduleCheckTools(
             case "reported":
             case "already_reported":
               deps.onReported?.(out.trigger.taskId);
+              if (out.outcome === "reported") {
+                deps.afterReport?.(principal, triggerId);
+              }
               return jsonResult({
                 ok: true,
                 outcome: out.trigger.report?.outcome,

@@ -22,7 +22,48 @@ async function extractArticle(html: string, extractMode: "text" | "markdown" = "
   return result;
 }
 
+const ISSUE_PAGE_HTML = (status: string, extra = "") =>
+  `<!doctype html><html lang="en"><head><meta charset="utf-8" /><title>Bug report \u00b7 Issue #1 \u00b7 example/repo</title></head><body>` +
+  `<div data-testid="issue-metadata-fixed"><div><span data-testid="header-state" class="prc-StateLabel-StateLabel" data-component="StateLabel" data-status="issueClosed"><svg aria-label="Issue"><path d="M0 0"></path></svg>${status}</span></div></div>` +
+  `<div data-testid="issue-metadata-sticky" class="stickyContainerHidden"><span data-testid="header-state" data-component="StateLabel">${status}</span></div>` +
+  `${extra}<main><article><h1>Bug report</h1>` +
+  "<p>Backup verify reads a different archive when the input path goes through a directory symlink followed by a parent segment, and restore then writes the wrong archive's configuration into the requested staging directory.</p>" +
+  "<p>Reproduction: create two archives with different markers, link a directory so that the parent segment resolves elsewhere, and run verify against the aliased path. The command succeeds but reports the other archive.</p>" +
+  "</article></main></body></html>";
+
 describe("web readability extractor", () => {
+  it.each([
+    ["text", "Status: Closed\n\n"],
+    ["markdown", "Status: Closed\n\n"],
+  ] as const)(
+    "keeps an issue page's state label that the article body does not contain (%s)",
+    async (mode, prefix) => {
+      const extracted = await extractArticle(ISSUE_PAGE_HTML("Closed"), mode);
+      expect(extracted.text.startsWith(prefix)).toBe(true);
+      expect(extracted.text).toContain("Backup verify reads a different archive");
+      // The label is reported once, not once per copy of the header.
+      expect(extracted.text.match(/Status:/g)).toHaveLength(1);
+    },
+  );
+
+  it("reports the state the page shows, whatever it is", async () => {
+    for (const state of ["Open", "Merged", "Draft"]) {
+      const extracted = await extractArticle(ISSUE_PAGE_HTML(state));
+      expect(extracted.text.startsWith(`Status: ${state}\n\n`)).toBe(true);
+    }
+  });
+
+  it("adds no status line to pages without a state label", async () => {
+    const extracted = await extractArticle(SAMPLE_HTML);
+    expect(extracted.text).not.toContain("Status:");
+  });
+
+  it("ignores a label that is not a short state word", async () => {
+    const long = "x".repeat(80);
+    const extracted = await extractArticle(ISSUE_PAGE_HTML(long));
+    expect(extracted.text).not.toContain("Status:");
+  });
+
   it.each([
     ["", "/next", "/article#top"],
     ['<base target="_blank" />', "/next", "/article#top"],

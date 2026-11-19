@@ -1,9 +1,11 @@
 // Schedule kernel, shared part: row mapping, owner lookups and the checks every operation module needs (design 4.5, INV-10/11/12).
 // No transaction is opened here; the modules around it own theirs. Every statement filters on owner_id.
 import { normalizeCadence, type Cadence } from "../schedule/cadence.js";
+import { parseNotify } from "../schedule/notify.js";
 import {
   BLOCK_CODES,
   SCHEDULE_LIMITS,
+  stopsAtFirstChange,
   type BlockReason,
   type CheckReport,
   type DelegationPlanRecord,
@@ -176,6 +178,12 @@ export function checkSpecs(
       (!Number.isSafeInteger(spec.dispatchWindowMs) || spec.dispatchWindowMs <= 0)
     ) {
       return { ok: false, code: "bad_window" };
+    }
+    if (spec.stop !== undefined && !stopsAtFirstChange(spec.stop)) {
+      return { ok: false, code: "bad_stop" };
+    }
+    if (spec.notify !== undefined && parseNotify(spec.notify) === null) {
+      return { ok: false, code: "bad_notify" };
     }
     cadences.push(cadence.cadence);
   }

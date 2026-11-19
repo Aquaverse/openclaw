@@ -8,8 +8,9 @@ import { A, B } from "../test-support/goal-kit.js";
 import { createScheduleCheckTools } from "../tools/schedule-check-tools.js";
 import { createCheckRuntime, readCheckMarker } from "./check-runtime.js";
 import { checkSessionKey } from "./dispatcher.js";
+import { STOP_AT_FIRST_CHANGE, type ScheduleSpec } from "./types.js";
 
-async function world() {
+async function world(specOver: Partial<ScheduleSpec> = {}) {
   const w = dispatchKit();
   const logs: string[] = [];
   let principal: typeof A | undefined = A;
@@ -22,7 +23,7 @@ async function world() {
     sleep: async () => undefined,
     state: { pending: new Map() },
   });
-  const f = w.follow();
+  const f = w.follow(specOver);
   w.advance(10_000);
   await w.dispatcher.tick();
   const trigger = w.triggers(f.scheduleId)[0]!;
@@ -270,8 +271,8 @@ describe("check turn: authentication", () => {
 });
 
 describe("check turn: the report", () => {
-  const claimed = async () => {
-    const w = await world();
+  const claimed = async (specOver: Partial<ScheduleSpec> = {}) => {
+    const w = await world(specOver);
     await w.started();
     await w.runtime.authenticate({ prompt: w.call.message }, ctx(w.sessionKey));
     return w;
@@ -324,6 +325,51 @@ describe("check turn: the report", () => {
     assert.equal(w.taskRow(t.taskId!)?.status, "succeeded");
     assert.equal(w.taskRow(t.taskId!)?.summary, "页面没有新内容。");
     assert.equal(w.schedule(w.f.scheduleId).coverageState, "on_plan");
+  });
+
+  it("a check with the first_change stop ends itself, and the plan with its last check, on the first reported change", async () => {
+    const w = await claimed({ stop: STOP_AT_FIRST_CHANGE });
+    const out = await w.report({
+      triggerId: w.trigger.id,
+      outcome: "changed",
+      summary: "页面状态已变为 Closed。",
+    });
+    assert.equal(out.ok, true);
+    const s = w.schedule(w.f.scheduleId);
+    assert.equal(s.status, "ended");
+    assert.equal(s.stopReason, "first_change");
+    assert.equal(s.nextDueAt, null);
+    const plan = w.db
+      .prepare("SELECT status, end_reason FROM delegation_plans WHERE id = ?")
+      .get(w.f.planId) as { status: string; end_reason: string };
+    assert.equal(plan.status, "ended");
+    assert.equal(plan.end_reason, "first_change");
+    // The check itself is recorded as usual, and the Commitment is left for the user to settle.
+    assert.equal(w.triggers(w.f.scheduleId)[0]?.report?.outcome, "changed");
+    const commitment = w.db
+      .prepare("SELECT lifecycle FROM commitments WHERE id = ?")
+      .get(w.f.commitmentId) as { lifecycle: string };
+    assert.notEqual(commitment.lifecycle, "resolved");
+  });
+
+  it("first_change does not stop a check for no_change or cannot_check", async () => {
+    for (const outcome of ["no_change", "cannot_check"] as const) {
+      const w = await claimed({ stop: STOP_AT_FIRST_CHANGE });
+      await w.report({ triggerId: w.trigger.id, outcome, summary: "还没有变化。" });
+      assert.equal(w.schedule(w.f.scheduleId).status, "active", outcome);
+    }
+  });
+
+  it("a check without a stop keeps running after a reported change", async () => {
+    const w = await claimed();
+    await w.report({
+      triggerId: w.trigger.id,
+      outcome: "changed",
+      summary: "页面状态已变为 Closed。",
+    });
+    const s = w.schedule(w.f.scheduleId);
+    assert.equal(s.status, "active");
+    assert.equal(s.stopReason, null);
   });
 
   it("cannot_check ends the Task failed and degrades coverage: never shown as 'nothing changed'", async () => {

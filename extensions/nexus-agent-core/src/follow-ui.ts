@@ -5,11 +5,12 @@
 // A draft is shown as a draft ("start / edit / not now"); nothing says "following up" until a plan was accepted.
 import { allMessageKeys, tr, type Lang, type MsgKey } from "./i18n.js";
 import type { Cadence } from "./schedule/cadence.js";
-import type {
-  DelegationPlanRecord,
-  PlanBody,
-  ScheduleRecord,
-  TriggerRecord,
+import {
+  stopsAtFirstChange,
+  type DelegationPlanRecord,
+  type PlanBody,
+  type ScheduleRecord,
+  type TriggerRecord,
 } from "./schedule/types.js";
 import { callout, chip, kv, marker, section, shortTime as dayTime, type Tone } from "./ui-kit.js";
 import { clip, esc } from "./ui-render.js";
@@ -161,6 +162,17 @@ export function checkParts(
       what = tr(lang, key("fu.last.", t.report.outcome));
       note = t.report.summary;
       bad = t.report.outcome === "cannot_check";
+      const n = t.report.notice;
+      if (n) {
+        // What happened to the notification the user chose: sent, or that the chosen channel was unavailable (nothing else).
+        const said = tr(
+          lang,
+          n.status === "failed" && n.reason ? "fu.notice.failedWhy" : key("fu.notice.", n.status),
+          { channel: n.channel, to: n.to, reason: n.reason ?? "" },
+        );
+        note = `${said} · ${note}`;
+        bad = bad || n.status !== "sent";
+      }
     } else if (t.turnState === "failed") {
       what = tr(lang, "fu.last.failed");
       note = failText(lang, t.failReason);
@@ -191,6 +203,19 @@ const checkLine = (lang: Lang, t: TriggerRecord, now: number): { text: string; b
 const coverageNoteText = (lang: Lang, note: string | null): string =>
   note && KEYS.has(`fu.note.${note}`) ? tr(lang, key("fu.note.", note)) : "";
 
+/** The last few check records of one check, as lines (nothing when it has none yet). Ended checks keep showing theirs. */
+function recentLines(lang: Lang, recent: readonly TriggerRecord[], now: number): string {
+  return recent.length === 0
+    ? ""
+    : `<p class="nx-cm-n">${esc(tr(lang, "fu.last.title"))}</p>` +
+        recent
+          .map((t) => {
+            const line = checkLine(lang, t, now);
+            return `<p class="nx-cm-n${line.bad ? " nx-fu-bad" : ""}">${esc(line.text)}</p>`;
+          })
+          .join("");
+}
+
 function scheduleRow(
   lang: Lang,
   s: ScheduleRecord,
@@ -198,6 +223,7 @@ function scheduleRow(
   now: number,
   withActions: boolean,
   wrapping = false,
+  restorable = false,
 ): string {
   const covTone: Tone =
     s.coverageState === "on_plan" ? "green" : s.coverageState === "degraded" ? "amber" : "gray";
@@ -232,22 +258,19 @@ function scheduleRow(
             marker("fu-stop", s.id, "nx-btn nx-danger", esc(tr(lang, "fu.btn.stop")))
           : s.status === "blocked"
             ? marker("fu-stop", s.id, "nx-btn nx-danger", esc(tr(lang, "fu.btn.stop")))
-            : "";
+            : restorable &&
+                (s.status === "ended" || s.status === "cancelled") &&
+                s.stopReason !== "plan_replaced" &&
+                s.stopReason !== "work_deleted"
+              ? marker("fu-restore", s.id, "nx-btn", esc(tr(lang, "fu.btn.restore")))
+              : "";
   const buttons = actions + history;
   const recent = triggers.slice(0, 3);
   return (
     `<div class="nx-fu-s"><div class="nx-cm-h"><span class="nx-cm-t">${esc(clip(s.purpose, 160))}</span>` +
     `${wrapping && isLive(s) ? chip("amber", tr(lang, "fu.sched.wrapping")) : scheduleChip(lang, s)}${isLive(s) ? chip(covTone, tr(lang, key("fu.cov.", s.coverageState))) : ""}</div>` +
     `<div class="nx-cm-m"><span>${esc(cadenceText(lang, s.cadence, now))}</span><span>·</span><span>${esc(next)}</span>${note ? `<span>·</span><span>${note}</span>` : ""}</div>` +
-    (recent.length > 0 && isLive(s)
-      ? `<p class="nx-cm-n">${esc(tr(lang, "fu.last.title"))}</p>` +
-        recent
-          .map((t) => {
-            const line = checkLine(lang, t, now);
-            return `<p class="nx-cm-n${line.bad ? " nx-fu-bad" : ""}">${esc(line.text)}</p>`;
-          })
-          .join("")
-      : "") +
+    recentLines(lang, recent, now) +
     (buttons ? `<div class="nx-cm-a">${buttons}</div>` : "") +
     `</div>`
   );
@@ -298,7 +321,10 @@ function planBox(
   const draftCadence = (body.schedules ?? [])
     .map((spec) => {
       const c = spec.cadence as Cadence | undefined;
-      return c && typeof c === "object" && "kind" in c ? cadenceText(lang, c, now) : "";
+      const text = c && typeof c === "object" && "kind" in c ? cadenceText(lang, c, now) : "";
+      return text !== "" && stopsAtFirstChange(spec.stop)
+        ? `${text}（${tr(lang, "fu.cad.stopOnChange")}）`
+        : text;
     })
     .filter((text) => text !== "");
   const often = body.frequencyText ?? (draftCadence.length > 0 ? draftCadence.join("；") : none);
@@ -317,7 +343,17 @@ function planBox(
       ? own
           .toSorted((a, b) => Number(isLive(b)) - Number(isLive(a)))
           .filter((s) => plan.status === "accepted" || isLive(s))
-          .map((s) => scheduleRow(lang, s, data.triggers[s.id] ?? [], now, withActions, wrapping))
+          .map((s) =>
+            scheduleRow(
+              lang,
+              s,
+              data.triggers[s.id] ?? [],
+              now,
+              withActions,
+              wrapping,
+              plan.status === "accepted",
+            ),
+          )
           .join("")
       : "";
   // A plan that ended keeps its checks' records: one line per check, with the way to read them all.
@@ -327,6 +363,7 @@ function planBox(
           .map(
             (s) =>
               `<div class="nx-fu-s"><div class="nx-cm-h"><span class="nx-cm-t">${esc(clip(s.purpose, 160))}</span></div>` +
+              recentLines(lang, (data.triggers[s.id] ?? []).slice(0, 3), now) +
               `<div class="nx-cm-a">${marker("fu-history", s.id, "nx-btn", esc(tr(lang, "fu.btn.history")))}</div></div>`,
           )
           .join("")
@@ -340,14 +377,20 @@ function planBox(
       : plan.status === "accepted" && !wrapping
         ? marker("fu-edit", plan.id, "nx-btn", esc(tr(lang, "fu.btn.edit"))) +
           marker("fu-end", plan.id, "nx-btn nx-danger", esc(tr(lang, "fu.btn.end")))
-        : "";
+        : plan.status === "ended" &&
+            !data.plans.some((p) => p.status === "draft" || p.status === "accepted")
+          ? // An ended plan can be brought back: its words and checks open as a new plan that the user confirms.
+            marker("fu-reopen", plan.id, "nx-btn", esc(tr(lang, "fu.btn.reopen")))
+          : "";
   return (
     `<div class="nx-cm nx-li nx-fu-plan${plan.status === "ended" ? " nx-cm-closed" : ""}">` +
     `<div class="nx-cm-h"><span class="nx-cm-t">${esc(clip(plan.purpose, 200))}</span>${planState(lang, plan, live)}</div>` +
     facts +
+    // The plan's own buttons (edit / end the plan) sit with the plan, above its checks: the checks have their own buttons below.
+    (buttons ? `<div class="nx-cm-a">${buttons}</div>` : "") +
+    (schedules !== "" ? `<p class="nx-cm-hint">${esc(tr(lang, "fu.checks.title"))}</p>` : "") +
     schedules +
     pastChecks +
-    (buttons ? `<div class="nx-cm-a">${buttons}</div>` : "") +
     `</div>`
   );
 }
@@ -383,8 +426,14 @@ export function renderFollowSection(
     [
       hostOff,
       ...current.map((p) => planBox(lang, p, data, now, withActions)),
-      ...(past.length > 0 ? [`<p class="nx-cm-hint">${esc(tr(lang, "fu.sec.history"))}</p>`] : []),
-      ...past.map((p) => planBox(lang, p, data, now, withActions)),
+      // Earlier plans are folded away; opening the fold shows them (a closed <details> keeps its content out of sight).
+      ...(past.length > 0
+        ? [
+            `<details class="nx-fu-past"><summary>${esc(tr(lang, "fu.sec.history", { n: past.length }))}</summary>` +
+              past.map((p) => planBox(lang, p, data, now, withActions)).join("") +
+              `</details>`,
+          ]
+        : []),
     ],
     add,
   );

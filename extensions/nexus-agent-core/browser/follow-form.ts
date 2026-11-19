@@ -1,13 +1,18 @@
 // The follow-up plan form (design 9.5): what to look at, how often, until when, who is told and what will NOT be done. The same
 // form serves the Work page and the review panel of the people page. It only collects words and times; the RPC stays the
 // authority and re-checks everything. Built from DOM nodes and textContent, never from markup strings.
-import { tr, type Lang } from "../src/i18n.js";
+import { tr, type Lang, type MsgKey } from "../src/i18n.js";
 import type { Cadence } from "../src/schedule/cadence.js";
-import type {
-  DelegationPlanRecord,
-  PlanBody,
-  ScheduleSpec,
-  StartIntent,
+import { parseNotify } from "../src/schedule/notify.js";
+import {
+  NOTIFY_LIMITS,
+  NOTIFY_PLACEHOLDERS,
+  STOP_AT_FIRST_CHANGE,
+  stopsAtFirstChange,
+  type DelegationPlanRecord,
+  type PlanBody,
+  type ScheduleSpec,
+  type StartIntent,
 } from "../src/schedule/types.js";
 import { block, localInput, localZone, select, textarea, textInput } from "./commitment-form.ts";
 import { el, field } from "./goal-dom.ts";
@@ -20,7 +25,20 @@ export type CheckForm = {
   every: string;
   unit: "minutes" | "hours";
   at: string;
+  /** This check stops itself the first time it sees a change (the schedule's `stop`). On for a new check. */
+  stopOnChange: boolean;
+  /** Tell a connected channel when this check reports (the schedule's `notify`). Off for a new check. */
+  notify: boolean;
+  channel: string;
+  accountId: string;
+  to: string;
+  onChanged: boolean;
+  onCannotCheck: boolean;
+  mode: "template" | "fixed";
+  text: string;
 };
+/** A channel the host reports as connected (`nexus.notify.channels`). */
+export type FormChannel = { id: string; accounts: string[] };
 export type PlanForm = {
   purpose: string;
   sources: string;
@@ -47,6 +65,16 @@ export const emptyCheck = (purpose = ""): CheckForm => ({
   every: "2",
   unit: "hours",
   at: "",
+  // Most checks wait for one thing to happen; one that keeps going after it has happened only repeats the same report.
+  stopOnChange: true,
+  notify: false,
+  channel: "",
+  accountId: "",
+  to: "",
+  onChanged: true,
+  onCannotCheck: false,
+  mode: "template",
+  text: "",
 });
 
 export function emptyForm(lang: Lang, purpose = ""): PlanForm {
@@ -63,7 +91,24 @@ export function emptyForm(lang: Lang, purpose = ""): PlanForm {
 /** One saved check as a form row (a named function, not a `map` callback that spreads: see the no-map-spread lint rule). */
 function checkFromSpec(spec: ScheduleSpec): CheckForm {
   const cadence = spec.cadence as Cadence;
-  const check = emptyCheck(spec.purpose);
+  // What the plan really stores, not the default: an old check without a stop shows unticked.
+  const notify = parseNotify(spec.notify);
+  const check: CheckForm = {
+    ...emptyCheck(spec.purpose),
+    stopOnChange: stopsAtFirstChange(spec.stop),
+    ...(notify
+      ? {
+          notify: true,
+          channel: notify.channel,
+          accountId: notify.accountId ?? "",
+          to: notify.to,
+          onChanged: notify.onChanged,
+          onCannotCheck: notify.onCannotCheck,
+          mode: notify.mode,
+          text: notify.text,
+        }
+      : {}),
+  };
   if (cadence.kind === "once") {
     return { ...check, kind: "once", at: localInput(cadence.at) };
   }
@@ -146,6 +191,20 @@ export function formProblem(form: PlanForm): string | null {
     if (typeof cadence === "string") {
       return cadence;
     }
+    if (check.notify) {
+      if (check.channel === "") {
+        return "fu.f.err.notifyChannel";
+      }
+      if (check.to.trim() === "") {
+        return "fu.f.err.notifyTo";
+      }
+      if (!check.onChanged && !check.onCannotCheck) {
+        return "fu.f.err.notifyWhen";
+      }
+      if (check.text.trim() === "") {
+        return "fu.f.err.notifyText";
+      }
+    }
   }
   if (form.until !== "" && !(localMs(form.until) > Date.now())) {
     return "fu.f.err.until";
@@ -169,8 +228,32 @@ export function toPlan(
       purpose: check.purpose.trim(),
       cadence,
       tz,
+      ...(check.stopOnChange ? { stop: STOP_AT_FIRST_CHANGE } : {}),
+      ...(check.notify
+        ? {
+            notify: {
+              kind: "channel" as const,
+              channel: check.channel,
+              ...(check.accountId !== "" ? { accountId: check.accountId } : {}),
+              to: check.to.trim(),
+              onChanged: check.onChanged,
+              onCannotCheck: check.onCannotCheck,
+              mode: check.mode,
+              text: check.text.trim(),
+            },
+          }
+        : {}),
     };
   });
+  // What the card will say about notifying: the choices themselves, in words, or the plain "recorded here only".
+  const notices = form.checks
+    .filter((check) => check.notify)
+    .map((check) =>
+      tr(lang, "fu.f.notifyTo", {
+        channel: check.channel,
+        to: check.to.trim(),
+      }),
+    );
   const until = localMs(form.until);
   return {
     purpose: form.purpose.trim(),
@@ -178,7 +261,7 @@ export function toPlan(
     plan: {
       schedules,
       sources: lines(form.sources),
-      notifyText: tr(lang, "fu.f.notifyFixed"),
+      notifyText: notices.length > 0 ? notices.join("；") : tr(lang, "fu.f.notifyFixed"),
       wontDo: lines(form.wont),
       tz,
       ...(Number.isFinite(until)
@@ -188,9 +271,192 @@ export function toPlan(
   };
 }
 
+function checkBox(label: string, value: boolean, onChange: (v: boolean) => void): HTMLElement {
+  const box = el("input");
+  box.type = "checkbox";
+  box.checked = value;
+  box.addEventListener("change", () => onChange(box.checked));
+  const row = el("label", "nx-row");
+  row.append(box, el("span", "", label));
+  return row;
+}
+
+/** The notification choices of one check: which connected channel and where in it, when, and what the message says. */
+/** An example of what to type, per channel (the same shape each channel's own docs use); other channels show none. */
+const NOTIFY_EXAMPLE: Record<string, string> = {
+  slack: "#nexus-test",
+  discord: "#general",
+  telegram: "-1001234567890",
+  feishu: "oc_xxxxxxxx",
+  whatsapp: "+8613800000000",
+  mattermost: "#town-square",
+  matrix: "#room:matrix.org",
+  irc: "#nexus-test",
+  googlechat: "spaces/AAAAxxxx",
+  signal: "+8613800000000",
+};
+
+function notifyHelpKey(channel: string): MsgKey {
+  switch (channel) {
+    case "slack":
+      return "fu.f.notifyHelp.slack";
+    case "discord":
+      return "fu.f.notifyHelp.discord";
+    case "telegram":
+      return "fu.f.notifyHelp.telegram";
+    case "feishu":
+      return "fu.f.notifyHelp.feishu";
+    case "whatsapp":
+      return "fu.f.notifyHelp.whatsapp";
+    case "mattermost":
+      return "fu.f.notifyHelp.mattermost";
+    case "matrix":
+      return "fu.f.notifyHelp.matrix";
+    case "irc":
+      return "fu.f.notifyHelp.irc";
+    case "googlechat":
+      return "fu.f.notifyHelp.googlechat";
+    case "signal":
+      return "fu.f.notifyHelp.signal";
+    default:
+      return "fu.f.notifyHelp.other";
+  }
+}
+
+function notifyRows(
+  lang: Lang,
+  check: CheckForm,
+  channels: readonly FormChannel[],
+  rebuild: () => void,
+  changed: () => void,
+): HTMLElement {
+  const box = el("div");
+  // A channel saved in the plan that is no longer connected stays selectable, marked, so the choice is not silently lost.
+  const known = channels.some((c) => c.id === check.channel);
+  const options: [string, string][] = [
+    [tr(lang, "fu.f.notifyChannelPick"), ""],
+    ...channels.map((c): [string, string] => [c.id, c.id]),
+    ...(check.channel !== "" && !known
+      ? ([[tr(lang, "fu.f.notifyGone", { channel: check.channel }), check.channel]] as [
+          string,
+          string,
+        ][])
+      : []),
+  ];
+  const usable = channels.length > 0 || check.notify;
+  const toggle = checkBox(tr(lang, "fu.f.notify"), check.notify, (v) => {
+    check.notify = v;
+    if (v && check.text === "") {
+      check.text = tr(lang, "fu.f.notifyTplDefault");
+    }
+    rebuild();
+    changed();
+  });
+  const toggleInput = toggle.querySelector("input");
+  if (toggleInput && !usable) {
+    toggleInput.disabled = true;
+  }
+  box.append(toggle);
+  if (!usable) {
+    box.append(el("p", "muted", tr(lang, "fu.f.notifyNone")));
+    return box;
+  }
+  if (!check.notify) {
+    return box;
+  }
+  const accounts = channels.find((c) => c.id === check.channel)?.accounts ?? [];
+  box.append(
+    field(
+      tr(lang, "fu.f.notifyChannel"),
+      select(options, check.channel, (v) => {
+        check.channel = v;
+        check.accountId = "";
+        rebuild();
+        changed();
+      }),
+    ),
+  );
+  if (accounts.length > 1) {
+    box.append(
+      field(
+        tr(lang, "fu.f.notifyAccount"),
+        select(
+          [
+            [tr(lang, "fu.f.notifyAccountDefault"), ""],
+            ...accounts.map((a): [string, string] => [a, a]),
+          ],
+          check.accountId,
+          (v) => {
+            check.accountId = v;
+            changed();
+          },
+        ),
+      ),
+    );
+  }
+  const to = textInput(check.to, NOTIFY_LIMITS.to, (v) => {
+    check.to = v;
+    changed();
+  });
+  to.placeholder = NOTIFY_EXAMPLE[check.channel] ?? "";
+  box.append(
+    field(tr(lang, "fu.f.notifyTo2"), to),
+    ...(check.channel !== ""
+      ? [
+          el(
+            "p",
+            "muted",
+            `${tr(lang, notifyHelpKey(check.channel))} ${tr(lang, "fu.f.notifyHelp.always")}`,
+          ),
+        ]
+      : []),
+    checkBox(tr(lang, "fu.f.notifyOnChanged"), check.onChanged, (v) => {
+      check.onChanged = v;
+      changed();
+    }),
+    checkBox(tr(lang, "fu.f.notifyOnCannot"), check.onCannotCheck, (v) => {
+      check.onCannotCheck = v;
+      changed();
+    }),
+    field(
+      tr(lang, "fu.f.notifyMode"),
+      select(
+        [
+          [tr(lang, "fu.f.notifyMode.template"), "template"],
+          [tr(lang, "fu.f.notifyMode.fixed"), "fixed"],
+        ],
+        check.mode,
+        (v) => {
+          check.mode = v as CheckForm["mode"];
+          rebuild();
+          changed();
+        },
+      ),
+    ),
+  );
+  const text = textarea(check.text, NOTIFY_LIMITS.text, (v) => {
+    check.text = v;
+    changed();
+  });
+  text.rows = 3;
+  box.append(
+    field(tr(lang, "fu.f.notifyText"), text),
+    el(
+      "p",
+      "muted",
+      check.mode === "template"
+        ? tr(lang, "fu.f.notifyTplHint", { placeholders: NOTIFY_PLACEHOLDERS.join(" ") })
+        : tr(lang, "fu.f.notifyFixedHint"),
+    ),
+    el("p", "muted", tr(lang, "fu.f.notifyAuth", { channel: check.channel || "-" })),
+  );
+  return box;
+}
+
 function checkRows(
   lang: Lang,
   form: PlanForm,
+  channels: readonly FormChannel[],
   rebuild: () => void,
   changed: () => void,
 ): HTMLElement {
@@ -278,6 +544,17 @@ function checkRows(
       });
       card.append(field(tr(lang, "fu.f.at"), at));
     }
+    const stopBox = el("input");
+    stopBox.type = "checkbox";
+    stopBox.checked = check.stopOnChange;
+    stopBox.addEventListener("change", () => {
+      check.stopOnChange = stopBox.checked;
+      changed();
+    });
+    const stopRow = el("label", "nx-row");
+    stopRow.append(stopBox, el("span", "", tr(lang, "fu.f.stopOnChange")));
+    card.append(stopRow, el("p", "muted", tr(lang, "fu.f.stopOnChangeHint")));
+    card.append(notifyRows(lang, check, channels, rebuild, changed));
     if (form.checks.length > 1) {
       const drop = el("button", "nx-btn", tr(lang, "fu.f.removeCheck"));
       drop.type = "button";
@@ -310,6 +587,7 @@ export function buildPlanFields(
   form: PlanForm,
   changed: () => void,
   extra?: HTMLElement,
+  channels: readonly FormChannel[] = [],
 ): void {
   const purpose = textInput(form.purpose, 300, (v) => {
     form.purpose = v;
@@ -322,7 +600,7 @@ export function buildPlanFields(
   });
   sources.placeholder = tr(lang, "fu.f.sourcesHint");
   const checks = el("div");
-  const rebuild = () => checks.replaceChildren(checkRows(lang, form, rebuild, changed));
+  const rebuild = () => checks.replaceChildren(checkRows(lang, form, channels, rebuild, changed));
   rebuild();
   const until = el("input");
   until.type = "datetime-local";
@@ -346,7 +624,7 @@ export function buildPlanFields(
     field(tr(lang, "fu.f.until"), until),
     el("p", "muted", tr(lang, "fu.f.untilHint")),
     field(tr(lang, "fu.f.wont"), wont),
-    el("p", "muted", tr(lang, "fu.f.notifyFixed")),
+    el("p", "muted", tr(lang, "fu.f.notifyGeneral")),
     field(
       tr(lang, "fu.f.start"),
       select(

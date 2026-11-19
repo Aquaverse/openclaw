@@ -331,6 +331,77 @@ export async function resolveChannelTarget(params: {
   };
 }
 
+/**
+ * A `#name` or `@name` that a person typed, looked up by its exact name in the channel's directory. Some channels (Slack) treat
+ * every `#...` as an id, so `resolveChannelTarget` never reaches the directory for it; a send that must not guess a destination
+ * asks here first. Only an exact, unique name matches: a near miss is `null` (the caller then takes its other routes), and two
+ * channels of one name are an ambiguity error, never a pick.
+ */
+export async function resolveNamedChannelTarget(params: {
+  cfg: OpenClawConfig;
+  channel: ChannelId;
+  input: string;
+  accountId?: string | null;
+  runtime?: RuntimeEnv;
+}): Promise<ResolveMessagingTargetResult | null> {
+  const raw = params.input.trim();
+  const kind: ChannelDirectoryEntryKind | undefined = raw.startsWith("#")
+    ? "group"
+    : raw.startsWith("@")
+      ? "user"
+      : undefined;
+  const plugin = getRuntimeVisibleChannelPlugin(params.channel);
+  const query = raw.slice(1).trim();
+  if (!kind || !query || !plugin?.directory) {
+    return null;
+  }
+  let entries: ChannelDirectoryEntry[];
+  try {
+    entries = await getDirectoryEntries({
+      cfg: params.cfg,
+      channel: params.channel,
+      accountId: params.accountId,
+      kind,
+      query,
+      runtime: params.runtime,
+      preferLiveOnMiss: true,
+      plugin,
+    });
+  } catch {
+    // A directory that cannot be read is a miss, not a failure: channels where `#name` / `@name` is itself a valid address
+    // (IRC, Matrix, Telegram usernames) must still be sent to as typed.
+    return null;
+  }
+  const fold = (value: string) => value.normalize("NFKC").toLowerCase();
+  const wanted = fold(query);
+  const bare = (value?: string) =>
+    value ? fold(stripTargetPrefixes(value, params.channel, plugin)) : "";
+  const exact = entries.filter(
+    (entry) => bare(entry.name) === wanted || bare(entry.handle) === wanted,
+  );
+  if (exact.length > 1) {
+    return {
+      ok: false,
+      error: ambiguousTargetError(plugin.meta.label ?? params.channel, raw, undefined),
+      candidates: exact,
+    };
+  }
+  const [entry] = exact;
+  return entry
+    ? {
+        ok: true,
+        target: {
+          to: normalizeDirectoryEntryId(params.channel, entry, plugin),
+          kind,
+          display:
+            entry.name ?? entry.handle ?? stripTargetPrefixes(entry.id, params.channel, plugin),
+          source: "directory",
+          resolutionSource: "directory",
+        },
+      }
+    : null;
+}
+
 export async function lookupDirectoryDisplay(params: {
   cfg: OpenClawConfig;
   channel: ChannelId;

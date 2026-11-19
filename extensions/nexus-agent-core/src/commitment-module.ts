@@ -10,6 +10,7 @@ import { createCounterpartRpcHandlers } from "./counterpart-rpc.js";
 import { createCounterpartSameRpcHandlers } from "./counterpart-same-rpc.js";
 import type { EventBridge } from "./events.js";
 import { createScheduleRpcHandlers } from "./schedule-rpc.js";
+import { connectedChannels } from "./schedule/notify.js";
 import type { TaskStore } from "./store/host.js";
 import type { Principal } from "./store/types.js";
 import { COMMITMENT_TOOL_NAMES, createCommitmentTools } from "./tools/commitment-tools.js";
@@ -65,4 +66,12 @@ export function registerCommitmentModule(params: CommitmentModuleParams): void {
   ]) {
     api.registerGatewayMethod(method, handler, { scope });
   }
+  // The channels a follow-up check's notification can go to (the plan form's dropdown): only the host's connected ones.
+  api.registerGatewayMethod(
+    "nexus.notify.channels",
+    async ({ respond }) => {
+      respond(true, { channels: connectedChannels(api.config) });
+    },
+    { scope: "operator.read" },
+  );
 }

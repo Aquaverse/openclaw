@@ -136,6 +136,12 @@ describe("follow-up block", () => {
       assert.ok(html.includes(`data-nx-act="${act}"`), act);
     }
     assert.ok(!html.includes('data-nx-act="fu-resume"'));
+    // The plan's own buttons come before the checks' list, which has its own heading: they are not mistaken for a check's buttons.
+    const at = (text: string) => html.indexOf(text);
+    assert.ok(at('data-nx-act="fu-edit"') > 0);
+    assert.ok(at('data-nx-act="fu-edit"') < at("这份方案的检查项"));
+    assert.ok(at('data-nx-act="fu-end"') < at("这份方案的检查项"));
+    assert.ok(at("这份方案的检查项") < at('data-nx-act="fu-check"'));
   });
 
   it("a plan whose commitment ended says it is ending, keeps only the records button, and says when a commitment plan ends", () => {
@@ -292,6 +298,54 @@ describe("follow-up block", () => {
     assert.doesNotMatch(render(data()), /nx-fu-bad/, "a normal check is not drawn as a problem");
   });
 
+  it("says what happened to the notification the user chose, and draws a notice that did not go out as a problem", () => {
+    const withNotice = (status: "sent" | "unavailable" | "failed") =>
+      render(
+        data({
+          triggers: {
+            sc_1: [
+              trigger({
+                report: {
+                  outcome: "changed",
+                  summary: "页面状态已变为 Closed",
+                  notice: { status, channel: "slack", to: "#nexus-test", at: NOW },
+                },
+              }),
+            ],
+          },
+        }),
+      );
+    const sent = withNotice("sent");
+    assert.match(sent, /已通知 slack #nexus-test/);
+    assert.doesNotMatch(sent, /nx-fu-bad/);
+    const gone = withNotice("unavailable");
+    assert.match(gone, /你选的渠道 slack 不可用，没有发送/);
+    assert.match(gone, /nx-fu-bad/);
+    assert.match(withNotice("failed"), /发到 slack #nexus-test 失败/);
+    const why = render(
+      data({
+        triggers: {
+          sc_1: [
+            trigger({
+              report: {
+                outcome: "changed",
+                summary: "页面状态已变为 Closed",
+                notice: {
+                  status: "failed",
+                  channel: "slack",
+                  to: "#nexus-test",
+                  at: NOW,
+                  reason: "Slack channels require a channel id",
+                },
+              },
+            }),
+          ],
+        },
+      }),
+    );
+    assert.match(why, /失败，没有发送（Slack channels require a channel id）/);
+  });
+
   it("names a manual or catch-up check, and says why a due time was skipped", () => {
     const manual = render(data({ triggers: { sc_1: [trigger({ source: "manual" })] } }));
     assert.match(manual, /手动检查 · 有变化/);
@@ -328,6 +382,56 @@ describe("follow-up block", () => {
       }),
     );
     assert.match(ended, /data-nx-act="fu-history" data-nx-id="sc_1"/);
+  });
+
+  it("an ended plan, and a check that ended inside a running plan, still show their recent records", () => {
+    const ended = render(
+      data({
+        plans: [plan({ status: "ended", endReason: "replaced", endedAt: NOW })],
+        schedules: [schedule({ status: "cancelled", stopReason: "plan_replaced" })],
+        triggers: {
+          sc_1: [trigger({ report: { outcome: "changed", summary: "小王回复了，说周五交" } })],
+        },
+      }),
+    );
+    assert.match(ended, /最近的检查/);
+    assert.match(ended, /小王回复了，说周五交/);
+    const stopped = render(
+      data({
+        schedules: [schedule({ status: "ended", stopReason: "first_change" })],
+        triggers: {
+          sc_1: [trigger({ report: { outcome: "changed", summary: "页面已变为 Closed" } })],
+        },
+      }),
+    );
+    assert.match(stopped, /页面已变为 Closed/);
+  });
+
+  it("earlier plans sit in a closed fold after the current plan, not in the open", () => {
+    const html = render(
+      data({
+        plans: [
+          plan(),
+          plan({
+            id: "dp_0",
+            purpose: "旧方案甲",
+            status: "ended",
+            endReason: "replaced",
+            endedAt: NOW,
+          }),
+        ],
+      }),
+    );
+    const fold = html.indexOf('<details class="nx-fu-past">');
+    assert.ok(fold > 0, "has a fold");
+    assert.ok(html.indexOf("跟进小王提交报告") < fold, "the current plan comes before the fold");
+    assert.ok(html.indexOf("旧方案甲") > fold, "an earlier plan is inside it");
+    assert.match(html, /以前的方案（1）/);
+    assert.doesNotMatch(html, /<details[^>]* open/);
+    assert.ok(
+      !render(data({ plans: [plan()] })).includes("<details"),
+      "no fold without earlier plans",
+    );
   });
 
   it("an ended plan says why, in either language, and an unknown reason is shown as itself", () => {

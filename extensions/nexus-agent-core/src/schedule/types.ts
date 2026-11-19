@@ -40,7 +40,9 @@ export type ScheduleSpec = {
   tz: string;
   expectedEvidence?: unknown;
   dispatchWindowMs?: number;
+  /** Only `STOP_AT_FIRST_CHANGE` is understood; stored with the schedule (`stop_json`). */
   stop?: unknown;
+  /** The one notification of this check (a `NotifySpec`); stored with the schedule (`notify_json`). */
   notify?: unknown;
   sessionKey?: string;
   executorKind?: ExecutorKind;
@@ -52,6 +54,53 @@ export type StopCondition =
   | { kind: "goal_event"; goalId: string; events: ("completed" | "deleted")[] }
   | { kind: "commitment_resolved" }
   | { kind: "until"; at: number };
+
+/**
+ * The per-check stop a ScheduleSpec can carry in `stop`: this check ends itself the first time it reports "changed"
+ * (a one-off "tell me when it happens"). The plan ends with its last live check. Other checks of the plan are not touched.
+ */
+export const STOP_AT_FIRST_CHANGE = { kind: "first_change" } as const;
+export const stopsAtFirstChange = (stop: unknown): boolean =>
+  typeof stop === "object" &&
+  stop !== null &&
+  (stop as { kind?: unknown }).kind === STOP_AT_FIRST_CHANGE.kind;
+
+/**
+ * The one notification a check may carry, chosen by the user in the plan form and authorised by accepting the plan: this plugin
+ * (never the check's model) posts ONE message to this channel when the check reports a chosen outcome. Nothing else is sent and
+ * no other channel is used; when the channel is unavailable the check record says so and that is all.
+ */
+export type NotifySpec = {
+  kind: "channel";
+  /** Host channel id, e.g. "slack". */
+  channel: string;
+  accountId?: string;
+  /** Where in that channel, in the channel's own words, e.g. "#nexus-test". */
+  to: string;
+  onChanged: boolean;
+  onCannotCheck: boolean;
+  /** `template`: the placeholders below are filled by the system. `fixed`: sent exactly as written. */
+  mode: "template" | "fixed";
+  text: string;
+};
+export const NOTIFY_PLACEHOLDERS = [
+  "{summary}",
+  "{purpose}",
+  "{result}",
+  "{source}",
+  "{time}",
+] as const;
+export const NOTIFY_LIMITS = { to: 120, text: 500, rendered: 1500 } as const;
+export const NOTICE_STATUSES = ["sent", "unavailable", "failed"] as const;
+/** What happened to the notification of one check, kept in that check's record. */
+export type NoticeRecord = {
+  status: (typeof NOTICE_STATUSES)[number];
+  channel: string;
+  to: string;
+  at: number;
+  /** Only for `failed`: the host's short error text. */
+  reason?: string;
+};
 
 export type PlanBody = {
   /** What will be saved as schedules when the plan is accepted: the user reviews exactly these (at least one, at most five). */
@@ -144,7 +193,7 @@ export type TurnState = (typeof TURN_STATES)[number];
 /** What a check turn says when it finishes: only observations, never a decision (the check is read-only). */
 export const CHECK_OUTCOMES = ["no_change", "changed", "cannot_check"] as const;
 export type CheckOutcome = (typeof CHECK_OUTCOMES)[number];
-export type CheckReport = { outcome: CheckOutcome; summary: string };
+export type CheckReport = { outcome: CheckOutcome; summary: string; notice?: NoticeRecord };
 
 export type TriggerRecord = {
   id: string;

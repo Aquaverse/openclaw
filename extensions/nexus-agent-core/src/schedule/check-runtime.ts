@@ -207,7 +207,7 @@ export function createCheckRuntime(deps: CheckRuntimeDeps) {
         entry.claimed &&
         entry.sessionKey.toLowerCase() === sessionKey.toLowerCase() &&
         entry.grant?.runId === ctx.runId &&
-        entry.grant.triggerId === triggerId,
+        entry.grant?.triggerId === triggerId,
     );
     if (sameRun?.grant) {
       deps.logger.info(

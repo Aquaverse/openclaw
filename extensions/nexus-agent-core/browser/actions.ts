@@ -574,6 +574,8 @@ export function runAction(ctx: ActionContext, action: NexusAction): void {
     case "fu-check":
     case "fu-pause":
     case "fu-resume":
+    case "fu-restore":
+    case "fu-reopen":
     case "fu-stop":
       return runFollowAction(ctx, action);
     case "pp-new":

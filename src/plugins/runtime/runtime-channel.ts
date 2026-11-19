@@ -119,6 +119,10 @@ const dispatchReplyWithBufferedBlockDispatcherCore = createLazyRuntimeMethod(
   createLazyRuntimeModule(() => import("../../auto-reply/reply/provider-dispatcher.js")),
   (runtime) => runtime.dispatchReplyWithBufferedBlockDispatcherCore,
 );
+// The directory-backed destination resolver is only needed when a plugin sends to a named destination.
+const loadOutboundTargetResolver = createLazyRuntimeModule(
+  () => import("../../infra/outbound/target-resolver.js"),
+);
 const loadChannelTurnLifecycle = createLazyRuntimeModule(
   () => import("../../channels/turn/lifecycle.js"),
 );
@@ -407,6 +411,32 @@ export function createRuntimeChannel(options?: {
     },
     outbound: {
       loadAdapter: loadChannelOutboundAdapter,
+      resolveTarget: async (params) => {
+        try {
+          const { resolveChannelTarget, resolveNamedChannelTarget } =
+            await loadOutboundTargetResolver();
+          // A typed #name goes to the directory first (see resolveNamedChannelTarget); anything else, or a miss, the usual way.
+          const resolved =
+            (await resolveNamedChannelTarget({
+              cfg: params.cfg,
+              channel: params.channel,
+              input: params.input,
+              accountId: params.accountId,
+            })) ??
+            (await resolveChannelTarget({
+              cfg: params.cfg,
+              channel: params.channel,
+              input: params.input,
+              accountId: params.accountId,
+              unknownTargetMode: "error",
+            }));
+          return resolved.ok
+            ? { ok: true, to: resolved.target.to, display: resolved.target.display }
+            : { ok: false, error: resolved.error.message };
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      },
     },
     inbound: inboundRuntime,
     turn: inboundRuntime,

@@ -30,6 +30,13 @@ const LEGACY_CSS = `
 .nexus-page .hint .nx-btn{margin-left:8px}
 .nexus-page .nx-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
 .nexus-page .nx-dialog{background:Canvas;color:CanvasText;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:10px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:16px 20px;box-shadow:0 12px 40px rgba(0,0,0,.35)}
+.nexus-page .nx-dialog.nx-dialog-wide{max-width:min(860px,96vw)}
+.nexus-page .nx-dialog-wide .nx-label{flex:0 0 132px}
+.nexus-page .nx-dialog-wide .nx-row{margin:10px 0;gap:14px}
+.nexus-page .nx-dialog-wide .nx-row input[type=checkbox]{flex:0 0 auto;width:auto;margin:3px 0 0}
+.nexus-page .nx-dialog-wide .nx-li{display:block;padding:14px 16px;margin:12px 0;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:10px}
+.nexus-page .nx-dialog-wide .nx-li > .nx-btn{margin:8px 8px 0 0}
+.nexus-page .nx-dialog-wide .muted{margin:4px 0 10px;line-height:1.5}
 .nexus-page .nx-title{font-size:16px;margin:0 0 8px;opacity:1}
 .nexus-page .nx-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;position:sticky;top:-16px;z-index:2;background:Canvas;margin:-16px -20px 0;padding:16px 20px 8px}
 .nexus-page .nx-head .nx-title{margin:0;min-width:0;word-break:break-word}

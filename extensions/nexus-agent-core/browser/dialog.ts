@@ -21,13 +21,15 @@ export type DialogOptions = {
   redact: (text: string) => string;
   /** The close button's text (the caller's language). */
   cancelLabel: string;
+  /** A roomier dialog for a long form with many fields (the follow-up plan form). */
+  wide?: boolean;
 };
 
 export function openDialog(options: DialogOptions): () => void {
   const overlay = document.createElement("div");
   overlay.className = "nx-overlay";
   const dialog = document.createElement("div");
-  dialog.className = "nx-dialog";
+  dialog.className = options.wide ? "nx-dialog nx-dialog-wide" : "nx-dialog";
   dialog.setAttribute("role", "dialog");
   dialog.setAttribute("aria-modal", "true");
   const title = document.createElement("h2");

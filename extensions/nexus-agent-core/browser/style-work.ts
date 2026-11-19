@@ -93,6 +93,9 @@ ${RING_CLASSES}
 .nx-dw .nx-fu-plan:not(:last-child){border-bottom:6px solid color-mix(in srgb,var(--nx-sub) 22%,var(--nx-line))}
 .nx-fu-s{margin-top:14px;padding-top:14px;border-top:1px solid var(--nx-line)}
 .nx-fu-bad{color:var(--nx-rose)}
+.nx-fu-past{margin-top:14px}
+.nx-fu-past>summary{cursor:pointer;font-size:12.5px;color:var(--nx-mute);padding:4px 0}
+.nx-fu-past[open]>summary{margin-bottom:8px}
 .nx-fu-hist{margin:0;padding:0;list-style:none}
 .nx-fu-hist li{padding:10px 0;border-top:1px solid var(--nx-line);word-break:break-word}
 .nx-fu-hist li:first-child{border-top:0}

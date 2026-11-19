@@ -38,6 +38,10 @@ export const FOLLOW_MESSAGES = {
   "fu.why.commitment_resolved": ["这项承诺已办结", "the commitment was resolved"],
   "fu.why.commitment_cancelled": ["这项承诺已取消", "the commitment was cancelled"],
   "fu.why.until_reached": ["到了你设定的结束时间", "the end time you set was reached"],
+  "fu.why.first_change": [
+    "这个检查看到了你要等的变化，已按设置停止",
+    "this check saw the change you were waiting for and stopped, as set",
+  ],
   "fu.why.replaced": ["被新方案替换", "replaced by a newer plan"],
   "fu.k.look": ["看什么 / 在哪看", "What and where"],
   "fu.k.often": ["多久看一次", "How often"],
@@ -144,9 +148,26 @@ export const FOLLOW_MESSAGES = {
   "fu.btn.check": ["立即检查", "Check now"],
   "fu.btn.pause": ["暂停", "Pause"],
   "fu.btn.resume": ["恢复", "Resume"],
+  "fu.btn.restore": ["恢复", "Restore"],
+  "fu.btn.reopen": ["恢复", "Restore"],
+  "fu.dlg.restoreTitle": ["恢复这项检查", "Restore this check"],
+  "fu.dlg.restoreBody": [
+    "这项检查会重新开始，按原来的周期继续检查；你停掉它之前的记录都还在。",
+    "The check starts again on its old cadence; its earlier records stay.",
+  ],
+  "fu.notice.restored": ["已恢复这项检查。", "Check restored."],
+  "fu.err.restoreOnce": [
+    "这是一次性的检查，时间已经过了，不能恢复；请改用“修改方案”重新安排。",
+    "This was a one-time check and its time has passed; use “Edit plan” to schedule it again.",
+  ],
+  "fu.dlg.reopen": ["恢复这份方案", "Restore this plan"],
   "fu.btn.stop": ["停止跟进", "Stop following up"],
   "fu.btn.end": ["结束这份方案", "End this plan"],
-  "fu.sec.history": ["以前的方案", "Earlier plans"],
+  "fu.checks.title": [
+    "这份方案的检查项（下面每个检查有自己的按钮）",
+    "Checks in this plan (each has its own buttons below)",
+  ],
+  "fu.sec.history": ["以前的方案（{n}）", "Earlier plans ({n})"],
   // ---- plan form (browser/follow-form.ts)
   "fu.f.purpose": ["要跟进什么", "What to follow up"],
   "fu.f.purposeHint": [
@@ -173,6 +194,112 @@ export const FOLLOW_MESSAGES = {
   "fu.f.unit.hours": ["小时", "hours"],
   "fu.f.at": ["检查时间", "Check at"],
   "fu.f.until": ["何时结束（可不填）", "End at (optional)"],
+  "fu.f.stopOnChange": ["检查到变化就停止这个检查", "Stop this check as soon as it sees a change"],
+  "fu.f.stopOnChangeHint": [
+    "适合“等某件事发生”：这个检查看到一次变化就停止，方案里其他检查不受影响；要不要给你发消息由下面的通知设置决定，承诺本身是否办结仍由你确认。",
+    "For waiting on one event: this check stops at its first change and the plan's other checks keep going; whether a message is sent is set in the notification options below, and whether the commitment is resolved is still yours to settle.",
+  ],
+  "fu.f.notifyGeneral": [
+    "默认只把检查结果记录在这里的“跟进”区块；只有你在某个检查里勾选“发消息通知我”并选好渠道，才会向该渠道发一条消息。",
+    "By default results are only recorded in this follow-up block; a message is sent to a channel only when you tick “Send me a message” on a check and choose it.",
+  ],
+  "fu.f.notify": ["发消息通知我", "Send me a message"],
+  "fu.f.notifyNone": [
+    "目前没有已连接的渠道，所以暂时不能选择通知方式。",
+    "No channel is connected right now, so a notification cannot be chosen yet.",
+  ],
+  "fu.f.notifyChannel": ["通知渠道（已连接的）", "Channel (connected ones)"],
+  "fu.f.notifyChannelPick": ["请选择渠道", "Choose a channel"],
+  "fu.f.notifyGone": ["{channel}（现在不可用）", "{channel} (unavailable now)"],
+  "fu.f.notifyAccount": ["渠道账号", "Channel account"],
+  "fu.f.notifyAccountDefault": ["默认账号", "Default account"],
+  "fu.f.notifyTo2": ["发到哪里", "Send to"],
+  "fu.f.notifyHelp.slack": [
+    "填 #频道名（如 #nexus-test）或频道 ID（C…），也可直接粘贴频道链接。名字由系统按 Slack 目录解析成频道 ID；机器人需要已加入该频道。",
+    "A #name (such as #nexus-test) or a channel ID (C…); a pasted channel link works too. The system resolves the name from the Slack directory; the bot must have joined the channel.",
+  ],
+  "fu.f.notifyHelp.discord": [
+    "填 #频道名、频道 ID，或 user:用户ID（发私信）。名字按 Discord 目录查找，机器人要能在服务器里看到这个频道。",
+    "A #name, a channel ID, or user:USER_ID for a direct message. Names are looked up in the Discord directory; the bot must be able to see the channel.",
+  ],
+  "fu.f.notifyHelp.telegram": [
+    "填聊天 ID（群组一般是 -100 开头的数字）或 @频道用户名，也可粘贴 t.me 链接。Telegram 不能按群名查找；机器人要先在群里，或和对方聊过天。",
+    "A chat ID (groups are usually numbers starting with -100) or an @channel username; a t.me link works too. Telegram cannot look a group up by name; the bot must already be in the group or have chatted with the person.",
+  ],
+  "fu.f.notifyHelp.feishu": [
+    "填群聊 ID（oc_…）、用户 open_id（user:ou_…），或在目录里能找到的群名。机器人需要已加入该群。",
+    "A chat ID (oc_…), a user open_id (user:ou_…), or a group name found in the directory. The bot must have joined the group.",
+  ],
+  "fu.f.notifyHelp.whatsapp": [
+    "填国际格式手机号（如 +8613800000000）或群 JID（…@g.us）。",
+    "A phone number in international format (such as +8613800000000) or a group JID (…@g.us).",
+  ],
+  "fu.f.notifyHelp.mattermost": [
+    "填 #频道名、@用户名，或 26 位 ID。机器人需要是该频道的成员。",
+    "A #channel name, an @username, or a 26-character ID. The bot must be a member of the channel.",
+  ],
+  "fu.f.notifyHelp.matrix": [
+    "填房间 ID（!…:服务器）、房间别名（#room:服务器）或用户（@user:服务器）。",
+    "A room ID (!…:server), a room alias (#room:server) or a user (@user:server).",
+  ],
+  "fu.f.notifyHelp.irc": ["填 #频道 或昵称。", "A #channel or a nickname."],
+  "fu.f.notifyHelp.googlechat": [
+    "填 spaces/…、users/…，或目录里能找到的空间名。",
+    "spaces/…, users/…, or a space name found in the directory.",
+  ],
+  "fu.f.notifyHelp.signal": [
+    "填手机号（国际格式）、username:名字，或 group:群ID。",
+    "A phone number (international format), username:NAME, or group:GROUP_ID.",
+  ],
+  "fu.f.notifyHelp.other": [
+    "填这个渠道里的频道/用户 ID，或名称（系统会查渠道目录）。",
+    "A channel or user ID in this channel, or a name (the system looks it up in the channel directory).",
+  ],
+  "fu.f.notifyHelp.always": [
+    "解析不到或发送失败时不会发送，检查记录里会写明原因。",
+    "If it cannot be resolved or sent, nothing is sent and the check record says why.",
+  ],
+  "fu.f.notifyOnChanged": ["检查到有变化时通知", "Notify when the check sees a change"],
+  "fu.f.notifyOnCannot": [
+    "没能检查（查不了）时也通知",
+    "Also notify when the check could not be done",
+  ],
+  "fu.f.notifyMode": ["通知内容", "Message content"],
+  "fu.f.notifyMode.template": ["模板（系统填入占位符）", "Template (system fills placeholders)"],
+  "fu.f.notifyMode.fixed": ["固定文字（原样发送）", "Fixed text (sent as written)"],
+  "fu.f.notifyText": ["消息文字", "Message text"],
+  "fu.f.notifyTplDefault": [
+    "【Nexus 跟进】{purpose}：{result}。{summary}（来源：{source}，{time}）",
+    "[Nexus follow-up] {purpose}: {result}. {summary} (source: {source}, {time})",
+  ],
+  "fu.f.notifyTplHint": [
+    "可用占位符：{placeholders}（依次是检查摘要、检查目的、结果、来源链接、时间），发送时由系统填入。",
+    "Placeholders: {placeholders} (check summary, purpose, result, source link, time), filled in by the system when sent.",
+  ],
+  "fu.f.notifyFixedHint": [
+    "固定文字不含占位符，会原样发送。",
+    "Fixed text has no placeholders and is sent exactly as written.",
+  ],
+  "fu.f.notifyAuth": [
+    "确认方案即授权：该检查报告你所选的情况后，由系统向 {channel} 发这一条消息；不会发到别处，也不是检查的模型发的。所选渠道到时不可用，就不发送，只在检查记录里写明渠道不可用。",
+    "Confirming the plan authorises exactly this: after this check reports what you chose, the system posts this one message to {channel}. Nothing goes elsewhere and the check's model sends nothing. If the channel is unavailable then, nothing is sent and the check record only says so.",
+  ],
+  "fu.f.notifyTo": ["{channel} {to}", "{channel} {to}"],
+  "fu.f.err.notifyChannel": ["请选择通知渠道。", "Choose a channel for the message."],
+  "fu.f.err.notifyTo": ["请填写发到哪里。", "Say where in the channel to send it."],
+  "fu.f.err.notifyWhen": ["请至少选一种通知时机。", "Pick at least one time to notify."],
+  "fu.f.err.notifyText": ["请填写消息文字。", "Write the message text."],
+  "fu.notice.sent": ["已通知 {channel} {to}", "Notified {channel} {to}"],
+  "fu.notice.unavailable": [
+    "你选的渠道 {channel} 不可用，没有发送",
+    "The channel you chose, {channel}, was unavailable; nothing was sent",
+  ],
+  "fu.notice.failed": ["发到 {channel} {to} 失败，没有发送", "Sending to {channel} {to} failed"],
+  "fu.notice.failedWhy": [
+    "发到 {channel} {to} 失败，没有发送（{reason}）",
+    "Sending to {channel} {to} failed ({reason})",
+  ],
+  "fu.cad.stopOnChange": ["检查到变化就停止", "stops at the first change"],
   "fu.f.untilHint": [
     "不填就一直跟进，直到你停止；跟进的如果是某项承诺，承诺办结或取消时会自动结束。",
     "Leave empty to follow up until you stop it. If it follows a commitment, it ends by itself when the commitment is resolved or cancelled.",
@@ -193,8 +320,8 @@ export const FOLLOW_MESSAGES = {
     "Does not treat no reply as accepted or delivered",
   ],
   "fu.wont.3": [
-    "不对外发送任何消息、不修改任何外部内容",
-    "Sends nothing outside and changes nothing outside",
+    "检查本身不对外发送任何消息、不修改任何外部内容（唯一的例外是你在上面的“通知”里选的那一条）",
+    "The check itself sends nothing outside and changes nothing outside (the one exception is the message you chose under notifications above)",
   ],
   "fu.f.err.purpose": ["请写明要跟进什么。", "Say what to follow up."],
   "fu.f.err.sources": ["请至少写一条看什么 / 在哪看。", "Give at least one thing to look at."],

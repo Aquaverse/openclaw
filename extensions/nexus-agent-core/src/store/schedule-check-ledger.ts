@@ -1,9 +1,14 @@
+import { parseNotify, wantsNotice, type NoticeFacts } from "../schedule/notify.js";
 import {
   CHECK_OUTCOMES,
   MANUAL_TRIGGER_COOLDOWN_MS,
   SCHEDULE_LIMITS,
+  stopsAtFirstChange,
   type BlockReason,
   type CheckOutcome,
+  type CheckReport,
+  type NoticeRecord,
+  type NotifySpec,
   type PlanBody,
   type ScheduleRecord,
   type TriggerRecord,
@@ -106,6 +111,62 @@ export function createScheduleCheckOps(deps: {
     const note = ok ? null : "check_failed";
     if (s.coverageState !== wanted || s.coverageNote !== note) {
       patch(owner, scheduleId, { coverage_state: wanted, coverage_note: note }, now);
+    }
+  };
+
+  /**
+   * The check's own "first change" stop (`stop_json`, set per check when the plan is made): a check that reports `changed` ends
+   * itself (reason `first_change`), and the plan ends with its last live check. Other checks of the plan keep running. Only the
+   * report of a done check gets here; a check never changes the Commitment or the Work, so those stay for the user to settle.
+   */
+  const stopOnFirstChangeInTx = (owner: string, scheduleId: string, now: number): void => {
+    const s = k.schedule(owner, scheduleId);
+    if (!s || !["active", "paused", "blocked"].includes(s.status)) {
+      return;
+    }
+    const stored = one(
+      "SELECT stop_json FROM schedules WHERE owner_id = ? AND id = ?",
+      owner,
+      s.id,
+    );
+    let stop: unknown;
+    try {
+      stop = stored?.stop_json ? JSON.parse(String(stored.stop_json)) : undefined;
+    } catch {
+      return;
+    }
+    if (!stopsAtFirstChange(stop)) {
+      return;
+    }
+    patch(
+      owner,
+      s.id,
+      {
+        status: "ended",
+        stop_reason: "first_change",
+        ended_at: now,
+        next_due_at: null,
+        pause_source: null,
+        block_reasons_json: null,
+      },
+      now,
+    );
+    if (!s.planId) {
+      return;
+    }
+    const left = all(
+      "SELECT 1 AS found FROM schedules WHERE owner_id = ? AND plan_id = ? AND status IN ('active','paused','blocked') LIMIT 1",
+      owner,
+      s.planId,
+    );
+    if (left.length === 0) {
+      run(
+        "UPDATE delegation_plans SET status = 'ended', ended_at = ?, end_reason = 'first_change', end_requested_at = ? WHERE owner_id = ? AND id = ? AND status = 'accepted'",
+        now,
+        now,
+        owner,
+        s.planId,
+      );
     }
   };
 
@@ -501,6 +562,9 @@ export function createScheduleCheckOps(deps: {
       const done = input.outcome !== "cannot_check";
       endTaskInTx(owner, String(row.task_id), done ? "succeeded" : "failed", summary, input.now);
       coverageAfterInTx(owner, String(row.schedule_id), done, input.now);
+      if (input.outcome === "changed") {
+        stopOnFirstChangeInTx(owner, String(row.schedule_id), input.now);
+      }
       return { outcome: "reported" as const, trigger: trigger(owner, input.triggerId) };
     });
 
@@ -560,6 +624,83 @@ export function createScheduleCheckOps(deps: {
       return { failed };
     });
 
+  const jsonOf = <T>(text: unknown): T | null => {
+    if (typeof text !== "string") {
+      return null;
+    }
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * The notification this REPORTED check still owes, if the user chose one for it and this outcome is one they chose. `none` when
+   * there is nothing to send, `done` when the record already says what happened (a notice is never sent twice).
+   */
+  const scheduleCheckNoticeGet = (input: { principal: Principal; triggerId: string }) =>
+    transaction(() => {
+      const owner = input.principal.ownerId;
+      const row = triggerRow(owner, input.triggerId);
+      const report = row ? jsonOf<CheckReport>(row.report_json) : null;
+      if (!row || !report || String(row.turn_state) !== "reported") {
+        return { outcome: "none" as const };
+      }
+      if (report.notice) {
+        return { outcome: "done" as const };
+      }
+      const s = one(
+        "SELECT notify_json, purpose, tz, plan_id FROM schedules WHERE owner_id = ? AND id = ?",
+        owner,
+        String(row.schedule_id),
+      );
+      const notify = s ? parseNotify(jsonOf<unknown>(s.notify_json)) : null;
+      if (!s || !notify || !wantsNotice(notify, report.outcome)) {
+        return { outcome: "none" as const };
+      }
+      const planRow = s.plan_id
+        ? one(
+            "SELECT plan_json FROM delegation_plans WHERE owner_id = ? AND id = ?",
+            owner,
+            String(s.plan_id),
+          )
+        : undefined;
+      const body = planRow ? (jsonOf<PlanBody>(planRow.plan_json) ?? {}) : {};
+      const facts: Omit<NoticeFacts, "at"> = {
+        outcome: report.outcome,
+        summary: report.summary,
+        purpose: String(s.purpose),
+        sources: Array.isArray(body.sources)
+          ? body.sources.filter((x) => typeof x === "string")
+          : [],
+        tz: String(s.tz),
+      };
+      return { outcome: "pending" as const, notify: notify satisfies NotifySpec, facts };
+    });
+
+  /** Keep what happened to the notification in the check's own record (the first answer stays; a second is ignored). */
+  const scheduleCheckNoticeRecord = (input: {
+    principal: Principal;
+    triggerId: string;
+    notice: NoticeRecord;
+  }) =>
+    transaction(() => {
+      const owner = input.principal.ownerId;
+      const row = triggerRow(owner, input.triggerId);
+      const report = row ? jsonOf<CheckReport>(row.report_json) : null;
+      if (!row || !report || report.notice) {
+        return { outcome: "noop" as const };
+      }
+      run(
+        "UPDATE schedule_triggers SET report_json = ? WHERE owner_id = ? AND id = ?",
+        JSON.stringify({ ...report, notice: input.notice }),
+        owner,
+        input.triggerId,
+      );
+      return { outcome: "recorded" as const, trigger: trigger(owner, input.triggerId) };
+    });
+
   return {
     scheduleDueList,
     scheduleDispatchBegin,
@@ -569,6 +710,8 @@ export function createScheduleCheckOps(deps: {
     scheduleCheckClaim,
     scheduleCheckGate,
     scheduleCheckReport,
+    scheduleCheckNoticeGet,
+    scheduleCheckNoticeRecord,
     scheduleCheckJobEnded,
     scheduleCheckExpire,
   };

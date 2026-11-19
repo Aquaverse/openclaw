@@ -151,6 +151,17 @@ export type PluginRuntimeChannel = {
   };
   outbound: {
     loadAdapter: typeof import("../../channels/plugins/outbound/load.js").loadChannelOutboundAdapter;
+    /**
+     * Turns what a person typed for a destination (a `#name`, an id, a handle) into the destination the channel sends to,
+     * using the channel's own directory when needed. The adapter's `sendText` takes only resolved destinations, so a plugin
+     * that sends to something a person named calls this first. Never throws: a miss is `{ ok: false }` with the reason.
+     */
+    resolveTarget: (params: {
+      cfg: import("../../config/types.openclaw.js").OpenClawConfig;
+      channel: string;
+      input: string;
+      accountId?: string | null;
+    }) => Promise<{ ok: true; to: string; display?: string } | { ok: false; error: string }>;
   };
   inbound: {
     /** Ingress policy and identity handoff bound to this channel's host instance. */

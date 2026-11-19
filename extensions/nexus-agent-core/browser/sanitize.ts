@@ -60,6 +60,8 @@ export type NexusAction =
   | { kind: "fu-check"; id: string }
   | { kind: "fu-pause"; id: string }
   | { kind: "fu-resume"; id: string }
+  | { kind: "fu-restore"; id: string }
+  | { kind: "fu-reopen"; id: string }
   | { kind: "fu-stop"; id: string }
   | { kind: "pp-new" }
   | { kind: "pp-edit"; id: string }
@@ -127,6 +129,8 @@ const ID_ACTIONS: ReadonlySet<string> = new Set<NexusAction["kind"]>([
   "fu-check",
   "fu-pause",
   "fu-resume",
+  "fu-restore",
+  "fu-reopen",
   "fu-stop",
   "pp-edit",
   "pp-confirm",
@@ -181,12 +185,14 @@ const ALLOWED_TAGS = new Set([
   "a",
   "button",
   "code",
+  "details",
   "div",
   "h1",
   "h2",
   "p",
   "pre",
   "span",
+  "summary",
   "table",
   "tbody",
   "td",

@@ -7,6 +7,7 @@ import { Type } from "typebox";
 import type { AnyAgentTool } from "../../api.js";
 import {
   SCHEDULE_LIMITS,
+  STOP_AT_FIRST_CHANGE,
   type DelegationPlanRecord,
   type PlanBody,
   type ScheduleRecord,
@@ -124,6 +125,12 @@ export function createSchedulePlanTools(
                 'once: {"kind":"once","at":<epoch ms>}; recurring: {"kind":"interval","minutes":<n>} or {"kind":"daily","times":["09:00"],"weekdays":[1..7]}.',
             }),
             tz: Type.String({ description: "IANA time zone, for example Asia/Shanghai." }),
+            stopAtFirstChange: Type.Optional(
+              Type.Boolean({
+                description:
+                  "Default true: this check stops itself the first time it reports a change (for example 'tell me when it is closed'); the plan ends with its last check. Pass false only when the user wants to keep hearing about every change. A stopped check never resolves the Commitment or Work: the user still does that.",
+              }),
+            ),
           }),
           { minItems: 1, maxItems: SCHEDULE_LIMITS.schedulesPerPlan },
         ),
@@ -139,7 +146,10 @@ export function createSchedulePlanTools(
           Type.Array(Type.String(), { description: "What will NOT be done, in the user's terms." }),
         ),
         notifyText: Type.Optional(
-          Type.String({ description: "Who is told what, in plain words." }),
+          Type.String({
+            description:
+              "Who is told what, in plain words. This only describes the plan: no message is sent unless the user sets one for a check in the plan form, so do not promise one.",
+          }),
         ),
         endAtMs: Type.Optional(
           Type.Integer({
@@ -181,6 +191,8 @@ export function createSchedulePlanTools(
             purpose: s.purpose,
             cadence: s.cadence,
             tz: s.tz,
+            // On unless the user asked to keep following every change.
+            ...(s.stopAtFirstChange === false ? {} : { stop: STOP_AT_FIRST_CHANGE }),
           });
         }
         const list = (v: unknown): string[] | undefined =>

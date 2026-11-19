@@ -5,6 +5,7 @@
 // A change tells the Work page through work_changed (ids and an action only). Replies carry ownerId.
 import type { EventBridge } from "./events.js";
 import { createGuard, reject, type GatewayRequestHandler, type TaskRpcDeps } from "./rpc.js";
+import { idOf, intOf, isObject, parseGaps, refuse } from "./schedule-rpc-support.js";
 import { getSharedCheckNow, type CheckNowResult } from "./schedule/dispatcher.js";
 import { scheduledDispatchReady } from "./schedule/host-capability.js";
 import {
@@ -12,7 +13,6 @@ import {
   SCHEDULE_STATUSES,
   START_INTENTS,
   type PlanBody,
-  type PlanGap,
   type PlanOwnerType,
   type ScheduleStatus,
   type StartIntent,
@@ -27,60 +27,6 @@ export type ScheduleRpcDeps = Pick<TaskRpcDeps, "getStore" | "resolvePrincipal" 
   /** Starts one check at once; the running dispatcher by default (tests only override it). */
   checkNow?: (principal: Principal, scheduleId: string) => Promise<CheckNowResult>;
 };
-
-type Respond = Parameters<GatewayRequestHandler>[0]["respond"];
-const idOf = (raw: unknown): string | undefined =>
-  typeof raw === "string" && /^[A-Za-z0-9_#:.@-]{1,200}$/.test(raw) ? raw : undefined;
-const intOf = (raw: unknown): number | undefined =>
-  typeof raw === "number" && Number.isSafeInteger(raw) && raw >= 0 ? raw : undefined;
-const isObject = (raw: unknown): raw is Record<string, unknown> =>
-  typeof raw === "object" && raw !== null && !Array.isArray(raw);
-
-/** The answers every call can give besides its success; true when it has answered. */
-function refuse(respond: Respond, result: { outcome: string } & Record<string, unknown>): boolean {
-  switch (result.outcome) {
-    case "not_found":
-    case "work_not_found":
-    case "owner_missing":
-      reject(respond, "nexus_not_found", result.outcome.replace(/_/g, " "));
-      return true;
-    case "conflict":
-    case "current_changed":
-      reject(respond, "nexus_revision_conflict", "it changed; reload it");
-      return true;
-    case "invalid":
-      reject(respond, "nexus_invalid_params", String(result.code));
-      return true;
-    case "owner_closed":
-    case "executive_work":
-    case "work_changed":
-    case "not_draft":
-    case "not_accepted":
-    case "plan_exists":
-    case "gaps":
-    case "already_final":
-    case "not_paused":
-    case "is_blocked":
-    case "manual_pause_kept":
-    case "work_paused":
-    case "wrapping_up":
-    case "not_blocked":
-    case "commitment_closed":
-    case "carrier_changed":
-    case "work_not_candidate":
-      reject(respond, "nexus_schedule_state", result.outcome.replace(/_/g, " "));
-      return true;
-    default:
-      return false;
-  }
-}
-
-function parseGaps(raw: unknown): PlanGap[] | undefined | "invalid" {
-  if (raw === undefined) {
-    return undefined;
-  }
-  return Array.isArray(raw) ? (raw as PlanGap[]) : "invalid";
-}
 
 /** Returns [method, handler, scope] triples; the caller registers them. */
 export function createScheduleRpcHandlers(deps: ScheduleRpcDeps) {
@@ -504,9 +450,14 @@ export function createScheduleRpcHandlers(deps: ScheduleRpcDeps) {
             store.scheduleList({ principal, workId, limit: 50 }),
           ]);
           const triggers: Record<string, unknown[]> = {};
-          for (const schedule of schedules.schedules
-            .filter((s) => s.status !== "ended" && s.status !== "cancelled")
-            .slice(0, 10)) {
+          // Live checks first, then the ended ones (an earlier plan's, or a check that stopped itself): their records stay readable.
+          const isOpen = (s: { status: string }) =>
+            s.status !== "ended" && s.status !== "cancelled";
+          const wanted = [
+            ...schedules.schedules.filter(isOpen).slice(0, 10),
+            ...schedules.schedules.filter((s) => !isOpen(s)).slice(0, 10),
+          ];
+          for (const schedule of wanted) {
             const got = await store.scheduleGet({
               principal,
               scheduleId: schedule.id,
@@ -603,6 +554,35 @@ export function createScheduleRpcHandlers(deps: ScheduleRpcDeps) {
           });
           if (out.outcome === "gaps") {
             // The real gaps go back with the refusal so the page can say what is missing.
+            respond(true, { ownerId: principal.ownerId, ...out });
+            return;
+          }
+          if (refuse(respond, out)) {
+            return;
+          }
+          announce(principal, await workOfSchedule(store, principal, scheduleId), "schedule");
+          respond(true, { ownerId: principal.ownerId, ...out });
+        }),
+        "operator.write",
+      ],
+      [
+        "nexus.schedule.restore",
+        guarded(async ({ principal, store, params, respond }) => {
+          const scheduleId = idOf(params.scheduleId);
+          if (!scheduleId) {
+            reject(respond, "nexus_invalid_params", "scheduleId is required");
+            return;
+          }
+          const out = await store.scheduleRestore({
+            principal,
+            scheduleId,
+            dispatchReady: ready(),
+            ...(intOf(params.expectedRevision) !== undefined
+              ? { expectedRevision: intOf(params.expectedRevision) as number }
+              : {}),
+            now: now(),
+          });
+          if (out.outcome === "gaps") {
             respond(true, { ownerId: principal.ownerId, ...out });
             return;
           }

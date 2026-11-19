@@ -11,6 +11,7 @@ const cfg = {} as OpenClawConfig;
 let resetDirectoryCache: TargetResolverModule["resetDirectoryCache"];
 let resolveMessagingTarget: TargetResolverModule["resolveChannelTarget"];
 let formatTargetDisplay: TargetResolverModule["formatTargetDisplay"];
+let resolveNamedChannelTarget: TargetResolverModule["resolveNamedChannelTarget"];
 
 const mocks = vi.hoisted(() => ({
   listPeers: vi.fn(),
@@ -44,6 +45,7 @@ beforeAll(async () => {
   resetDirectoryCache = targetResolver.resetDirectoryCache;
   resolveMessagingTarget = targetResolver.resolveChannelTarget;
   formatTargetDisplay = targetResolver.formatTargetDisplay;
+  resolveNamedChannelTarget = targetResolver.resolveNamedChannelTarget;
 });
 
 beforeEach(() => {
@@ -203,6 +205,68 @@ describe("resolveMessagingTarget (directory fallback)", () => {
     expect(miss.error.message).toContain('Reserved target "current"');
     expect(miss.error.message).toContain("Telegram");
     expect(mocks.resolveTarget).not.toHaveBeenCalled();
+  });
+
+  it("looks a typed #name up by its exact name, even for a channel whose plugin treats every #... as an id", async () => {
+    setPlugin(
+      { targetResolver: { ...targetResolver, looksLikeId: (raw: string) => raw.startsWith("#") } },
+      directory,
+    );
+    mocks.listGroups.mockResolvedValue([
+      { kind: "group", id: "channel:C111", name: "nexus-test-2", handle: "#nexus-test-2" },
+      { kind: "group", id: "channel:C222", name: "nexus-test", handle: "#nexus-test" },
+    ] satisfies ChannelDirectoryEntry[]);
+
+    const hit = await resolveNamedChannelTarget({ cfg, channel: "richchat", input: "#nexus-test" });
+    expect(hit?.ok).toBe(true);
+    assert(hit?.ok, "expected the exact name to resolve");
+    expect(hit.target).toMatchObject({ to: "channel:C222", source: "directory", kind: "group" });
+    expect(mocks.resolveTarget).not.toHaveBeenCalled();
+  });
+
+  it("does not guess: a near miss, an ordinary id, or a non-name input is left to the usual route", async () => {
+    setPlugin({ targetResolver }, directory);
+    mocks.listGroups.mockResolvedValue([
+      { kind: "group", id: "channel:C111", name: "nexus-test-2" },
+    ] satisfies ChannelDirectoryEntry[]);
+    mocks.listGroupsLive.mockResolvedValue([]);
+
+    expect(
+      await resolveNamedChannelTarget({ cfg, channel: "richchat", input: "#nexus-test" }),
+    ).toBeNull();
+    expect(
+      await resolveNamedChannelTarget({ cfg, channel: "richchat", input: "channel:C111" }),
+    ).toBeNull();
+    expect(await resolveNamedChannelTarget({ cfg, channel: "richchat", input: "#" })).toBeNull();
+  });
+
+  it("matches a typed name regardless of width and case, and reads a user name from the people directory", async () => {
+    setPlugin({ targetResolver }, directory);
+    mocks.listGroups.mockResolvedValue([
+      { kind: "group", id: "channel:C222", name: "Nexus-Test", handle: "#Nexus-Test" },
+    ] satisfies ChannelDirectoryEntry[]);
+    mocks.listPeers.mockResolvedValue([
+      { kind: "user", id: "user:U9", name: "Bob Li", handle: "@bobli" },
+    ] satisfies ChannelDirectoryEntry[]);
+
+    const group = await resolveNamedChannelTarget({
+      cfg,
+      channel: "richchat",
+      input: "#ＮＥＸＵＳ-test",
+    });
+    assert(group?.ok, "expected the full-width, differently cased name to resolve");
+    expect(group.target.to).toBe("channel:C222");
+    const user = await resolveNamedChannelTarget({ cfg, channel: "richchat", input: "@BobLi" });
+    assert(user?.ok, "expected the user handle to resolve");
+    expect(user.target).toMatchObject({ to: "user:U9", kind: "user" });
+  });
+
+  it("a directory that cannot be read is a miss, so channels where #name is itself an address still send as typed", async () => {
+    setPlugin({ targetResolver }, directory);
+    mocks.listGroups.mockRejectedValue(new Error("directory offline"));
+    mocks.listGroupsLive.mockRejectedValue(new Error("directory offline"));
+
+    expect(await resolveNamedChannelTarget({ cfg, channel: "richchat", input: "#ops" })).toBeNull();
   });
 
   it("requires exact directory matches before preserving reserved literal targets", async () => {

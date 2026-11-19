@@ -17,6 +17,7 @@ import { openDialog, type DialogAction } from "./dialog.ts";
 import {
   buildPlanFields,
   emptyForm,
+  type FormChannel,
   formFromPlan,
   formProblem,
   toPlan,
@@ -40,7 +41,7 @@ export function describeFollowError(lang: Lang, error: unknown): string {
     return tr(lang, "fu.err.gone");
   }
   if (t.includes("nexus_schedule_state")) {
-    return tr(lang, "fu.err.state");
+    return t.includes("once passed") ? tr(lang, "fu.err.restoreOnce") : tr(lang, "fu.err.state");
   }
   return tr(lang, "fu.err.generic", {
     message: error instanceof Error ? error.message : String(error),
@@ -160,7 +161,36 @@ async function createDraft(
   return reply.plan;
 }
 
-function planDialog(ctx: ActionContext, workId: string, existing?: DelegationPlanRecord): void {
+/** The channels the host has connected, for the notification choice; none when the page cannot ask (the form then says so). */
+async function connectedChannels(ctx: ActionContext): Promise<FormChannel[]> {
+  try {
+    const reply = await ctx.request<{ channels?: FormChannel[] }>("nexus.notify.channels", {});
+    return Array.isArray(reply.channels) ? reply.channels : [];
+  } catch {
+    return [];
+  }
+}
+
+function planDialog(
+  ctx: ActionContext,
+  workId: string,
+  existing?: DelegationPlanRecord,
+  reopen = false,
+): void {
+  void connectedChannels(ctx).then((channels) => {
+    if (!ctx.signal.aborted) {
+      openPlanDialog(ctx, workId, existing, channels, reopen);
+    }
+  });
+}
+
+function openPlanDialog(
+  ctx: ActionContext,
+  workId: string,
+  existing: DelegationPlanRecord | undefined,
+  channels: readonly FormChannel[],
+  reopen = false,
+): void {
   const lang = ctx.lang;
   const model = ctx.model();
   const current = existing?.status === "accepted" ? existing : undefined;
@@ -243,7 +273,17 @@ function planDialog(ctx: ActionContext, workId: string, existing?: DelegationPla
     signal: ctx.signal,
     redact: ctx.redact,
     cancelLabel: tr(lang, "btn.cancel"),
-    title: tr(lang, existing ? (running ? "fu.dlg.editRunning" : "fu.dlg.edit") : "fu.dlg.new"),
+    title: tr(
+      lang,
+      reopen
+        ? "fu.dlg.reopen"
+        : existing
+          ? running
+            ? "fu.dlg.editRunning"
+            : "fu.dlg.edit"
+          : "fu.dlg.new",
+    ),
+    wide: true,
     actions,
     build: (body, changed) => {
       const status = el("p", "error");
@@ -268,7 +308,7 @@ function planDialog(ctx: ActionContext, workId: string, existing?: DelegationPla
           ),
         );
       }
-      buildPlanFields(lang, body, form, recheck, extra);
+      buildPlanFields(lang, body, form, recheck, extra, channels);
       body.append(
         status,
         hint,
@@ -520,6 +560,35 @@ export function runFollowAction(ctx: ActionContext, action: FollowAction): void 
                 expectedRevision: schedule.revision,
               });
               ctx.changed({ ok: true, text: tr(lang, "fu.notice.paused") });
+            },
+          )
+        : gone();
+    case "fu-reopen":
+      return plan?.status === "ended" &&
+        !data.plans.some((p) => p.status === "draft" || p.status === "accepted")
+        ? planDialog(ctx, workId, plan, true)
+        : gone();
+    case "fu-restore":
+      return schedule && (schedule.status === "ended" || schedule.status === "cancelled")
+        ? simple(
+            ctx,
+            tr(lang, "fu.dlg.restoreTitle"),
+            tr(lang, "fu.dlg.restoreBody"),
+            tr(lang, "fu.btn.restore"),
+            false,
+            async () => {
+              const reply = await ctx.request<{ outcome?: string; gaps?: { code: string }[] }>(
+                "nexus.schedule.restore",
+                { scheduleId: schedule.id, expectedRevision: schedule.revision },
+              );
+              if (reply.outcome === "gaps") {
+                throw new Error(
+                  tr(lang, "fu.err.gaps", {
+                    gaps: (reply.gaps ?? []).map((g) => g.code).join(", "),
+                  }),
+                );
+              }
+              ctx.changed({ ok: true, text: tr(lang, "fu.notice.restored") });
             },
           )
         : gone();

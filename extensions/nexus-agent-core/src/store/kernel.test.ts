@@ -78,6 +78,7 @@ describe("task store kernel", () => {
       "stage7-0007-counterpart-not-same",
       "stage7-0008-schedules",
       "stage7-0009-schedule-checks",
+      "stage7-0010-schedule-restore",
     ]);
     assert.deepEqual(applyMigrations(db, tx), []);
   });

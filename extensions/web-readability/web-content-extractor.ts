@@ -120,6 +120,26 @@ function resolveDocumentBase(document: Document, pageUrl: string): void {
   }
 }
 
+// Readability keeps only the block that looks most like an article body, so an issue or
+// pull request page loses its header, including the Open/Closed/Merged label. That label is
+// the one fact people fetch such pages for, so it is read from the page before Readability
+// rewrites the document and put back in front of the extracted text. The selectors name the
+// GitHub issue/PR state label (current and legacy markup); other pages are unaffected.
+const PAGE_STATUS_SELECTOR = [
+  '[data-testid="header-state"]',
+  '[data-component="StateLabel"]',
+  ".gh-header-meta .State",
+].join(", ");
+const PAGE_STATUS_MAX_CHARS = 40;
+
+function readPageStatus(document: Document): string | undefined {
+  const text = document
+    .querySelector(PAGE_STATUS_SELECTOR)
+    ?.textContent?.replace(/\s+/g, " ")
+    .trim();
+  return text && text.length <= PAGE_STATUS_MAX_CHARS ? stripInvisibleUnicode(text) : undefined;
+}
+
 export function createReadabilityWebContentExtractor(): WebContentExtractorPlugin {
   return {
     id: "readability",
@@ -137,6 +157,8 @@ export function createReadabilityWebContentExtractor(): WebContentExtractorPlugi
         const [{ Readability }, { parseHTML }] = await loadReadabilityDeps();
         const { document } = parseHTML(cleanHtml, { location: { href: request.url } });
         resolveDocumentBase(document, request.url);
+        // Must run before Readability: parse() removes nodes from this document.
+        const pageStatus = readPageStatus(document);
         const reader = new Readability(document);
         const parsed = reader.parse();
         if (!parsed) {
@@ -145,8 +167,12 @@ export function createReadabilityWebContentExtractor(): WebContentExtractorPlugi
         const title = parsed.title || undefined;
         // Render the selected HTML because textContent joins adjacent block elements.
         const rendered = htmlToMarkdown(parsed.content ?? "", { extractMode: request.extractMode });
-        const text = stripInvisibleUnicode(rendered.text);
-        return text ? { text, title: title ?? rendered.title } : null;
+        const body = stripInvisibleUnicode(rendered.text);
+        if (!body) {
+          return null;
+        }
+        const text = pageStatus ? `Status: ${pageStatus}\n\n${body}` : body;
+        return { text, title: title ?? rendered.title };
       } catch {
         return null;
       }

@@ -136,3 +136,23 @@ CREATE TABLE goal_briefing_policies (
   FOREIGN KEY (owner_id, goal_id) REFERENCES goals(owner_id, id)
 ) STRICT;
 `;
+
+// Stage 7 (tenth migration): a stopped or ended check can be brought back by the person ("restore"). `schedules_final` keeps its rule —
+// nothing revives an ended or cancelled schedule with plain SQL — except for one narrow door: the restore path writes a one-row grant for
+// that schedule inside its own transaction, and only a revival to `active` of a schedule that was not replaced with its plan and whose
+// work still exists passes. Replaced plans and deleted work stay final for good.
+export const STAGE7_SCHEDULE_RESTORE_SQL = `
+CREATE TABLE schedule_restore_grants (
+  owner_id TEXT NOT NULL, schedule_id TEXT NOT NULL,
+  PRIMARY KEY (owner_id, schedule_id)
+) STRICT;
+DROP TRIGGER schedules_final;
+CREATE TRIGGER schedules_final BEFORE UPDATE OF status ON schedules
+WHEN OLD.status IN ('ended','cancelled') AND NEW.status <> OLD.status
+  AND NOT (
+    NEW.status = 'active'
+    AND OLD.stop_reason NOT IN ('plan_replaced','work_deleted')
+    AND EXISTS (SELECT 1 FROM schedule_restore_grants g WHERE g.owner_id = OLD.owner_id AND g.schedule_id = OLD.id)
+  )
+BEGIN SELECT RAISE(ABORT, 'schedule is final'); END;
+`;

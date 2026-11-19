@@ -17,6 +17,7 @@ import {
   getSharedDispatcherState,
 } from "./schedule/dispatcher.js";
 import { setScheduledDispatchReady } from "./schedule/host-capability.js";
+import { connectedChannels, renderNotice, sendNotice, type NoticeHost } from "./schedule/notify.js";
 import type { TaskStore } from "./store/host.js";
 import type { Principal } from "./store/types.js";
 import {
@@ -82,10 +83,60 @@ export function registerScheduleModule(deps: ScheduleModuleDeps) {
     state: getSharedCheckState(),
   });
 
+  // The notification a check may carry (see schedule/notify.ts): sent here, after the report, never by the check's model.
+  const noticeHost: NoticeHost = {
+    connectedChannels: () => connectedChannels(api.config).map((c) => c.id),
+    resolveTarget: async (params) => {
+      const outbound = api.runtime.channel.outbound;
+      // A host without the resolver takes the text as typed.
+      if (typeof outbound.resolveTarget !== "function") {
+        return { ok: true, to: params.to };
+      }
+      return outbound.resolveTarget({
+        cfg: api.config,
+        channel: params.channel,
+        input: params.to,
+        ...(params.accountId ? { accountId: params.accountId } : {}),
+      });
+    },
+    loadSender: async (channel) => {
+      const send = (await api.runtime.channel.outbound.loadAdapter(channel))?.sendText;
+      return send ? (ctx) => send({ cfg: api.config, ...ctx }) : undefined;
+    },
+    logger: api.logger,
+  };
+  const afterReport = (principal: Principal, triggerId: string): void => {
+    void (async () => {
+      const store = await getStore();
+      const owed = await store.scheduleCheckNoticeGet({ principal, triggerId });
+      if (owed.outcome !== "pending") {
+        return;
+      }
+      const at = Date.now();
+      const notice = await sendNotice(
+        noticeHost,
+        owed.notify,
+        renderNotice(owed.notify, { ...owed.facts, at }),
+      );
+      const recorded = await store.scheduleCheckNoticeRecord({ principal, triggerId, notice });
+      if (recorded.outcome === "recorded") {
+        api.logger.info(`nexus: check notice ${notice.status} (${notice.channel})`);
+        const owner = await store.scheduleGet({
+          principal,
+          scheduleId: recorded.trigger.scheduleId,
+        });
+        if (owner.outcome === "ok") {
+          workChanged(principal, owner.schedule.workId);
+        }
+      }
+    })().catch((error: unknown) => {
+      api.logger.warn(`nexus: check notice not handled: ${String(error)}`);
+    });
+  };
   api.registerTool(
     (ctx) =>
       createScheduleCheckTools(
-        { getStore, resolvePrincipal: principalFor, logger: api.logger },
+        { getStore, resolvePrincipal: principalFor, logger: api.logger, afterReport },
         ctx,
       ),
     { names: [...SCHEDULE_CHECK_TOOL_NAMES], optional: true },

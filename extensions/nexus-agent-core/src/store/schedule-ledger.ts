@@ -1,4 +1,5 @@
 import { nextDueAfter, type Cadence } from "../schedule/cadence.js";
+import { parseNotify } from "../schedule/notify.js";
 import type {
   BlockReason,
   DelegationPlanRecord,
@@ -141,7 +142,7 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
       blocked ? null : first,
       spec.dispatchWindowMs ?? null,
       spec.stop === undefined ? null : JSON.stringify(spec.stop),
-      spec.notify === undefined ? null : JSON.stringify(spec.notify),
+      spec.notify === undefined ? null : JSON.stringify(parseNotify(spec.notify)),
       spec.sessionKey ?? null,
       executor,
       executor === "watch" ? (spec.executorRef as string) : null,
@@ -218,6 +219,49 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
 
   // ------------------------------------------------------------------ read
 
+  /**
+   * The schedule and the checks it took over from. Editing a running plan replaces it with a new plan whose checks are new
+   * schedules; a check carries on the one of the replaced plan that has the same purpose (or the only one, when both plans have
+   * a single check). Their records are one history, so reading the records of a check reads the older ones too. Newest first.
+   */
+  const lineageOf = (owner: string, schedule: ScheduleRecord): string[] => {
+    const ids = [schedule.id];
+    let planId = schedule.planId;
+    const purpose = schedule.purpose.trim();
+    for (let hops = 0; planId && hops < 20; hops += 1) {
+      const plan = one(
+        "SELECT replaces_plan_id FROM delegation_plans WHERE owner_id = ? AND id = ?",
+        owner,
+        planId,
+      );
+      const before =
+        plan && typeof plan.replaces_plan_id === "string" ? plan.replaces_plan_id : null;
+      if (!before) {
+        break;
+      }
+      const olds = all(
+        "SELECT id, purpose FROM schedules WHERE owner_id = ? AND plan_id = ? ORDER BY created_at, id",
+        owner,
+        before,
+      );
+      const same = olds.find((row) => String(row.purpose).trim() === purpose);
+      // Words edited: still the same check when both plans have just the one.
+      const mates = all(
+        "SELECT id FROM schedules WHERE owner_id = ? AND plan_id = ?",
+        owner,
+        planId,
+      );
+      const prev = same ?? (olds.length === 1 && mates.length === 1 ? olds[0] : undefined);
+      if (!prev || ids.includes(String(prev.id))) {
+        break;
+      }
+      ids.push(String(prev.id));
+      planId = before;
+    }
+    return ids;
+  };
+  const inList = (ids: readonly string[]): string => `(${ids.map(() => "?").join(",")})`;
+
   const scheduleGet = (input: { principal: Principal; scheduleId: string; triggers?: number }) =>
     transaction(() => {
       const owner = input.principal.ownerId;
@@ -226,13 +270,14 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
         return { outcome: "not_found" as const };
       }
       const limit = Math.min(Math.max(Math.trunc(input.triggers ?? 0), 0), 50);
+      const lineage = lineageOf(owner, schedule);
       const triggers =
         limit === 0
           ? []
           : all(
-              "SELECT * FROM schedule_triggers WHERE owner_id = ? AND schedule_id = ? ORDER BY planned_at DESC, created_at DESC LIMIT ?",
+              `SELECT * FROM schedule_triggers WHERE owner_id = ? AND schedule_id IN ${inList(lineage)} ORDER BY planned_at DESC, created_at DESC LIMIT ?`,
               owner,
-              input.scheduleId,
+              ...lineage,
               limit,
             ).map(toTrigger);
       return { outcome: "ok" as const, schedule, triggers, gaps: gapsOf(owner, schedule) };
@@ -250,22 +295,24 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
   }) =>
     transaction(() => {
       const owner = input.principal.ownerId;
-      if (!k.schedule(owner, input.scheduleId)) {
+      const current = k.schedule(owner, input.scheduleId);
+      if (!current) {
         return { outcome: "not_found" as const };
       }
+      const lineage = lineageOf(owner, current);
       const limit = Math.min(Math.max(Math.trunc(input.limit ?? 20), 1), 50);
       const cut = /^(\d+):(\d+):(.+)$/.exec(input.before ?? "");
       if (input.before !== undefined && !cut) {
         return { outcome: "invalid" as const, code: "bad_cursor" };
       }
       const rows = all(
-        "SELECT * FROM schedule_triggers WHERE owner_id = ? AND schedule_id = ?" +
+        `SELECT * FROM schedule_triggers WHERE owner_id = ? AND schedule_id IN ${inList(lineage)}` +
           (cut
             ? " AND (planned_at < ? OR (planned_at = ? AND (created_at < ? OR (created_at = ? AND id < ?))))"
             : "") +
           " ORDER BY planned_at DESC, created_at DESC, id DESC LIMIT ?",
         owner,
-        input.scheduleId,
+        ...lineage,
         ...(cut ? [Number(cut[1]), Number(cut[1]), Number(cut[2]), Number(cut[2]), cut[3]!] : []),
         limit + 1,
       );
@@ -441,6 +488,84 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
         return { outcome: "work_paused" as const, schedule: found.schedule };
       }
       return resumeCore(owner, found.schedule, input.by, input.dispatchReady, input.now);
+    });
+
+  /**
+   * Bring back a check that ended or was stopped inside a plan that still runs (the user's "restore"). It starts again from its
+   * cadence like a resumed check. A check of a replaced plan or a deleted Work is not brought back, nor is one of a plan that is
+   * not running; a one-time check whose time has passed cannot be.
+   */
+  const scheduleRestore = (input: {
+    principal: Principal;
+    scheduleId: string;
+    dispatchReady?: boolean;
+    expectedRevision?: number;
+    now: number;
+  }) =>
+    transaction(() => {
+      const owner = input.principal.ownerId;
+      const found = load(owner, input.scheduleId, input.expectedRevision);
+      if ("outcome" in found) {
+        return found;
+      }
+      const s = found.schedule;
+      if (!isFinal(s.status)) {
+        return { outcome: "not_final" as const, schedule: s };
+      }
+      if (s.stopReason === "plan_replaced" || s.stopReason === "work_deleted") {
+        return { outcome: "not_restorable" as const, schedule: s };
+      }
+      const plan = s.planId ? k.plan(owner, s.planId) : undefined;
+      if (!plan || plan.status !== "accepted") {
+        return { outcome: "plan_not_accepted" as const, schedule: s };
+      }
+      if (plan.endRequestedAt != null) {
+        return { outcome: "wrapping_up" as const, schedule: s };
+      }
+      const gaps = gapsOf(owner, s);
+      if (gaps.length > 0) {
+        return { outcome: "gaps" as const, schedule: s, gaps };
+      }
+      if (s.cadence.kind === "once" && s.cadence.at <= input.now) {
+        return { outcome: "once_passed" as const, schedule: s };
+      }
+      const next =
+        s.cadence.kind === "once"
+          ? s.cadence.at
+          : nextDueAfter(s.cadence, s.tz, input.now, s.createdAt);
+      if (next === null) {
+        return { outcome: "once_passed" as const, schedule: s };
+      }
+      // The one door `schedules_final` leaves open (see migration 0010): a grant that lives only inside this transaction.
+      run(
+        "INSERT OR REPLACE INTO schedule_restore_grants (owner_id, schedule_id) VALUES (?, ?)",
+        owner,
+        s.id,
+      );
+      patch(
+        owner,
+        s.id,
+        {
+          status: "active",
+          stop_reason: null,
+          ended_at: null,
+          pause_source: null,
+          next_due_at: next,
+          coverage_state: "on_plan",
+          coverage_note: null,
+          block_reasons_json: null,
+        },
+        input.now,
+      );
+      run(
+        "DELETE FROM schedule_restore_grants WHERE owner_id = ? AND schedule_id = ?",
+        owner,
+        s.id,
+      );
+      if (s.executorKind === "check_task" && input.dispatchReady !== true) {
+        blockInTx(owner, s.id, [HOST_DISPATCH_REASON], input.now);
+      }
+      return { outcome: "restored" as const, schedule: fresh(owner, s.id) };
     });
 
   const cancelCore = (
@@ -633,6 +758,7 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
       scheduleList,
       schedulePause,
       scheduleResume,
+      scheduleRestore,
       scheduleCancel,
       scheduleBlock,
       scheduleUnblock,

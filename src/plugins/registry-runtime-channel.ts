@@ -177,6 +177,8 @@ export function createScopedPluginChannelRuntime(
     outbound: {
       ...channel.outbound,
       loadAdapter: (...args) => invokeSelectedRuntime(() => channel.outbound.loadAdapter(...args)),
+      resolveTarget: (...args) =>
+        invokeSelectedRuntime(() => channel.outbound.resolveTarget(...args)),
     },
     threadBindings: {
       setIdleTimeoutBySessionKey: (...args) =>

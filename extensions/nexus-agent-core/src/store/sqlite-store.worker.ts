@@ -1,7 +1,10 @@
 // SQLite worker backend for the Nexus store: Task + Decision kernels (DESIGN sections 6 and 8). Runs on a worker thread; all calls are sync.
 import fs from "node:fs";
 import path from "node:path";
-import type { SqliteWorkerBackend } from "openclaw/plugin-sdk/sqlite-worker-runtime";
+import type {
+  SqliteWorkerBackend,
+  SynchronousSqliteCallback,
+} from "openclaw/plugin-sdk/sqlite-worker-runtime";
 import {
   openNodeSqliteDatabase,
   runSqliteImmediateTransactionSync,
@@ -31,7 +34,10 @@ export function createSqliteWorkerBackend(
     if (fk.foreign_keys !== 1) {
       throw new Error("nexus-agent-core: PRAGMA foreign_keys did not turn on");
     }
-    const transaction = <T>(run: () => T): T => runSqliteImmediateTransactionSync(db, run);
+    // The host's worker boundary types its callback to reject a returned promise; the kernel's runner is the plain
+    // `() => T` shape, and the host still checks the result at run time, so only the static guard is narrowed here.
+    const transaction = <T>(run: () => T): T =>
+      runSqliteImmediateTransactionSync(db, run as SynchronousSqliteCallback<T>);
     applyMigrations(db, transaction);
     const kernel = createNexusKernel(db, transaction);
     return {
