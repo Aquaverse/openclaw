@@ -55,6 +55,7 @@ function planView(p: DelegationPlanRecord) {
     schedules: p.plan.schedules?.map((s) => ({
       kind: s.scheduleKind,
       purpose: s.purpose,
+      sources: s.sources ?? p.plan.sources ?? [],
       cadence: s.cadence,
       tz: s.tz,
     })),
@@ -83,6 +84,7 @@ function scheduleView(
     status: s.status,
     kind: s.scheduleKind,
     purpose: s.purpose,
+    sources: s.sources,
     cadence: s.cadence,
     nextDueAt: s.nextDueAt,
     blockReasons: s.blockReasons,
@@ -125,6 +127,12 @@ export function createSchedulePlanTools(
                 'once: {"kind":"once","at":<epoch ms>}; recurring: {"kind":"interval","minutes":<n>} or {"kind":"daily","times":["09:00"],"weekdays":[1..7]}.',
             }),
             tz: Type.String({ description: "IANA time zone, for example Asia/Shanghai." }),
+            sources: Type.Optional(
+              Type.Array(Type.String(), {
+                description:
+                  "Where THIS check may look, overriding the plan's shared sources. Use when checks need different sources (for example one reads an issue, another reads a package.json URL).",
+              }),
+            ),
             stopAtFirstChange: Type.Optional(
               Type.Boolean({
                 description:
@@ -186,9 +194,13 @@ export function createSchedulePlanTools(
               fail("invalid_schedule", "each schedule needs kind, purpose, cadence and tz."),
             );
           }
+          const ownSources = Array.isArray(s.sources)
+            ? s.sources.filter((x): x is string => typeof x === "string")
+            : [];
           schedules.push({
             scheduleKind: s.kind,
             purpose: s.purpose,
+            ...(ownSources.length > 0 ? { sources: ownSources } : {}),
             cadence: s.cadence,
             tz: s.tz,
             // On unless the user asked to keep following every change.

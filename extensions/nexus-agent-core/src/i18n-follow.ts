@@ -181,6 +181,14 @@ export const FOLLOW_MESSAGES = {
   ],
   "fu.f.checks": ["多久看一次", "How often"],
   "fu.f.checkPurpose": ["这一项检查看什么", "What this check looks at"],
+  "fu.f.checkSources": [
+    "本项检查的看什么 / 在哪看（每行一条）",
+    "Where THIS check looks (one per line)",
+  ],
+  "fu.f.checkSourcesHint": [
+    "留空表示使用上面整份方案的来源；多项检查看不同地方时在这里分别填写",
+    "Blank inherits the plan's sources above; fill in when different checks look at different places",
+  ],
   "fu.f.addCheck": ["再加一项检查", "Add a check"],
   "fu.f.removeCheck": ["去掉这项", "Remove"],
   "fu.f.kind.daily": ["每天固定时间", "Daily at set times"],

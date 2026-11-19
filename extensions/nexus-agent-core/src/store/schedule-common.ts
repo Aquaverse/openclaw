@@ -31,6 +31,10 @@ const parse = <T>(text: unknown, fallback: T): T => {
     return fallback;
   }
 };
+const stringList = (text: unknown): string[] => {
+  const value = parse<unknown>(text, []);
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+};
 
 export function toPlan(row: Row): DelegationPlanRecord {
   return {
@@ -70,6 +74,7 @@ export function toSchedule(row: Row): ScheduleRecord {
     planVersion: num(row.plan_version),
     scheduleKind: String(row.schedule_kind) as ScheduleRecord["scheduleKind"],
     purpose: String(row.purpose),
+    sources: stringList(row.sources_json),
     cadence: parse<Cadence>(row.cadence_json, { kind: "once", at: 0 }),
     tz: String(row.tz),
     nextDueAt: num(row.next_due_at),

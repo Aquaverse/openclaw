@@ -47,6 +47,7 @@ const schedule = (over: Partial<ScheduleRecord> = {}): ScheduleRecord => ({
   planVersion: 1,
   scheduleKind: "recurring",
   purpose: "看有没有回复",
+  sources: [],
   cadence: { kind: "daily", times: ["09:00", "18:00"] },
   tz: "Asia/Shanghai",
   nextDueAt: NOW + 3_600_000,
@@ -110,6 +111,42 @@ describe("follow-up block", () => {
     assert.match(html, /还没有跟进方案/);
     assert.match(html, /data-nx-act="fu-new" data-nx-id="w1"/);
     assert.doesNotMatch(render(data({ plans: [], schedules: [], triggers: {} }), false), /fu-new/);
+  });
+
+  it("shows the effective sources of every check when a plan mixes own and inherited ones", () => {
+    const html = render(
+      data({
+        plans: [
+          plan({
+            plan: {
+              ...plan().plan,
+              schedules: [
+                {
+                  scheduleKind: "recurring",
+                  purpose: "读依赖声明",
+                  sources: ["依赖地址"],
+                  cadence: { kind: "daily", times: ["09:00"] },
+                  tz: "Asia/Shanghai",
+                },
+                {
+                  scheduleKind: "recurring",
+                  purpose: "读状态页",
+                  cadence: { kind: "daily", times: ["18:00"] },
+                  tz: "Asia/Shanghai",
+                },
+              ],
+            },
+          }),
+        ],
+        schedules: [
+          schedule({ id: "sc_1", purpose: "读依赖声明", sources: ["依赖地址"] }),
+          schedule({ id: "sc_2", purpose: "读状态页", sources: [] }),
+        ],
+        triggers: {},
+      }),
+    );
+    assert.match(html, /读依赖声明: 依赖地址/);
+    assert.match(html, /读状态页: 邮箱里小王的回信/);
   });
 
   it("shows the five lines, the next check, coverage and the last check of a running plan", () => {

@@ -12,11 +12,13 @@ const { k, db, now, count, workWithTask, commitment, draft, accept, acceptedPlan
 type S = {
   schedule: {
     id: string;
+    purpose: string;
     status: string;
     pauseSource: string | null;
     nextDueAt: number | null;
     revision: number;
     stopReason: string | null;
+    sources: string[];
   };
 };
 const get = (id: string, owner = A) =>
@@ -43,6 +45,41 @@ const withSpec = (spec: ReturnType<typeof daily>) => {
 };
 
 describe("schedule state machine", () => {
+  it("snapshots each check's own sources, leaving checks without one to inherit the plan's", () => {
+    const own = "https://example.com/package.json";
+    const shared = "https://example.com/status";
+    const w = workWithTask();
+    const c = commitment();
+    const firstAt = now() + 60_000;
+    const plan = draft(w.workId, c, {
+      plan: body({
+        schedules: [
+          daily({
+            scheduleKind: "once",
+            purpose: "读依赖声明",
+            sources: [own],
+            cadence: { kind: "once", at: firstAt },
+          }),
+          daily({
+            scheduleKind: "once",
+            purpose: "读状态页",
+            cadence: { kind: "once", at: firstAt + 60_000 },
+          }),
+        ],
+        sources: [shared],
+      }),
+    });
+    const done = accept(plan.id);
+    assert.equal(done.outcome, "accepted", JSON.stringify(done));
+    const saved = (done as { schedules: { id: string }[] }).schedules.map(
+      (s) => get(s.id).schedule,
+    );
+    const dependency = saved.find((s) => s.purpose === "读依赖声明")!;
+    const statusCheck = saved.find((s) => s.purpose === "读状态页")!;
+    assert.deepEqual(dependency.sources, [own]);
+    assert.deepEqual(statusCheck.sources, []);
+  });
+
   it("pauses and resumes; a user's pause is never undone by work control or the system", () => {
     const a = acceptedPlan();
     const paused = k.schedulePause({

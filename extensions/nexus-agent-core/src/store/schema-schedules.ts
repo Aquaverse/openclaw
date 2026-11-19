@@ -156,3 +156,11 @@ WHEN OLD.status IN ('ended','cancelled') AND NEW.status <> OLD.status
   )
 BEGIN SELECT RAISE(ABORT, 'schedule is final'); END;
 `;
+
+// Stage 7 (eleventh migration): per-schedule "where to look". Previously every schedule of a plan read the
+// single plan-level `sources`; a version check could end up reading the plan's Issue page and quote a version
+// from its body. Each schedule now snapshots its own boundary at accept time. NULL means "inherit plan sources",
+// so pre-existing schedules keep their exact behaviour. Additive only; no published table is touched.
+export const STAGE7_SCHEDULE_SOURCES_SQL = `
+ALTER TABLE schedules ADD COLUMN sources_json TEXT;
+`;

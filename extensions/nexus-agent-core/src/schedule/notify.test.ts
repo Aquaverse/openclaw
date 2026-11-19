@@ -397,6 +397,23 @@ describe("the notification owed by a reported check", () => {
     assert.equal(again.outcome, "noop");
   });
 
+  it("uses this check's sources in the notice facts, falling back only when it has none", async () => {
+    const own = "https://example.com/package.json";
+    const cases: Array<[Partial<ScheduleSpec>, string[]]> = [
+      [{ notify: SLACK, sources: [own] }, [own]],
+      [{ notify: SLACK }, ["https://example.com/status"]],
+    ];
+    for (const [spec, expected] of cases) {
+      const { w, trigger } = await reported(spec, "changed");
+      const owed = await w.store.scheduleCheckNoticeGet({ principal: A, triggerId: trigger.id });
+      assert.equal(owed.outcome, "pending", JSON.stringify(spec));
+      if (owed.outcome !== "pending") {
+        return;
+      }
+      assert.deepEqual(owed.facts.sources, expected);
+    }
+  });
+
   it("owes nothing for an outcome that was not ticked, or for a check without a notification", async () => {
     for (const [spec, outcome] of [
       [{ notify: SLACK }, "cannot_check"],

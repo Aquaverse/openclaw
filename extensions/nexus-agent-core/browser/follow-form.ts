@@ -19,6 +19,8 @@ import { el, field } from "./goal-dom.ts";
 
 export type CheckForm = {
   purpose: string;
+  /** This check's own "where to look", one per line. Blank means inherit the plan-level sources. */
+  sources: string;
   kind: "daily" | "interval" | "once";
   times: string;
   days: "all" | "work";
@@ -59,6 +61,7 @@ const localMs = (value: string): number => (value ? new Date(value).getTime() : 
 
 export const emptyCheck = (purpose = ""): CheckForm => ({
   purpose,
+  sources: "",
   kind: "daily",
   times: "09:00",
   days: "all",
@@ -95,6 +98,7 @@ function checkFromSpec(spec: ScheduleSpec): CheckForm {
   const notify = parseNotify(spec.notify);
   const check: CheckForm = {
     ...emptyCheck(spec.purpose),
+    sources: (spec.sources ?? []).join("\n"),
     stopOnChange: stopsAtFirstChange(spec.stop),
     ...(notify
       ? {
@@ -226,6 +230,7 @@ export function toPlan(
     return {
       scheduleKind: cadence.kind === "once" ? "once" : "recurring",
       purpose: check.purpose.trim(),
+      ...(lines(check.sources).length > 0 ? { sources: lines(check.sources) } : {}),
       cadence,
       tz,
       ...(check.stopOnChange ? { stop: STOP_AT_FIRST_CHANGE } : {}),
@@ -470,6 +475,18 @@ function checkRows(
           check.purpose = v;
           changed();
         }),
+      ),
+      field(
+        tr(lang, "fu.f.checkSources"),
+        (() => {
+          const own = textarea(check.sources, 600, (v) => {
+            check.sources = v;
+            changed();
+          });
+          own.placeholder = tr(lang, "fu.f.checkSourcesHint");
+          own.rows = 3;
+          return own;
+        })(),
       ),
       field(
         tr(lang, "fu.f.checks"),

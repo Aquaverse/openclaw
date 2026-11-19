@@ -36,6 +36,8 @@ export type BlockReason = { code: BlockCode; ref?: string; actor: "user" | "syst
 export type ScheduleSpec = {
   scheduleKind: "once" | "recurring";
   purpose: string;
+  /** Where THIS check may look. Snapshotted onto the schedule at accept; falls back to plan sources when absent. */
+  sources?: string[];
   cadence: unknown;
   tz: string;
   expectedEvidence?: unknown;
@@ -154,6 +156,8 @@ export type ScheduleRecord = {
   planVersion: number | null;
   scheduleKind: "once" | "recurring";
   purpose: string;
+  /** This schedule's own "where to look" boundary; empty when it inherits the plan's sources. */
+  sources: string[];
   cadence: Cadence;
   tz: string;
   nextDueAt: number | null;

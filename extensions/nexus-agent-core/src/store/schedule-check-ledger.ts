@@ -417,7 +417,8 @@ export function createScheduleCheckOps(deps: {
       ownerRef: s.ownerRef,
       ownerText,
       expectedEvidence,
-      sources: list(body.sources),
+      // This check's own boundary first; only a schedule with no snapshot of its own inherits the plan's.
+      sources: s.sources.length > 0 ? s.sources : list(body.sources),
       wontDo: list(body.wontDo),
       limits: list(body.limits),
       plannedAt: Number(row.planned_at),
@@ -651,7 +652,7 @@ export function createScheduleCheckOps(deps: {
         return { outcome: "done" as const };
       }
       const s = one(
-        "SELECT notify_json, purpose, tz, plan_id FROM schedules WHERE owner_id = ? AND id = ?",
+        "SELECT notify_json, purpose, tz, plan_id, sources_json FROM schedules WHERE owner_id = ? AND id = ?",
         owner,
         String(row.schedule_id),
       );
@@ -659,21 +660,29 @@ export function createScheduleCheckOps(deps: {
       if (!s || !notify || !wantsNotice(notify, report.outcome)) {
         return { outcome: "none" as const };
       }
-      const planRow = s.plan_id
-        ? one(
-            "SELECT plan_json FROM delegation_plans WHERE owner_id = ? AND id = ?",
-            owner,
-            String(s.plan_id),
-          )
-        : undefined;
+      const ownSources = jsonOf<unknown>(s.sources_json);
+      const sources = Array.isArray(ownSources)
+        ? ownSources.filter((x): x is string => typeof x === "string")
+        : [];
+      const planRow =
+        sources.length === 0 && s.plan_id
+          ? one(
+              "SELECT plan_json FROM delegation_plans WHERE owner_id = ? AND id = ?",
+              owner,
+              String(s.plan_id),
+            )
+          : undefined;
       const body = planRow ? (jsonOf<PlanBody>(planRow.plan_json) ?? {}) : {};
       const facts: Omit<NoticeFacts, "at"> = {
         outcome: report.outcome,
         summary: report.summary,
         purpose: String(s.purpose),
-        sources: Array.isArray(body.sources)
-          ? body.sources.filter((x) => typeof x === "string")
-          : [],
+        sources:
+          sources.length > 0
+            ? sources
+            : Array.isArray(body.sources)
+              ? body.sources.filter((x) => typeof x === "string")
+              : [],
         tz: String(s.tz),
       };
       return { outcome: "pending" as const, notify: notify satisfies NotifySpec, facts };

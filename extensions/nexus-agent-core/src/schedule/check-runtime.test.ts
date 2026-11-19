@@ -106,6 +106,15 @@ describe("check turn: authentication", () => {
     assert.equal(w.taskRow(t.taskId!)?.status, "planning");
   });
 
+  it("puts this schedule's sources in the brief, not the plan's shared ones", async () => {
+    const w = await world({ sources: ["https://example.com/package.json"] });
+    await w.started();
+    const out = await w.runtime.authenticate({ prompt: w.call.message }, ctx(w.sessionKey));
+    assert.ok(out);
+    assert.match(out.prependContext ?? "", /package\.json/);
+    assert.doesNotMatch(out.prependContext ?? "", /example\.com\/status/);
+  });
+
   it("fails closed (no tools) when no started job exists for the session", async () => {
     const w = await world();
     const out = await w.runtime.authenticate({ prompt: w.call.message }, ctx(w.sessionKey));

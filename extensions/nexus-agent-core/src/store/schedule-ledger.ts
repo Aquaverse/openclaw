@@ -124,9 +124,9 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
     const id = newId("sc_");
     run(
       "INSERT INTO schedules (owner_id, id, work_id, owner_type, owner_ref, plan_id, plan_version, schedule_kind, purpose, expected_evidence_json, " +
-        "cadence_json, tz, next_due_at, dispatch_window_ms, stop_json, notify_json, session_key, executor_kind, executor_ref, status, " +
+        "cadence_json, tz, next_due_at, dispatch_window_ms, stop_json, notify_json, sources_json, session_key, executor_kind, executor_ref, status, " +
         "block_reasons_json, coverage_state, created_via, revision, created_at, updated_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'plan', 1, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'plan', 1, ?, ?)",
       owner,
       id,
       plan.workId,
@@ -143,6 +143,7 @@ export function createScheduleLedger(transaction: TransactionRunner, c: WorkComm
       spec.dispatchWindowMs ?? null,
       spec.stop === undefined ? null : JSON.stringify(spec.stop),
       spec.notify === undefined ? null : JSON.stringify(parseNotify(spec.notify)),
+      spec.sources === undefined ? null : JSON.stringify(spec.sources),
       spec.sessionKey ?? null,
       executor,
       executor === "watch" ? (spec.executorRef as string) : null,

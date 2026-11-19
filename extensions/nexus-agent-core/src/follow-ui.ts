@@ -328,8 +328,36 @@ function planBox(
     })
     .filter((text) => text !== "");
   const often = body.frequencyText ?? (draftCadence.length > 0 ? draftCadence.join("；") : none);
+  // Each check may name its own sources. Show them per check; a plan with no per-check sources keeps
+  // the single shared line exactly as before (drafts from body.schedules, accepted from schedules).
+  const lookText = (): string => {
+    const effective = (specSources?: string[], savedSources?: string[]): string[] => {
+      const ownSources = savedSources ?? (Array.isArray(specSources) ? specSources : []);
+      return ownSources.length > 0 ? ownSources : (body.sources ?? []);
+    };
+    const checks =
+      plan.status === "accepted" && own.length > 0
+        ? own.map((s) => ({ purpose: s.purpose, sources: effective(undefined, s.sources) }))
+        : (body.schedules ?? []).map((spec) => ({
+            purpose: spec.purpose,
+            sources: effective(spec.sources),
+          }));
+    if (checks.every((c) => c.sources.length === 0)) {
+      return esc(join(body.sources));
+    }
+    const hasOwn = checks.some((_, index) =>
+      plan.status === "accepted" && own.length > 0
+        ? own[index]!.sources.length > 0
+        : Array.isArray(body.schedules?.[index]?.sources) &&
+          (body.schedules?.[index]?.sources?.length ?? 0) > 0,
+    );
+    if (!hasOwn) {
+      return esc(join(body.sources));
+    }
+    return checks.map((c) => `${esc(c.purpose)}: ${esc(join(c.sources))}`).join("<br>");
+  };
   const facts = kv([
-    [tr(lang, "fu.k.look"), esc(join(body.sources))],
+    [tr(lang, "fu.k.look"), lookText()],
     [tr(lang, "fu.k.often"), esc(often)],
     [tr(lang, "fu.k.until"), esc(stopText(lang, body, now, plan.planOwnerType))],
     [tr(lang, "fu.k.notify"), esc(body.notifyText ?? tr(lang, "fu.notifyNone"))],

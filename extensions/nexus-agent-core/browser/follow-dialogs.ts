@@ -116,7 +116,20 @@ export function planSummary(lang: Lang, plan: DelegationPlanRecord, now = Date.n
   const none = tr(lang, "fu.none");
   const sep = lang === "en" ? "; " : "；";
   pair(tr(lang, "fu.f.purpose"), plan.purpose);
-  pair(tr(lang, "fu.k.look"), (body.sources ?? []).join(sep) || none);
+  const checks = (body.schedules ?? []).map((s) => {
+    const own = Array.isArray(s.sources) ? s.sources : [];
+    return { purpose: s.purpose, sources: own.length > 0 ? own : (body.sources ?? []) };
+  });
+  const hasOwnSources = checks.some((_, index) => {
+    const raw = body.schedules?.[index]?.sources;
+    return Array.isArray(raw) && raw.length > 0;
+  });
+  pair(
+    tr(lang, "fu.k.look"),
+    hasOwnSources
+      ? checks.map((s) => `${s.purpose}: ${s.sources.join(sep) || none}`).join(sep)
+      : (body.sources ?? []).join(sep) || none,
+  );
   pair(
     tr(lang, "fu.k.often"),
     (body.schedules ?? [])

@@ -71,6 +71,34 @@ describe("schedule plan tools", () => {
     assert.equal(w.count("SELECT COUNT(*) AS c FROM schedules"), 0);
   });
 
+  it("keeps per-check sources with their check while drafting", async () => {
+    const { w, call } = setup();
+    const wk = w.workWithTask();
+    const own = "https://example.com/package.json";
+    const shared = "https://example.com/status";
+    const out = await call("nexus_schedule_propose", {
+      workId: wk.workId,
+      purpose: "分别看依赖和状态",
+      schedules: [daily({ purpose: "读依赖声明", sources: [own] }), daily({ purpose: "读状态页" })],
+      sources: [shared],
+    });
+    assert.equal(out.ok, true, JSON.stringify(out));
+    const row = w.db
+      .prepare("SELECT plan_json FROM delegation_plans WHERE id = ?")
+      .get(out.planId) as { plan_json: string };
+    const stored = JSON.parse(row.plan_json) as {
+      schedules: Array<{ sources?: string[] }>;
+      sources?: string[];
+    };
+    assert.deepEqual(stored.schedules[0]?.sources, [own]);
+    assert.equal(stored.schedules[1]?.sources, undefined);
+    assert.deepEqual(stored.sources, [shared]);
+    const got = await call("nexus_schedule_get", { planId: out.planId });
+    assert.deepEqual(got.plans[0].schedules[0].sources, [own]);
+    assert.deepEqual(got.plans[0].schedules[1].sources, [shared]);
+    assert.deepEqual(got.plans[0].sources, [shared]);
+  });
+
   it("drafts a plan that follows the Work itself", async () => {
     const { w, call } = setup();
     const wk = w.workWithTask();

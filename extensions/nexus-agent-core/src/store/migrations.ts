@@ -7,7 +7,11 @@ import {
   STAGE7_PURGE_RECEIPTS_SQL,
 } from "./schema-counterparts.js";
 import { STAGE7_SCHEDULE_CHECKS_SQL } from "./schema-schedule-checks.js";
-import { STAGE7_SCHEDULE_RESTORE_SQL, STAGE7_SCHEDULES_SQL } from "./schema-schedules.js";
+import {
+  STAGE7_SCHEDULE_RESTORE_SQL,
+  STAGE7_SCHEDULE_SOURCES_SQL,
+  STAGE7_SCHEDULES_SQL,
+} from "./schema-schedules.js";
 import { STAGE7_WORKS_SQL } from "./schema-works.js";
 // The ordered migration list the kernel applies: the Stage 1-6 tables from schema.ts, then the Stage 7 tables (Work layer,
 // Counterparts, Commitments, Schedules). Kept apart from schema.ts so that grandfathered file does not grow (line-cap ratchet).
@@ -25,4 +29,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: "stage7-0008-schedules", sql: STAGE7_SCHEDULES_SQL },
   { id: "stage7-0009-schedule-checks", sql: STAGE7_SCHEDULE_CHECKS_SQL },
   { id: "stage7-0010-schedule-restore", sql: STAGE7_SCHEDULE_RESTORE_SQL },
+  { id: "stage7-0011-schedule-sources", sql: STAGE7_SCHEDULE_SOURCES_SQL },
 ];
