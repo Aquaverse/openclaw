@@ -99,6 +99,7 @@ import {
 } from "../../plugin-sdk/session-store-runtime.js";
 import { buildAgentSessionKey, resolveAgentRoute } from "../../routing/resolve-route.js";
 import { createLazyRuntimeMethod, createLazyRuntimeModule } from "../../shared/lazy-runtime.js";
+import { dispatchReplyWithBufferedBlockDispatcher } from "../legacy-sdk-reply-dispatch.js";
 import { pluginInstanceInvocation } from "../plugin-instance-invocation.js";
 import {
   getPluginInstanceOwner,
@@ -336,8 +337,7 @@ export function createRuntimeChannel(options?: {
       convertMarkdownTables,
     },
     reply: {
-      dispatchReplyWithBufferedBlockDispatcher: (params) =>
-        dispatchReplyWithBufferedBlockDispatcherCore(publicChannelTurn(params)),
+      dispatchReplyWithBufferedBlockDispatcher,
       createReplyDispatcherWithTyping,
       resolveEffectiveMessagesConfig,
       resolveHumanDelayConfig,

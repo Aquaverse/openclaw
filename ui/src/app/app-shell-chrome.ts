@@ -74,6 +74,7 @@ import {
   handleNavDrawerKeydown,
   setToastInNavDrawer,
   visibleNavDrawerToggle,
+  type NavDrawerCloseOptions,
   type ShellNavigationElements,
   type ShellNavigationSurfaces,
 } from "./navigation-surface.ts";
@@ -90,6 +91,7 @@ export interface ShellChromeHost
   readonly elements: ShellOwnedElements;
   readonly element: HTMLElement;
   readonly isConnected: boolean;
+  readonly workspaceChromeVisible: boolean;
   readonly activeSessionKey: string;
   readonly updateComplete: Promise<boolean>;
   readonly queryRenderedElement: (tagName: string) => Element | null;
@@ -100,7 +102,7 @@ export interface ShellChromeHost
   setNativeHistoryState(state: NativeHistoryState): void;
   commandPaletteTarget: CommandPaletteTargetDetail | undefined;
   invalidate(): void;
-  closeNavDrawer(options?: { restoreFocus?: boolean }): void;
+  closeNavDrawer(options?: NavDrawerCloseOptions): void;
 }
 
 export class ShellChromeOwner {
@@ -194,7 +196,13 @@ export class ShellChromeOwner {
       !context ||
       host.onboardingMode ||
       (host.initialConnectionPending && isMobileNavLayout()) ||
-      (isSettingsTakeover(host.routeState.routeId) && !isMobileNavLayout())
+      (isSettingsTakeover(
+        host.routeState.routeId,
+        host.context?.gateway.snapshot.hello?.controlUiTabs,
+        host.routeState.location,
+        host.context?.basePath,
+      ) &&
+        !isMobileNavLayout())
     ) {
       return;
     }
@@ -266,19 +274,22 @@ export class ShellChromeOwner {
       target?.isConnected && target.checkVisibility() ? target : this.host.contentElement,
     );
 
-  readonly closeNavDrawer = (options: { restoreFocus?: boolean } = {}): void => {
+  readonly closeNavDrawer = (options: NavDrawerCloseOptions = {}): void => {
     const host = this.host;
     // Desktop navigation also calls this cleanup; a closed drawer never owned focus.
-    const restoreFocus = host.navDrawerOpen && options.restoreFocus;
-    if (host.navDrawerOpen) {
+    const { navDrawerOpen: drawerWasOpen, navDrawerTrigger: trigger } = host;
+    if (drawerWasOpen) {
       this.dismissSidebarTransientMenus();
       this.navDrawerSwipe.reset();
     }
     setToastInNavDrawer(host, false);
-    const trigger = restoreFocus ? host.navDrawerTrigger : null;
     host.navDrawerOpen = false;
     host.navDrawerTrigger = null;
-    if (restoreFocus) {
+    if (drawerWasOpen && options.finishMotion) {
+      // A chosen destination takes priority over watching the drawer exit.
+      this.finishNavigationMotion();
+    }
+    if (drawerWasOpen && options.restoreFocus) {
       requestAnimationFrame(() => this.restoreFocusTo(trigger));
     }
   };
@@ -399,7 +410,12 @@ export class ShellChromeOwner {
       event.preventDefault();
       host.closeNavDrawer({ restoreFocus: true });
     } else if (
-      isSettingsTakeover(host.routeState.routeId) &&
+      isSettingsTakeover(
+        host.routeState.routeId,
+        host.context?.gateway.snapshot.hello?.controlUiTabs,
+        host.routeState.location,
+        host.context?.basePath,
+      ) &&
       !this.shouldIgnoreSettingsEscape(event)
     ) {
       event.preventDefault();
@@ -446,8 +462,7 @@ export class ShellChromeOwner {
       isTerminalPanelShortcut(event) &&
       !isSessionRouteId(host.routeState.routeId) &&
       !event.defaultPrevented &&
-      !host.onboardingMode &&
-      !isSettingsTakeover(host.routeState.routeId) &&
+      host.workspaceChromeVisible &&
       host.context &&
       isTerminalAvailable(
         host.context.gateway.snapshot,
@@ -755,9 +770,8 @@ export class ShellChromeOwner {
     applyCommandPaletteTargetEvent(this.host, event);
 
   readonly nativeNavCollapsed = (): boolean =>
-    this.host.onboardingMode ||
+    !this.host.workspaceChromeVisible ||
     isMobileNavLayout() ||
-    isSettingsTakeover(this.host.routeState.routeId) ||
     (!this.host.navDrawerOpen &&
       !this.host.desktopNavigationExpanded &&
       ((this.host.context?.navigation.snapshot.navCollapsed ?? false) ||
