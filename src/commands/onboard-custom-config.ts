@@ -412,6 +412,16 @@ export function resolveCustomProviderId(params: {
   }
   let suffix = 2;
   while (providers[`${requestedId}-${suffix}`]) {
+    const candidate = providers[`${requestedId}-${suffix}`];
+    if (
+      candidate?.baseUrl === baseUrl ||
+      (candidate?.baseUrl && isAzureUrl(baseUrl) && hasSameHost(candidate.baseUrl, baseUrl))
+    ) {
+      return {
+        providerId: `${requestedId}-${suffix}`,
+        providerIdRenamedFrom: requestedId,
+      };
+    }
     suffix += 1;
   }
   return { providerId: `${requestedId}-${suffix}`, providerIdRenamedFrom: requestedId };

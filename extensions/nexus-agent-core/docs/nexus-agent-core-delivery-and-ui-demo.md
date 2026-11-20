@@ -51,13 +51,15 @@ OPENCLAW_INSTALLER_DEFAULT_MODEL=0 OPENCLAW_INSTALLER_LLAMA=0 OPENCLAW_INSTALLER
 ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer
 ```
 
-| 变量                               | `0`                                                    | `1`                                                                            | 不设                                                        |
-| ---------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| `OPENCLAW_INSTALLER_DEFAULT_MODEL` | 不写默认在线模型；App 首次启动由自己的模型选择界面询问 | 必须有 `installer.env` 里的 `DEFAULT_AI_BASE_URL` / `_MODEL`，没有就让构建失败 | 有就写，没有就不写（和以前一样）                            |
-| `OPENCLAW_INSTALLER_LLAMA`         | 不打包 llama-server，没有本地后备模型                  | 必须有 `DEFAULT_LLAMA_MODEL`（和 `SKIP_LLAMA_BUNDLE=1` 冲突，会报错）          | 配了模型就打包（和以前一样）                                |
-| `OPENCLAW_INSTALLER_LITELLM`       | 不打包 LiteLLM                                         | 打包（需要 `OPENCLAW_LITELLM_VERSION`、`OPENCLAW_UV_VERSION`）                 | 沿用 `installer.env` 的 `OPENCLAW_INSTALLER_ENABLE_LITELLM` |
+| 变量                               | `0`                                                    | `1`                                                                                          | 不设                                                        |
+| ---------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `OPENCLAW_INSTALLER_DEFAULT_MODEL` | 不写默认在线模型；App 首次启动由自己的模型选择界面询问 | 必须有 `installer.env` 里的 `DEFAULT_AI_PROVIDER` / `_BASE_URL` / `_MODEL`，没有就让构建失败 | 有就写，没有就不写（和以前一样）                            |
+| `OPENCLAW_INSTALLER_LLAMA`         | 不打包 llama-server，没有本地后备模型                  | 必须有 `DEFAULT_LLAMA_MODEL`（和 `SKIP_LLAMA_BUNDLE=1` 冲突，会报错）                        | 配了模型就打包（和以前一样）                                |
+| `OPENCLAW_INSTALLER_LITELLM`       | 不打包 LiteLLM                                         | 打包（需要 `OPENCLAW_LITELLM_VERSION`、`OPENCLAW_UV_VERSION`）                               | 沿用 `installer.env` 的 `OPENCLAW_INSTALLER_ENABLE_LITELLM` |
 
 这三个开关**不影响**网关和安装流程：pkg 的 postinstall 照常静默装好网关的 LaunchAgent 并跳过交互式 onboarding，只是不再带模型相关的配置。LiteLLM 的混合路由要“llama 后备 + 在线默认模型”都在才会生效，只开 LiteLLM 而关了其中一个，构建时会给出警告。
+
+默认在线模型带有 API key 时，安装器按 `provider id + base URL` 解析实际 provider，再把 key 写入其固定的 `<resolved-provider>:manual` 持久认证，并将它设为明确首选。同一 URL 的重复安装按新安装包中的 `installer.env` 覆盖同一认证和首选顺序，不会不断新增 provider、模型或 `setup-*` 认证；不同 URL 即使使用相同模型名也会成为不同 provider，不会误判为重复。新建的定时任务会在创建时自动记录这个持久认证，因此无需再手工填写 `model@profile`。已经在旧安装包下创建且没有成功记录认证的任务，需要在修复后的版本中重新保存或重新创建一次。
 
 几点说明：
 

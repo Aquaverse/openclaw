@@ -193,6 +193,7 @@ const nativeScripts = [
   "scripts/lib/swift-toolchain.sh",
   "scripts/lint-swift.sh",
   "scripts/mac-elevation-host.sh",
+  "scripts/mac-default-provider-setup.sh",
   "scripts/make_appcast.sh",
   "scripts/notarize-mac-artifact.sh",
   "scripts/package-mac-app.sh",

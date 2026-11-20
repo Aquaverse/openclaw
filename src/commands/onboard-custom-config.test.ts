@@ -562,6 +562,38 @@ describe("applyCustomApiConfig", () => {
     expect(provider?.models?.[0]?.id).toBe("llama3");
   });
 
+  it("reuses a suffixed provider only when its base URL matches", () => {
+    const result = applyCustomApiConfig({
+      config: {
+        models: {
+          providers: {
+            custom: {
+              baseUrl: "https://first.example.com/v1",
+              api: "openai-completions",
+              models: [],
+            },
+            "custom-2": {
+              baseUrl: "https://second.example.com/v1",
+              api: "openai-completions",
+              models: [createTestModelDefinition("shared-name")],
+            },
+          },
+        },
+      },
+      baseUrl: "https://second.example.com/v1",
+      modelId: "shared-name",
+      compatibility: "openai",
+      providerId: "custom",
+    });
+
+    expect(result.providerId).toBe("custom-2");
+    expect(Object.keys(result.config.models?.providers ?? {}).toSorted()).toEqual([
+      "custom",
+      "custom-2",
+    ]);
+    expect(result.config.agents?.defaults?.model).toEqual({ primary: "custom-2/shared-name" });
+  });
+
   it("preserves existing per-model thinking when already set for azure reasoning model", () => {
     const providerId = "custom-my-resource-openai-azure-com";
     const modelRef = `${providerId}/o3-mini`;

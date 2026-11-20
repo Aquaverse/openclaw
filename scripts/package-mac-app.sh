@@ -529,6 +529,15 @@ fi
 cp "$LLAMA_FALLBACK_SETUP_SRC" "$APP_ROOT/Contents/Resources/mac-llama-fallback-setup.sh"
 chmod 0644 "$APP_ROOT/Contents/Resources/mac-llama-fallback-setup.sh"
 
+echo "📦 Copying default-provider setup script"
+DEFAULT_PROVIDER_SETUP_SRC="$ROOT_DIR/scripts/mac-default-provider-setup.sh"
+if [ ! -f "$DEFAULT_PROVIDER_SETUP_SRC" ]; then
+  echo "ERROR: default-provider setup script missing at $DEFAULT_PROVIDER_SETUP_SRC" >&2
+  exit 1
+fi
+cp "$DEFAULT_PROVIDER_SETUP_SRC" "$APP_ROOT/Contents/Resources/mac-default-provider-setup.sh"
+chmod 0755 "$APP_ROOT/Contents/Resources/mac-default-provider-setup.sh"
+
 echo "📦 Provisioning the matching private Bun runtime [${BUILD_ARCHS[*]}]"
 /bin/bash "$ROOT_DIR/scripts/stage-mac-runtime.sh" "$APP_ROOT/Contents/Resources/runtime" "${BUILD_ARCHS[@]}"
 

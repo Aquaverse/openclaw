@@ -460,110 +460,69 @@ final class AutoOnboardBootstrap {
     /// activateLocalGateway() below is solely responsible for starting (or
     /// restarting) the Gateway, and does so only after this config write
     /// has already landed on disk.
-    /// True when `models.providers` in the user's config already has an entry
-    /// with this base URL and a credential (the CLI prints secrets redacted,
-    /// but the `apiKey` key itself is still present).
-    private static func providerAlreadyConfigured(_ provider: DefaultProvider, executable: String) async -> Bool {
-        let command = AppProfile.current.localCLICommand(
-            prefix: [executable], arguments: ["config", "get", "models.providers", "--json"])
-        let result = await ShellExecutor.runDetailed(command: command, cwd: nil, env: nil, timeout: 30)
-        guard result.success else { return false }
-        let out = result.stdout
-        let normalizedURL = provider.baseURL.hasSuffix("/") ? String(provider.baseURL.dropLast()) : provider.baseURL
-        return out.contains(normalizedURL) && out.contains("\"apiKey\"")
-    }
-
     private static func applyDefaultProvider(_ provider: DefaultProvider) async -> Bool {
         let executable = CLIInstaller.managedExecutableLocation()
         guard FileManager.default.isExecutableFile(atPath: executable) else {
             traceLog("applyDefaultProvider: managed executable not found/executable at \(executable)")
             return false
         }
+        let setupURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/mac-default-provider-setup.sh")
+        guard FileManager.default.isExecutableFile(atPath: setupURL.path) else {
+            traceLog("applyDefaultProvider: bundled setup script missing or not executable")
+            return false
+        }
+
         var arguments = [
-            "onboard", "--non-interactive", "--accept-risk",
-            "--mode", "local", "--skip-daemon",
-            "--skip-health", "--skip-ui", "--skip-hooks", "--skip-channels",
-            "--skip-search", "--skip-skills", "--skip-bootstrap",
-            "--auth-choice", "custom-api-key",
-            "--custom-base-url", provider.baseURL,
-            "--custom-model-id", provider.modelID,
-            "--custom-compatibility", "openai",
+            setupURL.path,
+            "--openclaw-bin", executable,
+            "--base-url", provider.baseURL,
+            "--model-id", provider.modelID,
+            "--skip-daemon",
         ]
+        if let profile = AppProfile.current.name {
+            arguments.append(contentsOf: ["--profile", profile])
+        }
         if let id = provider.id {
-            arguments.append(contentsOf: ["--custom-provider-id", id])
+            arguments.append(contentsOf: ["--provider-id", id])
         }
-        // The API key is passed via the CUSTOM_API_KEY environment variable,
-        // never as a --custom-api-key argument: process arguments are
-        // world-readable on macOS (any local user can see them in `ps -ef`
-        // for as long as onboard runs), environment variables are not.
-        // onboard's non-interactive custom-api-key path falls back to
-        // CUSTOM_API_KEY when the flag is absent and, in the default
-        // (plaintext) secret-input mode, stores the resolved value exactly as
-        // it would have stored the flag value
-        // (src/commands/onboard-non-interactive/api-keys.ts,
-        // resolveNonInteractiveApiKey; local/auth-choice.ts).
-        // ShellExecutor treats a non-nil env as a full replacement
-        // (.custom), so start from this process's environment.
-        // Re-applying over a config that already holds this provider (upgrade,
-        // or a launch whose marker was lost): do NOT hand onboard the key
-        // again. With a key in hand onboard treats an already-credentialed
-        // provider as a "replacement", saves an inactive `<provider>:setup-<uuid>`
-        // profile and exits non-zero ("Replacement credential saved but
-        // inactive"), so the default model was never applied and the step
-        // reran on every launch. Without a key it keeps the stored credential,
-        // upserts the model and makes it primary -- other providers/models stay.
-        let alreadyConfigured = await Self.providerAlreadyConfigured(provider, executable: executable)
-        traceLog("applyDefaultProvider: providerAlreadyConfigured=\(alreadyConfigured)")
-        var environment: [String: String]? = nil
-        if !alreadyConfigured, let apiKey = provider.apiKey, !apiKey.isEmpty {
-            var merged = ProcessInfo.processInfo.environment
-            merged["CUSTOM_API_KEY"] = apiKey
-            environment = merged
+
+        var keyURL: URL?
+        if let apiKey = provider.apiKey, !apiKey.isEmpty {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("openclaw-default-provider-\(UUID().uuidString)")
+            guard FileManager.default.createFile(
+                atPath: url.path,
+                contents: Data(apiKey.utf8),
+                attributes: [.posixPermissions: 0o600])
+            else {
+                traceLog("applyDefaultProvider: could not create credential file")
+                return false
+            }
+            keyURL = url
+            arguments.append(contentsOf: ["--api-key-file", url.path])
         }
-        let command = AppProfile.current.localCLICommand(prefix: [executable], arguments: arguments)
-        // The key no longer travels in `command` (see CUSTOM_API_KEY above),
-        // but still never log stdout/stderr verbatim: a misbehaving CLI could
-        // in principle echo the key back in its own error text. Strip the
-        // literal key value out of anything before it reaches traceLog; the
-        // --custom-api-key redaction below is kept as a guard in case the
-        // flag is ever reintroduced.
-        let redactedCommand = command.enumerated().map { index, token in
-            index > 0 && command[index - 1] == "--custom-api-key" ? "<redacted>" : token
+        defer {
+            if let keyURL {
+                try? FileManager.default.removeItem(at: keyURL)
+            }
         }
+
         func redactAPIKey(_ text: String) -> String {
             guard let apiKey = provider.apiKey, !apiKey.isEmpty else { return text }
             return text.replacingOccurrences(of: apiKey, with: "<redacted>")
         }
-        // One retry after a short delay: observed in testing failing
-        // outright (exit 1) a few seconds after CLIInstaller.install()
-        // reported success, then succeeding with the exact same command
-        // moments later on a subsequent launch -- consistent with the
-        // freshly-written CLI/Node install not being fully settled on disk
-        // yet (file flush, symlinks, node_modules) at the instant this
-        // first runs right after install(). A single short-delay retry
-        // covers that transient window without masking a real,
-        // deterministic failure (which will fail identically both times,
-        // and still gets logged below either way).
-        for attempt in 1...2 {
-            // runDetailed() (rather than the terser .run()) so a failure's
-            // real "[openclaw] Reason: …" text is available here -- .run()'s
-            // Response only exposes a generic "exit N"/"timeout"
-            // errorMessage, which was observed in testing to give zero
-            // insight into why onboard failed.
-            let result = await ShellExecutor.runDetailed(command: command, cwd: nil, env: environment, timeout: 60)
-            traceLog("applyDefaultProvider: ran (attempt \(attempt)/2) \(redactedCommand.joined(separator: " ")) -> success=\(result.success)")
-            if result.success {
-                return true
-            }
-            let combined = result.stdout.isEmpty ? result.stderr : result.stdout
-            let summary = TextSummarySupport.summarizeLastLine(redactAPIKey(combined))
-                ?? result.errorMessage
-                ?? "no output captured"
-            traceLog("applyDefaultProvider: failure summary (attempt \(attempt)/2): \(summary)")
-            if attempt == 1 {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-            }
+
+        let result = await ShellExecutor.runDetailed(command: arguments, cwd: nil, env: nil, timeout: 90)
+        traceLog("applyDefaultProvider: setup finished success=\(result.success)")
+        if result.success {
+            return true
         }
+        let combined = result.stdout.isEmpty ? result.stderr : result.stdout
+        let summary = TextSummarySupport.summarizeLastLine(redactAPIKey(combined))
+            ?? result.errorMessage
+            ?? "no output captured"
+        traceLog("applyDefaultProvider: failure summary: \(summary)")
         return false
     }
 

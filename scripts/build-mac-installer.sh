@@ -302,6 +302,10 @@ rm -rf "$STANDALONE_INSTALLERS_DIR"
 # whatever copy the last full build left in the bundle.
 cp "$ROOT_DIR/scripts/mac-llama-fallback-setup.sh" "$APP/Contents/Resources/mac-llama-fallback-setup.sh"
 chmod 0644 "$APP/Contents/Resources/mac-llama-fallback-setup.sh"
+# Keep the fast wrapper path aligned with the full app build for default-model
+# credential provisioning as well.
+cp "$ROOT_DIR/scripts/mac-default-provider-setup.sh" "$APP/Contents/Resources/mac-default-provider-setup.sh"
+chmod 0755 "$APP/Contents/Resources/mac-default-provider-setup.sh"
 # Nexus Agent Core preset (enables the bundled Nexus plugin; a no-op unless step 4 below bakes nexus-preset.env).
 cp "$ROOT_DIR/scripts/mac-nexus-preset.sh" "$APP/Contents/Resources/mac-nexus-preset.sh"
 chmod 0644 "$APP/Contents/Resources/mac-nexus-preset.sh"
@@ -464,8 +468,10 @@ LLAMA_SWITCH="$(installer_switch OPENCLAW_INSTALLER_LLAMA)" || exit 1
 LITELLM_SWITCH="$(installer_switch OPENCLAW_INSTALLER_LITELLM)" || exit 1
 echo "==> One-click features: default model=${DEFAULT_MODEL_SWITCH:-auto} llama=${LLAMA_SWITCH:-auto} litellm=${LITELLM_SWITCH:-auto}"
 if [[ "$DEFAULT_MODEL_SWITCH" == "1" ]] \
-  && [[ -z "$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL)" || -z "$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_MODEL)" ]]; then
-  echo "ERROR: OPENCLAW_INSTALLER_DEFAULT_MODEL=1 needs OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL and OPENCLAW_INSTALLER_DEFAULT_AI_MODEL in $ENV_FILE" >&2
+  && [[ -z "$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_PROVIDER)" \
+    || -z "$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL)" \
+    || -z "$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_MODEL)" ]]; then
+  echo "ERROR: OPENCLAW_INSTALLER_DEFAULT_MODEL=1 needs OPENCLAW_INSTALLER_DEFAULT_AI_PROVIDER, OPENCLAW_INSTALLER_DEFAULT_AI_BASE_URL and OPENCLAW_INSTALLER_DEFAULT_AI_MODEL in $ENV_FILE" >&2
   exit 1
 fi
 if [[ "$LLAMA_SWITCH" == "1" && "${SKIP_LLAMA_BUNDLE:-0}" == "1" ]]; then

@@ -245,15 +245,15 @@ fi
 
 ONBOARD_ARGS=(onboard --non-interactive --accept-risk --mode local --install-daemon
   --skip-health --skip-ui --skip-hooks --skip-channels --skip-search --skip-skills --skip-bootstrap)
+DEFAULT_PROVIDER_SETUP="$APP_PATH/Contents/Resources/mac-default-provider-setup.sh"
 
 if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
   log "Configuring default AI provider from the bundled installer.env (base URL: $AI_BASE_URL, model: $AI_MODEL)"
-  ONBOARD_ARGS+=(--auth-choice custom-api-key --custom-base-url "$AI_BASE_URL" --custom-model-id "$AI_MODEL" --custom-compatibility openai)
-  [[ -n "$AI_PROVIDER" ]] && ONBOARD_ARGS+=(--custom-provider-id "$AI_PROVIDER")
-  # The API key is handed to onboard through CUSTOM_API_KEY (read from a
-  # console-user-only temp file below), never as --custom-api-key: process
-  # arguments -- including sudo's, which stays alive for the whole command --
-  # are visible to every local user in `ps` while onboard runs.
+  # The API key is handed to the default-provider setup owner through a
+  # console-user-only file, never a process argument. That owner saves one
+  # stable ordinary auth profile before onboarding without a key, so repeated
+  # installs update the same profile instead of accumulating inactive
+  # <provider>:setup-<uuid> replacement credentials.
   if [[ -n "$AI_API_KEY" ]]; then
     ONBOARD_KEY_FILE="$(/usr/bin/mktemp /tmp/openclaw-onboard-key.XXXXXX)"
     /bin/chmod 600 "$ONBOARD_KEY_FILE"
@@ -264,30 +264,27 @@ else
   log "No default AI provider baked into this build -- setting up the Gateway/daemon only; the app will still ask for a model on first launch."
 fi
 
-# Upgrade / reinstall over an existing config: if the user's config already
-# holds this provider (same base URL, with a credential), do not hand onboard
-# the key again -- it would treat that as a "replacement credential", save an
-# inactive <provider>:setup-<uuid> profile and exit non-zero without applying
-# the default model. Without the key onboard keeps the stored credential,
-# upserts the model and makes it primary; other providers/models are kept.
-if [[ -n "$ONBOARD_KEY_FILE" ]]; then
-  EXISTING_PROVIDERS="$(run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-      "$OPENCLAW_BIN" config get models.providers --json 2>/dev/null || true)"
-  AI_BASE_URL_TRIMMED="${AI_BASE_URL%/}"
-  if [[ "$EXISTING_PROVIDERS" == *"$AI_BASE_URL_TRIMMED"* && "$EXISTING_PROVIDERS" == *'"apiKey"'* ]]; then
-    log "Default AI provider already configured for $AI_BASE_URL -- re-applying the default model without re-sending the API key."
-    /bin/rm -f "$ONBOARD_KEY_FILE"
-    ONBOARD_KEY_FILE=""
-  fi
-fi
-
 log "==> Running non-interactive onboarding (installs the Gateway LaunchAgent)..."
 ONBOARD_OK=0
-# shellcheck disable=SC2016 # expanded by the inner (console-user) bash
-run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-    /bin/bash -c 'if [[ -n "$1" ]]; then CUSTOM_API_KEY="$(cat "$1")"; export CUSTOM_API_KEY; fi; shift; exec "$@"' \
-    openclaw-onboard "$ONBOARD_KEY_FILE" \
-    "$OPENCLAW_BIN" "${ONBOARD_ARGS[@]}" >>"$LOG_FILE" 2>&1 && ONBOARD_OK=1
+if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
+  SETUP_ARGS=(
+    --openclaw-bin "$OPENCLAW_BIN"
+    --base-url "$AI_BASE_URL"
+    --model-id "$AI_MODEL"
+    --install-daemon
+  )
+  [[ -n "$AI_PROVIDER" ]] && SETUP_ARGS+=(--provider-id "$AI_PROVIDER")
+  [[ -n "$ONBOARD_KEY_FILE" ]] && SETUP_ARGS+=(--api-key-file "$ONBOARD_KEY_FILE")
+  if [[ -x "$DEFAULT_PROVIDER_SETUP" ]]; then
+    run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+        "$DEFAULT_PROVIDER_SETUP" "${SETUP_ARGS[@]}" >>"$LOG_FILE" 2>&1 && ONBOARD_OK=1
+  else
+    log "WARN: $DEFAULT_PROVIDER_SETUP is missing or not executable."
+  fi
+else
+  run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+      "$OPENCLAW_BIN" "${ONBOARD_ARGS[@]}" >>"$LOG_FILE" 2>&1 && ONBOARD_OK=1
+fi
 [[ -n "$ONBOARD_KEY_FILE" ]] && /bin/rm -f "$ONBOARD_KEY_FILE"
 if [[ "$ONBOARD_OK" == "1" ]]; then
   log "Onboarding finished."
