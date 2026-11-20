@@ -133,9 +133,10 @@ function normalizeStagedCodexVoiceHost(packageRoot) {
     const commands = execFileSync("/usr/bin/otool", ["-l", host], { encoding: "utf8" });
     for (const [, rpath] of commands.matchAll(/^\s*path (.+) \(offset \d+\)$/gm)) {
       // Codex also carries a portable ../lib path. Drop only missing Bazel
-      // build-tree paths from the installed copy before the app is signed.
+      // build-tree or runfiles paths from the installed copy before the app is signed.
       if (
-        rpath.startsWith("@loader_path/../../_solib_darwin_") &&
+        (rpath.startsWith("@loader_path/../../_solib_darwin_") ||
+          rpath.startsWith("@loader_path/codex-voice-host.runfiles/_main/_solib_darwin_")) &&
         rpath.includes("/voice/native_link_macos_") &&
         !fs.existsSync(path.resolve(path.dirname(host), rpath.slice("@loader_path/".length)))
       ) {

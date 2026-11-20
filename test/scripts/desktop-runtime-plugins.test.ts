@@ -157,6 +157,7 @@ it.runIf(process.platform === "darwin")("normalizes only staged voice rpaths", a
   const host = path.join(voice, "bin/codex-voice-host");
   const rpaths = [
     "@loader_path/../../_solib_darwin_arm64/voice/native_link_macos_aarch64",
+    "@loader_path/codex-voice-host.runfiles/_main/_solib_darwin_arm64/voice/native_link_macos_aarch64",
     "@loader_path/../lib",
   ];
   const args = ["-x", "c", "-", "-o", host, ...rpaths.map((rpath) => `-Wl,-rpath,${rpath}`)];
