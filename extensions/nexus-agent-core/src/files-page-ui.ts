@@ -7,6 +7,7 @@ import type { GoalForFile } from "./store/goal-types.js";
 import type { VaultExtractionStatus } from "./store/vault-text-types.js";
 import type { VaultFileRecord, VaultStatsResult } from "./store/vault-types.js";
 import { esc, extractionLabel, extractionReason } from "./ui-render.js";
+import { VAULT_COLLECTION_LABEL, VAULT_SOURCE_LABEL, VAULT_STATE_LABEL } from "./vault-labels.js";
 import {
   FILE_TABS,
   fileDownloadable,
@@ -47,18 +48,8 @@ const TAB_LABEL: Record<FileTab, MsgKey> = {
   damaged: "files.tab.damaged",
 };
 
-const COLLECTION_LABEL: Record<VaultFileRecord["collection"], MsgKey> = {
-  inbox: "files.coll.inbox",
-  vault: "files.coll.vault",
-  deliverable: "files.coll.deliverable",
-};
-
-const STATE_LABEL: Record<VaultFileRecord["state"], MsgKey> = {
-  active: "files.st.active",
-  trashed: "files.st.trashed",
-  purging: "files.st.purging",
-  damaged: "files.st.damaged",
-};
+const COLLECTION_LABEL = VAULT_COLLECTION_LABEL;
+const STATE_LABEL = VAULT_STATE_LABEL;
 
 const two = (value: number) => String(value).padStart(2, "0");
 const mmdd = (ms: number): string => {
@@ -110,11 +101,8 @@ function marker(act: string, id: string | undefined, className: string, inner: s
 
 function row(file: VaultFileRecord, query: FileQuery, lang: Lang, base: string): string {
   const on = query.file === file.id ? " on" : "";
-  const meta = [
-    tr(lang, COLLECTION_LABEL[file.collection]),
-    formatBytes(file.size),
-    mmdd(file.updatedAt),
-  ];
+  // The date sits at the right end of the title row; the meta line says where the file lives and how big it is.
+  const meta = [tr(lang, COLLECTION_LABEL[file.collection]), formatBytes(file.size)];
   const tags = [
     file.sensitivity === "sensitive" ? tr(lang, "files.tag.sensitive") : "",
     file.pinnedAt !== null ? tr(lang, "files.tag.pinned") : "",
@@ -184,14 +172,14 @@ function listPane(data: FilesPageData, lang: Lang, actions: boolean, base: strin
         files: counts.all + counts.trash + counts.damaged,
         used: formatBytes(data.stats.objectBytes),
         reserved: formatBytes(data.stats.reservedBytes),
-      }),
+      }) + (data.query.tab === "inbox" ? ` ${tr(lang, "files.inbox.keep")}` : ""),
     )}</p><div class="nx-filebar-slot"></div></div>` +
     `<div class="nx-seg">${tags}</div>` +
     `<div class="nx-rows">${body}${pager(data.query, data.total, base, lang)}</div></div>`
   );
 }
 
-function detailPane(data: FilesPageData, lang: Lang, actions: boolean, base: string): string {
+function detailPane(data: FilesPageData, lang: Lang, base: string): string {
   const detail = data.detail;
   if (!detail) {
     return (
@@ -219,14 +207,16 @@ function detailPane(data: FilesPageData, lang: Lang, actions: boolean, base: str
     (fileDownloadable(file)
       ? marker("file-download", file.id, "nx-ib", esc(tr(lang, "btn.download")))
       : "") +
-    (actions ? marker("file-open", file.id, "nx-pb", esc(tr(lang, "files.d.manage"))) : "");
+    // The manage dialog is available on a read-only console too: it shows the preview, the versions and the evidence, and
+    // disables its own write buttons there.
+    marker("file-open", file.id, "nx-pb", esc(tr(lang, "files.d.manage")));
   const kv: [string, string][] = [
     [tr(lang, "files.col.folder"), file.folder === "" ? "-" : file.folder],
     [tr(lang, "files.col.type"), file.mime],
     [tr(lang, "files.col.size"), formatBytes(file.size)],
     [
       tr(lang, "files.col.source"),
-      `${tr(lang, COLLECTION_LABEL[file.collection])} · ${file.source}`,
+      `${tr(lang, COLLECTION_LABEL[file.collection])} · ${tr(lang, VAULT_SOURCE_LABEL[file.source])}`,
     ],
     [tr(lang, "col.updatedAt"), mmdd(file.updatedAt)],
     [tr(lang, "files.d.versions"), String(file.versionCount)],
@@ -278,6 +268,6 @@ export function renderFilesPage(data: FilesPageData, options: FilesPageOptions =
   const base = options.basePath ?? "nexus-nav:";
   return (
     `<div class="nx-works ${data.detail ? "nx-picked" : "nx-auto"}">` +
-    `${listPane(data, lang, actions, base)}${detailPane(data, lang, actions, base)}</div>`
+    `${listPane(data, lang, actions, base)}${detailPane(data, lang, base)}</div>`
   );
 }

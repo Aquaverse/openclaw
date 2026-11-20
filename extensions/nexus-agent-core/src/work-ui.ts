@@ -645,8 +645,10 @@ export function renderWorksPage(data: WorksPageData, options: WorksPageOptions =
   const lang = options.lang ?? DEFAULT_LANG;
   const base = options.basePath ?? "nexus-nav:";
   const selected = data.detail?.work.id;
+  // `nx-work` tells this page apart from Goals and Library, which keep the list beside the detail: here the list is the
+  // page and one Work is a page of its own (design: nexus-ea-prototype, S02 and its task page).
   return (
-    `<div class="nx-works ${data.picked ? "nx-picked" : "nx-auto"}">` +
+    `<div class="nx-works nx-work ${data.picked ? "nx-picked" : "nx-auto"}">` +
     `${listPane(data, lang, base, selected)}${detailPane(data, lang, base, options.actions === true)}</div>`
   );
 }

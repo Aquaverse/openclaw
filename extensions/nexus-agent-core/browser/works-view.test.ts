@@ -100,6 +100,22 @@ function mount(
     }
     return reply;
   };
+  // jsdom's IntersectionObserver (when present) reports every element as visible, so leaving the real one in would load
+  // every page during the first flush. The stub stays quiet; a test fires it through the returned `watchers`.
+  const watchers: Array<{ fire: () => void }> = [];
+  const observerOriginal = globalThis.IntersectionObserver;
+  globalThis.IntersectionObserver = class {
+    constructor(private readonly callback: IntersectionObserverCallback) {
+      watchers.push({
+        fire: () =>
+          this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as never),
+      });
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as never;
+  observerRestore = observerOriginal;
   const host = {
     request,
     locale: "zh-CN",
@@ -127,7 +143,7 @@ function mount(
     mountDefault: () => () => {},
   } as unknown as ControlUiViewContext;
   const handle = createNexusPage(options.pageId)(container, context);
-  return { container, calls, opened, events, handle, context };
+  return { container, calls, opened, events, handle, context, watchers };
 }
 
 const wait = (ms: number) =>
@@ -141,6 +157,7 @@ const flush = async (rounds = 6) => {
     });
   }
 };
+let observerRestore: typeof globalThis.IntersectionObserver | undefined = undefined;
 const q = (container: HTMLElement, selector: string) =>
   container.querySelector<HTMLElement>(selector);
 const click = (container: HTMLElement, selector: string) => {
@@ -154,6 +171,7 @@ const dialogButton = (container: HTMLElement, text: string) =>
   );
 
 afterEach(() => {
+  globalThis.IntersectionObserver = observerRestore as typeof globalThis.IntersectionObserver;
   document.body.replaceChildren();
 });
 
@@ -516,65 +534,48 @@ describe("work page", () => {
     const everything = Array.from({ length: 120 }, (_, i) =>
       work(`w${String(i).padStart(3, "0")}`),
     );
-    const watchers: Array<{ fire: () => void }> = [];
-    const original = globalThis.IntersectionObserver;
-    globalThis.IntersectionObserver = class {
-      constructor(private readonly callback: IntersectionObserverCallback) {
-        watchers.push({
-          fire: () =>
-            this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as never),
-        });
-      }
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    } as never;
-    try {
-      const f = mount(
-        { view: "works" },
-        {
-          "nexus.work.list": (params?: Record<string, unknown>) => ({
-            works: everything.slice(
-              Number(params?.offset ?? 0),
-              Number(params?.offset ?? 0) + Number(params?.limit),
-            ),
-            total: everything.length,
-          }),
-        },
-      );
-      await flush();
-      const lists = () => f.calls.filter((c) => c.method === "nexus.work.list");
-      assert.equal(lists()[0]?.params?.limit, 50);
-      assert.equal(lists()[0]?.params?.order, "state");
-      assert.equal(f.container.querySelectorAll("a.nx-wrow").length, 50);
-      assert.match(q(f.container, ".nx-wload button")?.textContent ?? "", /已显示 50\/120/);
-      watchers.at(-1)?.fire();
-      await flush();
-      assert.equal(lists().at(-1)?.params?.offset, 50);
-      assert.equal(f.container.querySelectorAll("a.nx-wrow").length, 100);
-      // Rows added later are clickable like the first ones (one delegated handler), and the heading is not repeated.
-      assert.equal(f.container.querySelectorAll(".nx-gh").length, 1);
-      f.container.querySelectorAll<HTMLElement>("a.nx-wrow")[99]?.click();
-      await flush();
-      assert.equal(f.opened.length, 0, "a row is picked in place, the host is not navigated");
-      assert.ok(
-        f.calls.some(
-          (c) => c.method === "nexus.work.get" && JSON.stringify(c.params).includes("w099"),
-        ),
-        "the detail of the picked row is read",
-      );
-      watchers.at(-1)?.fire();
-      await flush();
-      assert.equal(f.container.querySelectorAll("a.nx-wrow").length, 120);
-      assert.equal(q(f.container, ".nx-wload"), null);
-      // Nothing more to ask for.
-      const asked = lists().length;
-      watchers.at(-1)?.fire();
-      await flush();
-      assert.equal(lists().length, asked);
-    } finally {
-      globalThis.IntersectionObserver = original;
-    }
+    const f = mount(
+      { view: "works" },
+      {
+        "nexus.work.list": (params?: Record<string, unknown>) => ({
+          works: everything.slice(
+            Number(params?.offset ?? 0),
+            Number(params?.offset ?? 0) + Number(params?.limit),
+          ),
+          total: everything.length,
+        }),
+      },
+    );
+    await flush();
+    const lists = () => f.calls.filter((c) => c.method === "nexus.work.list");
+    assert.equal(lists()[0]?.params?.limit, 50);
+    assert.equal(lists()[0]?.params?.order, "state");
+    assert.equal(f.container.querySelectorAll("a.nx-wrow").length, 50);
+    assert.match(q(f.container, ".nx-wload button")?.textContent ?? "", /已显示 50\/120/);
+    f.watchers.at(-1)?.fire();
+    await flush();
+    assert.equal(lists().at(-1)?.params?.offset, 50);
+    assert.equal(f.container.querySelectorAll("a.nx-wrow").length, 100);
+    // Rows added later are clickable like the first ones (one delegated handler), and the heading is not repeated.
+    assert.equal(f.container.querySelectorAll(".nx-gh").length, 1);
+    f.container.querySelectorAll<HTMLElement>("a.nx-wrow")[99]?.click();
+    await flush();
+    assert.equal(f.opened.length, 0, "a row is picked in place, the host is not navigated");
+    assert.ok(
+      f.calls.some(
+        (c) => c.method === "nexus.work.get" && JSON.stringify(c.params).includes("w099"),
+      ),
+      "the detail of the picked row is read",
+    );
+    f.watchers.at(-1)?.fire();
+    await flush();
+    assert.equal(f.container.querySelectorAll("a.nx-wrow").length, 120);
+    assert.equal(q(f.container, ".nx-wload"), null);
+    // Nothing more to ask for.
+    const asked = lists().length;
+    f.watchers.at(-1)?.fire();
+    await flush();
+    assert.equal(lists().length, asked);
   });
 
   it("offers a button when the page cannot watch the scroll, and retries after a failure", async () => {
@@ -664,7 +665,7 @@ describe("work page", () => {
     const numbers = [...f.container.querySelectorAll(".nx-seg a")].map(
       (a) => `${a.firstChild?.textContent}${a.querySelector(".nx-n")?.textContent}`,
     );
-    assert.deepEqual(numbers, ["全部1", "待你处理0", "受阻0", "进行中1", "已完成0", "已结束0"]);
+    assert.deepEqual(numbers, ["全部工作1", "待你处理0", "受阻0", "进行中1", "已完成0", "已结束0"]);
     // The greeting still speaks for the whole account.
     assert.match(q(f.container, ".nx-hello")?.textContent ?? "", /有 1 件待你处理/);
     assert.equal(f.opened.length, 0);

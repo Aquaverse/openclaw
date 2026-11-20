@@ -8,7 +8,7 @@
 //     delete of an absent key is success, so every step can be repeated after a crash;
 //   * a reservation owned by a writer that is still running in THIS process (`inflight`) is never recovered from under it;
 //   * the vault never registers a process incarnation: the plugin service does that once at start and hands the id in.
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { DEFAULT_PURGE_RUN_LEASE_MS } from "../purge/purge-lease.js";
 import type { StoreOperationName, StoreOperations } from "../store/contract.js";
 import type { Principal } from "../store/types.js";
@@ -27,6 +27,7 @@ import {
   type VaultSensitivity,
   type VaultSource,
 } from "../store/vault-types.js";
+import { createChatMediaIngest } from "./vault-chat-media.js";
 import { createVaultExtractor, type VaultExtractConfig } from "./vault-extract.js";
 import type { VaultFileStore } from "./vault-file-store.js";
 import {
@@ -36,6 +37,7 @@ import {
   type ImportRefusal,
 } from "./vault-import.js";
 import { classifyVaultName, sniffVaultMime } from "./vault-rules.js";
+import { TooLargeError, writeStaging } from "./vault-staging.js";
 
 type VaultOperationName = Extract<StoreOperationName, `vault${string}`>;
 /** Exactly the vault slice of the store host; `TaskStore` is assignable to it. */
@@ -47,7 +49,8 @@ export type VaultStore = {
 
 export type VaultConfig = {
   limits: VaultLimits;
-  inboxRetentionMs: number;
+  /** `null`: an inbox file waits for the user instead of expiring on its own. */
+  inboxRetentionMs: number | null;
   trashRetentionMs: number;
   reservationTtlMs: number;
   /** Refuse a write when the volume would drop below this many free bytes (the disk is shared with the user). */
@@ -58,6 +61,11 @@ export type VaultConfig = {
   /** Objects younger than this are not reclaimed by maintenance (reclaim must not race a finishing reservation). */
   reclaimGraceMs: number;
   import: ImportGuardConfig;
+  /**
+   * Where the host keeps media that arrives with a chat message. Only files below this directory are accepted by
+   * `ingestChatMedia`, so a hook payload can never point the vault at an arbitrary path. Absent: chat intake is off.
+   */
+  chatMediaRoot?: string;
   /** Versions kept per file when content is replaced (default VAULT_KEEP_VERSIONS). */
   keepVersions?: number;
   /** Text extraction (F2). Absent or `enabled: false`: no jobs are queued or run and nothing is ever searchable by content. */
@@ -95,6 +103,11 @@ export type VaultIngestInput = {
   expectedSize?: number | null;
   source: VaultSource;
   sourceRef?: string | null;
+  /**
+   * Link an existing file into staging instead of copying its bytes, when the caller knows the source is already a local
+   * file on the same volume (a chat attachment). Undefined means "copy the bytes as usual".
+   */
+  adoptPath?: string | null;
   collection?: VaultCollection;
   folder?: string;
   importedBy: string;
@@ -172,19 +185,9 @@ export type VaultMaintainReport = {
 };
 
 const MAX_READ_BYTES = 4 * 1024 * 1024;
-const HEAD_BYTES = 4096;
 const COMMIT_ATTEMPTS = 4;
 const MAINTAIN_BATCH = 100;
 const VERIFY_BATCH = 200;
-
-class TooLargeError extends Error {
-  constructor(readonly seen: number) {
-    super("file is larger than the single-file limit");
-  }
-}
-
-const isAsyncIterable = (value: unknown): value is AsyncIterable<Uint8Array> =>
-  typeof value === "object" && value !== null && Symbol.asyncIterator in value;
 
 export function createVaultService(deps: VaultServiceDeps) {
   const now = deps.now ?? Date.now;
@@ -235,54 +238,6 @@ export function createVaultService(deps: VaultServiceDeps) {
     awaited: writerDone || !inflight.has(reservationId),
     incarnationGoneEnabled: deps.incarnationGoneEnabled,
   });
-
-  // ------------------------------------------------------------------ W: bytes to staging
-
-  async function* chunksOf(bytes: VaultBytes): AsyncGenerator<Uint8Array> {
-    if (bytes instanceof Uint8Array) {
-      yield bytes;
-    } else if (isAsyncIterable(bytes)) {
-      for await (const chunk of bytes) {
-        yield chunk;
-      }
-    } else {
-      for (const chunk of bytes) {
-        yield chunk;
-      }
-    }
-  }
-
-  async function writeStaging(
-    stagingKey: string,
-    bytes: VaultBytes,
-    maxBytes: number,
-  ): Promise<{ hash: string; size: number; head: Uint8Array }> {
-    const writer = await deps.files.createStaging(stagingKey);
-    const digest = createHash("sha256");
-    const head = Buffer.alloc(HEAD_BYTES);
-    let headLength = 0;
-    let size = 0;
-    try {
-      for await (const chunk of chunksOf(bytes)) {
-        size += chunk.byteLength;
-        if (size > maxBytes) {
-          throw new TooLargeError(size);
-        }
-        if (headLength < HEAD_BYTES) {
-          const take = Math.min(HEAD_BYTES - headLength, chunk.byteLength);
-          head.set(chunk.subarray(0, take), headLength);
-          headLength += take;
-        }
-        digest.update(chunk);
-        await writer.write(chunk);
-      }
-      await writer.finish();
-    } catch (error) {
-      await writer.abort();
-      throw error;
-    }
-    return { hash: digest.digest("hex"), size, head: new Uint8Array(head.subarray(0, headLength)) };
-  }
 
   // ------------------------------------------------------------------ recovery helpers
 
@@ -458,9 +413,11 @@ export function createVaultService(deps: VaultServiceDeps) {
     let written: { hash: string; size: number; head: Uint8Array };
     try {
       written = await writeStaging(
+        deps.files,
         vaultStagingKey(reservation.id),
         input.bytes,
         cfg.limits.maxFileBytes,
+        input.adoptPath,
       );
     } catch (error) {
       await fail(error instanceof TooLargeError ? "rejected" : "write_failed");
@@ -1184,6 +1141,8 @@ export function createVaultService(deps: VaultServiceDeps) {
     ingest: tracked(ingest),
     extract: extractTracked,
     importPath: tracked(importPath),
+    // Chat attachments arrive through a hook; the ingest itself is shared with the import path.
+    ingestChatMedia: tracked(createChatMediaIngest({ ingest, config: deps.config })),
     replace: tracked(replace),
     restoreVersion: tracked(restoreVersion),
     read,

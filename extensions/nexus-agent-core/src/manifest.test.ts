@@ -146,13 +146,13 @@ describe("Control UI browser module", () => {
     assert.equal(pageId, tabId);
     assert.match(index, /id: "nexus-agent-core"/);
     assert.match(index, /registerPage\(/);
-    // The descriptor stays the page's own sidebar tab; Work, People, Library and Goals are extra destinations of the same
-    // page, fixed in the host's left rail below the Sessions button (never user pins: no pinNavigation).
+    // The descriptor stays the page's own sidebar tab; Dashboard, Work, Collaboration, Library and Goals are extra
+    // destinations of the same page, fixed in the host's left rail below the Sessions button (never user pins).
     assert.match(index, /registerNavigation\(/);
     assert.match(index, /rail: "sessions"/);
     assert.doesNotMatch(index, /pinNavigation\(/);
     const ids = [...index.matchAll(/\{\s*id: "(\w+)",\s*label: "nav\.[\w.]+"/g)].map((m) => m[1]);
-    assert.deepEqual(ids, ["work", "people", "library", "goals"]);
+    assert.deepEqual(ids, ["dashboard", "work", "people", "library", "goals"]);
     // Aimed at the tab's own id they would make the host hide the Nexus sidebar entry: they use a second page id.
     assert.match(index, /page: \{ id: NEXUS_RAIL_PAGE_ID, params: destination\.params \}/);
     const railId = /NEXUS_RAIL_PAGE_ID = "([^"]+)"/.exec(page)?.[1];

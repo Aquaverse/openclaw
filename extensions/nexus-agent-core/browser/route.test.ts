@@ -257,6 +257,14 @@ describe("nexus work routes", () => {
     expect(routeFromHref(`${NAV_BASE}/people/a/b`)).toBeUndefined();
   });
 
+  it("opens the Dashboard from its own rail entry, and back from a link", () => {
+    expect(parseRoute({ view: "dashboard" })).toEqual({ view: "dashboard" });
+    expect(routeParams({ view: "dashboard" })).toEqual({ view: "dashboard" });
+    expect(routeFromHref(`${NAV_BASE}/dashboard`)).toEqual({ view: "dashboard" });
+    // Anything else on that path is not a page of ours.
+    expect(routeFromHref(`${NAV_BASE}/dashboard/x`)).toBeUndefined();
+  });
+
   it("keeps the clear-people page's search, page and size in the address, with 50 to a page unless chosen", () => {
     expect(parseRoute({ view: "cleanup" })).toEqual(CLEANUP_HOME);
     expect(CLEANUP_HOME).toEqual({ view: "cleanup", page: 1, size: 50 });

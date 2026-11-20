@@ -1,6 +1,7 @@
 // Scoped under .nexus-page so nothing leaks into the host. The rules below are the pages not yet moved to the new skeleton:
 // they follow the host theme through currentColor, and only their status accents are fixed. The tokens, the shell (rail,
 // content, components) and the Work page come from the sibling files; the shell comes after these rules so it wins ties.
+import { NEXUS_EA_CSS } from "./style-ea.ts";
 import { NEXUS_FILES_CSS } from "./style-files.ts";
 import { NEXUS_GOALS_CSS } from "./style-goals.ts";
 import { NEXUS_PEOPLE_CSS } from "./style-people.ts";
@@ -138,4 +139,5 @@ export const NEXUS_CSS =
   NEXUS_WORK_CSS +
   NEXUS_GOALS_CSS +
   NEXUS_FILES_CSS +
-  NEXUS_PEOPLE_CSS;
+  NEXUS_PEOPLE_CSS +
+  NEXUS_EA_CSS;

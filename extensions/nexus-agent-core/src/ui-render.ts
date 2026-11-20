@@ -35,6 +35,7 @@ import {
   fileLink,
   formatBytes,
   tabCounts,
+  vaultOriginLabel,
   type FileQuery,
   type FileTab,
 } from "./vault-ui.js";
@@ -705,12 +706,6 @@ const FILE_STATE_LABEL = {
   damaged: "files.st.damaged",
 } as const satisfies Record<VaultFileRecord["state"], MsgKey>;
 
-const FILE_COLLECTION_LABEL = {
-  inbox: "files.coll.inbox",
-  vault: "files.coll.vault",
-  deliverable: "files.coll.deliverable",
-} as const satisfies Record<VaultFileRecord["collection"], MsgKey>;
-
 /** The "Files" tab of the console. File names are user text: they only ever reach the page through `esc`. */
 export function renderFiles(
   data: FilesViewData,
@@ -793,7 +788,7 @@ export function renderFiles(
             td(file.folder === "" ? "-" : file.folder),
             td(file.mime),
             td(formatBytes(file.size)),
-            td(`${tr(lang, FILE_COLLECTION_LABEL[file.collection])} · ${file.source}`),
+            td(vaultOriginLabel(lang, file)),
             td(tr(lang, FILE_STATE_LABEL[file.state]), stateClass(file.state)),
             textCell(file),
             td(fmtTime(file.updatedAt)),

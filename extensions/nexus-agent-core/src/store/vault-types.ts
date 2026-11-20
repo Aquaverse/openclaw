@@ -44,7 +44,6 @@ export type VaultObjectState = (typeof VAULT_OBJECT_STATES)[number];
 
 export const VAULT_DEFAULT_MAX_FILE_BYTES = 100 * 1024 * 1024;
 export const VAULT_DEFAULT_OWNER_QUOTA_BYTES = 5 * 1024 * 1024 * 1024;
-export const VAULT_DEFAULT_INBOX_RETENTION_MS = 30 * 24 * 3600 * 1000;
 export const VAULT_DEFAULT_TRASH_RETENTION_MS = 30 * 24 * 3600 * 1000;
 export const VAULT_DEFAULT_RESERVATION_TTL_MS = 3600 * 1000;
 export const VAULT_DEFAULT_VERSION_KEEP = 5;
@@ -291,8 +290,11 @@ export type VaultCommitInput = {
   /** Server-sniffed media type (never the declared one); stored on a new object only. */
   mime: string;
   file: VaultFileDraft;
-  /** Inbox entries expire after this long (Vault design 5.4). */
-  inboxRetentionMs: number;
+  /**
+   * Inbox entries expire after this long. `null` keeps them until the user acts: the one number a person would not expect
+   * a file to disappear behind, so it is the default rather than a timeout nobody agreed to.
+   */
+  inboxRetentionMs: number | null;
   /** Add the bytes as a new version of this file instead of creating a file (the draft's name and folder are then unused). */
   replaceFileId?: string;
   /** Versions kept after a replace; defaults to VAULT_KEEP_VERSIONS. */

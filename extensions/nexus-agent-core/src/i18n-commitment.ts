@@ -242,7 +242,7 @@ export const COMMITMENT_MESSAGES = {
   ],
   "cm.joint.each.hint": [
     "原来这条给第一位，再为其余每位各建一条：内容、期限、所属工作都一样；之后各自结案、各自核验。名单里找不到的人，请先在“人员”页建档。",
-    "The existing one goes to the first person, and each of the others gets a copy with the same words, due date and Work citations; each is closed and verified on its own. Someone not listed needs a record first, on the Counterpart page.",
+    "The existing one goes to the first person, and each of the others gets a copy with the same words, due date and Work citations; each is closed and verified on its own. Someone not listed needs a record first, on the Collaboration page.",
   ],
   "cm.joint.either": [
     "“任一人完成即可”暂不支持：请指定一位负责人（其他人可协助），或分成各自要交付的部分。",

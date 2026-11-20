@@ -3,6 +3,7 @@
 // itself defines (task statuses, risk tiers, RPC names, ids) are never translated: they are what the model and the logs
 // say. Plain functions, no node or DOM imports, so the HTTP page and the browser module share it.
 import { COMMITMENT_MESSAGES } from "./i18n-commitment.js";
+import { DASHBOARD_MESSAGES } from "./i18n-dashboard.js";
 import { FOLLOW_MESSAGES } from "./i18n-follow.js";
 import { GOAL_MESSAGES } from "./i18n-goals.js";
 import { PEOPLE_FIX_MESSAGES } from "./i18n-people-fix.js";
@@ -21,8 +22,10 @@ const CATALOG = {
   "nav.preferences": ["偏好", "Preferences"],
   "nav.receipts": ["清除回执", "Purge receipts"],
   "nav.refresh": ["刷新", "Refresh"],
-  // The host's own People page is a different thing: this one lists the people a commitment can point at.
-  "nav.rail.people": ["人员", "Counterpart"],
+  // The destinations of the host's left rail. The host has a People page of its own: ours lists the people a commitment
+  // can point at, and is called Collaboration so the two are never read as the same thing.
+  "nav.rail.works": ["任务工作台", "Task workbench"],
+  "nav.rail.people": ["协作关系", "Collaboration"],
   "nav.rail.library": ["资料库", "Library"],
   "page.connecting": ["正在连接网关…", "Connecting to the gateway…"],
   "page.loadFailed": ["Nexus 读取失败：{message}", "Nexus could not load: {message}"],
@@ -187,6 +190,12 @@ const CATALOG = {
     "共 {files} 个文件，占用 {used}，写入中预留 {reserved}。",
     "{files} files, {used} stored, {reserved} reserved by writes in progress.",
   ],
+  // Said on the inbox tab only: a file waiting there is not on a clock, and the page should say so rather than let the user
+  // assume otherwise.
+  "files.inbox.keep": [
+    "收件箱不会自动清理，整理或删除都由你决定。",
+    "Nothing in the inbox expires on its own: you decide when to sort or delete it.",
+  ],
   "files.shown": ["只显示前 {shown} 个，共 {total} 个。", "Showing the first {shown} of {total}."],
   "files.hintActions": [
     "文件只保存在这台电脑上。可以上传文件，或从下载、文稿等已允许的文件夹导入。标为敏感的文件不会提供给 Agent。",
@@ -245,6 +254,13 @@ const CATALOG = {
   "files.col.size": ["大小", "Size"],
   "files.col.source": ["来源", "Source"],
   "files.col.state": ["状态", "State"],
+  // Where a file came from (VaultFileRecord.source). `chat` is a file that arrived with a conversation.
+  "files.src.upload": ["本机上传", "Uploaded"],
+  "files.src.local_import": ["本机路径导入", "Imported from a path"],
+  "files.src.chat": ["来自对话", "From a chat"],
+  "files.src.email": ["来自邮件", "From email"],
+  "files.src.mobile": ["来自手机", "From a phone"],
+  "files.src.task_output": ["任务产出", "Produced by a task"],
   "files.col.text": ["文本", "Text"],
   "files.tx.ready": ["可搜索", "Searchable"],
   "files.tx.partial": ["可搜索（仅开头）", "Searchable (beginning only)"],
@@ -635,6 +651,8 @@ const CATALOG = {
   ],
   // Goals page (i18n-goals.ts)
   ...GOAL_MESSAGES,
+  // Dashboard, the rail's first destination (i18n-dashboard.ts)
+  ...DASHBOARD_MESSAGES,
   // Work page (i18n-work.ts)
   ...WORK_MESSAGES,
   // Commitments block (i18n-commitment.ts)

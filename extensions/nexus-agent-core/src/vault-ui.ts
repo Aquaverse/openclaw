@@ -9,6 +9,9 @@ import type {
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from "./task-query.js";
 import { parseFileKind, type FileKind } from "./vault-kind.js";
 
+// The console prints a file's origin line in both the table and the detail pane; the wording lives with the other labels.
+export { vaultOriginLabel } from "./vault-labels.js";
+
 /** An upload carries the file as base64 in one RPC frame; the gateway frame limit is 25 MiB, so stay well under it. */
 export const VAULT_UPLOAD_MAX_BYTES = 16 * 1024 * 1024;
 const MAX_PAGE = 100_000;

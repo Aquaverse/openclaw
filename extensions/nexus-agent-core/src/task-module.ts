@@ -2,7 +2,6 @@
 // Stage 1 wiring: Task store, tools, prompt hook, RPC and event bridge, all behind `worksEnabled`.
 // Stage 2 wiring (behind `decisionsEnabled`, which needs `worksEnabled`): action/decision tools, the decision hook,
 // run-trigger ledger, outbox delivery, decision RPC and startup reconciliation.
-import os from "node:os";
 import path from "node:path";
 import { getPluginRuntimeGatewayRequestScope } from "openclaw/plugin-sdk/plugin-runtime";
 import type { OpenClawPluginApi } from "../api.js";
@@ -48,13 +47,6 @@ import {
   resolveStoreWorkerUrl,
   type StoreHost,
 } from "./store/host.js";
-import {
-  VAULT_DEFAULT_INBOX_RETENTION_MS,
-  VAULT_DEFAULT_MAX_FILE_BYTES,
-  VAULT_DEFAULT_OWNER_QUOTA_BYTES,
-  VAULT_DEFAULT_RESERVATION_TTL_MS,
-  VAULT_DEFAULT_TRASH_RETENTION_MS,
-} from "./store/vault-types.js";
 import { createTokenLedger } from "./tokens.js";
 import { ACTION_TOOL_NAMES, createActionTools } from "./tools/action-tools.js";
 import { CLAIM_TOOL_NAMES, createClaimTools } from "./tools/claim-tools.js";
@@ -63,13 +55,13 @@ import { createPreferenceTools, PREFERENCE_TOOL_NAMES } from "./tools/preference
 import { createTaskTools, TASK_TOOL_NAMES } from "./tools/task-tools.js";
 import { createWatchTools, WATCH_TOOL_NAMES } from "./tools/watch-tools.js";
 import { createNexusUiHttpHandler, NEXUS_UI_BASE_PATH } from "./ui-http.js";
-import { createVaultRpcHandlers } from "./vault-rpc.js";
-import { VAULT_EXTRACT_DEFAULTS } from "./vault/vault-extract.js";
+import { resolveVaultConfig } from "./vault-config.js";
+import { createVaultRpcHandlers, VAULT_OPERATOR_ACTOR } from "./vault-rpc.js";
+import { createChatIntake, createReplyIntake } from "./vault/vault-chat.js";
 import { createFsVaultFileStore } from "./vault/vault-file-store.js";
-import { defaultForbiddenLocations } from "./vault/vault-import.js";
 import { NEXUS_VAULT_ATTACH_PROTOCOL, NEXUS_VAULT_PROTOCOL } from "./vault/vault-prompt.js";
 import { buildFileRefContext } from "./vault/vault-refs.js";
-import { createVaultService, type VaultConfig, type VaultService } from "./vault/vault-service.js";
+import { createVaultService, type VaultService } from "./vault/vault-service.js";
 import {
   createVaultUploadHandler,
   VAULT_UPLOAD_BASE_PATH,
@@ -101,10 +93,17 @@ export type TaskModuleConfig = {
   vaultEnabled?: boolean;
   vaultOwnerQuotaBytes?: number;
   vaultMaxFileBytes?: number;
+  /** Days an unreviewed inbox file waits before it is discarded; 0 (default) keeps it until the user removes it. */
   vaultInboxRetentionDays?: number;
   vaultTrashRetentionDays?: number;
   /** Folders nexus.vault.importPath may read from (default: Downloads and Documents). */
   vaultImportRoots?: string[];
+  /**
+   * Where the host stages media that travels with a chat message. Files are taken (hard-linked or copied) into the library
+   * from below this directory only; default `<state>/media`. Point this elsewhere when the host keeps media on another
+   * path, otherwise chat intake refuses every file with `outside_roots`.
+   */
+  vaultChatMediaRoot?: string;
   vaultMinFreeBytes?: number;
   vaultReservationRetentionDays?: number;
   vaultTombstoneRetentionDays?: number;
@@ -148,53 +147,6 @@ const OPEN_TASKS_IN_PROMPT = 8;
 const GOAL_MAINTAIN_MS = 60_000;
 /** The vault's maintenance pass (recovery, reclaim, retention, integrity check) runs about once a minute. */
 const VAULT_MAINTAIN_MS = 60_000;
-const DAY_MS = 24 * 60 * 60 * 1000;
-const GB = 1024 * 1024 * 1024;
-
-const expandHome = (entry: string, home: string): string =>
-  entry === "~" ? home : entry.startsWith("~/") ? path.join(home, entry.slice(2)) : entry;
-
-/** Everything the vault service reads from the plugin config, with the design defaults (Vault design 5.4). */
-function resolveVaultConfig(config: TaskModuleConfig, stateDir: string): VaultConfig {
-  const home = os.homedir();
-  const maxFileBytes = config.vaultMaxFileBytes ?? VAULT_DEFAULT_MAX_FILE_BYTES;
-  const roots = (
-    config.vaultImportRoots ?? [path.join(home, "Downloads"), path.join(home, "Documents")]
-  ).map((entry) => path.resolve(expandHome(entry, home)));
-  return {
-    limits: {
-      maxFileBytes,
-      ownerQuotaBytes: config.vaultOwnerQuotaBytes ?? VAULT_DEFAULT_OWNER_QUOTA_BYTES,
-    },
-    inboxRetentionMs:
-      config.vaultInboxRetentionDays !== undefined
-        ? config.vaultInboxRetentionDays * DAY_MS
-        : VAULT_DEFAULT_INBOX_RETENTION_MS,
-    trashRetentionMs:
-      config.vaultTrashRetentionDays !== undefined
-        ? config.vaultTrashRetentionDays * DAY_MS
-        : VAULT_DEFAULT_TRASH_RETENTION_MS,
-    reservationTtlMs: VAULT_DEFAULT_RESERVATION_TTL_MS,
-    minFreeBytes: config.vaultMinFreeBytes ?? GB,
-    reservationRetentionMs: (config.vaultReservationRetentionDays ?? 7) * DAY_MS,
-    tombstoneRetentionMs: (config.vaultTombstoneRetentionDays ?? 7) * DAY_MS,
-    receiptHashRetentionMs: (config.vaultPurgeReceiptHashRetentionDays ?? 90) * DAY_MS,
-    reclaimGraceMs: 60_000,
-    extract: {
-      ...VAULT_EXTRACT_DEFAULTS,
-      enabled: config.vaultExtractEnabled !== false,
-      maxBytes: config.vaultExtractMaxBytes ?? VAULT_EXTRACT_DEFAULTS.maxBytes,
-      maxChars: config.vaultExtractMaxChars ?? VAULT_EXTRACT_DEFAULTS.maxChars,
-    },
-    // The state directory and credential / system folders are never importable, even from inside a configured root.
-    import: {
-      roots,
-      forbidden: [stateDir, ...defaultForbiddenLocations(home)],
-      maxBytes: maxFileBytes,
-    },
-  };
-}
-
 // Module-level on purpose: reload and replacement re-run register() in the same module, and the store
 // connection, the token ledger and the event bridge must outlive one registration generation.
 const hosts = new Map<string, StoreHost>();
@@ -611,6 +563,19 @@ export function registerTaskModule(
     })) {
       api.registerGatewayMethod(method, handler, { scope });
     }
+    // Chat attachments: the message hook is the only point where the conversation and the staged file are both known.
+    // The handler is void and fire-and-forget, so a slow or failing intake never delays a reply.
+    const intakeDeps = {
+      vault: created,
+      resolvePrincipal: () => principalFor(),
+      importedBy: VAULT_OPERATOR_ACTOR,
+      ...(api.logger ? { logger: api.logger } : {}),
+    };
+    const intake = createChatIntake(intakeDeps);
+    api.on("message_received", (event) => intake(event));
+    // The other direction, same filing: files the agent sends with its answer are kept beside the ones the user sent.
+    const replies = createReplyIntake(intakeDeps);
+    api.on("reply_payload_sending", (event) => replies(event));
   }
 
   // ---- Stage 6: Goals (Goals design; goal-module.ts). A goal is context for the Agent, never authority. ----

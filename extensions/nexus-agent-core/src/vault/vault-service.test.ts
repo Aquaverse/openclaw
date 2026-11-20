@@ -757,7 +757,7 @@ describe("vault service", () => {
     const inbox = await must(upload(A, "incoming.txt", "inbox bytes", { collection: "inbox" }));
     const trashed = await must(upload(A, "old-trash.txt", "trash bytes"));
     await store.vaultTrash({ principal: A, fileId: trashed.file.id, now: clock });
-    clock += baseConfig.trashRetentionMs + baseConfig.inboxRetentionMs + 10;
+    clock += baseConfig.trashRetentionMs + (baseConfig.inboxRetentionMs ?? 0) + 10;
     const report = await svc.maintain(A);
     assert.ok(report.inboxDiscarded >= 1);
     assert.ok(report.trashPurged >= 1);
@@ -767,6 +767,29 @@ describe("vault service", () => {
     );
     assert.equal(count("SELECT COUNT(*) AS c FROM vault_files WHERE id = ?", trashed.file.id), 0);
     assert.equal(report.errors.length, 0, report.errors.join("; "));
+  });
+
+  it("maintain: with no inbox retention (the default) an inbox entry is never discarded", async () => {
+    // The timer is opt-in: without it, a file the user has not sorted yet is still their file a year later.
+    config = { ...baseConfig, inboxRetentionMs: null };
+    try {
+      const waiting = await must(
+        upload(A, "waiting.txt", "waiting bytes", { collection: "inbox" }),
+      );
+      clock += 365 * 24 * 60 * 60 * 1000;
+      const report = await svc.maintain(A);
+      assert.equal(report.inboxDiscarded, 0);
+      assert.equal(
+        row("SELECT state FROM vault_files WHERE id = ?", waiting.file.id)?.state,
+        "active",
+      );
+      assert.equal(
+        row("SELECT expires_at FROM vault_files WHERE id = ?", waiting.file.id)?.expires_at,
+        null,
+      );
+    } finally {
+      config = baseConfig;
+    }
   });
 
   it("maintain: a missing or wrong-sized object marks the entry damaged (never silently repaired)", async () => {

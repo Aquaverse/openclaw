@@ -27,6 +27,16 @@ export type VaultStagingWriter = {
 export type VaultFileStore = {
   /** Exclusive create: fails if the key exists, so two writers can never share a staging file. */
   createStaging(stagingKey: string): Promise<VaultStagingWriter>;
+  /**
+   * Hard link an existing file to `staging/<id>` instead of copying it, and hash it there. Returns undefined when the link
+   * is impossible (another filesystem, a missing source, a permission rule) and the caller copies as usual. The linked
+   * inode keeps the source's mode: the vault directory is 0700, and changing it would change the file the rest of the
+   * system is still using.
+   */
+  linkStaging(
+    stagingKey: string,
+    sourcePath: string,
+  ): Promise<{ hash: string; size: number } | undefined>;
   /** Atomic rename `staging/<id>` -> `objects/<aa>/<id>`. Never overwrites an existing object. */
   promote(stagingKey: string, objectKey: string): Promise<void>;
   stat(key: string): Promise<{ size: number } | undefined>;
@@ -71,6 +81,32 @@ function resolveKey(root: string, key: string): string {
 
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
+
+/** SHA-256 and size of a file on disk, or undefined when it is not a regular file. */
+async function hashedFile(file: string): Promise<{ hash: string; size: number } | undefined> {
+  let handle: fs.promises.FileHandle;
+  try {
+    handle = await fs.promises.open(file, "r");
+  } catch {
+    return undefined;
+  }
+  const digest = createHash("sha256");
+  let size = 0;
+  try {
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    for (;;) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) {
+        break;
+      }
+      digest.update(buffer.subarray(0, bytesRead));
+      size += bytesRead;
+    }
+  } finally {
+    await handle.close();
+  }
+  return { hash: digest.digest("hex"), size };
+}
 
 export function createFsVaultFileStore(root: string): VaultFileStore {
   const absoluteRoot = path.resolve(root);
@@ -132,6 +168,22 @@ export function createFsVaultFileStore(root: string): VaultFileStore {
       };
     },
 
+    async linkStaging(stagingKey, sourcePath) {
+      await prepare();
+      if (!STAGING_KEY.test(stagingKey)) {
+        throw new VaultKeyError(stagingKey);
+      }
+      const file = resolveKey(absoluteRoot, stagingKey);
+      try {
+        // Hard link only: the vault and the media store share a volume in the default layout, so this costs no bytes and
+        // leaves both paths pointing at the same inode. A later unlink on the source side cannot take the vault's copy.
+        await fs.promises.link(sourcePath, file);
+      } catch {
+        return undefined;
+      }
+      return hashedFile(file);
+    },
+
     async promote(stagingKey, objectKey) {
       await prepare();
       if (!STAGING_KEY.test(stagingKey) || !OBJECT_KEY.test(objectKey)) {
@@ -159,26 +211,7 @@ export function createFsVaultFileStore(root: string): VaultFileStore {
     async hash(key) {
       const file = resolveKey(absoluteRoot, key);
       const found = await statOrUndefined(file);
-      if (!found || !found.isFile()) {
-        return undefined;
-      }
-      const digest = createHash("sha256");
-      let size = 0;
-      const handle = await fs.promises.open(file, "r");
-      try {
-        const buffer = Buffer.allocUnsafe(1024 * 1024);
-        for (;;) {
-          const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
-          if (bytesRead === 0) {
-            break;
-          }
-          digest.update(buffer.subarray(0, bytesRead));
-          size += bytesRead;
-        }
-      } finally {
-        await handle.close();
-      }
-      return { hash: digest.digest("hex"), size };
+      return found?.isFile() ? hashedFile(file) : undefined;
     },
 
     async readRange(key, offset, length) {
@@ -247,10 +280,21 @@ export function createFsVaultFileStore(root: string): VaultFileStore {
 export type VaultStoreFaults = {
   /** Throw on the next call of this method (once). */
   failNext(
-    method: "createStaging" | "write" | "finish" | "promote" | "remove" | "hash" | "readRange",
+    method:
+      | "createStaging"
+      | "linkStaging"
+      | "write"
+      | "finish"
+      | "promote"
+      | "remove"
+      | "hash"
+      | "readRange",
   ): void;
   /** Hold the next call of this method until `release()`; `started` resolves when the call arrived. */
-  holdNext(method: "promote" | "remove" | "write"): { release(): void; started: Promise<void> };
+  holdNext(method: "linkStaging" | "promote" | "remove" | "write"): {
+    release(): void;
+    started: Promise<void>;
+  };
   /** Pretend the volume has this many free bytes (undefined: restore the real value). */
   setFreeBytes(bytes: number | undefined): void;
   calls: string[];
@@ -317,6 +361,10 @@ export function withVaultStoreFaults(inner: VaultFileStore): VaultFileStore & Va
     async promote(from, to) {
       await gate("promote", `${from}->${to}`);
       return inner.promote(from, to);
+    },
+    async linkStaging(key, sourcePath) {
+      await gate("linkStaging", key);
+      return inner.linkStaging(key, sourcePath);
     },
     stat: (key) => inner.stat(key),
     async hash(key) {

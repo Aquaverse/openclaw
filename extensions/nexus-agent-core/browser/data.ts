@@ -30,6 +30,7 @@ import {
 import { fileListParams, type FileQuery } from "../src/vault-ui.js";
 import { EMPTY_MODEL, type NexusModel } from "./actions.ts";
 import type { CleanupInit } from "./cleanup-view.ts";
+import { loadDashboardView } from "./dashboard-data.ts";
 import { DEFAULT_GOAL_PREFS, type GoalPrefs } from "./goal-prefs.ts";
 import { loadPeopleView, type PeopleListInit } from "./people-data.ts";
 import { NAV_BASE, type NexusRoute } from "./route.ts";
@@ -115,6 +116,8 @@ export async function loadView(
   const actions = options.actions === true;
   const lang = options.lang ?? DEFAULT_LANG;
   switch (route.view) {
+    case "dashboard":
+      return loadDashboardView(request, features, { lang });
     case "works":
     case "work":
       return loadWorksView(request, route, {

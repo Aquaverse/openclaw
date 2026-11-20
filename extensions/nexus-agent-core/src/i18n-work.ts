@@ -6,11 +6,12 @@ export const WORK_MESSAGES = {
   "title.work": ["工作 {id}", "Work {id}"],
 
   // List pane
-  "work.list.title": ["工作", "Work"],
+  "work.list.title": ["任务工作台", "Task workbench"],
   "work.search.placeholder": ["搜索工作", "Search work"],
   "work.hello.needs": ["有 {n} 件待你处理", "{n} waiting for you"],
   "work.hello.none": ["没有需要你处理的事", "Nothing is waiting for you"],
-  "work.seg.all": ["全部", "All"],
+  // The reset of the state filter. It says "all work", not "all goals": 目标 is the Goals page, a different thing.
+  "work.seg.all": ["全部工作", "All work"],
   "work.seg.needs_you": ["待你处理", "Needs you"],
   "work.seg.blocked": ["受阻", "Blocked"],
   "work.seg.in_progress": ["进行中", "In progress"],

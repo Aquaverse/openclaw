@@ -1,9 +1,9 @@
-// Page text of the Counterpart page and its dialogs (zh first, en second). Merged into the catalog in i18n.ts. The
-// page is called 人员 in Chinese and Counterpart in English: the host has a People page of its own, a different thing.
+// Page text of the Collaboration page and its dialogs (zh first, en second). Merged into the catalog in i18n.ts. The
+// page is called 协作关系 in Chinese and Collaboration in English: the host has a People page of its own, a different thing.
 // A person here is someone commitments can point at. A name is not a key: two people can share one, and Nexus never picks for you.
 // Contact values are notes the user keeps for themselves; Nexus does not use them to reach anyone.
 export const PEOPLE_MESSAGES = {
-  "pp.title": ["人员", "Counterpart"],
+  "pp.title": ["协作关系", "Collaboration"],
   "pp.add": ["添加人员", "Add a person"],
   "pp.hello.attention": ["有 {n} 位需要你关注", "{n} need your attention"],
   "pp.hello.none": ["没有需要特别关注的人", "Nobody needs special attention"],

@@ -10,16 +10,28 @@ import { createNexusPage, NEXUS_PAGE_ID, NEXUS_RAIL_PAGE_ID } from "./page.ts";
 
 type RailDestination = {
   id: string;
-  label: "nav.works" | "nav.goals" | "nav.rail.people" | "nav.rail.library";
+  label:
+    | "nav.rail.dashboard"
+    | "nav.rail.works"
+    | "nav.goals"
+    | "nav.rail.people"
+    | "nav.rail.library";
   icon: string;
   params: Record<string, string>;
 };
 
-// The order of the design's rail: Work, Counterparts, Library, Goals. The second one is not the host's People page: it
-// lists the people a commitment can point at, so it takes a single-figure icon instead of the `users` the host uses for
-// its own People button, and its English label says Counterpart rather than People for the same reason.
+// The order of the rail: Dashboard, Work, Collaboration, Library, Goals — the first three are the destinations of the new
+// design (docs/nexus/apps/nexus-ea-prototype); Apps & connections is not built yet. Collaboration is not the host's People
+// page: it lists the people a commitment can point at, so it takes a single-figure icon instead of the two-figure `users`
+// the host uses for its own People button.
 const RAIL_DESTINATIONS: readonly RailDestination[] = [
-  { id: "work", label: "nav.works", icon: "listChecks", params: { view: "works" } },
+  {
+    id: "dashboard",
+    label: "nav.rail.dashboard",
+    icon: "dashboards",
+    params: { view: "dashboard" },
+  },
+  { id: "work", label: "nav.rail.works", icon: "listChecks", params: { view: "works" } },
   { id: "people", label: "nav.rail.people", icon: "circleUser", params: { view: "people" } },
   { id: "library", label: "nav.rail.library", icon: "folder", params: { view: "files" } },
   { id: "goals", label: "nav.goals", icon: "target", params: { view: "goals" } },

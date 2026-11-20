@@ -281,21 +281,21 @@ node openclaw.mjs --dev gateway call nexus.vault.search --params '{"query":"hell
 
 **文件柜**
 
-| 参数                                 | 默认       | 说明                                                              |
-| ------------------------------------ | ---------- | ----------------------------------------------------------------- |
-| `vaultOwnerQuotaBytes`               | 5 GB       | 每个 owner 的软配额                                               |
-| `vaultMaxFileBytes`                  | 100 MB     | 单个文件上限（RPC 上传另有 16 MB 上限，更大的用路径导入）         |
-| `vaultInboxRetentionDays`            | 30         | 收件里未处理的文件几天后自动丢弃                                  |
-| `vaultTrashRetentionDays`            | 30         | 回收站里的文件几天后永久清除                                      |
-| `vaultImportRoots`                   | 下载、文稿 | 路径导入允许读取的根目录。凭据目录和 Nexus 自己的状态目录永远拒绝 |
-| `vaultMinFreeBytes`                  | 1 GB       | 磁盘剩余空间低于此值时拒绝写入                                    |
-| `vaultReservationRetentionDays`      | 7          | 已完成的写入预约保留多久用于排查                                  |
-| `vaultTombstoneRetentionDays`        | 7          | 已删除对象的墓碑保留多久                                          |
-| `vaultPurgeReceiptHashRetentionDays` | 90         | 清除回执里的内容哈希保留多久，之后只留计数和时间                  |
-| `vaultExtractEnabled`                | true       | 文本类文件自动提取文字、支持按内容搜索（敏感文件永不提取）        |
-| `vaultExtractMaxBytes`               | 5 MB       | 超过此大小的文件不提取，标为“不支持”                              |
-| `vaultExtractMaxChars`               | 2,000,000  | 提取出的文字上限，超出部分截断并在控制台标注                      |
-| `vaultHttpUploadEnabled`             | true       | 开放可续传的分块上传 HTTP 入口，给大文件和手机使用                |
+| 参数                                 | 默认        | 说明                                                              |
+| ------------------------------------ | ----------- | ----------------------------------------------------------------- |
+| `vaultOwnerQuotaBytes`               | 5 GB        | 每个 owner 的软配额                                               |
+| `vaultMaxFileBytes`                  | 100 MB      | 单个文件上限（RPC 上传另有 16 MB 上限，更大的用路径导入）         |
+| `vaultInboxRetentionDays`            | 0（不清理） | 收件里未处理的文件几天后自动丢弃；0 表示一直保留，等你整理或删除  |
+| `vaultTrashRetentionDays`            | 30          | 回收站里的文件几天后永久清除                                      |
+| `vaultImportRoots`                   | 下载、文稿  | 路径导入允许读取的根目录。凭据目录和 Nexus 自己的状态目录永远拒绝 |
+| `vaultMinFreeBytes`                  | 1 GB        | 磁盘剩余空间低于此值时拒绝写入                                    |
+| `vaultReservationRetentionDays`      | 7           | 已完成的写入预约保留多久用于排查                                  |
+| `vaultTombstoneRetentionDays`        | 7           | 已删除对象的墓碑保留多久                                          |
+| `vaultPurgeReceiptHashRetentionDays` | 90          | 清除回执里的内容哈希保留多久，之后只留计数和时间                  |
+| `vaultExtractEnabled`                | true        | 文本类文件自动提取文字、支持按内容搜索（敏感文件永不提取）        |
+| `vaultExtractMaxBytes`               | 5 MB        | 超过此大小的文件不提取，标为“不支持”                              |
+| `vaultExtractMaxChars`               | 2,000,000   | 提取出的文字上限，超出部分截断并在控制台标注                      |
+| `vaultHttpUploadEnabled`             | true        | 开放可续传的分块上传 HTTP 入口，给大文件和手机使用                |
 
 **目标**
 

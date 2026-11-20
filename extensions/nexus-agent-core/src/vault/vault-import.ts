@@ -47,12 +47,14 @@ export class ImportChangedError extends Error {
   }
 }
 
-const within = (child: string, parent: string): boolean => {
+/** True when `child` is `parent` or sits below it, after both were resolved. Shared with the chat-media intake. */
+export const within = (child: string, parent: string): boolean => {
   const relative = path.relative(parent, child);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 };
 
-const realOrUndefined = async (target: string): Promise<string | undefined> => {
+/** The real path, or undefined when it does not exist (a symlink is followed, so an escape cannot pass the root check). */
+export const realOrUndefined = async (target: string): Promise<string | undefined> => {
   try {
     return await fs.promises.realpath(target);
   } catch {

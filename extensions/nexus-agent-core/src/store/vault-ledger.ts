@@ -533,7 +533,7 @@ export function createVaultLedger(
         input.file.importedBy,
         input.now,
         input.now,
-        inbox ? input.now + input.inboxRetentionMs : null,
+        inbox && input.inboxRetentionMs !== null ? input.now + input.inboxRetentionMs : null,
       );
       run(
         "INSERT INTO vault_versions (owner_id, file_id, seq, object_id, created_at) VALUES (?, ?, 1, ?, ?)",

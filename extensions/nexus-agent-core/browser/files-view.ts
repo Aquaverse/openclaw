@@ -6,6 +6,11 @@ import type { VaultExtractionStatus } from "../src/store/vault-text-types.js";
 import type { VaultFileRecord } from "../src/store/vault-types.js";
 import { extractionLabel, extractionReason, fmtTime } from "../src/ui-render.js";
 import {
+  VAULT_COLLECTION_LABEL,
+  VAULT_SOURCE_LABEL,
+  VAULT_STATE_LABEL,
+} from "../src/vault-labels.js";
+import {
   fileActionsFor,
   fileDownloadable,
   formatBytes,
@@ -529,14 +534,18 @@ export function fileDetailDialog(ctx: ActionContext, id: string): void {
         line(body, tr(ctx.lang, "files.d.ref"), `#${file.id}`);
         note(body, tr(ctx.lang, "files.d.refHint"));
       }
-      line(body, tr(ctx.lang, "files.d.where"), `${file.collection} · ${file.state}`);
+      line(
+        body,
+        tr(ctx.lang, "files.d.where"),
+        `${tr(ctx.lang, VAULT_COLLECTION_LABEL[file.collection])} · ${tr(ctx.lang, VAULT_STATE_LABEL[file.state])}`,
+      );
       line(body, tr(ctx.lang, "files.d.type"), file.mime);
       line(body, tr(ctx.lang, "files.d.size"), `${formatBytes(file.size)} (${file.size} B)`);
       if (fileDownloadable(file)) {
         downloadRow(ctx, body, file);
       }
       line(body, tr(ctx.lang, "files.d.hash"), file.contentHash);
-      line(body, tr(ctx.lang, "files.d.source"), file.source);
+      line(body, tr(ctx.lang, "files.d.source"), tr(ctx.lang, VAULT_SOURCE_LABEL[file.source]));
       line(
         body,
         tr(ctx.lang, "files.d.sensitivity"),

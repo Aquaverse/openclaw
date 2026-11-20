@@ -175,10 +175,10 @@
       },
       "vaultInboxRetentionDays": {
         "type": "integer",
-        "minimum": 1,
+        "minimum": 0,
         "maximum": 3650,
-        "default": 30,
-        "description": "Days an unreviewed inbox file waits before it is discarded (default 30)."
+        "default": 0,
+        "description": "Days an unreviewed inbox file waits before it is discarded. 0 (default) keeps it until the user sorts or deletes it."
       },
       "vaultTrashRetentionDays": {
         "type": "integer",

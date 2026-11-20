@@ -34,6 +34,7 @@ export type PeopleQuery = {
 export type CleanupQuery = { q?: string; page: number; size: number };
 
 export type NexusRoute =
+  | { view: "dashboard" }
   | { view: "tasks"; filter: TaskFilter }
   | ({ view: "works" } & WorkFilter)
   | ({ view: "work"; workId: string } & WorkFilter)
@@ -130,9 +131,14 @@ export const PEOPLE_HOME: NexusRoute = { view: "people" };
 
 /** The Work page with nothing chosen. */
 export const WORKS_HOME: NexusRoute = { view: "works" };
+/** The Dashboard, the first destination of the rail. */
+export const DASHBOARD_HOME: NexusRoute = { view: "dashboard" };
 
 export function parseRoute(props: Readonly<Record<string, string>>): NexusRoute {
   const task = props.task;
+  if (props.view === "dashboard") {
+    return { view: "dashboard" };
+  }
   if (props.view === "task" && task !== undefined && TASK_ID.test(task)) {
     return { view: "task", taskId: task };
   }
@@ -239,6 +245,9 @@ export function routeFromHref(href: string): NexusRoute | undefined {
   }
   if (segments.length === 1 && (first === "preferences" || first === "receipts")) {
     return { view: first };
+  }
+  if (segments.length === 1 && first === "dashboard") {
+    return { view: "dashboard" };
   }
   if (segments.length === 1 && first === "cleanup") {
     return { view: "cleanup", ...parseCleanupQuery((name) => query.get(name) ?? undefined) };

@@ -1,3 +1,4 @@
+import { webcrypto } from "node:crypto";
 import type { ControlUiHost, ControlUiViewContext } from "openclaw/plugin-sdk/control-ui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toBase64 } from "./files-view.ts";
@@ -74,6 +75,15 @@ function fixture(
         return { decisions: [] };
       case "nexus.vault.stats":
         return STATS;
+      case "nexus.vault.get": {
+        const chosen = (data.files ?? [file()])[0] as Record<string, unknown>;
+        return {
+          file: chosen,
+          extraction: (data.extraction?.[String(chosen.id)] as unknown) ?? null,
+        };
+      }
+      case "nexus.goal.forFile":
+        return { goals: [] };
       case "nexus.vault.list":
         return {
           ...(data.list
@@ -151,7 +161,10 @@ function fixture(
     dialog: () => container.querySelector(".nx-dialog") as HTMLElement,
     writes: () =>
       calls.filter(
-        (call) => !/\.(list|stats|read|get|search|text|versions|links|due)$/.test(call.method),
+        (call) =>
+          !/\.(list|stats|read|get|search|text|versions|links|counts|forFile|due)$/.test(
+            call.method,
+          ),
       ),
   };
 }
@@ -172,7 +185,7 @@ const buttonByText = (root: ParentNode, text: string) =>
   Array.from(root.querySelectorAll<HTMLButtonElement>("button")).find(
     (b) => b.textContent === text,
   );
-const props = { view: "files" };
+const props = { view: "files", file: "F1ABC" };
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -267,7 +280,10 @@ describe("files tab", () => {
   });
 
   it("keeps an inbox file and pins it", async () => {
-    const f = fixture({ files: [file({ collection: "inbox" })] }, { view: "files", tab: "inbox" });
+    const f = fixture(
+      { files: [file({ collection: "inbox" })] },
+      { view: "files", tab: "inbox", file: "F1ABC" },
+    );
     await flush();
     click(f.container, 'button[data-nx-act="file-open"]');
     await flush();
@@ -277,7 +293,10 @@ describe("files tab", () => {
   });
 
   it("purges only after the acknowledgement and repeats the file id", async () => {
-    const f = fixture({ files: [file({ state: "trashed" })] }, { view: "files", tab: "trash" });
+    const f = fixture(
+      { files: [file({ state: "trashed" })] },
+      { view: "files", tab: "trash", file: "F1ABC" },
+    );
     await flush();
     click(f.container, 'button[data-nx-act="file-open"]');
     await flush();
@@ -332,7 +351,7 @@ describe("files tab", () => {
     };
     const f = fixture({ extraction: { F1ABC: ready } }, props, false);
     await flush();
-    expect(f.container.querySelector("table")?.textContent).toContain("可搜索");
+    expect(f.container.textContent).toContain("可搜索");
     expect(f.container.querySelector('button[data-nx-act="file-search"]')).not.toBeNull();
   });
 
@@ -459,13 +478,19 @@ describe("files tab", () => {
       state: "active",
       nameContains: "tax",
     });
-    expect(f.container.textContent).toContain("130 in total, showing 51–100 (page 2 of 3)");
-    const next = [...f.container.querySelectorAll<HTMLAnchorElement>(".pager a")].find(
+    expect(f.container.textContent).toContain("130 files");
+    expect(f.container.querySelector(".nx-wfoot .cur")?.textContent).toContain("2 / 3");
+    const next = [...f.container.querySelectorAll<HTMLAnchorElement>(".nx-wfoot a")].find(
       (a) => a.textContent === "Next ›",
     );
     expect(next).toBeDefined();
     next?.click();
-    expect(f.opened.at(-1)?.params).toEqual({ view: "files", qname: "tax", page: "3", size: "50" });
+    await flush();
+    // A page turn inside the library is a page state: the list is read again with the next offset, the host URL is kept.
+    const offsets = f.calls
+      .filter((call) => call.method === "nexus.vault.list")
+      .map((call) => call.params?.offset);
+    expect(offsets.at(-1)).toBe(100);
   });
 
   it("sends the filters from the route to the list and shows them in the controls", async () => {
@@ -514,39 +539,53 @@ describe("files tab", () => {
     // Row order: buttons, search row, tabs.
     const html = f.container.querySelector("main")?.innerHTML ?? "";
     expect(html.indexOf('data-nx-act="file-new"')).toBeLessThan(html.indexOf("nx-filebar-slot"));
-    expect(html.indexOf("nx-filebar-slot")).toBeLessThan(html.indexOf("nx-tabs"));
+    expect(html.indexOf("nx-filebar-slot")).toBeLessThan(html.indexOf("nx-seg"));
     (input as HTMLInputElement).value = "  invoice ";
-    (slot.querySelector("select") as HTMLSelectElement).value = "100";
+    (slot.querySelector('select[name="size"]') as HTMLSelectElement).value = "100";
     slot.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
-    expect(f.opened.at(-1)?.params).toEqual({ view: "files", qname: "invoice", size: "100" });
-    // The kind, favorite and sensitivity filters travel with the name and the page size.
+    await flush();
+    expect(f.calls.findLast((c) => c.method === "nexus.vault.list")?.params).toMatchObject({
+      nameContains: "invoice",
+      limit: 100,
+    });
+    // The kind, favorite and sensitivity filters travel with the name and the page size. The in-place reload re-mounts
+    // the form, so the controls are looked up again instead of keeping the nodes of the previous page.
+    const fresh = f.container.querySelector(".nx-filebar-slot") as HTMLElement;
     const choose = (field: string, value: string) => {
-      (slot.querySelector(`select[name="${field}"]`) as HTMLSelectElement).value = value;
+      (fresh.querySelector(`select[name="${field}"]`) as HTMLSelectElement).value = value;
     };
     choose("qkind", "pdf");
     choose("qfav", "1");
     choose("qsens", "sensitive");
-    slot.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
-    expect(f.opened.at(-1)?.params).toEqual({
-      view: "files",
-      qname: "invoice",
-      qkind: "pdf",
-      qfav: "1",
-      qsens: "sensitive",
-      size: "100",
+    fresh.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+    await flush();
+    expect(f.calls.findLast((c) => c.method === "nexus.vault.list")?.params).toMatchObject({
+      nameContains: "invoice",
+      kind: "pdf",
+      favorite: true,
+      sensitivity: "sensitive",
+      limit: 100,
     });
+    // Every reload re-mounts the form; look it up in the document each time instead of holding a stale node.
+    const currentSlot = () => f.container.querySelector(".nx-filebar-slot") as HTMLElement;
     expect(
-      [...(slot.querySelector('select[name="qkind"]') as HTMLSelectElement).options].map(
+      [...(currentSlot().querySelector('select[name="qkind"]') as HTMLSelectElement).options].map(
         (o) => o.text,
       ),
     ).toEqual(["All types", "Text", "Images", "PDF", "Office documents", "Other"]);
     // Reset clears the filter, keeps the tab.
     (
-      Array.from(slot.querySelectorAll("button")).find(
+      Array.from(currentSlot().querySelectorAll("button")).find(
         (b) => b.textContent === "Reset",
       ) as HTMLButtonElement
     ).click();
-    expect(f.opened.at(-1)?.params).toEqual({ view: "files" });
+    await flush();
+    expect(f.calls.findLast((c) => c.method === "nexus.vault.list")?.params).toEqual({
+      limit: 20,
+      offset: 0,
+      pinnedFirst: true,
+      state: "active",
+    });
   });
 
   it("marks a file as favorite and takes the mark back, for active files only", async () => {
@@ -571,7 +610,7 @@ describe("files tab", () => {
     ]);
     const trashed = fixture(
       { files: [file({ state: "trashed" })] },
-      { view: "files", tab: "trash" },
+      { view: "files", tab: "trash", file: "F1ABC" },
     );
     await flush();
     click(trashed.container, 'button[data-nx-act="file-open"]');
@@ -638,6 +677,9 @@ describe("files tab", () => {
     });
 
     it("saves nothing when the bytes do not match the recorded hash", async () => {
+      // The SHA-256 check runs on the platform's crypto, a macrotask the fake timers never advance.
+      vi.useRealTimers();
+      vi.stubGlobal("crypto", webcrypto);
       const f = fixture(
         {
           read: () => ({
@@ -651,16 +693,24 @@ describe("files tab", () => {
       );
       await flush();
       click(f.container, 'button[data-nx-act="file-download"]');
-      await flush();
-      await flush();
       expect(saved).toEqual([]);
-      const notice = f.container.querySelector(".nx-notice") as HTMLElement;
-      expect(notice.className).toContain("error");
-      expect(notice.textContent).toContain("哈希不一致");
+      // The verdict arrives when the platform's crypto finishes; wait for it instead of guessing the tick count.
+      let notice = f.container.querySelector(".nx-notice") as HTMLElement | null;
+      for (let round = 0; round < 100 && !notice?.className.includes("error"); round += 1) {
+        await new Promise<void>((resolve) => {
+          setImmediate(resolve);
+        });
+        notice = f.container.querySelector(".nx-notice") as HTMLElement | null;
+      }
+      expect(notice?.className).toContain("error");
+      expect(notice?.textContent).toContain("哈希不一致");
     });
 
     it("offers no download for a damaged file", async () => {
-      const f = fixture({ files: [file({ state: "damaged" })] }, { view: "files", tab: "damaged" });
+      const f = fixture(
+        { files: [file({ state: "damaged" })] },
+        { view: "files", tab: "damaged", file: "F1ABC" },
+      );
       await flush();
       expect(f.container.querySelector('button[data-nx-act="file-download"]')).toBeNull();
       click(f.container, 'button[data-nx-act="file-open"]');
@@ -705,7 +755,12 @@ describe("files tab", () => {
       expect(history.querySelector(".nx-title")?.textContent).toBe("文件 F1ABC 的版本");
       expect(history.textContent).toContain("版本 2 (当前)");
       expect(history.textContent).toContain("版本 1");
-      expect(history.textContent).not.toContain("a".repeat(64));
+      // The hash lives in the version's collapsed details: the visible rows say nothing about it until "详情" is pressed.
+      const visible = Array.from(history.querySelectorAll<HTMLElement>(".nx-row"))
+        .filter((row) => row.hidden !== true && row.closest("[hidden]") === null)
+        .map((row) => row.textContent ?? "")
+        .join("\n");
+      expect(visible).not.toContain("a".repeat(64));
       Array.from(history.querySelectorAll<HTMLButtonElement>("button"))
         .filter((b) => b.textContent === "详情")[1]!
         .click();
@@ -892,7 +947,7 @@ describe("files tab", () => {
     it("offers no replace on a trashed file or a read-only connection", async () => {
       const trashed = fixture(
         { files: [file({ state: "trashed" })] },
-        { view: "files", tab: "trash" },
+        { view: "files", tab: "trash", file: "F1ABC" },
       );
       await flush();
       click(trashed.container, 'button[data-nx-act="file-open"]');

@@ -11,7 +11,10 @@ export const NEXUS_WORK_CSS = `
 .nx-t-green{--c:var(--nx-green);--cs:var(--nx-green-soft)}
 .nx-t-gray,.nx-t-accent{--c:var(--nx-gray);--cs:var(--nx-gray-soft)}
 ${RING_CLASSES}
-.nx-works{display:grid;grid-template-columns:380px minmax(0,1fr);align-items:start;background:linear-gradient(to right,var(--nx-panel) 0 379px,var(--nx-line) 379px 380px,var(--nx-bg) 380px);color:var(--nx-text);min-height:100vh}
+.nx-works{display:grid;grid-template-columns:minmax(0,1fr);align-items:start;background:var(--nx-bg);color:var(--nx-text);min-height:100vh}
+/* Goals and Library keep the list beside the detail; the workbench and Collaboration are single columns (their detail is a
+   page of its own), so the two-column split is stated for the pages that still use it rather than for all of them. */
+.nx-works:not(.nx-work):not(.nx-people){grid-template-columns:380px minmax(0,1fr);background:linear-gradient(to right,var(--nx-panel) 0 379px,var(--nx-line) 379px 380px,var(--nx-bg) 380px)}
 .nx-wlist{display:flex;flex-direction:column;background:var(--nx-panel);min-width:0;position:sticky;top:0;height:100vh;box-sizing:border-box}
 .nx-lh{padding:26px 24px 14px}
 .nexus-page .nx-wlist h1{font-size:22px;font-weight:650;letter-spacing:-.01em;margin:0}
@@ -107,9 +110,11 @@ ${RING_CLASSES}
 .nx-feed .nx-ev{grid-template-columns:92px minmax(0,1fr) auto;padding:7px 0;border-bottom:0;font-size:13.5px}
 .nx-feed .nx-ev-text{color:var(--nx-sub)}
 .nx-manage{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px}
-@media (max-width:1200px){.nx-works{grid-template-columns:320px minmax(0,1fr);background:linear-gradient(to right,var(--nx-panel) 0 319px,var(--nx-line) 319px 320px,var(--nx-bg) 320px)}.nx-dw{padding:32px 28px 60px}}
+@media (max-width:1200px){.nx-works:not(.nx-work):not(.nx-people){grid-template-columns:320px minmax(0,1fr);background:linear-gradient(to right,var(--nx-panel) 0 319px,var(--nx-line) 319px 320px,var(--nx-bg) 320px)}.nx-dw{padding:32px 28px 60px}}
+/* On a wide window the two-column pages give the list a little more room instead of leaving it a 380px stripe. */
+@media (min-width:1440px){.nx-works:not(.nx-work):not(.nx-people){grid-template-columns:440px minmax(0,1fr);background:linear-gradient(to right,var(--nx-panel) 0 439px,var(--nx-line) 439px 440px,var(--nx-bg) 440px)}}
 @media (max-width:860px){
-.nx-works{grid-template-columns:minmax(0,1fr);background:var(--nx-bg)}
+.nx-works:not(.nx-work):not(.nx-people){grid-template-columns:minmax(0,1fr);background:var(--nx-bg)}
 .nx-wlist{position:static;height:auto}
 .nx-rows{overflow:visible}
 .nx-works.nx-auto .nx-detail{display:none}

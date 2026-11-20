@@ -486,9 +486,10 @@ export function createNexusPage(pageId: string = NEXUS_PAGE_ID): ControlUiView {
       if (route.view === "files") {
         rememberedFiles = route;
       }
-      // Work, People, Goals and Library are reached from the host's left rail: they take the whole width and no inner
-      // navigation.
+      // Dashboard, Work, People, Goals and Library are reached from the host's left rail: they take the whole width and no
+      // inner navigation.
       const railView =
+        route.view === "dashboard" ||
         route.view === "works" ||
         route.view === "work" ||
         route.view === "people" ||

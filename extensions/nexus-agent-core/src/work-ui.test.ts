@@ -475,10 +475,10 @@ describe("work page detail", () => {
 
   it("reports a work that cannot be read, and the narrow-screen state", () => {
     const missing = renderWorksPage(page({ missing: true, picked: true }), { lang: "zh" });
-    assert.match(missing, /class="nx-works nx-picked"/);
+    assert.match(missing, /class="nx-works nx-work nx-picked"/);
     assert.match(missing, /不存在，或已被删除/);
     const auto = renderWorksPage(page(), { lang: "zh" });
-    assert.match(auto, /class="nx-works nx-auto"/);
+    assert.match(auto, /class="nx-works nx-work nx-auto"/);
   });
 
   it("builds the dialog model from the loaded work", () => {
