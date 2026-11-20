@@ -65,9 +65,13 @@ export const NEXUS_EA_CSS = `
 .ea-line-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ea-line-n{font-size:12px;color:var(--nx-sub);white-space:nowrap}
 
+/* The prototype switches to three KPI columns below 1200px. The host rail consumes
+   part of the viewport, so this keeps the common 1168px desktop window at 3x2. */
+@media (max-width:1199px){
+  .ea-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
 @media (max-width:1080px){
   .ea-grid{grid-template-columns:minmax(0,1fr)}
-  .ea-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 @media (max-width:720px){
   .ea-page{padding:16px 16px 48px}

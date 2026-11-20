@@ -2,7 +2,7 @@
 // (chip, callout, section, timeline, kv, impact list). All colours come from the --nx-* tokens. Scoped under
 // .nexus-page. Pages not yet moved to the new skeleton keep their old rules (style.ts) inside .nx-content.
 export const NEXUS_SHELL_CSS = `
-.nexus-page{display:grid;grid-template-columns:72px minmax(0,1fr);font:14px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;color:inherit}
+.nexus-page{display:grid;grid-template-columns:72px minmax(0,1fr);min-height:100%;background:var(--nx-bg);font:14px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;color:inherit}
 .nexus-page > nav{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0;background:var(--nx-panel);color:var(--nx-sub);border-right:1px solid var(--nx-line)}
 .nexus-page > nav a{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;box-sizing:border-box;width:60px;padding:8px 2px;border-radius:12px;color:var(--nx-sub);opacity:1;text-decoration:none;font-size:10.5px;line-height:1.25;text-align:center;word-break:break-word}
 .nexus-page > nav a::before{content:attr(data-icon);font-size:19px;line-height:1.1;color:var(--nx-sub)}
@@ -13,7 +13,7 @@ export const NEXUS_SHELL_CSS = `
 .nexus-page > nav .spacer{flex:1}
 .nexus-page > nav button{font:inherit;font-size:10.5px;color:var(--nx-sub);background:none;border:1px solid var(--nx-line);border-radius:9px;padding:3px 8px;cursor:pointer;opacity:1}
 .nexus-page > nav button:hover{background:var(--nx-soft)}
-.nx-content{min-width:0;max-width:1040px;padding:16px 20px;box-sizing:border-box}
+.nx-content{width:100%;min-width:0;max-width:1040px;padding:16px 20px;box-sizing:border-box;background:var(--nx-bg)}
 .nexus-page.nx-split .nx-content{max-width:none;padding:0}
 .nexus-page.nx-rail{grid-template-columns:minmax(0,1fr)}
 .nexus-page.nx-rail > nav{display:none}
