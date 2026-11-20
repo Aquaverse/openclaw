@@ -226,7 +226,7 @@ describe("nexus page", () => {
     expect(f.text()).toContain("待决策");
     // Only reads are ever issued.
     for (const [method] of f.request.mock.calls) {
-      expect(method).toMatch(/\.(list|get|stats|purgeReceipts)$/);
+      expect(method).toMatch(/\.(list|get|stats|counts|forFile|purgeReceipts)$/);
     }
   });
 
@@ -390,13 +390,17 @@ describe("nexus page", () => {
         id: "nexus",
         params: { view: "files", tab: "vault", qname: "tax", page: "2", size: "50" },
       });
-      // From the Files tab itself the same link means start over.
+      // From the Files tab itself the same link keeps the remembered query (the page is the address).
       f.view.update?.(
         f.context({ view: "files", tab: "vault", qname: "tax", page: "2", size: "50" }),
       );
       await flush();
       click(link("文件"));
-      expect(f.opened.at(-1)).toEqual({ id: "nexus", params: { view: "files" } });
+      expect((f.opened.at(-1) as { params?: Record<string, string> })?.params).toMatchObject({
+        view: "files",
+        tab: "vault",
+        qname: "tax",
+      });
     });
 
     it("submits a new search at page 1 through the host navigation", async () => {

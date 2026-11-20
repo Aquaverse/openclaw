@@ -109,6 +109,8 @@ function row(
     categoryLabel(lang, goal.category),
     goal.childCount > 0 ? tr(lang, "goals.meta.sub", { n: goal.childCount }) : "",
     goal.status === "completed" ? statusLabel(lang, "completed") : "",
+    // A goal that is due for its look-back is said in words on the row, not only in the detail pane.
+    goal.review?.due === true ? tr(lang, "goal.review.due") : "",
   ].filter((part) => part !== "");
   return (
     `<a class="nx-wrow${child ? " nx-gchild" : ""}${goal.id === selected ? " on" : ""}" href="${goalsHref(base, seg, goal.id)}">` +
@@ -332,7 +334,8 @@ function detailPane(
     goal.status === "active" && actions
       ? marker("goal-check", goal.id, "nx-pb", esc(tr(lang, "goal.menu.complete")))
       : "",
-    actions ? marker("goal-open", goal.id, "nx-ib", esc(tr(lang, "goals.more"))) : "",
+    // The detail dialog is available on a read-only console too: it shows the fields and disables its write items there.
+    marker("goal-open", goal.id, "nx-ib", esc(tr(lang, "goals.more"))),
   ]
     .filter((part) => part !== "")
     .join("");

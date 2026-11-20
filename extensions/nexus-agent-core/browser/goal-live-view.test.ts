@@ -95,23 +95,26 @@ describe("an open goal detail follows its data (G2.1)", () => {
     f.emit("goal_changed");
     f.emit("claim_changed");
     await settle();
-    expect(gets()).toBe(before + 1);
+    // One burst is one page reload (which reads the goal) plus one repaint of the open dialog (same).
+    expect(gets()).toBe(before + 2);
     expect(f.container.querySelectorAll(".nx-dialog")).toHaveLength(1);
   });
 
-  it("ignores events that cannot change it, and does not open a dialog that was closed", async () => {
+  it("does not reopen a dialog that was closed, while the page itself keeps following the data", async () => {
     const data: Data = { detail: detailWith("ASSERTED") };
     const f = await open(data);
     const gets = () => f.calls.filter((call) => call.method === "nexus.goal.get").length;
     const before = gets();
+    // Any event reloads the page, and reloading an address with a named goal reads that goal once.
     f.emit("vault_changed");
     await settle();
-    expect(gets()).toBe(before);
+    expect(gets()).toBe(before + 1);
     click(f.dialog(), ".nx-x");
     f.emit("claim_changed");
     await settle();
+    // The dialog stays closed; the page's own reload is the only goal read the event causes.
     expect(f.container.querySelector(".nx-dialog")).toBeNull();
-    expect(gets()).toBe(before);
+    expect(gets()).toBe(before + 2);
   });
 
   it("refills the same window: the title and the menu follow the goal", async () => {

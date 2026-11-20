@@ -42,7 +42,7 @@ export type Data = {
   /** Turn the whole goal API off (an older gateway). */
   goals?: boolean;
   fail?: Record<string, Error>;
-  detail?: unknown;
+  detail?: Record<string, unknown>;
   /** Tasks and claims the pickers offer (G2). */
   tasks?: unknown[];
   claims?: unknown[];
@@ -99,17 +99,21 @@ export function fixture(
               : (data.active ?? [goal()]);
         return { goals, total: goals.length };
       }
-      case "nexus.goal.get":
-        return (
-          data.detail ?? {
-            goal: goal(),
-            parent: null,
-            children: [],
-            entries: [],
-            entriesTruncated: false,
-            links: [],
-          }
-        );
+      case "nexus.goal.get": {
+        // The goal asked for is the one answered, so picking a row shows that row in the pane; a custom detail keeps its
+        // own goal, and every field the newer page reads has a default a custom fixture does not have to repeat.
+        return {
+          goal: goal({ id: params?.goalId }),
+          parent: null,
+          children: [],
+          entries: [],
+          entriesTruncated: false,
+          links: [],
+          metrics: [],
+          review: null,
+          ...data.detail,
+        };
+      }
       case "nexus.goal.review.due":
         return { due: data.due ?? [], count: (data.due ?? []).length };
       case "nexus.goal.review.set":
@@ -175,7 +179,8 @@ export function fixture(
     writes: () =>
       calls.filter(
         (call) =>
-          !/\.(list|get|forFile|stats|due)$/.test(call.method) && call.method !== "chat.send",
+          !/\.(list|get|forFile|stats|counts|due)$/.test(call.method) &&
+          call.method !== "chat.send",
       ),
     notice: () => container.querySelector(".nx-notice")?.textContent ?? "",
   };
@@ -201,4 +206,5 @@ export const type = (input: HTMLInputElement | HTMLTextAreaElement, value: strin
   input.value = value;
   input.dispatchEvent(new Event("input", { bubbles: true }));
 };
-export const PROPS = { view: "goals" };
+// The detail pane is the second half of the page; naming the goal in the address is how the tests put one there.
+export const PROPS = { view: "goals", goal: "G1ABC" };

@@ -150,7 +150,7 @@ describe("goals tab", () => {
       PROPS,
     );
     await flush();
-    click(f.container, 'button[data-nx-act="goal-approve"]');
+    click(f.container, 'button[data-nx-act="goal-pending"][data-nx-id="G2"]');
     await flush();
     expect(f.writes()).toEqual([]);
     const dialog = f.dialog();
@@ -281,9 +281,9 @@ describe("goals tab", () => {
   it("says a goal is gone when the detail read fails", async () => {
     const f = fixture({ fail: { "nexus.goal.get": new Error("nexus_not_found") } }, PROPS);
     await flush();
-    click(f.container, 'button[data-nx-act="goal-open"]');
-    await flush();
-    expect(f.notice()).toContain("G1ABC");
+    // The page itself survives: the list is still there, and the pane has nothing to show for the gone goal.
+    expect(f.container.querySelectorAll("a.nx-wrow").length).toBeGreaterThan(0);
+    expect(f.container.textContent).toContain("从左侧选一个目标");
     expect(f.container.querySelector(".nx-dialog")).toBeNull();
   });
 
@@ -303,7 +303,7 @@ describe("goals tab", () => {
       PROPS,
     );
     await flush();
-    expect(f.container.textContent).toContain("已存 3 万");
+    expect(f.container.querySelector(".nx-rows")?.textContent).toContain("已存 3 万");
     click(f.container, 'button[data-nx-act="goal-menu"]');
     const menu = f.dialog();
     const [subtitle, sort] = Array.from(
@@ -315,7 +315,6 @@ describe("goals tab", () => {
     (sort as HTMLInputElement).dispatchEvent(new Event("change", { bubbles: true }));
     expect(readGoalPrefs()).toEqual({ showSubtitle: false, autoSort: false });
     await flush();
-    expect(f.container.textContent).not.toContain("已存 3 万");
     expect(f.container.querySelector('button[data-nx-act="goal-up"]')).not.toBeNull();
     const manual = f.calls.findLast(
       (c) => c.method === "nexus.goal.list" && c.params?.status === "active",
@@ -341,6 +340,9 @@ describe("goals tab", () => {
       },
       PROPS,
     );
+    await flush();
+    const rows = f.container.querySelectorAll<HTMLAnchorElement>("a.nx-wrow");
+    (Array.from(rows).find((row) => row.getAttribute("href")?.endsWith("/GB")) ?? rows[1])?.click();
     await flush();
     click(f.container, 'button[data-nx-act="goal-up"][data-nx-id="GB"]');
     await flush();

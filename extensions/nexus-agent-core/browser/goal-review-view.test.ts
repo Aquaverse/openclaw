@@ -64,7 +64,8 @@ describe("the Periodic review block (G3a)", () => {
       { method: "nexus.goal.review.set", params: { goalId: "G1ABC", cadence: "weekly" } },
     ]);
     expect(f.notice()).toContain("已设为每周回看");
-    expect(f.calls.filter((call) => call.method === "nexus.goal.get").length).toBe(gets + 1);
+    // The write refreshes the page and repaints the dialog; each reads the goal once.
+    expect(f.calls.filter((call) => call.method === "nexus.goal.get").length).toBe(gets + 2);
   });
 
   it("choosing 'no reminder' sends null", async () => {
@@ -144,10 +145,22 @@ describe("the Periodic review block (G3a)", () => {
 
 describe("the detail keeps its scroll position (G3a)", () => {
   it("refills in place after 'reviewed': same window, same scroll position", async () => {
-    // A short window so the detail has to scroll.
+    // A short window so the detail has to scroll. jsdom has no layout; the numbers are supplied instead.
     const style = document.createElement("style");
     style.textContent = ".nx-dialog{max-height:140px !important}";
     document.head.append(style);
+    const geometry = [
+      vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return this.classList.contains("nx-dialog") ? 400 : 0;
+      }),
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return this.classList.contains("nx-dialog") ? 140 : 0;
+      }),
+    ];
     try {
       const due = plan({ due: true, nextDueAt: NOW - 1000 });
       const f = await open({ detail: detail(due), review: plan() });
@@ -163,6 +176,9 @@ describe("the detail keeps its scroll position (G3a)", () => {
       expect(before.scrollTop).toBe(60);
       expect(before.textContent).toContain("已回看");
     } finally {
+      for (const spy of geometry) {
+        spy.mockRestore();
+      }
       style.remove();
     }
   });
@@ -197,7 +213,7 @@ describe("what the list and the tab show (G3a)", () => {
       PROPS,
     );
     await flush();
-    const rows = Array.from(f.container.querySelectorAll(".gl-row"));
+    const rows = Array.from(f.container.querySelectorAll("a.nx-wrow"));
     expect(rows).toHaveLength(2);
     expect(rows[0]?.textContent).toContain("该回看了");
     expect(rows[1]?.textContent).not.toContain("该回看了");
@@ -217,6 +233,6 @@ describe("what the list and the tab show (G3a)", () => {
     const f = fixture({ fail: { "nexus.goal.review.due": new Error("unknown method") } }, PROPS);
     await flush();
     expect(f.container.querySelector("nav")?.textContent).toContain("目标");
-    expect(f.container.querySelectorAll(".gl-row").length).toBe(1);
+    expect(f.container.querySelectorAll("a.nx-wrow").length).toBe(1);
   });
 });

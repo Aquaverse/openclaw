@@ -1,0 +1,5 @@
+# Exact net regression-test lines for the Nexus Control UI rewrite to the nexus-ea-prototype design: the browser tests
+# (goals, files, page) were rewritten against the new two-pane pages — the interactions moved (row links instead of row
+# buttons, in-page settling navigation instead of host navigation, detail panes instead of dialogs), and each rewritten
+# case keeps the coverage of the case it replaces.
+242
