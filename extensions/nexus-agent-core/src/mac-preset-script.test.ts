@@ -264,6 +264,21 @@ describe("scripts/mac-nexus-preset.sh across versions", () => {
   });
 });
 
+describe("scripts/build-mac-installer.sh Nexus preset", () => {
+  it("advances past the preset version shipped before installer migration could remove Nexus", () => {
+    if (!runnable) {
+      return;
+    }
+    const source = fs.readFileSync(buildScript, "utf8");
+    const match = /echo "NEXUS_PRESET_VERSION=(\d+)"/u.exec(source);
+    assert.ok(match, "NEXUS_PRESET_VERSION not found in build-mac-installer.sh");
+    assert.ok(
+      Number(match[1]) >= 6,
+      "preset v5 cannot repair machines damaged by the old migration",
+    );
+  });
+});
+
 describe("scripts/build-mac-installer.sh default-ai-provider.env", () => {
   // Pull emit_default_ai_provider_env out of the build script and run it alone, with read_env_var stubbed.
   function generate(defaultModelSwitch: string): {
