@@ -186,8 +186,8 @@ fi
 # yet, so nothing runs there. Best-effort like everything else here: a
 # failure is logged and the install continues. Order matters:
 #   1. stop the Gateway (it holds the databases; doctor refuses otherwise),
-#   2. back up the databases (a migrated database cannot be opened by the
-#      older CLI, so this is the only way back),
+#   2. back up the config and databases (a migrated database cannot be opened
+#      by the older CLI, and Doctor may migrate configured plugin entries),
 #   3. doctor --fix --non-interactive (safe migrations only, no prompts).
 # ---------------------------------------------------------------------
 if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
@@ -201,6 +201,9 @@ if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
   BACKUP_DIR="$PREFIX/backups/pre-upgrade-$(/bin/date '+%Y%m%d-%H%M%S')"
   BACKUP_OK=1
   run_as_console_user /bin/mkdir -p "$BACKUP_DIR" || BACKUP_OK=0
+  if [[ -f "$PREFIX/openclaw.json" ]]; then
+    run_as_console_user /bin/cp -a "$PREFIX/openclaw.json" "$BACKUP_DIR/openclaw.json" >>"$LOG_FILE" 2>&1 || BACKUP_OK=0
+  fi
   if [[ -d "$PREFIX/state" ]]; then
     run_as_console_user /bin/cp -a "$PREFIX/state" "$BACKUP_DIR/state" >>"$LOG_FILE" 2>&1 || BACKUP_OK=0
   fi
@@ -215,7 +218,7 @@ if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
   fi
 
   if [[ "$BACKUP_OK" == "1" ]]; then
-    log "Database backup written to $BACKUP_DIR"
+    log "Pre-upgrade backup written to $BACKUP_DIR"
     # This script, not Doctor, owns the stopped Gateway until onboarding below
     # installs/restarts it. Keep Doctor out of native service reconciliation so
     # it cannot spend PackageKit's script budget waiting for a Gateway that the
@@ -233,7 +236,7 @@ if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
       log "WARN: doctor --fix --non-interactive failed (see $LOG_FILE above). Backup is in $BACKUP_DIR. The Gateway may not start until 'openclaw doctor --fix' succeeds."
     fi
   else
-    log "WARN: could not back up the existing databases to $BACKUP_DIR -- skipping the automatic migration so nothing is changed without a backup. Run 'openclaw doctor --fix' manually after backing up ~/.openclaw."
+    log "WARN: could not back up the existing config and databases to $BACKUP_DIR -- skipping the automatic migration so nothing is changed without a backup. Run 'openclaw doctor --fix' manually after backing up ~/.openclaw."
   fi
 
 fi
