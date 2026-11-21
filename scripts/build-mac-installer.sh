@@ -1002,7 +1002,9 @@ else
   PKG_ROOT="$(mktemp -d)"
   PKG_SCRIPTS_DIR="$(mktemp -d)"
   ditto "$APP" "$PKG_ROOT/OpenClaw.app"
+  mkdir -p "$PKG_SCRIPTS_DIR/lib"
   cp "$ROOT_DIR/scripts/mac-pkg-postinstall.sh" "$PKG_SCRIPTS_DIR/postinstall"
+  cp "$ROOT_DIR/scripts/lib/mac-installer-node-runtime.sh" "$PKG_SCRIPTS_DIR/lib/mac-installer-node-runtime.sh"
   chmod 0755 "$PKG_SCRIPTS_DIR/postinstall"
 
   select_installer_identity() {

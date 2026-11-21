@@ -21,6 +21,9 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/mac-installer-node-runtime.sh"
+
 # Installer.app starts this script inside its own temporary sandbox directory, which is removed if the
 # installer is cancelled or closed. A long step (the database migration below can take many minutes)
 # would then fail with "ENOENT: process.cwd failed ... uv_cwd". Run from a directory that always exists.
@@ -100,12 +103,16 @@ fi
 # present, so install-cli.sh doesn't need its own network round trip.
 # See scripts/install-cli.sh's OPENCLAW_NODE_TARBALL support.
 # ---------------------------------------------------------------------
-ARCH="$(/usr/bin/uname -m)"
 NODE_RUNTIME_DIR="$APP_PATH/Contents/Resources/node-runtime"
 NODE_TARBALL=""
 NODE_TARBALL_SHA256=""
 if [[ -d "$NODE_RUNTIME_DIR" ]]; then
-  NODE_TARBALL="$(/usr/bin/find "$NODE_RUNTIME_DIR" -maxdepth 1 -iname "node-v*-darwin-${ARCH}.tar.gz" | /usr/bin/head -n1)"
+  PROCESS_ARCH="$(/usr/bin/uname -m)"
+  TRANSLATED="$(/usr/sbin/sysctl -in sysctl.proc_translated 2>/dev/null || echo 0)"
+  ARCH="$(select_bundled_node_arch "$NODE_RUNTIME_DIR" "$PROCESS_ARCH" "$TRANSLATED" || true)"
+  if [[ -n "$ARCH" ]]; then
+    NODE_TARBALL="$(/usr/bin/find "$NODE_RUNTIME_DIR" -maxdepth 1 -iname "node-v*-darwin-${ARCH}.tar.gz" | /usr/bin/head -n1)"
+  fi
   if [[ -n "$NODE_TARBALL" && -f "${NODE_TARBALL}.sha256" ]]; then
     NODE_TARBALL_SHA256="$(cat "${NODE_TARBALL}.sha256")"
   fi
@@ -113,7 +120,7 @@ fi
 if [[ -n "$NODE_TARBALL" ]]; then
   log "Using bundled Node tarball: $NODE_TARBALL"
 else
-  log "No bundled Node tarball for arch '$ARCH' -- install-cli.sh will fetch Node from nodejs.org instead."
+  log "No bundled Node tarball for process arch '${PROCESS_ARCH:-unknown}' (translated=${TRANSLATED:-unknown}) -- install-cli.sh will fetch Node from nodejs.org instead."
 fi
 
 # ---------------------------------------------------------------------
@@ -146,6 +153,10 @@ fi
 PREFIX="$CONSOLE_HOME/.openclaw"
 
 log "==> Installing OpenClaw CLI into $PREFIX (this can take a minute)..."
+# This script owns Gateway stop/migration and daemon installation below. Keep
+# install-cli in runtime-only mode so it does not first refresh the loaded
+# Gateway service; that duplicate refresh consumed most of PackageKit's fixed
+# 600-second script allowance during an upgrade and caused error 112.
 if ! run_as_console_user /usr/bin/env \
     HOME="$CONSOLE_HOME" \
     OPENCLAW_PREFIX="$PREFIX" \
@@ -154,7 +165,7 @@ if ! run_as_console_user /usr/bin/env \
     OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE="$POSTINSTALL_SCRIPT_OVERRIDE" \
     OPENCLAW_PACKAGE_TGZ="$CLI_PACKAGE_TGZ" \
     OPENCLAW_PACKAGE_TGZ_SHA256="$CLI_PACKAGE_TGZ_SHA256" \
-    /bin/bash "$INSTALL_CLI" --json >>"$LOG_FILE" 2>&1; then
+    /bin/bash "$INSTALL_CLI" --json --runtime-only >>"$LOG_FILE" 2>&1; then
   log "WARN: CLI install failed (see $LOG_FILE for install-cli.sh's own output above) -- leaving first-run setup to the app's own onboarding UI."
   exit 0
 fi
