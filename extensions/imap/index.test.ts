@@ -41,6 +41,7 @@ function register(registrationMode: "full" | "tool-discovery" = "full") {
 it("registers email tools, connectivity testing, and the optional watcher service", () => {
   const registered = register();
   expect(registered.registerTool.mock.calls.map(([, options]) => options.name)).toEqual([
+    "email_accounts",
     "email_search",
     "email_read",
     "email_send",
@@ -56,6 +57,7 @@ it("registers email tools, connectivity testing, and the optional watcher servic
 it("exposes email tools during tool discovery without starting runtime services", () => {
   const registered = register("tool-discovery");
   expect(registered.registerTool.mock.calls.map(([, options]) => options.name)).toEqual([
+    "email_accounts",
     "email_search",
     "email_read",
     "email_send",
@@ -74,6 +76,7 @@ it("admits every email tool through the manifest ownership contract", () => {
   });
   expect(fixture.registry.registry.diagnostics).toEqual([]);
   expect(fixture.registry.registry.tools.flatMap((tool) => tool.names)).toEqual([
+    "email_accounts",
     "email_search",
     "email_read",
     "email_send",

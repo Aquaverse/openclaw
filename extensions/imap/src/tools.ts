@@ -1,18 +1,69 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { wrapExternalContent } from "openclaw/plugin-sdk/security-runtime";
 import { textResult } from "openclaw/plugin-sdk/tool-results";
-import type { ImapPluginConfig } from "./config.js";
+import type { ImapAccountConfig, ImapPluginConfig } from "./config.js";
 import { readEmail, searchEmail, sendEmail } from "./mail-client.js";
 
-const ACCOUNT = { type: "string", minLength: 1, description: "Configured email account id." };
+const ACCOUNT = {
+  type: "string",
+  minLength: 1,
+  description: "Configured account id, full email address, login username, or email prefix.",
+};
+
+type ConfiguredAccount = { id: string; account: ImapAccountConfig };
+
+function accountSummary({ id, account }: ConfiguredAccount) {
+  return { id, email: account.email };
+}
+
+function accountAliases({ id, account }: ConfiguredAccount): string[] {
+  const localPart = (address: string) => address.split("@", 1)[0] ?? address;
+  return [
+    id,
+    account.email,
+    account.from,
+    account.user,
+    localPart(account.email),
+    localPart(account.from),
+  ]
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function configuredAccounts(config: ImapPluginConfig): ConfiguredAccount[] {
+  return Object.entries(config.accounts).map(([id, account]) => ({ id, account }));
+}
 
 function accountFor(config: ImapPluginConfig, value: unknown) {
-  const id = typeof value === "string" ? value : "";
-  const account = config.accounts[id];
-  if (!account) {
-    throw new Error(`Unknown email account ${JSON.stringify(id)}`);
+  const accounts = configuredAccounts(config);
+  if (accounts.length === 0) {
+    throw new Error("No configured email accounts are available");
   }
-  return account;
+  if (accounts.length === 1) {
+    return accounts[0]!.account;
+  }
+  const query = typeof value === "string" ? value.trim().toLowerCase() : "";
+  const idMatch = query ? accounts.find(({ id }) => id.toLowerCase() === query) : undefined;
+  if (idMatch) {
+    return idMatch.account;
+  }
+  const matches = query
+    ? accounts.filter((entry) => accountAliases(entry).includes(query))
+    : accounts;
+  if (matches.length === 1) {
+    return matches[0]!.account;
+  }
+  const candidates = (matches.length > 0 ? matches : accounts)
+    .map(({ id, account }) => `${id} (${account.email})`)
+    .join(", ");
+  if (matches.length === 0) {
+    throw new Error(
+      `No configured email account matches ${JSON.stringify(value)}. Available accounts: ${candidates}. Use email_accounts to search by account id, email address, or username.`,
+    );
+  }
+  throw new Error(
+    `Multiple configured email accounts match ${JSON.stringify(value)}: ${candidates}. Use email_accounts to find the candidates, then ask the user to choose a specific account id or full email address.`,
+  );
 }
 
 function strings(value: unknown, name: string): string[] {
@@ -31,9 +82,42 @@ export function registerEmailTools(api: OpenClawPluginApi, currentConfig: () => 
     {
       contextVersion: 2,
       create: (context) => ({
+        name: "email_accounts",
+        label: "Find email accounts",
+        description:
+          "List or search configured email accounts by account id, email address, or username without exposing credentials. Mail tools automatically use the account when only one is configured.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", maxLength: 320 },
+          },
+          additionalProperties: false,
+        },
+        async execute(_id, input, signal) {
+          context.assertInvocationCurrent();
+          signal?.throwIfAborted();
+          const record = input as Record<string, unknown>;
+          const query = typeof record.query === "string" ? record.query.trim().toLowerCase() : "";
+          const accounts = configuredAccounts(currentConfig()).filter(
+            (entry) =>
+              !query || accountAliases(entry).some((candidate) => candidate.includes(query)),
+          );
+          const result = { accounts: accounts.map(accountSummary), count: accounts.length };
+          context.assertInvocationCurrent();
+          return textResult(JSON.stringify(result), result);
+        },
+      }),
+    },
+    { name: "email_accounts", workspaceAccess: false },
+  );
+  api.registerTool(
+    {
+      contextVersion: 2,
+      create: (context) => ({
         name: "email_search",
         label: "Search email",
-        description: "Search a configured mailbox without changing message flags.",
+        description:
+          "Search a configured mailbox without changing message flags. Omit account when only one is configured; use email_accounts to disambiguate multiple accounts.",
         parameters: {
           type: "object",
           properties: {
@@ -43,7 +127,6 @@ export function registerEmailTools(api: OpenClawPluginApi, currentConfig: () => 
             unread: { type: "boolean" },
             limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
           },
-          required: ["account"],
           additionalProperties: false,
         },
         async execute(_id, input, signal) {
@@ -72,11 +155,12 @@ export function registerEmailTools(api: OpenClawPluginApi, currentConfig: () => 
       create: (context) => ({
         name: "email_read",
         label: "Read email",
-        description: "Read one email by mailbox UID without changing message flags.",
+        description:
+          "Read one email by mailbox UID without changing message flags. Omit account when only one is configured; use email_accounts to disambiguate multiple accounts.",
         parameters: {
           type: "object",
           properties: { account: ACCOUNT, uid: { type: "integer", minimum: 1 } },
-          required: ["account", "uid"],
+          required: ["uid"],
           additionalProperties: false,
         },
         async execute(_id, input, signal) {
@@ -107,7 +191,7 @@ export function registerEmailTools(api: OpenClawPluginApi, currentConfig: () => 
         name: "email_send",
         label: "Send email",
         description:
-          "Send a plain-text email from a configured account. Requires one-time approval.",
+          "Send a plain-text email from a configured account. Omit account when only one is configured; use email_accounts to disambiguate multiple accounts. Requires one-time approval.",
         parameters: {
           type: "object",
           properties: {
@@ -118,7 +202,7 @@ export function registerEmailTools(api: OpenClawPluginApi, currentConfig: () => 
             subject: { type: "string", minLength: 1, maxLength: 998 },
             text: { type: "string", minLength: 1, maxLength: 200000 },
           },
-          required: ["account", "to", "subject", "text"],
+          required: ["to", "subject", "text"],
           additionalProperties: false,
         },
         async execute(_id, input, signal) {
