@@ -3,9 +3,10 @@ set -euo pipefail
 
 # Installs the credential and default model baked into a macOS installer.
 # Onboarding first resolves the physical provider identity from provider id and
-# base URL, without receiving an API key. The credential is then written as one
-# stable ordinary auth profile for that resolved provider and made its explicit
-# first choice. Handing an already-configured provider a key during onboarding
+# base URL, without receiving an API key. The credential is then written through
+# the live auth owner. That owner reuses the profile bound to the resolved
+# provider connection, so a repeated install replaces the key in place. Handing
+# an already-configured provider a key during onboarding
 # instead creates an inactive setup-replacement profile, so every reinstall
 # would add another unusable setup-<uuid> entry.
 
@@ -101,10 +102,5 @@ if [[ -n "$API_KEY_FILE" ]]; then
   fi
   "${CLI[@]}" models auth paste-api-key \
     --provider "$EFFECTIVE_PROVIDER_ID" \
-    --profile-id "$EFFECTIVE_PROVIDER_ID:manual" \
     --agent main < "$API_KEY_FILE"
-  "${CLI[@]}" models auth order set \
-    --provider "$EFFECTIVE_PROVIDER_ID" \
-    --agent main \
-    "$EFFECTIVE_PROVIDER_ID:manual"
 fi

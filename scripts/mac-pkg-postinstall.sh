@@ -151,27 +151,50 @@ else
 fi
 
 PREFIX="$CONSOLE_HOME/.openclaw"
-
-log "==> Installing OpenClaw CLI into $PREFIX (this can take a minute)..."
-# This script owns Gateway stop/migration and daemon installation below. Keep
-# install-cli in runtime-only mode so it does not first refresh the loaded
-# Gateway service; that duplicate refresh consumed most of PackageKit's fixed
-# 600-second script allowance during an upgrade and caused error 112.
-if ! run_as_console_user /usr/bin/env \
-    HOME="$CONSOLE_HOME" \
-    OPENCLAW_PREFIX="$PREFIX" \
-    OPENCLAW_NODE_TARBALL="$NODE_TARBALL" \
-    OPENCLAW_NODE_TARBALL_SHA256="$NODE_TARBALL_SHA256" \
-    OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE="$POSTINSTALL_SCRIPT_OVERRIDE" \
-    OPENCLAW_PACKAGE_TGZ="$CLI_PACKAGE_TGZ" \
-    OPENCLAW_PACKAGE_TGZ_SHA256="$CLI_PACKAGE_TGZ_SHA256" \
-    /bin/bash "$INSTALL_CLI" --json --runtime-only >>"$LOG_FILE" 2>&1; then
-  log "WARN: CLI install failed (see $LOG_FILE for install-cli.sh's own output above) -- leaving first-run setup to the app's own onboarding UI."
-  exit 0
-fi
-log "CLI install finished."
-
 OPENCLAW_BIN="$PREFIX/bin/openclaw"
+RUNTIME_MARKER="$PREFIX/.installer-runtime-applied"
+REUSE_INSTALLED_RUNTIME=0
+RUNTIME_ID=""
+if [[ -n "$CLI_PACKAGE_TGZ_SHA256" ]]; then
+  RUNTIME_ID="${CLI_PACKAGE_TGZ_SHA256}:${NODE_TARBALL_SHA256:-none}"
+fi
+
+# A successful install records the exact bundled CLI archive. Reinstalling the
+# same pkg does not need to unpack Node/npm dependencies or rerun Doctor. The
+# marker is written only after migrations succeed, so an interrupted or failed
+# attempt is retried. A user who manually restores older database files must
+# still run Doctor; that visible recovery case does not justify making every
+# ordinary reinstall repeat several minutes of migration discovery.
+if [[ -n "$RUNTIME_ID" && -x "$OPENCLAW_BIN" && -f "$RUNTIME_MARKER" ]]; then
+  APPLIED_RUNTIME_ID="$(/usr/bin/head -n1 "$RUNTIME_MARKER" 2>/dev/null || true)"
+  if [[ "$APPLIED_RUNTIME_ID" == "$RUNTIME_ID" ]]; then
+    REUSE_INSTALLED_RUNTIME=1
+  fi
+fi
+
+if [[ "$REUSE_INSTALLED_RUNTIME" == "1" ]]; then
+  log "Bundled CLI package is already installed and migrated -- reusing $OPENCLAW_BIN."
+else
+  log "==> Installing OpenClaw CLI into $PREFIX (this can take a minute)..."
+  # This script owns Gateway stop/migration and daemon installation below. Keep
+  # install-cli in runtime-only mode so it does not first refresh the loaded
+  # Gateway service; that duplicate refresh consumed most of PackageKit's fixed
+  # 600-second script allowance during an upgrade and caused error 112.
+  if ! run_as_console_user /usr/bin/env \
+      HOME="$CONSOLE_HOME" \
+      OPENCLAW_PREFIX="$PREFIX" \
+      OPENCLAW_NODE_TARBALL="$NODE_TARBALL" \
+      OPENCLAW_NODE_TARBALL_SHA256="$NODE_TARBALL_SHA256" \
+      OPENCLAW_POSTINSTALL_SCRIPT_OVERRIDE="$POSTINSTALL_SCRIPT_OVERRIDE" \
+      OPENCLAW_PACKAGE_TGZ="$CLI_PACKAGE_TGZ" \
+      OPENCLAW_PACKAGE_TGZ_SHA256="$CLI_PACKAGE_TGZ_SHA256" \
+      /bin/bash "$INSTALL_CLI" --json --runtime-only >>"$LOG_FILE" 2>&1; then
+    log "WARN: CLI install failed (see $LOG_FILE for install-cli.sh's own output above) -- leaving first-run setup to the app's own onboarding UI."
+    exit 0
+  fi
+  log "CLI install finished."
+fi
+
 if [[ ! -x "$OPENCLAW_BIN" ]]; then
   log "WARN: $OPENCLAW_BIN not found after install-cli.sh reported success -- leaving first-run setup to the app's own onboarding UI."
   exit 0
@@ -190,7 +213,8 @@ fi
 #      by the older CLI, and Doctor may migrate configured plugin entries),
 #   3. doctor --fix --non-interactive (safe migrations only, no prompts).
 # ---------------------------------------------------------------------
-if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
+MIGRATION_OK=1
+if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && ( -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ) ]]; then
   log "==> Existing OpenClaw data found in $PREFIX -- migrating databases before the Gateway starts..."
   run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
       "$OPENCLAW_BIN" gateway stop --force >>"$LOG_FILE" 2>&1 \
@@ -205,7 +229,14 @@ if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
     run_as_console_user /bin/cp -a "$PREFIX/openclaw.json" "$BACKUP_DIR/openclaw.json" >>"$LOG_FILE" 2>&1 || BACKUP_OK=0
   fi
   if [[ -d "$PREFIX/state" ]]; then
-    run_as_console_user /bin/cp -a "$PREFIX/state" "$BACKUP_DIR/state" >>"$LOG_FILE" 2>&1 || BACKUP_OK=0
+    # Preserve active state databases and their journals, but not historical
+    # pre-startup migration backups. Those are already rollback artifacts and
+    # copying them into every pkg backup made repeat installs progressively slower.
+    while IFS= read -r STATE_FILE; do
+      REL="${STATE_FILE#"$PREFIX"/}"
+      run_as_console_user /bin/mkdir -p "$BACKUP_DIR/$(/usr/bin/dirname "$REL")" </dev/null || BACKUP_OK=0
+      run_as_console_user /bin/cp -a "$STATE_FILE" "$BACKUP_DIR/$REL" >>"$LOG_FILE" 2>&1 </dev/null || BACKUP_OK=0
+    done < <(/usr/bin/find "$PREFIX/state" -type f ! -name '*.pre-startup-migration-*.bak' 2>/dev/null)
   fi
   if [[ -d "$PREFIX/agents" ]]; then
     # Only the databases (and their WAL/SHM files), not session transcripts or media.
@@ -233,12 +264,20 @@ if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
         "$OPENCLAW_BIN" doctor --fix --non-interactive --no-workspace-suggestions >>"$LOG_FILE" 2>&1; then
       log "Database migration (doctor --fix --non-interactive) finished."
     else
+      MIGRATION_OK=0
       log "WARN: doctor --fix --non-interactive failed (see $LOG_FILE above). Backup is in $BACKUP_DIR. The Gateway may not start until 'openclaw doctor --fix' succeeds."
     fi
   else
+    MIGRATION_OK=0
     log "WARN: could not back up the existing config and databases to $BACKUP_DIR -- skipping the automatic migration so nothing is changed without a backup. Run 'openclaw doctor --fix' manually after backing up ~/.openclaw."
   fi
 
+fi
+
+if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && "$MIGRATION_OK" == "1" && -n "$RUNTIME_ID" ]]; then
+  run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+      /bin/bash -c 'printf "%s\n" "$1" > "$2"' _ "$RUNTIME_ID" "$RUNTIME_MARKER" >>"$LOG_FILE" 2>&1 \
+    || log "WARN: could not record the installed runtime marker; a repeat install may redo CLI setup and Doctor."
 fi
 
 # ---------------------------------------------------------------------
@@ -253,6 +292,7 @@ AI_BASE_URL=""
 AI_MODEL=""
 AI_API_KEY=""
 ONBOARD_KEY_FILE=""
+DEFAULT_PROVIDER_ENV_ALREADY_APPLIED=0
 ENV_FILE="$APP_PATH/Contents/Resources/default-ai-provider.env"
 if [[ -f "$ENV_FILE" ]]; then
   DEFAULT_AI_PROVIDER=""
@@ -273,16 +313,30 @@ DEFAULT_PROVIDER_SETUP="$APP_PATH/Contents/Resources/mac-default-provider-setup.
 
 if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
   log "Configuring default AI provider from the bundled installer.env (base URL: $AI_BASE_URL, model: $AI_MODEL)"
+  ENV_SHA256="$(/usr/bin/shasum -a 256 "$ENV_FILE" | /usr/bin/awk '{print $1}')"
+  if [[ -f "$PREFIX/.default-provider-applied" ]]; then
+    APPLIED_DEFAULT_PROVIDER="$(/usr/bin/head -n1 "$PREFIX/.default-provider-applied" 2>/dev/null || true)"
+    case "$APPLIED_DEFAULT_PROVIDER" in
+      "$ENV_SHA256":*) DEFAULT_PROVIDER_ENV_ALREADY_APPLIED=1 ;;
+    esac
+  fi
   # The API key is handed to the default-provider setup owner through a
-  # console-user-only file, never a process argument. That owner saves one
-  # stable ordinary auth profile before onboarding without a key, so repeated
-  # installs update the same profile instead of accumulating inactive
+  # console-user-only file, never a process argument. After onboarding creates
+  # or resolves the provider connection without a key, the live auth owner
+  # updates the profile bound to that connection. Repeated installs therefore
+  # update the same profile instead of accumulating inactive
   # <provider>:setup-<uuid> replacement credentials.
-  if [[ -n "$AI_API_KEY" ]]; then
+  # Saving even identical key bytes is an intentional account replacement and
+  # retires persisted automation authorization. Avoid that on an ordinary CLI
+  # upgrade; a changed installer.env hash still installs the new key and lets
+  # existing jobs surface the required account re-selection.
+  if [[ -n "$AI_API_KEY" && "$DEFAULT_PROVIDER_ENV_ALREADY_APPLIED" != "1" ]]; then
     ONBOARD_KEY_FILE="$(/usr/bin/mktemp /tmp/openclaw-onboard-key.XXXXXX)"
     /bin/chmod 600 "$ONBOARD_KEY_FILE"
     printf '%s' "$AI_API_KEY" > "$ONBOARD_KEY_FILE"
     /usr/sbin/chown "$CONSOLE_USER" "$ONBOARD_KEY_FILE"
+  elif [[ -n "$AI_API_KEY" ]]; then
+    log "Bundled default-provider settings are unchanged -- preserving the existing credential authorization."
   fi
 else
   log "No default AI provider baked into this build -- setting up the Gateway/daemon only; the app will still ask for a model on first launch."
@@ -319,7 +373,6 @@ if [[ "$ONBOARD_OK" == "1" ]]; then
   # defaultProviderMarkerValue(): "<sha256 of default-ai-provider.env>:<bundled
   # CLI package sha256, or 'none'>".
   if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
-    ENV_SHA256="$(/usr/bin/shasum -a 256 "$ENV_FILE" | /usr/bin/awk '{print $1}')"
     DEFAULT_PROVIDER_MARKER="${ENV_SHA256}:${CLI_PACKAGE_TGZ_SHA256:-none}"
     run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
         /bin/bash -c 'printf "%s\n" "$1" > "$2"' _ "$DEFAULT_PROVIDER_MARKER" "$PREFIX/.default-provider-applied" >>"$LOG_FILE" 2>&1 \
@@ -327,7 +380,6 @@ if [[ "$ONBOARD_OK" == "1" ]]; then
   fi
 else
   log "WARN: non-interactive onboarding failed (see $LOG_FILE above) -- first launch will fall back to the app's own onboarding UI."
-  exit 0
 fi
 
 # Nexus preset (best-effort, no-op unless this build baked nexus-preset.env): enable the bundled Nexus plugin so
@@ -347,13 +399,15 @@ fi
 # need spoofing here -- only onboardingSeen is read from this
 # UserDefaults domain at launch (see AppState.swift's init).
 # ---------------------------------------------------------------------
-BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
-if [[ -n "$BUNDLE_ID" ]]; then
-  log "Marking onboarding as seen for $BUNDLE_ID"
-  run_as_console_user /usr/bin/defaults write "$BUNDLE_ID" "openclaw.onboardingSeen" -bool true >>"$LOG_FILE" 2>&1
-  run_as_console_user /usr/bin/defaults write "$BUNDLE_ID" "openclaw.connectionMode" -string "local" >>"$LOG_FILE" 2>&1
-else
-  log "WARN: could not read CFBundleIdentifier from $APP_PATH/Contents/Info.plist -- app defaults not primed; first launch will show its own onboarding."
+if [[ "$ONBOARD_OK" == "1" ]]; then
+  BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$BUNDLE_ID" ]]; then
+    log "Marking onboarding as seen for $BUNDLE_ID"
+    run_as_console_user /usr/bin/defaults write "$BUNDLE_ID" "openclaw.onboardingSeen" -bool true >>"$LOG_FILE" 2>&1
+    run_as_console_user /usr/bin/defaults write "$BUNDLE_ID" "openclaw.connectionMode" -string "local" >>"$LOG_FILE" 2>&1
+  else
+    log "WARN: could not read CFBundleIdentifier from $APP_PATH/Contents/Info.plist -- app defaults not primed; first launch will show its own onboarding."
+  fi
 fi
 
 

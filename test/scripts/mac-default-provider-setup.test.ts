@@ -58,13 +58,9 @@ if [[ "$*" == *"config get agents.defaults.model.primary --json"* ]]; then
 fi
 if [[ "$*" == *"models auth paste-api-key"* ]]; then
   key="$(cat)"
-  [[ "$*" == *"--profile-id vllm:manual"* ]]
+  [[ "$*" == *"--provider vllm --agent main"* ]]
+  [[ "$*" != *"--profile-id"* ]]
   printf '%s' "$key" > "$FIXTURE_ROOT/profile-vllm-manual"
-  exit 0
-fi
-if [[ "$*" == *"models auth order set"* ]]; then
-  [[ "$*" == *"--provider vllm --agent main vllm:manual"* ]]
-  printf '%s' "vllm:manual" > "$FIXTURE_ROOT/profile-order"
   exit 0
 fi
 exit 9
@@ -81,25 +77,24 @@ exit 9
     expect(readFileSync(path.join(root, "profile-vllm-manual"), "utf8")).toBe(
       "replacement-installer-secret",
     );
-    expect(readFileSync(path.join(root, "profile-order"), "utf8")).toBe("vllm:manual");
     expect(readdirSync(root).filter((name) => name.startsWith("profile-vllm"))).toEqual([
       "profile-vllm-manual",
     ]);
     const calls = readFileSync(path.join(root, "calls"), "utf8").trim().split("\n");
-    expect(calls).toHaveLength(8);
+    expect(calls).toHaveLength(6);
     expect(calls.filter((call) => call.includes("onboard --non-interactive"))).toHaveLength(2);
     expect(
       calls.filter((call) => call.includes("config get agents.defaults.model.primary --json")),
     ).toHaveLength(2);
     expect(calls.filter((call) => call.includes("models auth paste-api-key"))).toHaveLength(2);
-    expect(calls.filter((call) => call.includes("models auth order set"))).toHaveLength(2);
+    expect(calls.filter((call) => call.includes("models auth order set"))).toHaveLength(0);
     expect(calls.every((call) => call.startsWith("--profile installer-proof "))).toBe(true);
     expect(calls.join("\n")).not.toContain("installer-secret");
     expect(calls.join("\n")).not.toContain("replacement-installer-secret");
     expect(calls.join("\n")).not.toContain("setup-");
   });
 
-  it("does not set auth order when saving the credential fails", () => {
+  it("stops when the live auth owner cannot save the credential", () => {
     const root = tempDirs.make("openclaw-default-provider-failure-");
     const cli = path.join(root, "openclaw");
     writeFileSync(path.join(root, "key"), "installer-secret");
@@ -113,7 +108,7 @@ if [[ "$*" == *"config get agents.defaults.model.primary --json"* ]]; then
   exit 0
 fi
 if [[ "$*" == *"models auth paste-api-key"* ]]; then exit 17; fi
-touch "$FIXTURE_ROOT/order-set"
+touch "$FIXTURE_ROOT/unexpected-command"
 `,
     );
 
@@ -121,7 +116,7 @@ touch "$FIXTURE_ROOT/order-set"
 
     expect(result.status).toBe(17);
     expect(readFileSync(path.join(root, "calls"), "utf8")).toContain("models auth paste-api-key");
-    expect(() => readFileSync(path.join(root, "order-set"), "utf8")).toThrow();
+    expect(() => readFileSync(path.join(root, "unexpected-command"), "utf8")).toThrow();
   });
 
   it("stores the credential under the provider resolved from provider id and base URL", () => {
@@ -139,12 +134,9 @@ if [[ "$*" == *"config get agents.defaults.model.primary --json"* ]]; then
   exit 0
 fi
 if [[ "$*" == *"models auth paste-api-key"* ]]; then
-  [[ "$*" == *"--provider vllm-2 --profile-id vllm-2:manual"* ]]
+  [[ "$*" == *"--provider vllm-2 --agent main"* ]]
+  [[ "$*" != *"--profile-id"* ]]
   cat > "$FIXTURE_ROOT/profile-vllm-2-manual"
-  exit 0
-fi
-if [[ "$*" == *"models auth order set"* ]]; then
-  [[ "$*" == *"--provider vllm-2 --agent main vllm-2:manual"* ]]
   exit 0
 fi
 exit 9
