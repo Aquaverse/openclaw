@@ -1,14 +1,37 @@
 ---
 doc-schema-version: 1
-summary: "Watch an IMAP mailbox and route authenticated incoming email to an isolated restricted reader agent"
+summary: "Connect email accounts for IMAP search, approved SMTP sending, and optional incoming-message automation"
 read_when:
+  - Connecting a personal or company email account in the Control UI
+  - Searching, reading, or sending email with agent tools
   - Triggering OpenClaw from Fastmail, iCloud, or another IMAP mailbox
   - Configuring sender authentication and isolated email reader sessions
   - Troubleshooting IMAP IDLE, mailbox credentials, or rejected senders
-title: "IMAP email trigger"
+title: "Email accounts and IMAP automation"
 ---
 
-The bundled IMAP plugin watches an existing mailbox and starts a separate, isolated agent session for each allowed incoming message. It does not send email, modify message flags, expose a public webhook, or backfill messages already present when monitoring begins.
+The bundled Email plugin supports two separate paths:
+
+- Connect one or more IMAP/SMTP accounts from **Settings → Personal profile → Email accounts**. Agents can search and read those mailboxes without changing message flags. Sending a plain-text email always presents a one-time approval card with its recipients and subject.
+- Optionally configure an incoming-message watcher that starts a separate, isolated agent session for each allowed new message.
+
+The first path does not require a reader agent or sender allowlist. The watcher remains opt-in and does not backfill messages already present when monitoring begins.
+
+## Connect an email account
+
+Open **Settings → Personal profile → Email accounts**, then select **Add email**. Enter the email address and password or app password. OpenClaw suggests the username from the part before `@`, `mail.<domain>` for both hosts, IMAP port 993 with SSL/TLS, and SMTP port 587 with STARTTLS. Edit those values when your provider uses different settings.
+
+Select **Test connection**. OpenClaw must successfully authenticate to both IMAP and SMTP before the account can be saved. The password is sent only to the authenticated local Gateway for that test, then stored in the Secret Store when you save. It is not written into `openclaw.json`.
+
+The plugin exposes these agent tools:
+
+- `email_search`: search one configured mailbox by text, sender, or unread state.
+- `email_read`: read one result by its IMAP UID. The mailbox is opened read-only.
+- `email_send`: send plain text using the account's fixed From address. Every call requires **Allow once**; there is no standing approval or unattended-send mode.
+
+When several accounts are configured, the agent must select the account id returned by the configured tool surface. Scheduled tasks can search and read normally, but a send pauses for approval.
+
+For SMTP port 587 choose STARTTLS. For SMTP port 465 choose SSL/TLS. A provider may require the full email address as the username even though the form initially suggests only the local part.
 
 ## Configure a restricted reader
 

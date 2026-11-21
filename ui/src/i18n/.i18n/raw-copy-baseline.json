@@ -425,6 +425,20 @@
       "count": 1,
       "kind": "html-text",
       "name": "text",
+      "path": "ui/src/pages/profile/email-accounts.tsx",
+      "text": "SSL/TLS"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/pages/profile/email-accounts.tsx",
+      "text": "STARTTLS"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
       "path": "ui/src/pages/skills/library-detail.tsx",
       "text": "SKILL.md"
     },

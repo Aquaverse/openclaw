@@ -37,6 +37,36 @@ const enProfile = {
         "This profile is already linked to an OpenClaw ID. Unlink it first to link another.",
       failed: "Couldn’t update the OpenClaw ID link. Try again.",
     },
+    email: {
+      title: "Email accounts",
+      description:
+        "Connect mailboxes for read-only search and reading. Sending always asks for one-time approval.",
+      add: "Add email",
+      edit: "Edit",
+      empty: "No email accounts connected",
+      connected: "Configured",
+      address: "Email address",
+      password: "Password or app password",
+      username: "Username",
+      from: "From address",
+      imapHost: "IMAP host (SSL/TLS)",
+      imapPort: "IMAP port",
+      smtpHost: "SMTP host",
+      smtpPort: "SMTP port",
+      smtpSecurity: "SMTP security",
+      test: "Test connection",
+      testing: "Testing…",
+      testPassed: "IMAP and SMTP connections succeeded.",
+      testRequired: "Test both connections before saving.",
+      testFirst: "Test the current settings before saving.",
+      passwordRequired: "Enter the current password before testing.",
+      invalidEmail: "Enter valid email and From addresses.",
+      missingFields: "Username and both server hosts are required.",
+      invalidPort: "Ports must be numbers from 1 to 65535.",
+      saveFailed: "Couldn’t save the email account.",
+      deleteFailed: "Couldn’t remove the email account.",
+      saving: "Saving…",
+    },
     access: {
       title: "Your access",
       admin: "You have admin access.",
@@ -124,6 +154,7 @@ export const registerProfileEnglish = Object.assign(
     Object.assign(en.profilePage, {
       discord: enProfile.profilePage.discord,
       openclawId: enProfile.profilePage.openclawId,
+      email: enProfile.profilePage.email,
     });
     en.profilePage.access = enProfile.profilePage.access;
     Object.assign(en.profilePage.identity, enProfile.profilePage.identity);

@@ -66,6 +66,13 @@ it("reveals identity and following settings before preferences finish, then enab
         ],
       });
       expect(page.textContent).toContain("ada@example.test");
+      const emailAccounts = page.querySelector('[data-component="email-accounts"]');
+      const modelAccounts = page.querySelector("openclaw-model-accounts");
+      expect(emailAccounts).not.toBeNull();
+      expect(modelAccounts).not.toBeNull();
+      expect(
+        emailAccounts!.compareDocumentPosition(modelAccounts!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).not.toBe(0);
       expect(page.querySelector("openclaw-model-accounts")).not.toBeNull();
       expect(page.querySelector("button.settings-row--nav")?.textContent).toContain(
         "Usage statistics",

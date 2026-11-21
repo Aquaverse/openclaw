@@ -1,0 +1,72 @@
+import assert from "node:assert/strict";
+import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
+import { expect, it, vi } from "vitest";
+import plugin from "./index.js";
+import manifest from "./openclaw.plugin.json" with { type: "json" };
+
+function register() {
+  const registerTool = vi.fn();
+  const registerGatewayMethod = vi.fn();
+  const registerService = vi.fn();
+  const on = vi.fn();
+  plugin.register(
+    createTestPluginApi({
+      id: "imap",
+      pluginConfig: {
+        accounts: {
+          work: {
+            email: "person@example.com",
+            from: "person@example.com",
+            host: "imap.example.com",
+            user: "person",
+            password: "fixture-password",
+            smtp: { host: "smtp.example.com", port: 587, security: "starttls" },
+          },
+        },
+      },
+      registerTool,
+      registerGatewayMethod,
+      registerService,
+      on,
+    }),
+  );
+  return { registerTool, registerGatewayMethod, registerService, on };
+}
+
+it("registers email tools, connectivity testing, and the optional watcher service", () => {
+  const registered = register();
+  expect(registered.registerTool.mock.calls.map(([, options]) => options.name)).toEqual([
+    "email_search",
+    "email_read",
+    "email_send",
+  ]);
+  expect(registered.registerGatewayMethod).toHaveBeenCalledWith(
+    "email.testConnection",
+    expect.any(Function),
+    { scope: "operator.admin", profileAccess: "required" },
+  );
+  expect(registered.registerService).toHaveBeenCalledOnce();
+});
+
+it("loads by default so first-time connection testing is available", () => {
+  expect(manifest.enabledByDefault).toBe(true);
+  expect(manifest.activation.onStartup).toBe(true);
+});
+
+it("requires one-time approval only for sending email", async () => {
+  const { on } = register();
+  const hook = on.mock.calls.find(([name]) => name === "before_tool_call")?.[1];
+  assert(hook, "missing before_tool_call hook");
+  expect(hook({ toolName: "email_search", params: { account: "work" } })).toBeUndefined();
+  expect(
+    hook({
+      toolName: "email_send",
+      params: { account: "work", to: ["recipient@example.com"], subject: "Status" },
+    }),
+  ).toMatchObject({
+    requireApproval: {
+      title: "Send email",
+      allowedDecisions: ["allow-once", "deny"],
+    },
+  });
+});

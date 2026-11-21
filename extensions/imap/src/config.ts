@@ -11,6 +11,8 @@ const SENDER_STRENGTHS = [
 type HookDispatch = OpenClawPluginApi["runtime"]["hooks"]["dispatchHookAgentTurn"];
 
 export type ImapAccountConfig = {
+  email: string;
+  from: string;
   host: string;
   port: number;
   secure: boolean;
@@ -25,7 +27,12 @@ export type ImapAccountConfig = {
     acceptTrustedAuthservId: boolean;
   };
   addressTokens: Array<{ token: string; senders: string[] }>;
-  agentId: string;
+  smtp?: {
+    host: string;
+    port: number;
+    security: "starttls" | "tls";
+  };
+  agentId?: string;
   deliver: boolean;
   includeBody: boolean;
   maxBytes: number;
@@ -50,11 +57,9 @@ export function resolveImapConfig(
     if (!account) {
       throw new Error(`IMAP account ${accountId} must be an object`);
     }
-    const { host, user, password, agentId } = account;
-    if (typeof host !== "string" || typeof user !== "string" || typeof agentId !== "string") {
-      throw new Error(
-        `IMAP account ${accountId} requires host, user, resolved password, and agentId`,
-      );
+    const { host, user, password } = account;
+    if (typeof host !== "string" || typeof user !== "string") {
+      throw new Error(`IMAP account ${accountId} requires host, user, and resolved password`);
     }
     if (typeof password !== "string") {
       if (asOptionalRecord(password)) {
@@ -65,6 +70,7 @@ export function resolveImapConfig(
     }
     const watch = asOptionalRecord(account.watch);
     const senderAuth = asOptionalRecord(account.senderAuth);
+    const smtp = asOptionalRecord(account.smtp);
     const mode = watch?.mode;
     const min = senderAuth?.min;
     const thinking = [
@@ -81,10 +87,21 @@ export function resolveImapConfig(
       (level): level is NonNullable<ImapAccountConfig["thinking"]> => level === account.thinking,
     );
     accounts[accountId] = {
+      email:
+        typeof account.email === "string"
+          ? account.email
+          : typeof account.from === "string"
+            ? account.from
+            : user,
+      from:
+        typeof account.from === "string"
+          ? account.from
+          : typeof account.email === "string"
+            ? account.email
+            : user,
       host,
       user,
       password,
-      agentId,
       port: typeof account.port === "number" ? account.port : 993,
       secure: account.secure !== false,
       mailbox: typeof account.mailbox === "string" ? account.mailbox : "INBOX",
@@ -110,6 +127,16 @@ export function resolveImapConfig(
               : [];
           })
         : [],
+      ...(smtp && typeof smtp.host === "string"
+        ? {
+            smtp: {
+              host: smtp.host,
+              port: typeof smtp.port === "number" ? smtp.port : 587,
+              security: smtp.security === "tls" ? "tls" : "starttls",
+            },
+          }
+        : {}),
+      ...(typeof account.agentId === "string" ? { agentId: account.agentId } : {}),
       deliver: account.deliver === true,
       includeBody: account.includeBody !== false,
       maxBytes: typeof account.maxBytes === "number" ? account.maxBytes : 20_000,

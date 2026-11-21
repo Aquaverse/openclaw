@@ -1,10 +1,10 @@
 {
   "id": "imap",
   "categories": ["inbox-collaboration"],
-  "name": "IMAP email trigger",
-  "description": "Watch IMAP mailboxes and dispatch authenticated incoming email to isolated agent sessions.",
+  "name": "Email",
+  "description": "Connect email accounts for read-only IMAP search, approved SMTP sending, and optional incoming triggers.",
   "activation": { "onStartup": true },
-  "enabledByDefault": false,
+  "enabledByDefault": true,
   "configContracts": {
     "secretInputs": {
       "bundledDefaultEnabled": false,
@@ -19,7 +19,7 @@
     ]
   },
   "uiHints": {
-    "accounts.*.password": { "label": "IMAP password", "sensitive": true },
+    "accounts.*.password": { "label": "Email password", "sensitive": true },
     "accounts.*.allowedSenders": {
       "label": "Allowed senders",
       "help": "Email addresses or @domain entries permitted to trigger the reader agent."
@@ -82,11 +82,23 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "email": { "type": "string", "format": "email" },
+          "from": { "type": "string", "format": "email" },
           "host": { "type": "string", "minLength": 1 },
           "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 993 },
           "secure": { "type": "boolean", "default": true },
           "user": { "type": "string", "minLength": 1 },
           "password": { "$ref": "#/$defs/secretInput" },
+          "smtp": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host": { "type": "string", "minLength": 1 },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535, "default": 587 },
+              "security": { "type": "string", "enum": ["starttls", "tls"], "default": "starttls" }
+            },
+            "required": ["host"]
+          },
           "mailbox": { "type": "string", "minLength": 1, "default": "INBOX" },
           "watch": { "$ref": "#/$defs/watch" },
           "allowedSenders": { "type": "array", "items": { "type": "string", "minLength": 1 } },
@@ -100,7 +112,7 @@
           "thinking": { "type": "string", "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "adaptive", "max", "ultra"] },
           "timeoutSeconds": { "type": "integer", "minimum": 1 }
         },
-        "required": ["host", "user", "password", "agentId"]
+        "required": ["host", "user", "password"]
       }
     },
     "properties": {
@@ -112,7 +124,7 @@
     }
   },
   "recommendedPrompts": [
-    "Help me plan an IMAP email trigger for trusted senders.",
-    "Draft a workflow to summarize new IMAP messages from senders I choose."
+    "Search my email for recent messages about a project.",
+    "Draft and send an email after I approve it."
   ]
 }

@@ -57,6 +57,9 @@ export class ImapAccountWatcher {
   }
 
   start(): void {
+    if (!this.options.account.agentId) {
+      return;
+    }
     if (this.options.account.allowedSenders.length === 0) {
       this.options.context.logger.warn(
         `imap: account=${this.options.accountId} disabled; configure allowedSenders before watching`,
@@ -348,6 +351,10 @@ export class ImapAccountWatcher {
 
   private async processMessage(message: FetchMessageObject, uidValidity: string): Promise<boolean> {
     const { accountId, account, state } = this.options;
+    const agentId = account.agentId;
+    if (!agentId) {
+      return true;
+    }
     const key = `${accountId}:${uidValidity}:${message.uid}`;
     const claim = () =>
       state.claims.registerIfAbsent(key, { accountId, uid: message.uid, recordedAt: Date.now() });
@@ -421,7 +428,7 @@ export class ImapAccountWatcher {
       }
       result = await this.options.runtime.hooks.dispatchHookAgentTurn({
         name: `IMAP ${accountId}`,
-        agentId: account.agentId,
+        agentId,
         sessionKey,
         message: prompt,
         externalContentSource: "email",

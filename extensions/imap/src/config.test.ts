@@ -61,3 +61,27 @@ it("accepts all SDK authentication strengths and rejects an unknown config minim
     }
   }
 });
+
+it("accepts a mailbox account without enabling the incoming-message watcher", () => {
+  const account = resolveImapConfig({
+    accounts: {
+      work: {
+        email: "person@example.com",
+        from: "person@example.com",
+        host: "imap.example.com",
+        port: 993,
+        secure: true,
+        user: "person",
+        password: "fixture-password",
+        smtp: { host: "smtp.example.com", port: 587, security: "starttls" },
+      },
+    },
+  }).accounts.work;
+
+  expect(account).toMatchObject({
+    email: "person@example.com",
+    from: "person@example.com",
+    smtp: { host: "smtp.example.com", port: 587, security: "starttls" },
+  });
+  expect(account).not.toHaveProperty("agentId");
+});

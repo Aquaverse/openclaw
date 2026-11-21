@@ -52,6 +52,7 @@ import { projectOwner } from "../../lib/reactive/projection.ts";
 import { uploadsEnabled } from "../../lib/uploads.ts";
 import { PROFILE_SETTINGS_TARGET_IDS } from "../config/settings-targets.ts";
 import { DiscordIdentity } from "./discord-identity.tsx";
+import { EmailAccounts } from "./email-accounts.tsx";
 import { ModelAccounts } from "./model-accounts.tsx";
 import { OpenClawIdIdentity } from "./openclaw-id-identity.tsx";
 import { PersonalInstructions } from "./personal-instructions.tsx";
@@ -532,6 +533,9 @@ export function ProfilePage() {
                 </Loading>
               </Errored>
             </Show>
+          </Show>
+          <Show when={hasPresentation() && !initialIdentityPending()}>
+            <EmailAccounts />
           </Show>
           <PersonalInstructions
             hidden={

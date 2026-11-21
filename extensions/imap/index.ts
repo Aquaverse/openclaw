@@ -4,7 +4,9 @@ import {
   type OpenClawPluginServiceContextV2,
 } from "openclaw/plugin-sdk/plugin-entry";
 import { resolveImapConfig } from "./src/config.js";
+import { registerEmailGatewayMethods } from "./src/gateway.js";
 import { createImapState } from "./src/state.js";
+import { registerEmailTools } from "./src/tools.js";
 import { ImapAccountWatcher } from "./src/watcher.js";
 
 const imapConfigSchema = { parse: resolveImapConfig };
@@ -18,6 +20,9 @@ export default definePluginEntry({
     if (api.registrationMode !== "full") {
       return;
     }
+    const currentConfig = () => imapConfigSchema.parse(api.pluginConfig);
+    registerEmailGatewayMethods(api);
+    registerEmailTools(api, currentConfig);
     let watchers: ImapAccountWatcher[] = [];
     api.registerService({
       id: "imap-watch",
@@ -31,11 +36,8 @@ export default definePluginEntry({
             `imap: account=${accountId} unavailable; resolve its IMAP password and reload configuration`,
           );
         });
-        const accounts = Object.entries(config.accounts);
+        const accounts = Object.entries(config.accounts).filter(([, account]) => account.agentId);
         if (!accounts.length) {
-          context.logger.warn(
-            "imap: no accounts configured; add plugins.entries.imap.config.accounts",
-          );
           return;
         }
         const state = createImapState(api.runtime);
