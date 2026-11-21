@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ImapAccountConfig } from "./config.js";
-import { sendEmail } from "./mail-client.js";
+import { listMailboxes, saveDraft, searchEmail, sendEmail } from "./mail-client.js";
 
 const smtp = vi.hoisted(() => ({
   sendMail: vi.fn(),
@@ -8,6 +8,9 @@ const smtp = vi.hoisted(() => ({
 }));
 const imap = vi.hoisted(() => ({
   connect: vi.fn(),
+  mailboxOpen: vi.fn(),
+  search: vi.fn(),
+  fetchOne: vi.fn(),
   list: vi.fn(),
   append: vi.fn(),
   close: vi.fn(),
@@ -20,6 +23,9 @@ vi.mock("nodemailer", () => ({
 vi.mock("imapflow", () => ({
   ImapFlow: class {
     connect = imap.connect;
+    mailboxOpen = imap.mailboxOpen;
+    search = imap.search;
+    fetchOne = imap.fetchOne;
     list = imap.list;
     append = imap.append;
     close = imap.close;
@@ -148,4 +154,81 @@ it("reports SMTP success and a failed Sent copy without resending", async () => 
     messageId: "<message@example.com>",
     sentCopy: { status: "failed", error: "append denied" },
   });
+});
+
+it("saves a draft in the discovered Drafts mailbox without touching SMTP", async () => {
+  imap.list.mockResolvedValueOnce([{ path: "INBOX" }, { path: "Drafts", specialUse: "\\Drafts" }]);
+
+  const result = await saveDraft(account(), {
+    to: ["recipient@example.com"],
+    bcc: ["private@example.com"],
+    subject: "Status",
+    text: "Ready",
+  });
+
+  expect(smtp.sendMail).not.toHaveBeenCalled();
+  expect(imap.append).toHaveBeenCalledWith(
+    "Drafts",
+    expect.any(Buffer),
+    ["\\Draft"],
+    expect.any(Date),
+  );
+  const raw = imap.append.mock.calls[0]?.[1] as Buffer;
+  expect(raw.toString()).toContain("To: recipient@example.com");
+  expect(raw.toString()).toContain("Bcc: private@example.com");
+  expect(result).toMatchObject({ status: "saved", mailbox: "Drafts", uid: 42 });
+});
+
+it("lists mailbox paths and special-use roles", async () => {
+  imap.list.mockResolvedValueOnce([
+    { path: "INBOX", specialUse: "\\Inbox", listed: true },
+    { path: "Drafts", specialUse: "\\Drafts", listed: true },
+  ]);
+
+  await expect(listMailboxes(account())).resolves.toEqual([
+    { path: "INBOX", specialUse: "\\Inbox" },
+    { path: "Drafts", specialUse: "\\Drafts" },
+  ]);
+});
+
+it("searches the selected mailbox with structured server-side filters", async () => {
+  imap.search.mockResolvedValueOnce([17]);
+  imap.fetchOne.mockResolvedValueOnce({
+    uid: 17,
+    envelope: {
+      subject: "Quarterly report",
+      from: [{ address: "sender@example.com" }],
+      to: [{ address: "recipient@example.com" }],
+      date: new Date("2026-11-20T10:00:00Z"),
+    },
+  });
+
+  const result = await searchEmail(account(), {
+    mailbox: "Archive",
+    from: "sender@example.com",
+    to: "recipient@example.com",
+    subject: "Quarterly report",
+    unread: true,
+    flagged: true,
+    since: "2026-11-01",
+    before: "2026-11-21",
+    limit: 10,
+  });
+
+  expect(imap.mailboxOpen).toHaveBeenCalledWith("Archive", { readOnly: true });
+  expect(imap.search).toHaveBeenCalledWith(
+    {
+      from: "sender@example.com",
+      to: "recipient@example.com",
+      subject: "Quarterly report",
+      seen: false,
+      flagged: true,
+      since: "2026-11-01",
+      before: "2026-11-21",
+    },
+    { uid: true },
+  );
+  expect(result).toEqual([
+    expect.objectContaining({ uid: 17, mailbox: "Archive", subject: "Quarterly report" }),
+  ]);
 });

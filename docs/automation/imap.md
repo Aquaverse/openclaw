@@ -1,9 +1,9 @@
 ---
 doc-schema-version: 1
-summary: "Connect email accounts for IMAP search, approved SMTP sending, and optional incoming-message automation"
+summary: "Connect email accounts for IMAP search and drafts, approved SMTP sending, and optional incoming-message automation"
 read_when:
   - Connecting a personal or company email account in the Control UI
-  - Searching, reading, or sending email with agent tools
+  - Searching, reading, drafting, or sending email with agent tools
   - Triggering OpenClaw from Fastmail, iCloud, or another IMAP mailbox
   - Configuring sender authentication and isolated email reader sessions
   - Troubleshooting IMAP IDLE, mailbox credentials, or rejected senders
@@ -12,7 +12,7 @@ title: "Email accounts and IMAP automation"
 
 The bundled Email plugin supports two separate paths:
 
-- Connect one or more IMAP/SMTP accounts from **Settings → Personal profile → Email accounts**. Agents can search and read those mailboxes without changing message flags. Sending a plain-text email always presents a one-time approval card with its recipients and subject.
+- Connect one or more IMAP/SMTP accounts from **Settings → Personal profile → Email accounts**. Agents can list folders, search and read messages without changing message flags, and save drafts without sending. Sending a plain-text email always presents a one-time approval card with its recipients and subject.
 - Optionally configure an incoming-message watcher that starts a separate, isolated agent session for each allowed new message.
 
 The first path does not require a reader agent or sender allowlist. The watcher remains opt-in and does not backfill messages already present when monitoring begins.
@@ -25,11 +25,18 @@ Select **Test connection**. OpenClaw must successfully authenticate to both IMAP
 
 The plugin exposes these agent tools:
 
-- `email_search`: search one configured mailbox by text, sender, or unread state.
-- `email_read`: read one result by its IMAP UID. The mailbox is opened read-only.
+- `email_accounts`: find a configured account by id, email address, login username, or email prefix. With only one configured account, the remaining tools select it automatically.
+- `email_mailboxes`: list exact folder paths and standard roles such as Inbox, Sent, Drafts, and Archive.
+- `email_search`: run server-side IMAP search in the Inbox or another selected folder. Filters include free text, sender, recipient, subject, unread, starred, `since`, and `before`.
+- `email_read`: read one result by its folder-scoped IMAP UID. The mailbox is opened read-only.
+- `email_draft`: save a plain-text message in the provider's standard Drafts folder. This appends over IMAP only; it never invokes SMTP or sends the message. The user reviews and sends it later from their mail client.
 - `email_send`: send plain text using the account's fixed From address. Every call requires **Allow once**; there is no standing approval or unattended-send mode.
 
-When several accounts are configured, the agent must select the account id returned by the configured tool surface. Scheduled tasks can search and read normally, but a send pauses for approval.
+When several accounts are configured, a unique username, email address, email prefix, or account id selects the account. Ambiguous matches return candidate ids and addresses so the agent can ask the user to choose. Scheduled tasks can search and read normally, but a send pauses for approval.
+
+IMAP UIDs are only meaningful inside a folder. Use the `mailbox` value returned by `email_mailboxes` in both `email_search` and `email_read` when working outside the default Inbox. The `since` date is inclusive and `before` is exclusive.
+
+Draft recipients and subject are optional, but the text body is required. OpenClaw discovers the folder carrying the standard `\\Drafts` special-use role and stores the Bcc header in the saved draft. If the server exposes no recognizable Drafts folder, the tool reports that explicitly and does not fall back to SMTP.
 
 For SMTP port 587 choose STARTTLS. For SMTP port 465 choose SSL/TLS. A provider may require the full email address as the username even though the form initially suggests only the local part.
 

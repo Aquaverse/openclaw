@@ -122,7 +122,7 @@ Each entry lists the package, distribution route, and description.
 
 - **[huggingface](/plugins/reference/huggingface)** (`@openclaw/huggingface-provider`) - included in OpenClaw. Adds Hugging Face model provider support to OpenClaw.
 
-- **[imap](/plugins/reference/imap)** (`@openclaw/imap`) - included in OpenClaw. Watch IMAP mailboxes and dispatch authenticated incoming email to isolated agent sessions.
+- **[imap](/plugins/reference/imap)** (`@openclaw/imap`) - included in OpenClaw. Connect email accounts for IMAP mailbox search and drafts, approved SMTP sending, and optional incoming triggers.
 
 - **[kie](/plugins/reference/kie)** (`@openclaw/kie-provider`) - included in OpenClaw. Adds Kie model provider support to OpenClaw.
 

@@ -2,9 +2,16 @@
   "id": "imap",
   "categories": ["inbox-collaboration"],
   "name": "Email",
-  "description": "Connect email accounts for read-only IMAP search, approved SMTP sending, and optional incoming triggers.",
+  "description": "Connect email accounts for IMAP mailbox search and drafts, approved SMTP sending, and optional incoming triggers.",
   "contracts": {
-    "tools": ["email_accounts", "email_search", "email_read", "email_send"]
+    "tools": [
+      "email_accounts",
+      "email_mailboxes",
+      "email_search",
+      "email_read",
+      "email_draft",
+      "email_send"
+    ]
   },
   "activation": { "onStartup": true },
   "enabledByDefault": true,
@@ -139,6 +146,7 @@
   },
   "recommendedPrompts": [
     "Search my email for recent messages about a project.",
-    "Draft and send an email after I approve it."
+    "Save an email draft for me to review and send later.",
+    "Send an email after I approve it."
   ]
 }

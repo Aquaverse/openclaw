@@ -5,7 +5,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 import type { ImapAccountConfig, ImapPluginConfig } from "./config.js";
 
 const mail = vi.hoisted(() => ({
+  listMailboxes: vi.fn(),
   readEmail: vi.fn(),
+  saveDraft: vi.fn(),
   searchEmail: vi.fn(),
   sendEmail: vi.fn(),
 }));
@@ -55,6 +57,8 @@ function tools(config: ImapPluginConfig) {
 beforeEach(() => {
   vi.clearAllMocks();
   mail.searchEmail.mockResolvedValue([]);
+  mail.listMailboxes.mockResolvedValue([]);
+  mail.saveDraft.mockResolvedValue({ status: "saved", mailbox: "Drafts", uid: 42 });
 });
 
 it("uses the only configured account when a mailbox tool omits account", async () => {
@@ -114,4 +118,49 @@ it("searches configured accounts without exposing credentials", async () => {
     count: 1,
   });
   expect(JSON.stringify(result)).not.toContain("fixture-password");
+});
+
+it("saves a draft through IMAP without invoking the SMTP sender", async () => {
+  const only = account();
+  const getTool = tools({ accounts: { personal: only } });
+
+  const result = await getTool("email_draft").execute("draft", {
+    to: ["recipient@example.com"],
+    subject: "Status",
+    text: "Ready",
+  });
+
+  expect(mail.saveDraft).toHaveBeenCalledWith(only, {
+    to: ["recipient@example.com"],
+    subject: "Status",
+    text: "Ready",
+  });
+  expect(mail.sendEmail).not.toHaveBeenCalled();
+  expect(result.details).toEqual({ status: "saved", mailbox: "Drafts", uid: 42 });
+});
+
+it("lists mailboxes and forwards structured search filters", async () => {
+  const only = account();
+  const getTool = tools({ accounts: { personal: only } });
+
+  await getTool("email_mailboxes").execute("mailboxes", {});
+  await getTool("email_search").execute("search", {
+    mailbox: "Archive",
+    to: "recipient@example.com",
+    subject: "Status",
+    flagged: true,
+    since: "2026-11-01",
+    before: "2026-11-21",
+  });
+
+  expect(mail.listMailboxes).toHaveBeenCalledWith(only);
+  expect(mail.searchEmail).toHaveBeenCalledWith(only, {
+    mailbox: "Archive",
+    to: "recipient@example.com",
+    subject: "Status",
+    flagged: true,
+    since: "2026-11-01",
+    before: "2026-11-21",
+    limit: 20,
+  });
 });

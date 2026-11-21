@@ -6,6 +6,14 @@ import type { ImapAccountConfig } from "./config.js";
 
 const MAX_READ_BYTES = 1_048_576;
 
+type OutgoingMessage = {
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  text: string;
+};
+
 function imapClient(account: ImapAccountConfig) {
   return new ImapFlow({
     host: account.host,
@@ -48,14 +56,42 @@ export async function testEmailConnection(account: ImapAccountConfig) {
   return { imap: "ok" as const, smtp: "ok" as const };
 }
 
+export async function listMailboxes(account: ImapAccountConfig) {
+  const client = imapClient(account);
+  try {
+    await client.connect();
+    return (await client.list()).map((mailbox) => {
+      const summary: { path: string; specialUse?: string } = { path: mailbox.path };
+      if (mailbox.specialUse) {
+        summary.specialUse = mailbox.specialUse;
+      }
+      return summary;
+    });
+  } finally {
+    client.close();
+  }
+}
+
 export async function searchEmail(
   account: ImapAccountConfig,
-  input: { query?: string; from?: string; unread?: boolean; limit: number },
+  input: {
+    mailbox?: string;
+    query?: string;
+    from?: string;
+    to?: string;
+    subject?: string;
+    unread?: boolean;
+    flagged?: boolean;
+    since?: string;
+    before?: string;
+    limit: number;
+  },
 ) {
   const client = imapClient(account);
   try {
     await client.connect();
-    await client.mailboxOpen(account.mailbox, { readOnly: true });
+    const mailbox = input.mailbox ?? account.mailbox;
+    await client.mailboxOpen(mailbox, { readOnly: true });
     const terms: Record<string, unknown> = {};
     if (input.query) {
       terms.or = [
@@ -68,8 +104,23 @@ export async function searchEmail(
     if (input.from) {
       terms.from = input.from;
     }
+    if (input.to) {
+      terms.to = input.to;
+    }
+    if (input.subject) {
+      terms.subject = input.subject;
+    }
     if (input.unread) {
       terms.seen = false;
+    }
+    if (input.flagged) {
+      terms.flagged = true;
+    }
+    if (input.since) {
+      terms.since = input.since;
+    }
+    if (input.before) {
+      terms.before = input.before;
     }
     if (Object.keys(terms).length === 0) {
       terms.all = true;
@@ -88,6 +139,7 @@ export async function searchEmail(
       }
       messages.push({
         uid: message.uid,
+        mailbox,
         subject: message.envelope?.subject ?? "",
         from: message.envelope?.from?.map((entry) => entry.address).filter(Boolean) ?? [],
         to: message.envelope?.to?.map((entry) => entry.address).filter(Boolean) ?? [],
@@ -103,11 +155,12 @@ export async function searchEmail(
   }
 }
 
-export async function readEmail(account: ImapAccountConfig, uid: number) {
+export async function readEmail(account: ImapAccountConfig, uid: number, mailbox?: string) {
   const client = imapClient(account);
   try {
     await client.connect();
-    await client.mailboxOpen(account.mailbox, { readOnly: true });
+    const selectedMailbox = mailbox ?? account.mailbox;
+    await client.mailboxOpen(selectedMailbox, { readOnly: true });
     const message = await client.fetchOne(
       uid.toString(),
       { uid: true, source: true },
@@ -122,6 +175,7 @@ export async function readEmail(account: ImapAccountConfig, uid: number) {
     const parsed = await simpleParser(message.source);
     return {
       uid,
+      mailbox: selectedMailbox,
       messageId: parsed.messageId ?? null,
       subject: parsed.subject ?? "",
       from: parsed.from?.text ?? "",
@@ -143,14 +197,47 @@ export async function readEmail(account: ImapAccountConfig, uid: number) {
   }
 }
 
+async function composeMessage(
+  account: ImapAccountConfig,
+  input: OutgoingMessage,
+  keepBcc: boolean,
+) {
+  const createdAt = new Date();
+  const message = new MailComposer({ from: account.from, ...input, date: createdAt }).compile();
+  message.keepBcc = keepBcc;
+  return { raw: await message.build(), createdAt };
+}
+
+export async function saveDraft(account: ImapAccountConfig, input: OutgoingMessage) {
+  const { raw, createdAt } = await composeMessage(account, input, true);
+  const client = imapClient(account);
+  try {
+    await client.connect();
+    const mailbox = (await client.list()).find(
+      (candidate) => candidate.specialUse === "\\Drafts",
+    )?.path;
+    if (!mailbox) {
+      throw new Error("No IMAP mailbox advertises the \\Drafts special-use flag");
+    }
+    const appended = await client.append(mailbox, raw, ["\\Draft"], createdAt);
+    if (!appended) {
+      throw new Error(`IMAP did not confirm the append to ${mailbox}`);
+    }
+    return {
+      status: "saved" as const,
+      mailbox,
+      ...(typeof appended.uid === "number" ? { uid: appended.uid } : {}),
+    };
+  } finally {
+    client.close();
+  }
+}
+
 export async function sendEmail(
   account: ImapAccountConfig,
   input: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; text: string },
 ) {
-  const sentAt = new Date();
-  const raw = await new MailComposer({ from: account.from, ...input, date: sentAt })
-    .compile()
-    .build();
+  const { raw, createdAt: sentAt } = await composeMessage(account, input, false);
   const transport = smtpTransport(account);
   const result = await transport
     .sendMail({

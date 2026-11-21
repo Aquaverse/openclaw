@@ -1,5 +1,5 @@
 ---
-summary: "Watch IMAP mailboxes and dispatch authenticated incoming email to isolated agent sessions."
+summary: "Connect email accounts for IMAP mailbox search and drafts, approved SMTP sending, and optional incoming triggers."
 read_when:
   - You are installing, configuring, or auditing the imap plugin
 title: "Imap plugin reference"
@@ -10,7 +10,7 @@ Run `pnpm plugins:inventory:gen` to rebuild it. Hand-written text survives only
 between the openclaw-plugin-reference:manual-start and
 openclaw-plugin-reference:manual-end comment markers. -->
 
-Watch IMAP mailboxes and dispatch authenticated incoming email to isolated agent sessions.
+Connect email accounts for IMAP mailbox search and drafts, approved SMTP sending, and optional incoming triggers.
 
 ## Distribution
 
@@ -19,7 +19,7 @@ Watch IMAP mailboxes and dispatch authenticated incoming email to isolated agent
 
 ## Surface
 
-This plugin declares no channels, providers, commands, or contracts.
+- Contracts: `tools`
 
 ## Related docs
 

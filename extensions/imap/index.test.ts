@@ -42,8 +42,10 @@ it("registers email tools, connectivity testing, and the optional watcher servic
   const registered = register();
   expect(registered.registerTool.mock.calls.map(([, options]) => options.name)).toEqual([
     "email_accounts",
+    "email_mailboxes",
     "email_search",
     "email_read",
+    "email_draft",
     "email_send",
   ]);
   expect(registered.registerGatewayMethod).toHaveBeenCalledWith(
@@ -58,8 +60,10 @@ it("exposes email tools during tool discovery without starting runtime services"
   const registered = register("tool-discovery");
   expect(registered.registerTool.mock.calls.map(([, options]) => options.name)).toEqual([
     "email_accounts",
+    "email_mailboxes",
     "email_search",
     "email_read",
+    "email_draft",
     "email_send",
   ]);
   expect(registered.registerGatewayMethod).not.toHaveBeenCalled();
@@ -77,8 +81,10 @@ it("admits every email tool through the manifest ownership contract", () => {
   expect(fixture.registry.registry.diagnostics).toEqual([]);
   expect(fixture.registry.registry.tools.flatMap((tool) => tool.names)).toEqual([
     "email_accounts",
+    "email_mailboxes",
     "email_search",
     "email_read",
+    "email_draft",
     "email_send",
   ]);
 });
@@ -93,6 +99,7 @@ it("requires one-time approval only for sending email", async () => {
   const hook = on.mock.calls.find(([name]) => name === "before_tool_call")?.[1];
   assert(hook, "missing before_tool_call hook");
   expect(hook({ toolName: "email_search", params: { account: "work" } })).toBeUndefined();
+  expect(hook({ toolName: "email_draft", params: { account: "work" } })).toBeUndefined();
   expect(
     hook({
       toolName: "email_send",
