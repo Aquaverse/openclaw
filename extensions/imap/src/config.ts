@@ -19,6 +19,8 @@ export type ImapAccountConfig = {
   user: string;
   password: string;
   mailbox: string;
+  saveSentCopy: boolean;
+  sentMailbox?: string;
   watch: { mode: "auto" | "idle" | "interval"; pollSeconds: number };
   allowedSenders: string[];
   senderAuth: {
@@ -105,6 +107,10 @@ export function resolveImapConfig(
       port: typeof account.port === "number" ? account.port : 993,
       secure: account.secure !== false,
       mailbox: typeof account.mailbox === "string" ? account.mailbox : "INBOX",
+      saveSentCopy: account.saveSentCopy !== false,
+      ...(typeof account.sentMailbox === "string" && account.sentMailbox.trim()
+        ? { sentMailbox: account.sentMailbox.trim() }
+        : {}),
       watch: {
         mode: mode === "idle" || mode === "interval" ? mode : "auto",
         pollSeconds: Math.max(15, typeof watch?.pollSeconds === "number" ? watch.pollSeconds : 60),

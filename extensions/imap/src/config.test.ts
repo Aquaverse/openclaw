@@ -81,7 +81,24 @@ it("accepts a mailbox account without enabling the incoming-message watcher", ()
   expect(account).toMatchObject({
     email: "person@example.com",
     from: "person@example.com",
+    saveSentCopy: true,
     smtp: { host: "smtp.example.com", port: 587, security: "starttls" },
   });
   expect(account).not.toHaveProperty("agentId");
+});
+
+it("accepts an explicit Sent mailbox and can disable Sent-copy archiving", () => {
+  const account = resolveImapConfig({
+    accounts: {
+      work: {
+        host: "imap.example.com",
+        user: "person",
+        password: "fixture-password",
+        saveSentCopy: false,
+        sentMailbox: "Sent Items",
+      },
+    },
+  }).accounts.work;
+
+  expect(account).toMatchObject({ saveSentCopy: false, sentMailbox: "Sent Items" });
 });

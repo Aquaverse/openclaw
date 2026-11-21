@@ -1,6 +1,7 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { createTransport } from "nodemailer";
+import MailComposer from "nodemailer/lib/mail-composer";
 import type { ImapAccountConfig } from "./config.js";
 
 const MAX_READ_BYTES = 1_048_576;
@@ -146,11 +147,61 @@ export async function sendEmail(
   account: ImapAccountConfig,
   input: { to: string[]; cc?: string[]; bcc?: string[]; subject: string; text: string },
 ) {
+  const sentAt = new Date();
+  const raw = await new MailComposer({ from: account.from, ...input, date: sentAt })
+    .compile()
+    .build();
   const transport = smtpTransport(account);
+  const result = await transport
+    .sendMail({
+      envelope: {
+        from: account.from,
+        to: [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])],
+      },
+      raw,
+    })
+    .finally(() => transport.close());
+
+  const sent = {
+    delivery: "sent" as const,
+    accepted: result.accepted,
+    rejected: result.rejected,
+    messageId: result.messageId,
+  };
+  if (!account.saveSentCopy) {
+    return { ...sent, sentCopy: { status: "disabled" as const } };
+  }
+
+  const client = imapClient(account);
   try {
-    const result = await transport.sendMail({ from: account.from, ...input });
-    return { accepted: result.accepted, rejected: result.rejected, messageId: result.messageId };
+    await client.connect();
+    const mailbox =
+      account.sentMailbox ??
+      (await client.list()).find((candidate) => candidate.specialUse === "\\Sent")?.path;
+    if (!mailbox) {
+      throw new Error("No IMAP mailbox advertises the \\Sent special-use flag");
+    }
+    const appended = await client.append(mailbox, raw, ["\\Seen"], sentAt);
+    if (!appended) {
+      throw new Error(`IMAP did not confirm the append to ${mailbox}`);
+    }
+    return {
+      ...sent,
+      sentCopy: {
+        status: "saved" as const,
+        mailbox,
+        ...(typeof appended.uid === "number" ? { uid: appended.uid } : {}),
+      },
+    };
+  } catch (error) {
+    return {
+      ...sent,
+      sentCopy: {
+        status: "failed" as const,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
   } finally {
-    transport.close();
+    client.close();
   }
 }

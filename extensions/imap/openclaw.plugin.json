@@ -3,6 +3,9 @@
   "categories": ["inbox-collaboration"],
   "name": "Email",
   "description": "Connect email accounts for read-only IMAP search, approved SMTP sending, and optional incoming triggers.",
+  "contracts": {
+    "tools": ["email_search", "email_read", "email_send"]
+  },
   "activation": { "onStartup": true },
   "enabledByDefault": true,
   "configContracts": {
@@ -25,6 +28,15 @@
       "help": "Email addresses or @domain entries permitted to trigger the reader agent."
     },
     "accounts.*.agentId": { "label": "Restricted reader agent" },
+    "accounts.*.saveSentCopy": {
+      "label": "Save sent messages",
+      "help": "Append sent messages to the account's IMAP Sent mailbox."
+    },
+    "accounts.*.sentMailbox": {
+      "label": "Sent mailbox override",
+      "help": "Optional mailbox path to use when the server does not advertise a standard Sent mailbox.",
+      "advanced": true
+    },
     "accounts.*.senderAuth.min": { "label": "Minimum sender authentication", "advanced": true }
   },
   "configGroups": [
@@ -100,6 +112,8 @@
             "required": ["host"]
           },
           "mailbox": { "type": "string", "minLength": 1, "default": "INBOX" },
+          "saveSentCopy": { "type": "boolean", "default": true },
+          "sentMailbox": { "type": "string", "minLength": 1 },
           "watch": { "$ref": "#/$defs/watch" },
           "allowedSenders": { "type": "array", "items": { "type": "string", "minLength": 1 } },
           "senderAuth": { "$ref": "#/$defs/senderAuth" },

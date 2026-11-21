@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
+import {
+  createPluginRegistryFixture,
+  registerVirtualTestPlugin,
+} from "openclaw/plugin-sdk/plugin-test-contracts";
 import { expect, it, vi } from "vitest";
 import plugin from "./index.js";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
@@ -58,6 +62,22 @@ it("exposes email tools during tool discovery without starting runtime services"
   ]);
   expect(registered.registerGatewayMethod).not.toHaveBeenCalled();
   expect(registered.registerService).not.toHaveBeenCalled();
+});
+
+it("admits every email tool through the manifest ownership contract", () => {
+  const fixture = createPluginRegistryFixture();
+  registerVirtualTestPlugin({
+    ...fixture,
+    ...plugin,
+    contracts: manifest.contracts,
+    register: plugin.register,
+  });
+  expect(fixture.registry.registry.diagnostics).toEqual([]);
+  expect(fixture.registry.registry.tools.flatMap((tool) => tool.names)).toEqual([
+    "email_search",
+    "email_read",
+    "email_send",
+  ]);
 });
 
 it("loads by default so first-time connection testing is available", () => {
