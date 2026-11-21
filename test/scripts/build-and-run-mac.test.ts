@@ -195,6 +195,7 @@ const nativeScripts = [
   "scripts/lint-swift.sh",
   "scripts/mac-elevation-host.sh",
   "scripts/mac-default-provider-setup.sh",
+  "scripts/mac-pkg-postinstall.sh",
   "scripts/make_appcast.sh",
   "scripts/notarize-mac-artifact.sh",
   "scripts/package-mac-app.sh",

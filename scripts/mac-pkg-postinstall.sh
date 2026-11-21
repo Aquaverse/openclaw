@@ -216,8 +216,19 @@ if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
 
   if [[ "$BACKUP_OK" == "1" ]]; then
     log "Database backup written to $BACKUP_DIR"
-    if run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-        "$OPENCLAW_BIN" doctor --fix --non-interactive >>"$LOG_FILE" 2>&1; then
+    # This script, not Doctor, owns the stopped Gateway until onboarding below
+    # installs/restarts it. Keep Doctor out of native service reconciliation so
+    # it cannot spend PackageKit's script budget waiting for a Gateway that the
+    # installer is about to replace. Ordinary bundled plugin activation is also
+    # unnecessary for this offline migration: trusted Doctor migration contracts
+    # remain available, while channel/tool runtimes cannot leave long-lived calls
+    # that keep the one-shot Doctor process alive after it reports completion.
+    if run_as_console_user /usr/bin/env \
+        HOME="$CONSOLE_HOME" \
+        OPENCLAW_PREFIX="$PREFIX" \
+        OPENCLAW_SERVICE_REPAIR_POLICY=external \
+        OPENCLAW_DISABLE_BUNDLED_PLUGINS=1 \
+        "$OPENCLAW_BIN" doctor --fix --non-interactive --no-workspace-suggestions >>"$LOG_FILE" 2>&1; then
       log "Database migration (doctor --fix --non-interactive) finished."
     else
       log "WARN: doctor --fix --non-interactive failed (see $LOG_FILE above). Backup is in $BACKUP_DIR. The Gateway may not start until 'openclaw doctor --fix' succeeds."
