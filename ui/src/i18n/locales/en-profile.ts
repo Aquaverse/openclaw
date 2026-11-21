@@ -54,6 +54,13 @@ const enProfile = {
       smtpHost: "SMTP host",
       smtpPort: "SMTP port",
       smtpSecurity: "SMTP security",
+      saveSentCopy: "Save a copy in Sent",
+      saveSentCopyDescription:
+        "After SMTP accepts the message, archive the same message in this account’s Sent mailbox.",
+      sentMailbox: "Sent mailbox override",
+      sentMailboxPlaceholder: "Auto-detect standard Sent mailbox",
+      sentMailboxDescription:
+        "Optional. Leave blank unless the mail server does not advertise its standard Sent mailbox.",
       test: "Test connection",
       testing: "Testing…",
       testPassed: "IMAP and SMTP connections succeeded.",

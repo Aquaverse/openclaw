@@ -8,6 +8,7 @@ import {
   SettingsStatus,
   SettingsValue,
 } from "../../components/solid/settings-ui.tsx";
+import { Switch } from "../../components/solid/switch.tsx";
 import { currentConfigObject } from "../../lib/config/config-state-model.ts";
 import { formatUiError } from "../../lib/format-error.ts";
 import { useApplication } from "../../lib/reactive/context.ts";
@@ -24,6 +25,8 @@ type Draft = {
   smtpHost: string;
   smtpPort: string;
   smtpSecurity: "starttls" | "tls";
+  saveSentCopy: boolean;
+  sentMailbox: string;
 };
 
 const emptyDraft = (): Draft => ({
@@ -36,6 +39,8 @@ const emptyDraft = (): Draft => ({
   smtpHost: "",
   smtpPort: "587",
   smtpSecurity: "starttls",
+  saveSentCopy: true,
+  sentMailbox: "",
 });
 
 function configuredAccounts(config: Record<string, unknown> | null) {
@@ -75,6 +80,10 @@ function draftAccount(draft: Draft, password: unknown) {
     user: draft.user.trim(),
     password,
     mailbox: "INBOX",
+    saveSentCopy: draft.saveSentCopy,
+    ...(draft.saveSentCopy && draft.sentMailbox.trim()
+      ? { sentMailbox: draft.sentMailbox.trim() }
+      : {}),
     smtp: {
       host: draft.smtpHost.trim(),
       port: smtpPort,
@@ -97,6 +106,8 @@ function draftFromAccount(id: string, value: unknown): Draft {
     smtpHost: typeof smtp?.host === "string" ? smtp.host : "",
     smtpPort: typeof smtp?.port === "number" ? String(smtp.port) : "587",
     smtpSecurity: smtp?.security === "tls" ? "tls" : "starttls",
+    saveSentCopy: account?.saveSentCopy !== false,
+    sentMailbox: typeof account?.sentMailbox === "string" ? account.sentMailbox : "",
   };
 }
 
@@ -397,6 +408,31 @@ export function EmailAccounts() {
                   <option value="tls">SSL/TLS</option>
                 </select>
               </label>
+              <SettingsRow
+                title={t("profilePage.email.saveSentCopy")}
+                description={t("profilePage.email.saveSentCopyDescription")}
+                control={
+                  <Switch
+                    ariaLabel={t("profilePage.email.saveSentCopy")}
+                    checked={current().saveSentCopy}
+                    onChange={(checked) => update({ saveSentCopy: checked })}
+                  />
+                }
+              />
+              <Show when={current().saveSentCopy}>
+                <label>
+                  {t("profilePage.email.sentMailbox")}
+                  <input
+                    class="settings-input"
+                    value={current().sentMailbox}
+                    placeholder={t("profilePage.email.sentMailboxPlaceholder")}
+                    onInput={(event) => update({ sentMailbox: event.currentTarget.value })}
+                  />
+                  <span class="settings-control__description">
+                    {t("profilePage.email.sentMailboxDescription")}
+                  </span>
+                </label>
+              </Show>
               <SettingsValue
                 value={
                   tested() === fingerprint(current())

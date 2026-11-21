@@ -58,13 +58,14 @@ it("tests both mail protocols before storing the password and account config", a
     expect(add).toBeDefined();
     add!.click();
     await waitForSolid(() =>
-      expect(view.container.querySelectorAll<HTMLInputElement>("input")).toHaveLength(8),
+      expect(view.container.querySelector<HTMLInputElement>('input[type="email"]')).not.toBeNull(),
     );
-    const fields = view.container.querySelectorAll<HTMLInputElement>("input");
-    setInput(fields[0]!, "person@example.com");
-    await waitForSolid(() => expect(fields[0]?.value).toBe("person@example.com"));
-    setInput(fields[1]!, "fixture-password");
-    await waitForSolid(() => expect(fields[1]?.value).toBe("fixture-password"));
+    const email = view.container.querySelector<HTMLInputElement>('input[type="email"]')!;
+    const password = view.container.querySelector<HTMLInputElement>('input[type="password"]')!;
+    setInput(email, "person@example.com");
+    await waitForSolid(() => expect(email.value).toBe("person@example.com"));
+    setInput(password, "fixture-password");
+    await waitForSolid(() => expect(password.value).toBe("fixture-password"));
     const test = [...view.container.querySelectorAll("button")].find(
       (button) => button.textContent?.trim() === "Test connection",
     );
@@ -88,6 +89,7 @@ it("tests both mail protocols before storing the password and account config", a
       email: "person@example.com",
       host: "mail.example.com",
       user: "person",
+      saveSentCopy: true,
       smtp: { host: "mail.example.com", port: 587, security: "starttls" },
       password: expect.objectContaining({ source: "store", provider: "default" }),
     });
