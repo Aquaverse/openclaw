@@ -17,12 +17,15 @@ export default definePluginEntry({
   description: "Dispatch authenticated incoming IMAP email to isolated agent sessions.",
   configSchema: imapConfigSchema,
   register(api: OpenClawPluginApi) {
-    if (api.registrationMode !== "full") {
+    if (api.registrationMode !== "full" && api.registrationMode !== "tool-discovery") {
       return;
     }
     const currentConfig = () => imapConfigSchema.parse(api.pluginConfig);
-    registerEmailGatewayMethods(api);
     registerEmailTools(api, currentConfig);
+    if (api.registrationMode === "tool-discovery") {
+      return;
+    }
+    registerEmailGatewayMethods(api);
     let watchers: ImapAccountWatcher[] = [];
     api.registerService({
       id: "imap-watch",

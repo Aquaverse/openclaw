@@ -4,7 +4,7 @@ import { expect, it, vi } from "vitest";
 import plugin from "./index.js";
 import manifest from "./openclaw.plugin.json" with { type: "json" };
 
-function register() {
+function register(registrationMode: "full" | "tool-discovery" = "full") {
   const registerTool = vi.fn();
   const registerGatewayMethod = vi.fn();
   const registerService = vi.fn();
@@ -12,6 +12,7 @@ function register() {
   plugin.register(
     createTestPluginApi({
       id: "imap",
+      registrationMode,
       pluginConfig: {
         accounts: {
           work: {
@@ -46,6 +47,17 @@ it("registers email tools, connectivity testing, and the optional watcher servic
     { scope: "operator.admin", profileAccess: "required" },
   );
   expect(registered.registerService).toHaveBeenCalledOnce();
+});
+
+it("exposes email tools during tool discovery without starting runtime services", () => {
+  const registered = register("tool-discovery");
+  expect(registered.registerTool.mock.calls.map(([, options]) => options.name)).toEqual([
+    "email_search",
+    "email_read",
+    "email_send",
+  ]);
+  expect(registered.registerGatewayMethod).not.toHaveBeenCalled();
+  expect(registered.registerService).not.toHaveBeenCalled();
 });
 
 it("loads by default so first-time connection testing is available", () => {
