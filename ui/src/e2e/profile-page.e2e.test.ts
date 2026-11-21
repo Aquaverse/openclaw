@@ -130,6 +130,45 @@ suite.define(() => {
     getProofDir: () => proofDir,
   });
 
+  it("renders email account settings in Simplified Chinese", async () => {
+    await suite.withPage({ viewport: { width: 1280, height: 900 } }, async ({ page }) => {
+      await page.addInitScript(() => {
+        localStorage.setItem("openclaw.i18n.locale", "zh-CN");
+      });
+      await openProfilePage(page, {
+        "config.get": {
+          raw: "{}",
+          sourceConfig: {},
+          resolved: {},
+          config: {},
+          hash: "email-i18n-config",
+        },
+      });
+
+      const email = page.locator('[data-component="email-accounts"]');
+      await expect(email.getByRole("heading", { name: "邮箱账户" })).toBeVisible();
+      await email.getByRole("button", { name: "添加邮箱" }).click();
+      await expect(email.getByText("邮箱地址", { exact: true })).toBeVisible();
+      await expect(email.getByText("密码或应用专用密码", { exact: true })).toBeVisible();
+      await expect(email.getByRole("button", { name: "测试连接" })).toBeVisible();
+
+      if (captureUiProof) {
+        await page.bringToFront();
+        const frame = await takeControlUiScreenshotFrame(
+          page,
+          email,
+          [email.locator(".settings-section__heading")],
+          {
+            animations: "disabled",
+            scrollTo: email,
+            elements: [email],
+          },
+        );
+        await writeFile(path.join(proofDir, "email-accounts-zh-CN.png"), frame.elements[0]!.png);
+      }
+    });
+  });
+
   it("keeps keyboard editing and retry available after a rejected display-name save", async () => {
     await suite.withPage({ viewport: { width: 1280, height: 900 } }, async ({ page }) => {
       const gateway = await openProfilePage(page);

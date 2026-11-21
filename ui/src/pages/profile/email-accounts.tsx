@@ -174,7 +174,7 @@ export function EmailAccounts() {
     }
     const old = current.id ? configuredAccounts(config())[current.id] : undefined;
     const oldSecret = passwordSecretName(old);
-    const secretName = `email-${crypto.randomUUID().replaceAll("-", "")}`;
+    const secretName = `OPENCLAW_EMAIL_${crypto.randomUUID().replaceAll("-", "").toUpperCase()}`;
     let staged = false;
     try {
       setBusy("save");

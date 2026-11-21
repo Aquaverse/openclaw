@@ -1,6 +1,8 @@
 /* @vitest-environment jsdom */
-import { expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
+import { i18n } from "../../i18n/index.ts";
+import { registerProfileEnglish } from "../../i18n/locales/en-profile.ts";
 import { currentConfigObject } from "../../lib/config/config-state-model.ts";
 import { gatewayHelloForMethods } from "../../test-helpers/gateway-methods.ts";
 import { mountSolid } from "../../test-helpers/mount-solid.ts";
@@ -8,6 +10,8 @@ import { createSolidApplicationContextProvider } from "../../test-helpers/solid-
 import { waitForSolid } from "../../test-helpers/solid-settle.ts";
 import { EmailAccounts } from "./email-accounts.tsx";
 import { createConnectedContext } from "./profile-page.test-support.tsx";
+
+registerProfileEnglish();
 
 function setInput(element: HTMLInputElement, value: string) {
   element.value = value;
@@ -87,6 +91,15 @@ it("tests both mail protocols before storing the password and account config", a
       smtp: { host: "mail.example.com", port: 587, security: "starttls" },
       password: expect.objectContaining({ source: "store", provider: "default" }),
     });
+    expect(request).toHaveBeenCalledWith(
+      "secrets.store.set",
+      expect.objectContaining({
+        name: expect.stringMatching(/^OPENCLAW_EMAIL_[A-F0-9]{32}$/u),
+        value: "fixture-password",
+      }),
+    );
+    const savedAccount = entries[0]![1] as { password: { id: string } };
+    expect(savedAccount.password.id).toMatch(/^OPENCLAW_EMAIL_[A-F0-9]{32}$/u);
     expect(request.mock.calls.map(([method]) => method)).toEqual([
       "email.testConnection",
       "secrets.store.set",
@@ -94,4 +107,13 @@ it("tests both mail protocols before storing the password and account config", a
   } finally {
     view.unmount();
   }
+});
+
+it("loads the Simplified Chinese email account copy", async () => {
+  onTestFinished(() => i18n.setLocale("en"));
+  await i18n.setLocale("zh-CN");
+
+  expect(i18n.t("profilePage.email.title")).toBe("邮箱账户");
+  expect(i18n.t("profilePage.email.testPassed")).toBe("IMAP 和 SMTP 连接成功。");
+  expect(i18n.t("profilePage.email.saveFailed")).toBe("无法保存邮箱账户。");
 });
