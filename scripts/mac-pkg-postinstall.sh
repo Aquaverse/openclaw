@@ -219,15 +219,14 @@ if [[ -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ]]; then
     # This script, not Doctor, owns the stopped Gateway until onboarding below
     # installs/restarts it. Keep Doctor out of native service reconciliation so
     # it cannot spend PackageKit's script budget waiting for a Gateway that the
-    # installer is about to replace. Ordinary bundled plugin activation is also
-    # unnecessary for this offline migration: trusted Doctor migration contracts
-    # remain available, while channel/tool runtimes cannot leave long-lived calls
-    # that keep the one-shot Doctor process alive after it reports completion.
+    # installer is about to replace. Keep bundled plugin discovery enabled: Doctor
+    # needs the installed manifests and migration contracts to converge configured
+    # plugins. Disabling discovery here records those plugins as missing and the
+    # next Gateway then suppresses their tools.
     if run_as_console_user /usr/bin/env \
         HOME="$CONSOLE_HOME" \
         OPENCLAW_PREFIX="$PREFIX" \
         OPENCLAW_SERVICE_REPAIR_POLICY=external \
-        OPENCLAW_DISABLE_BUNDLED_PLUGINS=1 \
         "$OPENCLAW_BIN" doctor --fix --non-interactive --no-workspace-suggestions >>"$LOG_FILE" 2>&1; then
       log "Database migration (doctor --fix --non-interactive) finished."
     else
