@@ -75,20 +75,29 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
 
   it("does not replace unchanged default-provider credentials during an upgrade", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
-    const appliedCheck = script.indexOf('case "$APPLIED_DEFAULT_PROVIDER" in');
+    const appliedCheck = script.indexOf('DEFAULT_PROVIDER_AUTH_ID="$(printf');
     const keyFile = script.indexOf('ONBOARD_KEY_FILE="$(/usr/bin/mktemp', appliedCheck);
     const setupArgs = script.indexOf("SETUP_ARGS=(", keyFile);
 
     expect(appliedCheck).toBeGreaterThanOrEqual(0);
     expect(script.slice(appliedCheck, keyFile)).toContain(
-      '"$ENV_SHA256":*) DEFAULT_PROVIDER_ENV_ALREADY_APPLIED=1',
+      "'provider=%s\\nbase_url=%s\\nmodel=%s\\napi_key=%s\\n'",
+    );
+    expect(script.slice(appliedCheck, keyFile)).toContain(
+      '"$AI_PROVIDER" "$AI_BASE_URL" "$AI_MODEL" "$AI_API_KEY"',
+    );
+    expect(script.slice(appliedCheck, keyFile)).toContain(
+      '"$PREFIX/.default-provider-auth-applied"',
     );
     expect(script.slice(keyFile - 160, keyFile)).toContain(
-      '"$DEFAULT_PROVIDER_ENV_ALREADY_APPLIED" != "1"',
+      '"$DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" != "1"',
     );
     expect(setupArgs).toBeGreaterThan(keyFile);
     expect(script.slice(setupArgs, setupArgs + 700)).toContain(
       '[[ -n "$ONBOARD_KEY_FILE" ]] && SETUP_ARGS+=(--api-key-file "$ONBOARD_KEY_FILE")',
+    );
+    expect(script).toContain(
+      '"$DEFAULT_PROVIDER_AUTH_ID" "$PREFIX/.default-provider-auth-applied"',
     );
   });
 });

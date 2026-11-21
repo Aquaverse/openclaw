@@ -292,7 +292,8 @@ AI_BASE_URL=""
 AI_MODEL=""
 AI_API_KEY=""
 ONBOARD_KEY_FILE=""
-DEFAULT_PROVIDER_ENV_ALREADY_APPLIED=0
+DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=0
+DEFAULT_PROVIDER_AUTH_ID=""
 ENV_FILE="$APP_PATH/Contents/Resources/default-ai-provider.env"
 if [[ -f "$ENV_FILE" ]]; then
   DEFAULT_AI_PROVIDER=""
@@ -314,10 +315,17 @@ DEFAULT_PROVIDER_SETUP="$APP_PATH/Contents/Resources/mac-default-provider-setup.
 if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
   log "Configuring default AI provider from the bundled installer.env (base URL: $AI_BASE_URL, model: $AI_MODEL)"
   ENV_SHA256="$(/usr/bin/shasum -a 256 "$ENV_FILE" | /usr/bin/awk '{print $1}')"
-  if [[ -f "$PREFIX/.default-provider-applied" ]]; then
+  DEFAULT_PROVIDER_AUTH_ID="$(printf 'provider=%s\nbase_url=%s\nmodel=%s\napi_key=%s\n' \
+    "$AI_PROVIDER" "$AI_BASE_URL" "$AI_MODEL" "$AI_API_KEY" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
+  if [[ -f "$PREFIX/.default-provider-auth-applied" \
+    && "$(/usr/bin/head -n1 "$PREFIX/.default-provider-auth-applied" 2>/dev/null || true)" == "$DEFAULT_PROVIDER_AUTH_ID" ]]; then
+    DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
+  elif [[ -f "$PREFIX/.default-provider-applied" ]]; then
+    # Migrate installations made before the auth-only marker existed. The old
+    # marker proves this exact bundled file completed onboarding once.
     APPLIED_DEFAULT_PROVIDER="$(/usr/bin/head -n1 "$PREFIX/.default-provider-applied" 2>/dev/null || true)"
     case "$APPLIED_DEFAULT_PROVIDER" in
-      "$ENV_SHA256":*) DEFAULT_PROVIDER_ENV_ALREADY_APPLIED=1 ;;
+      "$ENV_SHA256":*) DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1 ;;
     esac
   fi
   # The API key is handed to the default-provider setup owner through a
@@ -328,9 +336,9 @@ if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
   # <provider>:setup-<uuid> replacement credentials.
   # Saving even identical key bytes is an intentional account replacement and
   # retires persisted automation authorization. Avoid that on an ordinary CLI
-  # upgrade; a changed installer.env hash still installs the new key and lets
-  # existing jobs surface the required account re-selection.
-  if [[ -n "$AI_API_KEY" && "$DEFAULT_PROVIDER_ENV_ALREADY_APPLIED" != "1" ]]; then
+  # upgrade; a changed provider/base URL/model/key fingerprint still installs
+  # the new key and lets existing jobs surface the required account re-selection.
+  if [[ -n "$AI_API_KEY" && "$DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" != "1" ]]; then
     ONBOARD_KEY_FILE="$(/usr/bin/mktemp /tmp/openclaw-onboard-key.XXXXXX)"
     /bin/chmod 600 "$ONBOARD_KEY_FILE"
     printf '%s' "$AI_API_KEY" > "$ONBOARD_KEY_FILE"
@@ -377,6 +385,9 @@ if [[ "$ONBOARD_OK" == "1" ]]; then
     run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
         /bin/bash -c 'printf "%s\n" "$1" > "$2"' _ "$DEFAULT_PROVIDER_MARKER" "$PREFIX/.default-provider-applied" >>"$LOG_FILE" 2>&1 \
       || log "WARN: could not record the default provider marker (non-fatal; the app may apply it once more on first launch)."
+    run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+        /bin/bash -c 'printf "%s\n" "$1" > "$2"' _ "$DEFAULT_PROVIDER_AUTH_ID" "$PREFIX/.default-provider-auth-applied" >>"$LOG_FILE" 2>&1 \
+      || log "WARN: could not record the default-provider auth marker; a later upgrade may ask the auth owner to save the same key again."
   fi
 else
   log "WARN: non-interactive onboarding failed (see $LOG_FILE above) -- first launch will fall back to the app's own onboarding UI."
