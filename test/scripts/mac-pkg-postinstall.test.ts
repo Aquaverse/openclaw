@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("scripts/mac-pkg-postinstall.sh", () => {
@@ -100,6 +103,67 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     );
   });
 
+  it("restores the previous private runtime, wrapper, and markers after a failed replacement", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const functionsStart = script.indexOf("restore_previous_runtime() {");
+    const functionsEnd = script.indexOf("# PackageKit termination", functionsStart);
+    expect(functionsStart).toBeGreaterThanOrEqual(0);
+    expect(functionsEnd).toBeGreaterThan(functionsStart);
+
+    const root = mkdtempSync(join(tmpdir(), "openclaw-pkg-runtime-rollback-"));
+    const prefix = join(root, "prefix");
+    const runtime = join(prefix, "tools", "node-v24.22.1");
+    const wrapper = join(prefix, "bin", "openclaw");
+    mkdirSync(join(runtime, "bin"), { recursive: true });
+    mkdirSync(join(prefix, "bin"), { recursive: true });
+    mkdirSync(join(prefix, "backups"), { recursive: true });
+    writeFileSync(join(runtime, "old-runtime"), "old");
+    writeFileSync(wrapper, "#!/bin/bash\necho old\n");
+    chmodSync(wrapper, 0o755);
+    writeFileSync(join(prefix, ".bundled-cli-package.sha256"), "old-package\n");
+    writeFileSync(join(prefix, ".installer-runtime-applied"), "old-runtime-id\n");
+    const nodeAlias = join(prefix, "tools", "node");
+    const harness = join(root, "rollback.sh");
+    writeFileSync(
+      harness,
+      [
+        "#!/bin/bash",
+        "set -uo pipefail",
+        `PREFIX=${JSON.stringify(prefix)}`,
+        `OPENCLAW_BIN=${JSON.stringify(wrapper)}`,
+        `RUNTIME_MARKER=${JSON.stringify(join(prefix, ".installer-runtime-applied"))}`,
+        "LOG_FILE=/dev/null",
+        "GATEWAY_WAS_LOADED=0",
+        "RUNTIME_ROLLBACK_DIR=",
+        "PREVIOUS_RUNTIME_TARGET=",
+        "log() { :; }",
+        'run_as_console_user() { "$@"; }',
+        script.slice(functionsStart, functionsEnd),
+        `/bin/ln -sfn ${JSON.stringify(runtime)} ${JSON.stringify(nodeAlias)}`,
+        "stage_previous_runtime",
+        `test ! -e ${JSON.stringify(runtime)}`,
+        `mkdir -p ${JSON.stringify(join(runtime, "bin"))}`,
+        `printf partial > ${JSON.stringify(join(runtime, "partial"))}`,
+        `printf '#!/bin/bash\\necho new\\n' > ${JSON.stringify(wrapper)}`,
+        `printf new-package > ${JSON.stringify(join(prefix, ".bundled-cli-package.sha256"))}`,
+        `printf new-runtime > ${JSON.stringify(join(prefix, ".installer-runtime-applied"))}`,
+        "RUNTIME_ROLLBACK_DIR=",
+        "PREVIOUS_RUNTIME_TARGET=",
+        "RUNTIME_ROLLBACK_DIR=$(find \"$PREFIX/backups\" -maxdepth 1 -type d -name '.pkg-runtime-rollback-*' | head -n1)",
+        'PREVIOUS_RUNTIME_TARGET=$(head -n1 "$RUNTIME_ROLLBACK_DIR/runtime-target")',
+        "restore_previous_runtime",
+        `test -f ${JSON.stringify(join(runtime, "old-runtime"))}`,
+        `test ! -e ${JSON.stringify(join(runtime, "partial"))}`,
+        `grep -q 'echo old' ${JSON.stringify(wrapper)}`,
+        `grep -q old-package ${JSON.stringify(join(prefix, ".bundled-cli-package.sha256"))}`,
+        `grep -q old-runtime-id ${JSON.stringify(join(prefix, ".installer-runtime-applied"))}`,
+        `test "$(readlink ${JSON.stringify(nodeAlias)})" = ${JSON.stringify(runtime)}`,
+      ].join("\n"),
+    );
+    const result = spawnSync("/bin/bash", [harness], { encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+  });
+
   it("reuses an identical successfully migrated bundled runtime", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const markerCheck = script.indexOf('APPLIED_RUNTIME_ID="$(/usr/bin/head -n1');
@@ -142,7 +206,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(defaults).toBeGreaterThan(nexus);
   });
 
-  it("does not replace unchanged default-provider credentials during an upgrade", () => {
+  it("does not replace unchanged default-provider credentials during an upgrade or model-only change", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const appliedCheck = script.indexOf('DEFAULT_PROVIDER_AUTH_ID="$(printf');
     const keyFile = script.indexOf('ONBOARD_KEY_FILE="$(/usr/bin/mktemp', appliedCheck);
@@ -158,6 +222,15 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script.slice(appliedCheck, keyFile)).toContain(
       '"$PREFIX/.default-provider-auth-applied"',
     );
+    expect(script.slice(appliedCheck, keyFile)).toContain(
+      "config get agents.defaults.model.primary --json",
+    );
+    expect(script.slice(appliedCheck, keyFile)).toContain(
+      '"$AI_PROVIDER" "$AI_BASE_URL" "$CURRENT_MODEL_ID" "$AI_API_KEY"',
+    );
+    expect(script.slice(appliedCheck, keyFile)).toContain(
+      "DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=1",
+    );
     expect(script.slice(keyFile - 160, keyFile)).toContain(
       '"$DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" != "1"',
     );
@@ -168,6 +241,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script).toContain(
       '"$DEFAULT_PROVIDER_AUTH_ID" "$PREFIX/.default-provider-auth-applied"',
     );
+    expect(script).toContain('"$DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED" == "1"');
   });
 
   it("skips repeated onboarding and starts the selected local service without forcing a rewrite", () => {
@@ -183,7 +257,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
 
     expect(seen).toBeGreaterThanOrEqual(0);
     expect(skip).toBeGreaterThan(seen);
-    expect(script.slice(seen, skip)).toContain('DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" == "1"');
+    expect(script.slice(seen, skip)).toContain('DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED" == "1"');
     expect(start).toBeGreaterThan(skip);
     expect(installMissing).toBeGreaterThan(start);
     expect(onboard).toBeGreaterThan(installMissing);
@@ -197,5 +271,50 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script.slice(skip, onboard)).toContain(
       "Remote connection mode is configured without a local companion Gateway",
     );
+  });
+
+  it("preserves remote connection mode and does not apply the local default-provider preset", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const remoteGuard = script.indexOf('if [[ "$ONBOARDING_CONNECTION_MODE" == "remote" ]]; then');
+    const providerSetup = script.indexOf(
+      'if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL"',
+      remoteGuard,
+    );
+
+    expect(remoteGuard).toBeGreaterThanOrEqual(0);
+    expect(providerSetup).toBeGreaterThan(remoteGuard);
+    expect(script.slice(remoteGuard, providerSetup)).toContain("APPLY_DEFAULT_PROVIDER=0");
+    expect(script).toContain(
+      '"$ONBOARDING_ALREADY_COMPLETED" == "1" || "$ONBOARDING_CONNECTION_MODE" == "remote"',
+    );
+    expect(script).not.toContain(
+      'defaults write "$BUNDLE_ID" "openclaw.connectionMode" -string "local"',
+    );
+  });
+
+  it("rolls back runtime and migration data before onboarding after a required Doctor failure", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const doctorFailure = script.indexOf('rollback_failed_upgrade "Doctor migration failed"');
+    const backupFailure = script.indexOf(
+      'rollback_failed_upgrade "the pre-upgrade backup could not be completed"',
+    );
+    const onboarding = script.indexOf("# Default AI provider (optional)");
+
+    expect(doctorFailure).toBeGreaterThanOrEqual(0);
+    expect(backupFailure).toBeGreaterThan(doctorFailure);
+    expect(backupFailure).toBeLessThan(onboarding);
+    const restore = script.slice(
+      script.indexOf("restore_migration_backup()"),
+      script.indexOf("rollback_failed_upgrade()"),
+    );
+    expect(restore).toContain("CURRENT_DB_FILE");
+    expect(restore.indexOf('/bin/rm -f "$CURRENT_DB_FILE"')).toBeLessThan(
+      restore.indexOf('/bin/cp -a "$BACKUP_FILE"'),
+    );
+    expect(script.slice(doctorFailure, doctorFailure + 100)).toContain("exit 0");
+    expect(script.slice(backupFailure, backupFailure + 140)).toContain(
+      'rollback_failed_upgrade "the pre-upgrade backup could not be completed" 0',
+    );
+    expect(script.slice(backupFailure, backupFailure + 180)).toContain("exit 0");
   });
 });

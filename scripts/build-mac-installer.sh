@@ -867,7 +867,8 @@ fi
 # secrets. NEXUS_PRESET_VERSION: bump to make already-installed machines apply the preset again.
 # OPENCLAW_INSTALLER_NEXUS_SWITCHES overrides the switch list (comma separated, letters only); unset = every switch below,
 # including the personal file vault (vaultEnabled), goals (goalsEnabled) and evidence bytes (evidenceBlobsEnabled).
-# Version 6 re-applies the preset on machines where an older installer migration removed the bundled Nexus entry.
+# Version 6 repairs machines where an older installer migration removed the bundled Nexus entry. Existing entries
+# keep their user-owned switches and tools; only a missing entry receives the full preset again.
 # ---------------------------------------------------------------------
 NEXUS_PRESET_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_PRESET:-$(read_env_var OPENCLAW_INSTALLER_NEXUS_PRESET)}"
 rm -f "$APP/Contents/Resources/nexus-preset.env"

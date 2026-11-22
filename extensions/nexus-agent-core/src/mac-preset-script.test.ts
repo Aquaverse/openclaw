@@ -34,7 +34,10 @@ echo "$*" >>"$S/calls.log"
 case "$1 $2" in
   "config get") f="$S/cfg/$3"; if [[ -f "$f" ]]; then cat "$f"; else exit 1; fi ;;
   "config set") printf '%s' "$4" >"$S/cfg/$3" ;;
-  "plugins enable") printf true >"$S/cfg/plugins.entries.$3.enabled" ;;
+  "plugins enable")
+    printf true >"$S/cfg/plugins.entries.$3.enabled"
+    printf '{"nexus-agent-core":{}}' >"$S/cfg/plugins.entries"
+    ;;
   "gateway restart") ;;
 esac
 exit 0
@@ -93,7 +96,12 @@ function sandbox(): Sandbox {
     prefix,
     app,
     log,
-    set: (key, value) => fs.writeFileSync(cfgFile(key), value),
+    set: (key, value) => {
+      fs.writeFileSync(cfgFile(key), value);
+      if (key.startsWith(`${PROVIDER}.`)) {
+        fs.writeFileSync(cfgFile("plugins.entries"), '{"nexus-agent-core":{}}');
+      }
+    },
     get: (key) => (fs.existsSync(cfgFile(key)) ? fs.readFileSync(cfgFile(key), "utf8") : undefined),
     calls: () =>
       fs
@@ -230,7 +238,7 @@ describe("scripts/mac-nexus-preset.sh across versions", () => {
     assert.equal(box.marker(), String(Number(PRESET_VERSION) + 1));
   });
 
-  it("an upgrade (marker lower than the build) applies the whole preset again, switches turned off included", () => {
+  it("an upgrade preserves an existing Nexus entry, including switches and tools the user removed", () => {
     if (!runnable) {
       return;
     }
@@ -240,17 +248,34 @@ describe("scripts/mac-nexus-preset.sh across versions", () => {
     fs.writeFileSync(markerFile(box), String(Number(PRESET_VERSION) - 1));
     const result = box.run();
     assert.equal(result.status, 0);
-    assert.equal(box.get(`${PROVIDER}.config.watchersEnabled`), "true");
-    const allow = JSON.parse(box.get("tools.alsoAllow") ?? "[]") as string[];
-    assert.ok(allow.includes("web_search"));
-    for (const tool of nexusTools()) {
-      assert.ok(allow.includes(tool), tool);
+    assert.equal(box.get(`${PROVIDER}.config.watchersEnabled`), "false");
+    assert.equal(box.get("tools.alsoAllow"), JSON.stringify(["web_search"]));
+    assert.deepEqual(writes(box.calls()), []);
+    assert.equal(restarts(box.calls()).length, 0);
+    assert.equal(box.marker(), PRESET_VERSION);
+  });
+
+  it("an upgrade restores the full preset when the Nexus entry is missing", () => {
+    if (!runnable) {
+      return;
     }
+    const box = sandbox();
+    box.set("plugins.entries", "{}");
+    box.set("tools.alsoAllow", JSON.stringify(["web_search"]));
+    fs.writeFileSync(markerFile(box), String(Number(PRESET_VERSION) - 1));
+    const result = box.run();
+    assert.equal(result.status, 0);
+    assert.equal(box.get(`${PROVIDER}.enabled`), "true");
+    for (const key of SWITCHES) {
+      assert.equal(box.get(`${PROVIDER}.config.${key}`), "true", key);
+    }
+    assert.equal(box.get(`${PROVIDER}.config.fakeProviderMode`), '"ok"');
+    assert.ok(JSON.parse(box.get("tools.alsoAllow") ?? "[]").includes("nexus_task_get"));
     assert.equal(restarts(box.calls()).length, 1);
     assert.equal(box.marker(), PRESET_VERSION);
   });
 
-  it("an unreadable marker is treated as no marker, not as a downgrade", () => {
+  it("an unreadable marker still preserves an existing Nexus entry", () => {
     if (!runnable) {
       return;
     }
@@ -260,7 +285,9 @@ describe("scripts/mac-nexus-preset.sh across versions", () => {
     const result = box.run();
     assert.equal(result.status, 0);
     assert.equal(box.marker(), PRESET_VERSION);
-    assert.ok(box.get("tools.alsoAllow")?.includes("nexus_task_get"));
+    assert.equal(box.get("tools.alsoAllow"), JSON.stringify([]));
+    assert.deepEqual(writes(box.calls()), []);
+    assert.equal(restarts(box.calls()).length, 0);
   });
 });
 

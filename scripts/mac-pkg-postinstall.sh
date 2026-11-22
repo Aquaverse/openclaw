@@ -159,6 +159,117 @@ if [[ -n "$CLI_PACKAGE_TGZ_SHA256" ]]; then
   RUNTIME_ID="${CLI_PACKAGE_TGZ_SHA256}:${NODE_TARBALL_SHA256:-none}"
 fi
 
+GATEWAY_SERVICE_TARGET="gui/$CONSOLE_UID/ai.openclaw.gateway"
+GATEWAY_SERVICE_PLIST="$CONSOLE_HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"
+GATEWAY_WAS_LOADED=0
+GATEWAY_STOPPED_FOR_RUNTIME=0
+RUNTIME_ROLLBACK_DIR=""
+PREVIOUS_RUNTIME_TARGET=""
+
+restore_previous_runtime() {
+  [[ -n "$RUNTIME_ROLLBACK_DIR" && -n "$PREVIOUS_RUNTIME_TARGET" ]] || return 1
+  [[ -d "$RUNTIME_ROLLBACK_DIR/node-runtime" ]] || return 1
+  case "$PREVIOUS_RUNTIME_TARGET" in
+    "$PREFIX/tools"/node-v*) ;;
+    *)
+      log "WARN: refusing to restore an unexpected runtime path: $PREVIOUS_RUNTIME_TARGET"
+      return 1
+      ;;
+  esac
+
+  # The failed install may have recreated the same versioned directory or
+  # repointed the active alias to another version. Remove only the validated
+  # installer-owned target, then put the previous runtime and wrapper back.
+  /bin/rm -rf "$PREVIOUS_RUNTIME_TARGET"
+  /bin/mv "$RUNTIME_ROLLBACK_DIR/node-runtime" "$PREVIOUS_RUNTIME_TARGET" || return 1
+  /bin/ln -sfn "$PREVIOUS_RUNTIME_TARGET" "$PREFIX/tools/node" || return 1
+
+  /bin/rm -f "$OPENCLAW_BIN"
+  if [[ -f "$RUNTIME_ROLLBACK_DIR/openclaw-wrapper" ]]; then
+    /bin/cp -a "$RUNTIME_ROLLBACK_DIR/openclaw-wrapper" "$OPENCLAW_BIN" || return 1
+  fi
+  for marker in .bundled-cli-package.sha256 .installer-runtime-applied; do
+    /bin/rm -f "$PREFIX/$marker"
+    if [[ -f "$RUNTIME_ROLLBACK_DIR/$marker" ]]; then
+      /bin/cp -a "$RUNTIME_ROLLBACK_DIR/$marker" "$PREFIX/$marker" || return 1
+    fi
+  done
+  /bin/rm -rf "$RUNTIME_ROLLBACK_DIR"
+  RUNTIME_ROLLBACK_DIR=""
+  PREVIOUS_RUNTIME_TARGET=""
+  return 0
+}
+
+restart_previous_gateway() {
+  [[ "$GATEWAY_WAS_LOADED" == "1" && -x "$OPENCLAW_BIN" ]] || return 0
+  log "Restarting the Gateway on the restored CLI runtime."
+  run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+      "$OPENCLAW_BIN" gateway start --json >>"$LOG_FILE" 2>&1 \
+    || log "WARN: Gateway recovery start failed; open OpenClaw.app to retry recovery."
+}
+
+stage_previous_runtime() {
+  [[ -x "$OPENCLAW_BIN" ]] || return 0
+  if [[ ! -d "$PREFIX/tools/node" ]]; then
+    log "WARN: the existing CLI has no active private Node runtime; refusing to replace it without a rollback source."
+    return 1
+  fi
+  PREVIOUS_RUNTIME_TARGET="$(cd "$PREFIX/tools/node" 2>/dev/null && /bin/pwd -P || true)"
+  case "$PREVIOUS_RUNTIME_TARGET" in
+    "$PREFIX/tools"/node-v*) ;;
+    *)
+      log "WARN: the existing CLI runtime is outside the installer-owned tools directory: $PREVIOUS_RUNTIME_TARGET"
+      PREVIOUS_RUNTIME_TARGET=""
+      return 1
+      ;;
+  esac
+
+  RUNTIME_ROLLBACK_DIR="$PREFIX/backups/.pkg-runtime-rollback-$(/bin/date '+%Y%m%d-%H%M%S')-$$"
+  /bin/mkdir -p "$RUNTIME_ROLLBACK_DIR" || return 1
+  [[ ! -f "$OPENCLAW_BIN" ]] || /bin/cp -a "$OPENCLAW_BIN" "$RUNTIME_ROLLBACK_DIR/openclaw-wrapper" || return 1
+  for marker in .bundled-cli-package.sha256 .installer-runtime-applied; do
+    [[ ! -f "$PREFIX/$marker" ]] || /bin/cp -a "$PREFIX/$marker" "$RUNTIME_ROLLBACK_DIR/$marker" || return 1
+  done
+  printf '%s\n' "$PREVIOUS_RUNTIME_TARGET" >"$RUNTIME_ROLLBACK_DIR/runtime-target" || return 1
+  /bin/mv "$PREVIOUS_RUNTIME_TARGET" "$RUNTIME_ROLLBACK_DIR/node-runtime" || return 1
+  log "Previous CLI runtime staged for rollback in $RUNTIME_ROLLBACK_DIR"
+  return 0
+}
+
+commit_runtime_upgrade() {
+  [[ -n "$RUNTIME_ROLLBACK_DIR" ]] || return 0
+  /bin/rm -rf "$RUNTIME_ROLLBACK_DIR"
+  RUNTIME_ROLLBACK_DIR=""
+  PREVIOUS_RUNTIME_TARGET=""
+}
+
+rollback_uncommitted_runtime_on_exit() {
+  [[ -n "$RUNTIME_ROLLBACK_DIR" && -d "$RUNTIME_ROLLBACK_DIR/node-runtime" ]] || return 0
+  log "Package installation ended before the runtime upgrade committed; restoring the previous CLI runtime."
+  if restore_previous_runtime; then
+    restart_previous_gateway
+  else
+    log "WARN: automatic runtime rollback failed; retained rollback files are available under $RUNTIME_ROLLBACK_DIR."
+  fi
+}
+trap rollback_uncommitted_runtime_on_exit EXIT
+trap 'exit 1' HUP INT TERM
+
+# PackageKit termination or a machine restart can interrupt the small window
+# between staging the old runtime and committing the new one. Reconcile that
+# durable rollback record before trusting the installed-runtime marker.
+PENDING_RUNTIME_ROLLBACK="$(/usr/bin/find "$PREFIX/backups" -maxdepth 1 -type d -name '.pkg-runtime-rollback-*' 2>/dev/null | /usr/bin/sort | /usr/bin/tail -n1)"
+if [[ -n "$PENDING_RUNTIME_ROLLBACK" ]]; then
+  RUNTIME_ROLLBACK_DIR="$PENDING_RUNTIME_ROLLBACK"
+  PREVIOUS_RUNTIME_TARGET="$(/usr/bin/head -n1 "$RUNTIME_ROLLBACK_DIR/runtime-target" 2>/dev/null || true)"
+  if restore_previous_runtime; then
+    log "Recovered the previous CLI runtime from an interrupted package installation."
+  else
+    log "WARN: an interrupted package installation left an unusable rollback record at $RUNTIME_ROLLBACK_DIR; refusing to replace the runtime automatically."
+    exit 0
+  fi
+fi
+
 # A successful install records the exact bundled CLI archive. Reinstalling the
 # same pkg does not need to unpack Node/npm dependencies or rerun the migration
 # preflight. A user who manually restores older database files must still run
@@ -171,10 +282,6 @@ if [[ -n "$RUNTIME_ID" && -x "$OPENCLAW_BIN" && -f "$RUNTIME_MARKER" ]]; then
   fi
 fi
 
-GATEWAY_SERVICE_TARGET="gui/$CONSOLE_UID/ai.openclaw.gateway"
-GATEWAY_SERVICE_PLIST="$CONSOLE_HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"
-GATEWAY_WAS_LOADED=0
-GATEWAY_STOPPED_FOR_RUNTIME=0
 if [[ "$REUSE_INSTALLED_RUNTIME" != "1" ]] \
   && /bin/launchctl print "$GATEWAY_SERVICE_TARGET" >/dev/null 2>&1; then
   GATEWAY_WAS_LOADED=1
@@ -195,6 +302,17 @@ if [[ "$REUSE_INSTALLED_RUNTIME" != "1" ]] \
   fi
 fi
 
+if [[ "$REUSE_INSTALLED_RUNTIME" != "1" ]] && ! stage_previous_runtime; then
+  if [[ -n "$RUNTIME_ROLLBACK_DIR" && ! -d "$RUNTIME_ROLLBACK_DIR/node-runtime" ]]; then
+    /bin/rm -rf "$RUNTIME_ROLLBACK_DIR"
+    RUNTIME_ROLLBACK_DIR=""
+    PREVIOUS_RUNTIME_TARGET=""
+  fi
+  log "WARN: the existing runtime could not be staged safely -- leaving it unchanged; first launch can retry the upgrade."
+  restart_previous_gateway
+  exit 0
+fi
+
 if [[ "$REUSE_INSTALLED_RUNTIME" == "1" ]]; then
   log "Bundled CLI package is already installed and migrated -- reusing $OPENCLAW_BIN."
 else
@@ -212,12 +330,12 @@ else
       OPENCLAW_PACKAGE_TGZ="$CLI_PACKAGE_TGZ" \
       OPENCLAW_PACKAGE_TGZ_SHA256="$CLI_PACKAGE_TGZ_SHA256" \
       /bin/bash "$INSTALL_CLI" --json --runtime-only >>"$LOG_FILE" 2>&1; then
-    log "WARN: CLI install failed (see $LOG_FILE for install-cli.sh's own output above) -- leaving first-run setup to the app's own onboarding UI."
-    if [[ "$GATEWAY_WAS_LOADED" == "1" && -x "$OPENCLAW_BIN" ]]; then
-      log "Attempting to restore the Gateway service after the failed CLI install."
-      run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-          "$OPENCLAW_BIN" gateway start --json >>"$LOG_FILE" 2>&1 \
-        || log "WARN: Gateway recovery start failed; open OpenClaw.app to retry recovery."
+    log "WARN: CLI install failed (see $LOG_FILE for install-cli.sh's own output above)."
+    if restore_previous_runtime; then
+      log "Restored the previous CLI runtime after the failed install."
+      restart_previous_gateway
+    else
+      log "WARN: no previous CLI runtime was available to restore; first launch will use the app's onboarding recovery."
     fi
     exit 0
   fi
@@ -225,7 +343,11 @@ else
 fi
 
 if [[ ! -x "$OPENCLAW_BIN" ]]; then
-  log "WARN: $OPENCLAW_BIN not found after install-cli.sh reported success -- leaving first-run setup to the app's own onboarding UI."
+  log "WARN: $OPENCLAW_BIN not found after install-cli.sh reported success."
+  if restore_previous_runtime; then
+    log "Restored the previous CLI runtime after the incomplete install."
+    restart_previous_gateway
+  fi
   exit 0
 fi
 
@@ -244,6 +366,51 @@ fi
 #   3. doctor --fix --non-interactive (safe migrations only, no prompts).
 # ---------------------------------------------------------------------
 MIGRATION_OK=1
+BACKUP_DIR=""
+restore_migration_backup() {
+  [[ -n "$BACKUP_DIR" && -d "$BACKUP_DIR" ]] || return 1
+  if [[ -f "$BACKUP_DIR/openclaw.json" ]]; then
+    run_as_console_user /bin/cp -a "$BACKUP_DIR/openclaw.json" "$PREFIX/openclaw.json" >>"$LOG_FILE" 2>&1 || return 1
+  elif [[ -f "$BACKUP_DIR/.openclaw-json-absent" ]]; then
+    run_as_console_user /bin/rm -f "$PREFIX/openclaw.json" >>"$LOG_FILE" 2>&1 || return 1
+  fi
+  # Remove the failed migration's database files and sidecars before copying
+  # the stopped-Gateway snapshot back. Overlaying only the old main file could
+  # leave a new WAL behind and replay pages written by the failed upgrade.
+  for scope in state agents; do
+    [[ -d "$PREFIX/$scope" ]] || continue
+    while IFS= read -r CURRENT_DB_FILE; do
+      run_as_console_user /bin/rm -f "$CURRENT_DB_FILE" >>"$LOG_FILE" 2>&1 </dev/null || return 1
+    done < <(/usr/bin/find "$PREFIX/$scope" \( -name '*.sqlite' -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \) -type f 2>/dev/null)
+  done
+  for scope in state agents; do
+    [[ -d "$BACKUP_DIR/$scope" ]] || continue
+    while IFS= read -r BACKUP_FILE; do
+      REL="${BACKUP_FILE#"$BACKUP_DIR"/}"
+      run_as_console_user /bin/mkdir -p "$PREFIX/$(/usr/bin/dirname "$REL")" </dev/null || return 1
+      run_as_console_user /bin/cp -a "$BACKUP_FILE" "$PREFIX/$REL" >>"$LOG_FILE" 2>&1 </dev/null || return 1
+    done < <(/usr/bin/find "$BACKUP_DIR/$scope" -type f 2>/dev/null)
+  done
+  return 0
+}
+
+rollback_failed_upgrade() {
+  local reason="$1"
+  local restore_data="${2:-1}"
+  log "Rolling back the failed upgrade: $reason"
+  if [[ "$restore_data" == "1" && -n "$BACKUP_DIR" ]]; then
+    restore_migration_backup \
+      && log "Restored the pre-upgrade config and database files from $BACKUP_DIR." \
+      || log "WARN: the pre-upgrade config/database restore was incomplete; backup remains in $BACKUP_DIR."
+  fi
+  if restore_previous_runtime; then
+    log "Restored the previous CLI runtime."
+    restart_previous_gateway
+  else
+    log "WARN: no previous CLI runtime was available to restore."
+  fi
+}
+
 if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && ( -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ) ]]; then
   DOCTOR_REQUIRED=0
   log "==> Checking whether existing OpenClaw data needs Doctor migration..."
@@ -285,6 +452,8 @@ if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && ( -d "$PREFIX/agents" || -e "$PREFIX/
     run_as_console_user /bin/mkdir -p "$BACKUP_DIR" || BACKUP_OK=0
     if [[ -f "$PREFIX/openclaw.json" ]]; then
       run_as_console_user /bin/cp -a "$PREFIX/openclaw.json" "$BACKUP_DIR/openclaw.json" >>"$LOG_FILE" 2>&1 || BACKUP_OK=0
+    else
+      run_as_console_user /usr/bin/touch "$BACKUP_DIR/.openclaw-json-absent" >>"$LOG_FILE" 2>&1 || BACKUP_OK=0
     fi
     if [[ -d "$PREFIX/state" ]]; then
       # Preserve active state databases and their journals, but not historical
@@ -324,10 +493,14 @@ if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && ( -d "$PREFIX/agents" || -e "$PREFIX/
       else
         MIGRATION_OK=0
         log "WARN: doctor --fix --non-interactive failed (see $LOG_FILE above). Backup is in $BACKUP_DIR. The Gateway may not start until 'openclaw doctor --fix' succeeds."
+        rollback_failed_upgrade "Doctor migration failed"
+        exit 0
       fi
     else
       MIGRATION_OK=0
       log "WARN: could not back up the existing config and databases to $BACKUP_DIR -- skipping the automatic migration so nothing is changed without a backup. Run 'openclaw doctor --fix' manually after backing up ~/.openclaw."
+      rollback_failed_upgrade "the pre-upgrade backup could not be completed" 0
+      exit 0
     fi
   fi
 fi
@@ -336,6 +509,9 @@ if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && "$MIGRATION_OK" == "1" && -n "$RUNTIM
   run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
       /bin/bash -c 'printf "%s\n" "$1" > "$2"' _ "$RUNTIME_ID" "$RUNTIME_MARKER" >>"$LOG_FILE" 2>&1 \
     || log "WARN: could not record the installed runtime marker; a repeat install may redo CLI setup and Doctor."
+fi
+if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && "$MIGRATION_OK" == "1" ]]; then
+  commit_runtime_upgrade
 fi
 
 # ---------------------------------------------------------------------
@@ -351,7 +527,9 @@ AI_MODEL=""
 AI_API_KEY=""
 ONBOARD_KEY_FILE=""
 DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=0
+DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=0
 DEFAULT_PROVIDER_AUTH_ID=""
+APPLY_DEFAULT_PROVIDER=1
 ENV_FILE="$APP_PATH/Contents/Resources/default-ai-provider.env"
 if [[ -f "$ENV_FILE" ]]; then
   DEFAULT_AI_PROVIDER=""
@@ -385,20 +563,54 @@ if [[ -n "$BUNDLE_ID" ]]; then
   fi
 fi
 
-if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
+# A remote app is only a client of the external Gateway. Its provider/model and
+# credential owners live on that Gateway, so applying this Mac package's local
+# preset would both target the wrong state and switch the app back to local.
+if [[ "$ONBOARDING_CONNECTION_MODE" == "remote" ]]; then
+  APPLY_DEFAULT_PROVIDER=0
+  if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
+    log "Remote connection mode is configured -- preserving it and leaving the bundled default model to the remote Gateway owner."
+  fi
+fi
+
+if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
   log "Configuring default AI provider from the bundled installer.env (base URL: $AI_BASE_URL, model: $AI_MODEL)"
   ENV_SHA256="$(/usr/bin/shasum -a 256 "$ENV_FILE" | /usr/bin/awk '{print $1}')"
   DEFAULT_PROVIDER_AUTH_ID="$(printf 'provider=%s\nbase_url=%s\nmodel=%s\napi_key=%s\n' \
     "$AI_PROVIDER" "$AI_BASE_URL" "$AI_MODEL" "$AI_API_KEY" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
-  if [[ -f "$PREFIX/.default-provider-auth-applied" \
-    && "$(/usr/bin/head -n1 "$PREFIX/.default-provider-auth-applied" 2>/dev/null || true)" == "$DEFAULT_PROVIDER_AUTH_ID" ]]; then
+  APPLIED_PROVIDER_AUTH_ID="$(/usr/bin/head -n1 "$PREFIX/.default-provider-auth-applied" 2>/dev/null || true)"
+  if [[ -n "$APPLIED_PROVIDER_AUTH_ID" && "$APPLIED_PROVIDER_AUTH_ID" == "$DEFAULT_PROVIDER_AUTH_ID" ]]; then
     DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
+    DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=1
+  elif [[ -n "$APPLIED_PROVIDER_AUTH_ID" ]]; then
+    # The legacy marker includes the model even though changing only the model
+    # must not rewrite the same credential. Rebuild the old fingerprint from
+    # the currently selected model: a match proves provider, base URL and key
+    # are unchanged, so setup runs without an API-key file and only moves the
+    # default model.
+    CURRENT_MODEL_REF="$(run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+      "$OPENCLAW_BIN" config get agents.defaults.model.primary --json 2>/dev/null || true)"
+    CURRENT_MODEL_REF="${CURRENT_MODEL_REF#\"}"
+    CURRENT_MODEL_REF="${CURRENT_MODEL_REF%\"}"
+    CURRENT_MODEL_ID="${CURRENT_MODEL_REF#*/}"
+    CURRENT_MODEL_ID="${CURRENT_MODEL_ID%%@*}"
+    if [[ -n "$CURRENT_MODEL_ID" && "$CURRENT_MODEL_ID" != "$CURRENT_MODEL_REF" ]]; then
+      CURRENT_PROVIDER_AUTH_ID="$(printf 'provider=%s\nbase_url=%s\nmodel=%s\napi_key=%s\n' \
+        "$AI_PROVIDER" "$AI_BASE_URL" "$CURRENT_MODEL_ID" "$AI_API_KEY" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
+      if [[ "$APPLIED_PROVIDER_AUTH_ID" == "$CURRENT_PROVIDER_AUTH_ID" ]]; then
+        DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
+        log "Only the bundled default model changed -- preserving the existing credential and updating model selection."
+      fi
+    fi
   elif [[ -f "$PREFIX/.default-provider-applied" ]]; then
     # Migrate installations made before the auth-only marker existed. The old
     # marker proves this exact bundled file completed onboarding once.
     APPLIED_DEFAULT_PROVIDER="$(/usr/bin/head -n1 "$PREFIX/.default-provider-applied" 2>/dev/null || true)"
     case "$APPLIED_DEFAULT_PROVIDER" in
-      "$ENV_SHA256":*) DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1 ;;
+      "$ENV_SHA256":*)
+        DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
+        DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=1
+        ;;
     esac
   fi
   # The API key is handed to the default-provider setup owner through a
@@ -409,8 +621,9 @@ if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
   # <provider>:setup-<uuid> replacement credentials.
   # Saving even identical key bytes is an intentional account replacement and
   # retires persisted automation authorization. Avoid that on an ordinary CLI
-  # upgrade; a changed provider/base URL/model/key fingerprint still installs
-  # the new key and lets existing jobs surface the required account re-selection.
+  # upgrade and when only the model changes. A changed provider/base URL/key
+  # fingerprint still installs the new key and lets existing jobs surface the
+  # required account re-selection.
   if [[ -n "$AI_API_KEY" && "$DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" != "1" ]]; then
     ONBOARD_KEY_FILE="$(/usr/bin/mktemp /tmp/openclaw-onboard-key.XXXXXX)"
     /bin/chmod 600 "$ONBOARD_KEY_FILE"
@@ -425,7 +638,8 @@ fi
 
 ONBOARD_OK=0
 ONBOARD_RAN=0
-if [[ "$ONBOARDING_ALREADY_COMPLETED" == "1" && ( -z "$AI_BASE_URL" || -z "$AI_MODEL" || "$DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" == "1" ) ]]; then
+if [[ ( "$ONBOARDING_ALREADY_COMPLETED" == "1" || "$ONBOARDING_CONNECTION_MODE" == "remote" ) \
+  && ( "$APPLY_DEFAULT_PROVIDER" != "1" || -z "$AI_BASE_URL" || -z "$AI_MODEL" || "$DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED" == "1" ) ]]; then
   ONBOARD_OK=1
   log "Onboarding already completed -- skipping non-interactive onboarding."
   if [[ "$ONBOARDING_CONNECTION_MODE" != "remote" || "$HOSTS_LOCAL_GATEWAY_WITH_REMOTE_PRIMARY" == "1" ]]; then
@@ -449,7 +663,7 @@ if [[ "$ONBOARDING_ALREADY_COMPLETED" == "1" && ( -z "$AI_BASE_URL" || -z "$AI_M
 else
   ONBOARD_RAN=1
   log "==> Running non-interactive onboarding (installs the Gateway LaunchAgent)..."
-  if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
+  if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
     SETUP_ARGS=(
       --openclaw-bin "$OPENCLAW_BIN"
       --base-url "$AI_BASE_URL"
@@ -480,7 +694,7 @@ if [[ "$ONBOARD_OK" == "1" ]]; then
   # first launch or on any later one. Must match AutoOnboardBootstrap's
   # defaultProviderMarkerValue(): "<sha256 of default-ai-provider.env>:<bundled
   # CLI package sha256, or 'none'>".
-  if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
+  if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
     DEFAULT_PROVIDER_MARKER="${ENV_SHA256}:${CLI_PACKAGE_TGZ_SHA256:-none}"
     run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
         /bin/bash -c 'printf "%s\n" "$1" > "$2"' _ "$DEFAULT_PROVIDER_MARKER" "$PREFIX/.default-provider-applied" >>"$LOG_FILE" 2>&1 \
@@ -514,7 +728,6 @@ if [[ "$ONBOARD_OK" == "1" ]]; then
   if [[ -n "$BUNDLE_ID" ]]; then
     log "Marking onboarding as seen for $BUNDLE_ID"
     run_as_console_user /usr/bin/defaults write "$BUNDLE_ID" "openclaw.onboardingSeen" -bool true >>"$LOG_FILE" 2>&1
-    run_as_console_user /usr/bin/defaults write "$BUNDLE_ID" "openclaw.connectionMode" -string "local" >>"$LOG_FILE" 2>&1
   else
     log "WARN: could not read CFBundleIdentifier from $APP_PATH/Contents/Info.plist -- app defaults not primed; first launch will show its own onboarding."
   fi

@@ -12,9 +12,9 @@
 #
 # It runs only when the build baked Contents/Resources/nexus-preset.env with NEXUS_PRESET=1 (installer.env key
 # OPENCLAW_INSTALLER_NEXUS_PRESET=1, or the same variable in the build environment); otherwise it is a silent no-op.
-# It is applied ONCE per preset version (marker <prefix>/.nexus-preset-applied), so a user who later turns a switch
-# off, or removes a tool from the allow list, is not overridden on the next launch. Bump NEXUS_PRESET_VERSION in
-# scripts/build-mac-installer.sh to re-apply (an upgrade re-applies the WHOLE preset, switches the user turned off included).
+# It is applied in full only on a fresh install (no marker). A later preset version advances the marker without
+# rewriting an existing Nexus entry, so user-owned switches and tool choices survive upgrades. If a historical
+# migration removed the entire entry, the upgrade restores the preset once.
 # A build with a LOWER version than the marker (downgrade) changes nothing at all.
 #
 # Called from scripts/mac-pkg-postinstall.sh (after onboarding) and from scripts/mac-llama-fallback-setup.sh, which
@@ -68,8 +68,7 @@ if [[ "$MARKER_VERSION" == "$PRESET_VERSION" ]]; then
 fi
 # Downgrade: this build is older than the preset already applied here. Leave the user's configuration exactly as it is:
 # no switch is turned on, no tool is added, the gateway is not restarted, and the marker keeps the higher version (so
-# installing the newer build again is a plain no-op). Only an upgrade (marker lower than this build, or no marker)
-# applies the full preset again, including switches the user had turned off since.
+# installing the newer build again is a plain no-op).
 if [[ "$MARKER_VERSION" =~ ^[0-9]+$ && "$PRESET_VERSION" =~ ^[0-9]+$ ]] \
   && ((10#$MARKER_VERSION > 10#$PRESET_VERSION)); then
   log "Preset v$MARKER_VERSION is already applied and this build carries v$PRESET_VERSION (downgrade): configuration left untouched"
@@ -91,6 +90,39 @@ log "Nexus preset v$PRESET_VERSION starting (switches: $SWITCHES)"
 oc() { "$OPENCLAW_BIN" "$@" >>"$LOG_FILE" 2>&1; }
 
 CHANGED=0
+P="plugins.entries.nexus-agent-core"
+
+# An existing marker means this is an upgrade, not initial provisioning. Preserve
+# the whole user-owned entry when it still exists. Only the historical case where
+# the entry disappeared is repaired by replaying the full preset.
+if [[ -n "$MARKER_VERSION" ]]; then
+  ENTRY_STATE="$("$OPENCLAW_BIN" config get plugins.entries --json 2>/dev/null)" \
+    || soft_exit "could not inspect existing plugin configuration"
+  printf '%s' "$ENTRY_STATE" | "$NODE_BIN" -e '
+let raw = "";
+process.stdin.on("data", (chunk) => { raw += chunk; });
+process.stdin.on("end", () => {
+  try {
+    const entries = JSON.parse(raw);
+    process.exit(entries && typeof entries === "object" && !Array.isArray(entries) &&
+      Object.prototype.hasOwnProperty.call(entries, "nexus-agent-core") ? 0 : 10);
+  } catch {
+    process.exit(2);
+  }
+});
+'
+  ENTRY_STATUS=$?
+  case "$ENTRY_STATUS" in
+    0)
+      printf '%s' "$PRESET_VERSION" >"$MARKER" 2>/dev/null \
+        || log "WARN: could not write $MARKER (preset will inspect the entry again next launch)"
+      log "Nexus entry already exists; preserved user configuration and advanced the preset marker to v$PRESET_VERSION"
+      exit 0
+      ;;
+    10) log "Nexus entry is missing; restoring the bundled preset without touching other plugin entries" ;;
+    *) soft_exit "existing plugin configuration was not valid JSON" ;;
+  esac
+fi
 
 # Current value of a config path as a bare scalar ("true", "ok"), or empty when unset/unreadable. The CLI prints the
 # value as JSON; surrounding quotes and blank lines are dropped.
@@ -116,8 +148,6 @@ ensure() {
   CHANGED=1
   log "set: $1 = $2"
 }
-
-P="plugins.entries.nexus-agent-core"
 
 # 1. Enable the plugin.
 if [[ "$(cfg_get "$P.enabled")" == "true" ]]; then
