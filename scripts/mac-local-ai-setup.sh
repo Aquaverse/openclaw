@@ -71,10 +71,46 @@ env_value() {
   /usr/bin/grep -E "^$1=" "$ENV_FILE" | /usr/bin/tail -n1 | /usr/bin/cut -d'=' -f2- | /usr/bin/tr -d '\r'
 }
 SMALL_MODEL="$(env_value DEFAULT_LLAMA_MODEL)"
+LLAMA_DISABLED="$(env_value DEFAULT_LLAMA_DISABLED)"
 LITELLM_ENABLED="$(env_value DEFAULT_LITELLM_ENABLED)"
+LITELLM_DISABLED="$(env_value DEFAULT_LITELLM_DISABLED)"
 CLOUD_PROVIDER="$(env_value DEFAULT_AI_PROVIDER)"
 CLOUD_BASE_URL="$(env_value DEFAULT_AI_BASE_URL)"
 CLOUD_MODEL="$(env_value DEFAULT_AI_MODEL)"
+
+# Explicit installer switches set the *_DISABLED values. Retire only the two
+# OpenClaw-owned LaunchAgents, once per service, and preserve downloaded model
+# weights, the LiteLLM virtualenv, generated config, and model registrations.
+# The macOS app already runs this script in a detached background Task, so this
+# cleanup never extends the pkg install or app startup critical path.
+mkdir -p "$STATE_DIR" || finish "cannot create $STATE_DIR"
+retire_disabled_service_once() { # $1 = feature, $2 = label
+  local feature="$1" label="$2"
+  local attempt="$STATE_DIR/.retire-${feature}-service-attempted-v1"
+  local target="gui/$(/usr/bin/id -u)/${label}"
+  local plist="$HOME/Library/LaunchAgents/${label}.plist"
+  [[ -f "$plist" ]] || return 0
+  if ! mkdir "$attempt" 2>/dev/null; then
+    return 0
+  fi
+  log "Retiring disabled historical service $label (one attempt; runtime files are preserved)"
+  if [[ -f "$plist" ]] && /bin/launchctl print "$target" >/dev/null 2>&1; then
+    /bin/launchctl bootout "$target" >>"$LOG_FILE" 2>&1 \
+      || log "WARN: could not stop $label; the one-time cleanup will not be retried automatically"
+  fi
+  /bin/rm -f "$plist" >>"$LOG_FILE" 2>&1 \
+    || log "WARN: could not remove $plist; the one-time cleanup will not be retried automatically"
+}
+if [[ "$LLAMA_DISABLED" == "1" ]]; then
+  retire_disabled_service_once "llama" "ai.openclaw.llama-fallback"
+else
+  /bin/rmdir "$STATE_DIR/.retire-llama-service-attempted-v1" 2>/dev/null || true
+fi
+if [[ "$LITELLM_DISABLED" == "1" ]]; then
+  retire_disabled_service_once "litellm" "ai.openclaw.litellm-router"
+else
+  /bin/rmdir "$STATE_DIR/.retire-litellm-service-attempted-v1" 2>/dev/null || true
+fi
 
 # The cloud model's ref as onboarding actually registered it. onboard derives
 # the provider id from the base URL when DEFAULT_AI_PROVIDER is empty, and
@@ -104,7 +140,6 @@ if [[ -n "$CLOUD_BASE_URL" && -n "$CLOUD_MODEL" && -z "$CLOUD_MODEL_REF" ]]; the
   log "WARN: the cloud model $CLOUD_MODEL ($CLOUD_BASE_URL) is not registered yet -- treating this run as having no cloud model"
 fi
 
-mkdir -p "$STATE_DIR" || finish "cannot create $STATE_DIR"
 LOCK_DIR="$STATE_DIR/.setup.lock"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   LOCK_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"

@@ -795,6 +795,11 @@ emit_default_ai_provider_env() {
     echo "DEFAULT_AI_API_KEY=$(read_env_var OPENCLAW_INSTALLER_DEFAULT_AI_API_KEY)"
   fi
   echo "DEFAULT_LLAMA_MODEL=$LLAMA_MODEL_FOR_BUNDLE"
+  if [[ "$LLAMA_SWITCH" == "0" ]]; then
+    echo "DEFAULT_LLAMA_DISABLED=1"
+  else
+    echo "DEFAULT_LLAMA_DISABLED="
+  fi
   # llama-server context size (tokens) for the local model; see
   # scripts/mac-llama-fallback-setup.sh. Empty -> model-native context.
   LLAMA_CTX_FOR_BUNDLE="$(read_env_var OPENCLAW_LLAMA_FALLBACK_CTX)"
@@ -833,6 +838,11 @@ emit_default_ai_provider_env() {
   # scripts/mac-litellm-router-setup.sh): the switch, and optional per-tier
   # model pins (OpenClaw refs; unset tiers are chosen automatically).
   echo "DEFAULT_LITELLM_ENABLED=${LITELLM_ENABLED_FOR_BUNDLE:+1}"
+  if [[ "$LITELLM_SWITCH" == "0" ]]; then
+    echo "DEFAULT_LITELLM_DISABLED=1"
+  else
+    echo "DEFAULT_LITELLM_DISABLED="
+  fi
   echo "DEFAULT_ROUTER_TIER_MEDIUM=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_MEDIUM)"
   echo "DEFAULT_ROUTER_TIER_COMPLEX=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_COMPLEX)"
   echo "DEFAULT_ROUTER_TIER_REASONING=$(read_env_var OPENCLAW_INSTALLER_ROUTER_TIER_REASONING)"

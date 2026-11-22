@@ -297,6 +297,8 @@ describe("scripts/build-mac-installer.sh default-ai-provider.env", () => {
       [
         "set -uo pipefail",
         `DEFAULT_MODEL_SWITCH='${defaultModelSwitch}'`,
+        'LLAMA_SWITCH=""',
+        'LITELLM_SWITCH=""',
         'LLAMA_MODEL_FOR_BUNDLE=""',
         'LITELLM_ENABLED_FOR_BUNDLE=""',
         'read_env_var() { case "$1" in',
@@ -361,6 +363,35 @@ describe("scripts/build-mac-installer.sh default-ai-provider.env", () => {
     for (const line of env.split("\n").filter((l) => l !== "")) {
       assert.match(line, /^[A-Z][A-Z0-9_]*=.*$/u, line);
     }
+  });
+
+  it("records explicit local-model and LiteLLM disable switches for one-time retirement", () => {
+    if (!runnable) {
+      return;
+    }
+    const source = fs.readFileSync(buildScript, "utf8");
+    const fn = /^emit_default_ai_provider_env\(\) \{\n[\s\S]*?\n\}\n/mu.exec(source);
+    assert.ok(fn, "emit_default_ai_provider_env not found in build-mac-installer.sh");
+    const root = tmp();
+    const harness = path.join(root, "harness.sh");
+    fs.writeFileSync(
+      harness,
+      [
+        "set -uo pipefail",
+        'DEFAULT_MODEL_SWITCH=""',
+        'LLAMA_SWITCH="0"',
+        'LITELLM_SWITCH="0"',
+        'LLAMA_MODEL_FOR_BUNDLE=""',
+        'LITELLM_ENABLED_FOR_BUNDLE=""',
+        "read_env_var() { echo ''; }",
+        fn[0],
+        "emit_default_ai_provider_env",
+      ].join("\n"),
+    );
+    const result = spawnSync("bash", [harness], { encoding: "utf8" });
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /^DEFAULT_LLAMA_DISABLED=1$/mu);
+    assert.match(result.stdout, /^DEFAULT_LITELLM_DISABLED=1$/mu);
   });
 
   it("keeps the DEFAULT_MODEL=0 notice out of the generator and prints it from the caller", () => {

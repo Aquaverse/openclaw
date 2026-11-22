@@ -37,15 +37,54 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     const migrationEnd = script.indexOf("# Default AI provider (optional)", migrationStart);
     const migration = script.slice(migrationStart, migrationEnd);
     const preflight = migration.indexOf("doctor --lint --only core/doctor/state-schema --json");
-    const stop = migration.indexOf("gateway stop --force", preflight);
-    const doctor = migration.indexOf("doctor --fix --non-interactive", stop);
+    const doctor = migration.indexOf("doctor --fix --non-interactive", preflight);
 
     expect(preflight).toBeGreaterThanOrEqual(0);
-    expect(stop).toBeGreaterThan(preflight);
-    expect(doctor).toBeGreaterThan(stop);
-    expect(migration.slice(preflight, stop)).toContain("DOCTOR_REQUIRED=1");
-    expect(migration.slice(preflight, stop)).toContain(
+    expect(doctor).toBeGreaterThan(preflight);
+    expect(migration.slice(preflight, doctor)).toContain("DOCTOR_REQUIRED=1");
+    expect(migration.slice(preflight, doctor)).toContain(
       "Existing database state is current -- skipping full Doctor migration.",
+    );
+  });
+
+  it("skips Doctor on a fresh runtime and lets onboarding install the Gateway once", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const migrationStart = script.indexOf("# Upgrade over an existing install");
+    const migrationEnd = script.indexOf("# Default AI provider (optional)", migrationStart);
+    const migration = script.slice(migrationStart, migrationEnd);
+    const onboardingStart = script.indexOf("ONBOARD_ARGS=(onboard --non-interactive");
+    const freshStart = script.indexOf("else\n  ONBOARD_RAN=1", onboardingStart);
+    const freshEnd = script.indexOf('[[ -n "$ONBOARD_KEY_FILE" ]]', freshStart);
+    const onboarding = script.slice(onboardingStart, freshEnd);
+    const freshOnboarding = script.slice(freshStart, freshEnd);
+
+    expect(migration).toContain(
+      'if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && ( -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ) ]]; then',
+    );
+    expect(migration).not.toContain('-d "$PREFIX/bin"');
+    expect(migration).not.toContain('-d "$PREFIX/tools"');
+    expect(onboarding).toContain("ONBOARD_ARGS=(onboard --non-interactive");
+    expect(onboarding).toContain("--install-daemon");
+    expect(onboarding).toContain("SETUP_ARGS=(");
+    expect(onboarding).toContain("--install-daemon");
+    expect(freshOnboarding).not.toContain("gateway start --json");
+    expect(freshOnboarding).not.toContain("gateway install --json");
+  });
+
+  it("stops a loaded Gateway before replacing its CLI runtime", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const guard = script.indexOf('if [[ "$REUSE_INSTALLED_RUNTIME" != "1" ]]');
+    const loaded = script.indexOf('launchctl print "$GATEWAY_SERVICE_TARGET"', guard);
+    const stop = script.indexOf("gateway stop --force --json", loaded);
+    const install = script.indexOf('"$INSTALL_CLI" --json --runtime-only', stop);
+
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(loaded).toBeGreaterThan(guard);
+    expect(stop).toBeGreaterThan(loaded);
+    expect(install).toBeGreaterThan(stop);
+    expect(script.slice(guard, install)).toContain('REUSE_INSTALLED_RUNTIME" != "1"');
+    expect(script.slice(stop, install)).toContain(
+      "the running Gateway could not be stopped safely",
     );
   });
 
@@ -119,21 +158,26 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     );
   });
 
-  it("skips repeated onboarding and only refreshes the service for a new CLI", () => {
+  it("skips repeated onboarding and starts a previously loaded service without forcing a rewrite", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const seen = script.indexOf('"openclaw.onboardingSeen"');
     const skip = script.indexOf(
       'log "Onboarding already completed -- skipping non-interactive onboarding."',
       seen,
     );
-    const refresh = script.indexOf("gateway install --force --json", skip);
+    const start = script.indexOf("gateway start --json", skip);
+    const installMissing = script.indexOf("gateway install --json", start);
     const onboard = script.indexOf('log "==> Running non-interactive onboarding', skip);
 
     expect(seen).toBeGreaterThanOrEqual(0);
     expect(skip).toBeGreaterThan(seen);
     expect(script.slice(seen, skip)).toContain('DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" == "1"');
-    expect(refresh).toBeGreaterThan(skip);
-    expect(onboard).toBeGreaterThan(refresh);
-    expect(script.slice(skip, refresh)).toContain('REUSE_INSTALLED_RUNTIME" != "1"');
+    expect(start).toBeGreaterThan(skip);
+    expect(installMissing).toBeGreaterThan(start);
+    expect(onboard).toBeGreaterThan(installMissing);
+    expect(script.slice(skip, start)).toContain('REUSE_INSTALLED_RUNTIME" != "1"');
+    expect(script.slice(skip, onboard)).not.toContain("gateway install --force");
+    expect(script.slice(skip, onboard)).toContain('GATEWAY_WAS_LOADED" == "1"');
+    expect(script.slice(skip, onboard)).toContain('! -f "$GATEWAY_SERVICE_PLIST"');
   });
 });

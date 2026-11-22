@@ -171,6 +171,30 @@ if [[ -n "$RUNTIME_ID" && -x "$OPENCLAW_BIN" && -f "$RUNTIME_MARKER" ]]; then
   fi
 fi
 
+GATEWAY_SERVICE_TARGET="gui/$CONSOLE_UID/ai.openclaw.gateway"
+GATEWAY_SERVICE_PLIST="$CONSOLE_HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"
+GATEWAY_WAS_LOADED=0
+GATEWAY_STOPPED_FOR_RUNTIME=0
+if [[ "$REUSE_INSTALLED_RUNTIME" != "1" ]] \
+  && /bin/launchctl print "$GATEWAY_SERVICE_TARGET" >/dev/null 2>&1; then
+  GATEWAY_WAS_LOADED=1
+  log "==> Stopping the running Gateway before replacing its CLI runtime..."
+  if [[ -x "$OPENCLAW_BIN" ]] \
+    && run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+      "$OPENCLAW_BIN" gateway stop --force --json >>"$LOG_FILE" 2>&1; then
+    GATEWAY_STOPPED_FOR_RUNTIME=1
+  else
+    log "Gateway CLI stop failed; asking launchd to stop the existing service directly."
+    /bin/launchctl bootout "$GATEWAY_SERVICE_TARGET" >>"$LOG_FILE" 2>&1 \
+      && GATEWAY_STOPPED_FOR_RUNTIME=1
+  fi
+  if [[ "$GATEWAY_STOPPED_FOR_RUNTIME" != "1" ]] \
+    || /bin/launchctl print "$GATEWAY_SERVICE_TARGET" >/dev/null 2>&1; then
+    log "WARN: the running Gateway could not be stopped safely -- leaving its CLI runtime unchanged; first launch can retry the upgrade."
+    exit 0
+  fi
+fi
+
 if [[ "$REUSE_INSTALLED_RUNTIME" == "1" ]]; then
   log "Bundled CLI package is already installed and migrated -- reusing $OPENCLAW_BIN."
 else
@@ -189,6 +213,12 @@ else
       OPENCLAW_PACKAGE_TGZ_SHA256="$CLI_PACKAGE_TGZ_SHA256" \
       /bin/bash "$INSTALL_CLI" --json --runtime-only >>"$LOG_FILE" 2>&1; then
     log "WARN: CLI install failed (see $LOG_FILE for install-cli.sh's own output above) -- leaving first-run setup to the app's own onboarding UI."
+    if [[ "$GATEWAY_WAS_LOADED" == "1" && -x "$OPENCLAW_BIN" ]]; then
+      log "Attempting to restore the Gateway service after the failed CLI install."
+      run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+          "$OPENCLAW_BIN" gateway start --json >>"$LOG_FILE" 2>&1 \
+        || log "WARN: Gateway recovery start failed; open OpenClaw.app to retry recovery."
+    fi
     exit 0
   fi
   log "CLI install finished."
@@ -229,11 +259,13 @@ if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && ( -d "$PREFIX/agents" || -e "$PREFIX/
 
   if [[ "$DOCTOR_REQUIRED" == "1" ]]; then
     log "==> Existing OpenClaw data found in $PREFIX -- migrating databases before the Gateway starts..."
-    run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-        "$OPENCLAW_BIN" gateway stop --force >>"$LOG_FILE" 2>&1 \
-      || log "Gateway stop returned non-zero (probably not installed or not running); continuing."
-    # Give a launchd-managed Gateway a moment to release its database locks.
-    /bin/sleep 3
+    if /bin/launchctl print "$GATEWAY_SERVICE_TARGET" >/dev/null 2>&1; then
+      run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+          "$OPENCLAW_BIN" gateway stop --force >>"$LOG_FILE" 2>&1 \
+        || log "Gateway stop returned non-zero; Doctor will report if a live owner still holds the databases."
+      # Give a launchd-managed Gateway a moment to release its database locks.
+      /bin/sleep 3
+    fi
 
     BACKUP_DIR="$PREFIX/backups/pre-upgrade-$(/bin/date '+%Y%m%d-%H%M%S')"
     BACKUP_OK=1
@@ -379,10 +411,22 @@ if [[ "$ONBOARDING_ALREADY_COMPLETED" == "1" && ( -z "$AI_BASE_URL" || -z "$AI_M
   ONBOARD_OK=1
   log "Onboarding already completed -- skipping non-interactive onboarding."
   if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && "$ONBOARDING_CONNECTION_MODE" != "remote" ]]; then
-    log "==> Refreshing the existing Gateway service for the newly installed CLI..."
-    run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-        "$OPENCLAW_BIN" gateway install --force --json >>"$LOG_FILE" 2>&1 \
-      || log "WARN: Gateway service refresh failed (see $LOG_FILE above); onboarding remains completed and the app can retry service recovery."
+    if [[ "$GATEWAY_WAS_LOADED" == "1" ]]; then
+      # `gateway start` preserves a matching service definition and repairs it
+      # only when the new runtime or Gateway target actually changed. The old
+      # `install --force` path rewrote and restarted an already-correct service.
+      log "==> Starting the Gateway on the newly installed CLI (repairing its service definition only if needed)..."
+      run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+          "$OPENCLAW_BIN" gateway start --json >>"$LOG_FILE" 2>&1 \
+        || log "WARN: Gateway service start failed (see $LOG_FILE above); onboarding remains completed and the app can retry service recovery."
+    elif [[ ! -f "$GATEWAY_SERVICE_PLIST" ]]; then
+      log "==> No Gateway service definition exists; installing it once..."
+      run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+          "$OPENCLAW_BIN" gateway install --json >>"$LOG_FILE" 2>&1 \
+        || log "WARN: Gateway service install failed (see $LOG_FILE above); onboarding remains completed and the app can retry service recovery."
+    else
+      log "Gateway service was stopped before this upgrade -- preserving that stopped state."
+    fi
   elif [[ "$ONBOARDING_CONNECTION_MODE" == "remote" ]]; then
     log "Remote connection mode is already configured -- leaving local Gateway service state unchanged."
   fi
