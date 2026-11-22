@@ -160,11 +160,10 @@ if [[ -n "$CLI_PACKAGE_TGZ_SHA256" ]]; then
 fi
 
 # A successful install records the exact bundled CLI archive. Reinstalling the
-# same pkg does not need to unpack Node/npm dependencies or rerun Doctor. The
-# marker is written only after migrations succeed, so an interrupted or failed
-# attempt is retried. A user who manually restores older database files must
-# still run Doctor; that visible recovery case does not justify making every
-# ordinary reinstall repeat several minutes of migration discovery.
+# same pkg does not need to unpack Node/npm dependencies or rerun the migration
+# preflight. A user who manually restores older database files must still run
+# Doctor; that visible recovery case does not justify making every ordinary
+# reinstall repeat migration discovery.
 if [[ -n "$RUNTIME_ID" && -x "$OPENCLAW_BIN" && -f "$RUNTIME_MARKER" ]]; then
   APPLIED_RUNTIME_ID="$(/usr/bin/head -n1 "$RUNTIME_MARKER" 2>/dev/null || true)"
   if [[ "$APPLIED_RUNTIME_ID" == "$RUNTIME_ID" ]]; then
@@ -201,7 +200,8 @@ if [[ ! -x "$OPENCLAW_BIN" ]]; then
 fi
 
 # ---------------------------------------------------------------------
-# Upgrade over an existing install: migrate the state/agent databases.
+# Upgrade over an existing install: migrate the state/agent databases only when
+# the new CLI's read-only state-schema check says repair is required.
 # A new CLI refuses to open databases written by an older schema ("uses
 # schema version N; run openclaw doctor --fix"), so without this step the
 # Gateway LaunchAgent started by onboarding below would crash-loop on a
@@ -215,63 +215,76 @@ fi
 # ---------------------------------------------------------------------
 MIGRATION_OK=1
 if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && ( -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ) ]]; then
-  log "==> Existing OpenClaw data found in $PREFIX -- migrating databases before the Gateway starts..."
-  run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-      "$OPENCLAW_BIN" gateway stop --force >>"$LOG_FILE" 2>&1 \
-    || log "Gateway stop returned non-zero (probably not installed or not running); continuing."
-  # Give a launchd-managed Gateway a moment to release its database locks.
-  /bin/sleep 3
-
-  BACKUP_DIR="$PREFIX/backups/pre-upgrade-$(/bin/date '+%Y%m%d-%H%M%S')"
-  BACKUP_OK=1
-  run_as_console_user /bin/mkdir -p "$BACKUP_DIR" || BACKUP_OK=0
-  if [[ -f "$PREFIX/openclaw.json" ]]; then
-    run_as_console_user /bin/cp -a "$PREFIX/openclaw.json" "$BACKUP_DIR/openclaw.json" >>"$LOG_FILE" 2>&1 || BACKUP_OK=0
-  fi
-  if [[ -d "$PREFIX/state" ]]; then
-    # Preserve active state databases and their journals, but not historical
-    # pre-startup migration backups. Those are already rollback artifacts and
-    # copying them into every pkg backup made repeat installs progressively slower.
-    while IFS= read -r STATE_FILE; do
-      REL="${STATE_FILE#"$PREFIX"/}"
-      run_as_console_user /bin/mkdir -p "$BACKUP_DIR/$(/usr/bin/dirname "$REL")" </dev/null || BACKUP_OK=0
-      run_as_console_user /bin/cp -a "$STATE_FILE" "$BACKUP_DIR/$REL" >>"$LOG_FILE" 2>&1 </dev/null || BACKUP_OK=0
-    done < <(/usr/bin/find "$PREFIX/state" -type f ! -name '*.pre-startup-migration-*.bak' 2>/dev/null)
-  fi
-  if [[ -d "$PREFIX/agents" ]]; then
-    # Only the databases (and their WAL/SHM files), not session transcripts or media.
-    while IFS= read -r DB_FILE; do
-      REL="${DB_FILE#"$PREFIX"/}"
-      # </dev/null: keep launchctl/sudo from swallowing the loop's file list.
-      run_as_console_user /bin/mkdir -p "$BACKUP_DIR/$(/usr/bin/dirname "$REL")" </dev/null || BACKUP_OK=0
-      run_as_console_user /bin/cp -a "$DB_FILE" "$BACKUP_DIR/$REL" >>"$LOG_FILE" 2>&1 </dev/null || BACKUP_OK=0
-    done < <(/usr/bin/find "$PREFIX/agents" \( -name '*.sqlite' -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \) -type f 2>/dev/null)
+  DOCTOR_REQUIRED=0
+  log "==> Checking whether existing OpenClaw data needs Doctor migration..."
+  if run_as_console_user /usr/bin/env \
+      HOME="$CONSOLE_HOME" \
+      OPENCLAW_PREFIX="$PREFIX" \
+      "$OPENCLAW_BIN" doctor --lint --only core/doctor/state-schema --json >>"$LOG_FILE" 2>&1; then
+    log "Existing database state is current -- skipping full Doctor migration."
+  else
+    DOCTOR_REQUIRED=1
+    log "Doctor preflight found pending repair or could not prove current state -- running the guarded migration path."
   fi
 
-  if [[ "$BACKUP_OK" == "1" ]]; then
-    log "Pre-upgrade backup written to $BACKUP_DIR"
-    # This script, not Doctor, owns the stopped Gateway until onboarding below
-    # installs/restarts it. Keep Doctor out of native service reconciliation so
-    # it cannot spend PackageKit's script budget waiting for a Gateway that the
-    # installer is about to replace. Keep bundled plugin discovery enabled: Doctor
-    # needs the installed manifests and migration contracts to converge configured
-    # plugins. Disabling discovery here records those plugins as missing and the
-    # next Gateway then suppresses their tools.
-    if run_as_console_user /usr/bin/env \
-        HOME="$CONSOLE_HOME" \
-        OPENCLAW_PREFIX="$PREFIX" \
-        OPENCLAW_SERVICE_REPAIR_POLICY=external \
-        "$OPENCLAW_BIN" doctor --fix --non-interactive --no-workspace-suggestions >>"$LOG_FILE" 2>&1; then
-      log "Database migration (doctor --fix --non-interactive) finished."
+  if [[ "$DOCTOR_REQUIRED" == "1" ]]; then
+    log "==> Existing OpenClaw data found in $PREFIX -- migrating databases before the Gateway starts..."
+    run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+        "$OPENCLAW_BIN" gateway stop --force >>"$LOG_FILE" 2>&1 \
+      || log "Gateway stop returned non-zero (probably not installed or not running); continuing."
+    # Give a launchd-managed Gateway a moment to release its database locks.
+    /bin/sleep 3
+
+    BACKUP_DIR="$PREFIX/backups/pre-upgrade-$(/bin/date '+%Y%m%d-%H%M%S')"
+    BACKUP_OK=1
+    run_as_console_user /bin/mkdir -p "$BACKUP_DIR" || BACKUP_OK=0
+    if [[ -f "$PREFIX/openclaw.json" ]]; then
+      run_as_console_user /bin/cp -a "$PREFIX/openclaw.json" "$BACKUP_DIR/openclaw.json" >>"$LOG_FILE" 2>&1 || BACKUP_OK=0
+    fi
+    if [[ -d "$PREFIX/state" ]]; then
+      # Preserve active state databases and their journals, but not historical
+      # pre-startup migration backups. Those are already rollback artifacts and
+      # copying them into every pkg backup made repeat installs progressively slower.
+      while IFS= read -r STATE_FILE; do
+        REL="${STATE_FILE#"$PREFIX"/}"
+        run_as_console_user /bin/mkdir -p "$BACKUP_DIR/$(/usr/bin/dirname "$REL")" </dev/null || BACKUP_OK=0
+        run_as_console_user /bin/cp -a "$STATE_FILE" "$BACKUP_DIR/$REL" >>"$LOG_FILE" 2>&1 </dev/null || BACKUP_OK=0
+      done < <(/usr/bin/find "$PREFIX/state" -type f ! -name '*.pre-startup-migration-*.bak' 2>/dev/null)
+    fi
+    if [[ -d "$PREFIX/agents" ]]; then
+      # Only the databases (and their WAL/SHM files), not session transcripts or media.
+      while IFS= read -r DB_FILE; do
+        REL="${DB_FILE#"$PREFIX"/}"
+        # </dev/null: keep launchctl/sudo from swallowing the loop's file list.
+        run_as_console_user /bin/mkdir -p "$BACKUP_DIR/$(/usr/bin/dirname "$REL")" </dev/null || BACKUP_OK=0
+        run_as_console_user /bin/cp -a "$DB_FILE" "$BACKUP_DIR/$REL" >>"$LOG_FILE" 2>&1 </dev/null || BACKUP_OK=0
+      done < <(/usr/bin/find "$PREFIX/agents" \( -name '*.sqlite' -o -name '*.sqlite-wal' -o -name '*.sqlite-shm' \) -type f 2>/dev/null)
+    fi
+
+    if [[ "$BACKUP_OK" == "1" ]]; then
+      log "Pre-upgrade backup written to $BACKUP_DIR"
+      # This script, not Doctor, owns the stopped Gateway until onboarding below
+      # installs/restarts it. Keep Doctor out of native service reconciliation so
+      # it cannot spend PackageKit's script budget waiting for a Gateway that the
+      # installer is about to replace. Keep bundled plugin discovery enabled: Doctor
+      # needs the installed manifests and migration contracts to converge configured
+      # plugins. Disabling discovery here records those plugins as missing and the
+      # next Gateway then suppresses their tools.
+      if run_as_console_user /usr/bin/env \
+          HOME="$CONSOLE_HOME" \
+          OPENCLAW_PREFIX="$PREFIX" \
+          OPENCLAW_SERVICE_REPAIR_POLICY=external \
+          "$OPENCLAW_BIN" doctor --fix --non-interactive --no-workspace-suggestions >>"$LOG_FILE" 2>&1; then
+        log "Database migration (doctor --fix --non-interactive) finished."
+      else
+        MIGRATION_OK=0
+        log "WARN: doctor --fix --non-interactive failed (see $LOG_FILE above). Backup is in $BACKUP_DIR. The Gateway may not start until 'openclaw doctor --fix' succeeds."
+      fi
     else
       MIGRATION_OK=0
-      log "WARN: doctor --fix --non-interactive failed (see $LOG_FILE above). Backup is in $BACKUP_DIR. The Gateway may not start until 'openclaw doctor --fix' succeeds."
+      log "WARN: could not back up the existing config and databases to $BACKUP_DIR -- skipping the automatic migration so nothing is changed without a backup. Run 'openclaw doctor --fix' manually after backing up ~/.openclaw."
     fi
-  else
-    MIGRATION_OK=0
-    log "WARN: could not back up the existing config and databases to $BACKUP_DIR -- skipping the automatic migration so nothing is changed without a backup. Run 'openclaw doctor --fix' manually after backing up ~/.openclaw."
   fi
-
 fi
 
 if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && "$MIGRATION_OK" == "1" && -n "$RUNTIME_ID" ]]; then
@@ -311,6 +324,16 @@ fi
 ONBOARD_ARGS=(onboard --non-interactive --accept-risk --mode local --install-daemon
   --skip-health --skip-ui --skip-hooks --skip-channels --skip-search --skip-skills --skip-bootstrap)
 DEFAULT_PROVIDER_SETUP="$APP_PATH/Contents/Resources/mac-default-provider-setup.sh"
+BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+ONBOARDING_ALREADY_COMPLETED=0
+ONBOARDING_CONNECTION_MODE=""
+if [[ -n "$BUNDLE_ID" ]]; then
+  ONBOARDING_SEEN="$(run_as_console_user /usr/bin/defaults read "$BUNDLE_ID" "openclaw.onboardingSeen" 2>/dev/null || true)"
+  ONBOARDING_CONNECTION_MODE="$(run_as_console_user /usr/bin/defaults read "$BUNDLE_ID" "openclaw.connectionMode" 2>/dev/null || true)"
+  if [[ "$ONBOARDING_SEEN" == "1" || "$ONBOARDING_SEEN" == "true" || "$ONBOARDING_SEEN" == "YES" ]]; then
+    ONBOARDING_ALREADY_COMPLETED=1
+  fi
+fi
 
 if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
   log "Configuring default AI provider from the bundled installer.env (base URL: $AI_BASE_URL, model: $AI_MODEL)"
@@ -350,30 +373,47 @@ else
   log "No default AI provider baked into this build -- setting up the Gateway/daemon only; the app will still ask for a model on first launch."
 fi
 
-log "==> Running non-interactive onboarding (installs the Gateway LaunchAgent)..."
 ONBOARD_OK=0
-if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
-  SETUP_ARGS=(
-    --openclaw-bin "$OPENCLAW_BIN"
-    --base-url "$AI_BASE_URL"
-    --model-id "$AI_MODEL"
-    --install-daemon
-  )
-  [[ -n "$AI_PROVIDER" ]] && SETUP_ARGS+=(--provider-id "$AI_PROVIDER")
-  [[ -n "$ONBOARD_KEY_FILE" ]] && SETUP_ARGS+=(--api-key-file "$ONBOARD_KEY_FILE")
-  if [[ -x "$DEFAULT_PROVIDER_SETUP" ]]; then
+ONBOARD_RAN=0
+if [[ "$ONBOARDING_ALREADY_COMPLETED" == "1" && ( -z "$AI_BASE_URL" || -z "$AI_MODEL" || "$DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" == "1" ) ]]; then
+  ONBOARD_OK=1
+  log "Onboarding already completed -- skipping non-interactive onboarding."
+  if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && "$ONBOARDING_CONNECTION_MODE" != "remote" ]]; then
+    log "==> Refreshing the existing Gateway service for the newly installed CLI..."
     run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-        "$DEFAULT_PROVIDER_SETUP" "${SETUP_ARGS[@]}" >>"$LOG_FILE" 2>&1 && ONBOARD_OK=1
-  else
-    log "WARN: $DEFAULT_PROVIDER_SETUP is missing or not executable."
+        "$OPENCLAW_BIN" gateway install --force --json >>"$LOG_FILE" 2>&1 \
+      || log "WARN: Gateway service refresh failed (see $LOG_FILE above); onboarding remains completed and the app can retry service recovery."
+  elif [[ "$ONBOARDING_CONNECTION_MODE" == "remote" ]]; then
+    log "Remote connection mode is already configured -- leaving local Gateway service state unchanged."
   fi
 else
-  run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-      "$OPENCLAW_BIN" "${ONBOARD_ARGS[@]}" >>"$LOG_FILE" 2>&1 && ONBOARD_OK=1
+  ONBOARD_RAN=1
+  log "==> Running non-interactive onboarding (installs the Gateway LaunchAgent)..."
+  if [[ -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
+    SETUP_ARGS=(
+      --openclaw-bin "$OPENCLAW_BIN"
+      --base-url "$AI_BASE_URL"
+      --model-id "$AI_MODEL"
+      --install-daemon
+    )
+    [[ -n "$AI_PROVIDER" ]] && SETUP_ARGS+=(--provider-id "$AI_PROVIDER")
+    [[ -n "$ONBOARD_KEY_FILE" ]] && SETUP_ARGS+=(--api-key-file "$ONBOARD_KEY_FILE")
+    if [[ -x "$DEFAULT_PROVIDER_SETUP" ]]; then
+      run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+          "$DEFAULT_PROVIDER_SETUP" "${SETUP_ARGS[@]}" >>"$LOG_FILE" 2>&1 && ONBOARD_OK=1
+    else
+      log "WARN: $DEFAULT_PROVIDER_SETUP is missing or not executable."
+    fi
+  else
+    run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+        "$OPENCLAW_BIN" "${ONBOARD_ARGS[@]}" >>"$LOG_FILE" 2>&1 && ONBOARD_OK=1
+  fi
 fi
 [[ -n "$ONBOARD_KEY_FILE" ]] && /bin/rm -f "$ONBOARD_KEY_FILE"
 if [[ "$ONBOARD_OK" == "1" ]]; then
-  log "Onboarding finished."
+  if [[ "$ONBOARD_RAN" == "1" ]]; then
+    log "Onboarding finished."
+  fi
   # The bundled default provider was just written (install and upgrade alike;
   # other providers/models in the user's config are kept, only the default model
   # is pointed at it). Record that, so the app does not apply it again on its
@@ -411,7 +451,6 @@ fi
 # UserDefaults domain at launch (see AppState.swift's init).
 # ---------------------------------------------------------------------
 if [[ "$ONBOARD_OK" == "1" ]]; then
-  BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
   if [[ -n "$BUNDLE_ID" ]]; then
     log "Marking onboarding as seen for $BUNDLE_ID"
     run_as_console_user /usr/bin/defaults write "$BUNDLE_ID" "openclaw.onboardingSeen" -bool true >>"$LOG_FILE" 2>&1

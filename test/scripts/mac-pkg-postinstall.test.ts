@@ -31,6 +31,24 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(configBackup).toBeLessThan(doctor);
   });
 
+  it("runs full Doctor only when the read-only migration preflight requires it", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const migrationStart = script.indexOf("# Upgrade over an existing install");
+    const migrationEnd = script.indexOf("# Default AI provider (optional)", migrationStart);
+    const migration = script.slice(migrationStart, migrationEnd);
+    const preflight = migration.indexOf("doctor --lint --only core/doctor/state-schema --json");
+    const stop = migration.indexOf("gateway stop --force", preflight);
+    const doctor = migration.indexOf("doctor --fix --non-interactive", stop);
+
+    expect(preflight).toBeGreaterThanOrEqual(0);
+    expect(stop).toBeGreaterThan(preflight);
+    expect(doctor).toBeGreaterThan(stop);
+    expect(migration.slice(preflight, stop)).toContain("DOCTOR_REQUIRED=1");
+    expect(migration.slice(preflight, stop)).toContain(
+      "Existing database state is current -- skipping full Doctor migration.",
+    );
+  });
+
   it("reuses an identical successfully migrated bundled runtime", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const markerCheck = script.indexOf('APPLIED_RUNTIME_ID="$(/usr/bin/head -n1');
@@ -99,5 +117,23 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script).toContain(
       '"$DEFAULT_PROVIDER_AUTH_ID" "$PREFIX/.default-provider-auth-applied"',
     );
+  });
+
+  it("skips repeated onboarding and only refreshes the service for a new CLI", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const seen = script.indexOf('"openclaw.onboardingSeen"');
+    const skip = script.indexOf(
+      'log "Onboarding already completed -- skipping non-interactive onboarding."',
+      seen,
+    );
+    const refresh = script.indexOf("gateway install --force --json", skip);
+    const onboard = script.indexOf('log "==> Running non-interactive onboarding', skip);
+
+    expect(seen).toBeGreaterThanOrEqual(0);
+    expect(skip).toBeGreaterThan(seen);
+    expect(script.slice(seen, skip)).toContain('DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" == "1"');
+    expect(refresh).toBeGreaterThan(skip);
+    expect(onboard).toBeGreaterThan(refresh);
+    expect(script.slice(skip, refresh)).toContain('REUSE_INSTALLED_RUNTIME" != "1"');
   });
 });
