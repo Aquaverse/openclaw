@@ -41,9 +41,21 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
 
     expect(preflight).toBeGreaterThanOrEqual(0);
     expect(doctor).toBeGreaterThan(preflight);
+    expect(migration.slice(preflight, doctor)).toContain(
+      '"requirement"[[:space:]]*:[[:space:]]*"state-schema-migration-pending"',
+    );
+    expect(migration.slice(preflight, doctor)).toContain(
+      '"checkId"[[:space:]]*:[[:space:]]*"core/doctor/agent-deletion-journal"',
+    );
     expect(migration.slice(preflight, doctor)).toContain("DOCTOR_REQUIRED=1");
     expect(migration.slice(preflight, doctor)).toContain(
       "Existing database state is current -- skipping full Doctor migration.",
+    );
+    expect(migration.slice(preflight, doctor)).toContain(
+      "Doctor preflight could not inspect existing data",
+    );
+    expect(migration.slice(preflight, doctor)).not.toContain(
+      "pending repair or could not prove current state",
     );
   });
 
@@ -158,7 +170,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     );
   });
 
-  it("skips repeated onboarding and starts a previously loaded service without forcing a rewrite", () => {
+  it("skips repeated onboarding and starts the selected local service without forcing a rewrite", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const seen = script.indexOf('"openclaw.onboardingSeen"');
     const skip = script.indexOf(
@@ -175,9 +187,15 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(start).toBeGreaterThan(skip);
     expect(installMissing).toBeGreaterThan(start);
     expect(onboard).toBeGreaterThan(installMissing);
-    expect(script.slice(skip, start)).toContain('REUSE_INSTALLED_RUNTIME" != "1"');
+    expect(script.slice(skip, start)).not.toContain('REUSE_INSTALLED_RUNTIME" != "1"');
     expect(script.slice(skip, onboard)).not.toContain("gateway install --force");
-    expect(script.slice(skip, onboard)).toContain('GATEWAY_WAS_LOADED" == "1"');
-    expect(script.slice(skip, onboard)).toContain('! -f "$GATEWAY_SERVICE_PLIST"');
+    expect(script.slice(skip, onboard)).toContain(
+      'HOSTS_LOCAL_GATEWAY_WITH_REMOTE_PRIMARY" == "1"',
+    );
+    expect(script.slice(skip, onboard)).toContain('ONBOARDING_CONNECTION_MODE" != "remote"');
+    expect(script.slice(skip, onboard)).toContain('-f "$GATEWAY_SERVICE_PLIST"');
+    expect(script.slice(skip, onboard)).toContain(
+      "Remote connection mode is configured without a local companion Gateway",
+    );
   });
 });

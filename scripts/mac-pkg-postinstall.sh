@@ -230,14 +230,14 @@ if [[ ! -x "$OPENCLAW_BIN" ]]; then
 fi
 
 # ---------------------------------------------------------------------
-# Upgrade over an existing install: migrate the state/agent databases only when
-# the new CLI's read-only state-schema check says repair is required.
-# A new CLI refuses to open databases written by an older schema ("uses
-# schema version N; run openclaw doctor --fix"), so without this step the
-# Gateway LaunchAgent started by onboarding below would crash-loop on a
-# machine that already had an older OpenClaw. A fresh machine has no state
-# yet, so nothing runs there. Best-effort like everything else here: a
-# failure is logged and the install continues. Order matters:
+# Upgrade over an existing install: run Doctor only for a structured migration
+# or recovery finding. Gateway startup owns ordinary shared and agent database
+# copy-and-swap upgrades; this preflight additionally catches held deletion
+# journals that need Doctor's wider repair path. A preflight execution failure
+# is only a warning and does not turn an unknown result into mutation authority.
+# A fresh machine has no state yet, so nothing runs there. Best-effort like
+# everything else here: a failure is logged and the install continues. When a
+# structured finding does require Doctor, order matters:
 #   1. stop the Gateway (it holds the databases; doctor refuses otherwise),
 #   2. back up the config and databases (a migrated database cannot be opened
 #      by the older CLI, and Doctor may migrate configured plugin entries),
@@ -247,14 +247,27 @@ MIGRATION_OK=1
 if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && ( -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ) ]]; then
   DOCTOR_REQUIRED=0
   log "==> Checking whether existing OpenClaw data needs Doctor migration..."
-  if run_as_console_user /usr/bin/env \
-      HOME="$CONSOLE_HOME" \
-      OPENCLAW_PREFIX="$PREFIX" \
-      "$OPENCLAW_BIN" doctor --lint --only core/doctor/state-schema --json >>"$LOG_FILE" 2>&1; then
-    log "Existing database state is current -- skipping full Doctor migration."
+  DOCTOR_PREFLIGHT_FILE="$(run_as_console_user /usr/bin/mktemp /tmp/openclaw-doctor-preflight.XXXXXX 2>/dev/null || true)"
+  if [[ -z "$DOCTOR_PREFLIGHT_FILE" ]]; then
+    log "WARN: Doctor preflight could not create its result file -- skipping automatic Doctor; Gateway startup will perform supported database upgrades."
   else
-    DOCTOR_REQUIRED=1
-    log "Doctor preflight found pending repair or could not prove current state -- running the guarded migration path."
+    run_as_console_user /usr/bin/env \
+        HOME="$CONSOLE_HOME" \
+        OPENCLAW_PREFIX="$PREFIX" \
+        "$OPENCLAW_BIN" doctor --lint --only core/doctor/state-schema --json >"$DOCTOR_PREFLIGHT_FILE" 2>&1
+    DOCTOR_PREFLIGHT_STATUS=$?
+    /bin/cat "$DOCTOR_PREFLIGHT_FILE" >>"$LOG_FILE" 2>/dev/null || true
+    if /usr/bin/grep -Eq \
+        '"requirement"[[:space:]]*:[[:space:]]*"state-schema-migration-pending"|"checkId"[[:space:]]*:[[:space:]]*"core/doctor/agent-deletion-journal"' \
+        "$DOCTOR_PREFLIGHT_FILE"; then
+      DOCTOR_REQUIRED=1
+      log "Doctor preflight found a database migration or deletion-journal recovery requirement -- running the guarded migration path."
+    elif [[ "$DOCTOR_PREFLIGHT_STATUS" == "0" ]]; then
+      log "Existing database state is current -- skipping full Doctor migration."
+    else
+      log "WARN: Doctor preflight could not inspect existing data (exit $DOCTOR_PREFLIGHT_STATUS) -- skipping automatic Doctor; Gateway startup will perform supported database upgrades."
+    fi
+    /bin/rm -f "$DOCTOR_PREFLIGHT_FILE"
   fi
 
   if [[ "$DOCTOR_REQUIRED" == "1" ]]; then
@@ -359,11 +372,16 @@ DEFAULT_PROVIDER_SETUP="$APP_PATH/Contents/Resources/mac-default-provider-setup.
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
 ONBOARDING_ALREADY_COMPLETED=0
 ONBOARDING_CONNECTION_MODE=""
+HOSTS_LOCAL_GATEWAY_WITH_REMOTE_PRIMARY=0
 if [[ -n "$BUNDLE_ID" ]]; then
   ONBOARDING_SEEN="$(run_as_console_user /usr/bin/defaults read "$BUNDLE_ID" "openclaw.onboardingSeen" 2>/dev/null || true)"
   ONBOARDING_CONNECTION_MODE="$(run_as_console_user /usr/bin/defaults read "$BUNDLE_ID" "openclaw.connectionMode" 2>/dev/null || true)"
+  HOSTS_LOCAL_GATEWAY_RAW="$(run_as_console_user /usr/bin/defaults read "$BUNDLE_ID" "openclaw.localGateway.hostWithRemotePrimary" 2>/dev/null || true)"
   if [[ "$ONBOARDING_SEEN" == "1" || "$ONBOARDING_SEEN" == "true" || "$ONBOARDING_SEEN" == "YES" ]]; then
     ONBOARDING_ALREADY_COMPLETED=1
+  fi
+  if [[ "$HOSTS_LOCAL_GATEWAY_RAW" == "1" || "$HOSTS_LOCAL_GATEWAY_RAW" == "true" || "$HOSTS_LOCAL_GATEWAY_RAW" == "YES" ]]; then
+    HOSTS_LOCAL_GATEWAY_WITH_REMOTE_PRIMARY=1
   fi
 fi
 
@@ -410,8 +428,8 @@ ONBOARD_RAN=0
 if [[ "$ONBOARDING_ALREADY_COMPLETED" == "1" && ( -z "$AI_BASE_URL" || -z "$AI_MODEL" || "$DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" == "1" ) ]]; then
   ONBOARD_OK=1
   log "Onboarding already completed -- skipping non-interactive onboarding."
-  if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && "$ONBOARDING_CONNECTION_MODE" != "remote" ]]; then
-    if [[ "$GATEWAY_WAS_LOADED" == "1" ]]; then
+  if [[ "$ONBOARDING_CONNECTION_MODE" != "remote" || "$HOSTS_LOCAL_GATEWAY_WITH_REMOTE_PRIMARY" == "1" ]]; then
+    if [[ "$GATEWAY_WAS_LOADED" == "1" || -f "$GATEWAY_SERVICE_PLIST" ]]; then
       # `gateway start` preserves a matching service definition and repairs it
       # only when the new runtime or Gateway target actually changed. The old
       # `install --force` path rewrote and restarted an already-correct service.
@@ -419,16 +437,14 @@ if [[ "$ONBOARDING_ALREADY_COMPLETED" == "1" && ( -z "$AI_BASE_URL" || -z "$AI_M
       run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
           "$OPENCLAW_BIN" gateway start --json >>"$LOG_FILE" 2>&1 \
         || log "WARN: Gateway service start failed (see $LOG_FILE above); onboarding remains completed and the app can retry service recovery."
-    elif [[ ! -f "$GATEWAY_SERVICE_PLIST" ]]; then
+    else
       log "==> No Gateway service definition exists; installing it once..."
       run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
           "$OPENCLAW_BIN" gateway install --json >>"$LOG_FILE" 2>&1 \
         || log "WARN: Gateway service install failed (see $LOG_FILE above); onboarding remains completed and the app can retry service recovery."
-    else
-      log "Gateway service was stopped before this upgrade -- preserving that stopped state."
     fi
   elif [[ "$ONBOARDING_CONNECTION_MODE" == "remote" ]]; then
-    log "Remote connection mode is already configured -- leaving local Gateway service state unchanged."
+    log "Remote connection mode is configured without a local companion Gateway -- leaving the local Gateway stopped."
   fi
 else
   ONBOARD_RAN=1
