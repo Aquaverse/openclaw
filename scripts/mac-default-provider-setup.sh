@@ -78,8 +78,38 @@ if [[ "$CHECK_AUTH_BINDING" == "1" ]]; then
   EFFECTIVE_PROVIDER_ID="${MODEL_REF%%/*}"
   [[ -n "$EFFECTIVE_PROVIDER_ID" && "$EFFECTIVE_PROVIDER_ID" != "$MODEL_REF" ]] || exit 1
   BINDING="$("${CLI[@]}" config get "models.providers.$EFFECTIVE_PROVIDER_ID.apiKey" --json)" || exit 1
-  [[ -n "$BINDING" && "$BINDING" != "null" && "$BINDING" != '""' ]]
-  exit $?
+  [[ -n "$BINDING" && "$BINDING" != "null" && "$BINDING" != '""' ]] || exit 1
+  # `models status --check` covers every fallback and utility route. Inspect the
+  # selected binding only, so an unrelated user model cannot trigger key replacement.
+  STATUS_JSON="$("${CLI[@]}" models status --json --agent main)" || exit 1
+  CLI_PREFIX="$(cd "$(dirname "$OPENCLAW_BIN")/.." 2>/dev/null && /bin/pwd -P || true)"
+  NODE_BIN="$CLI_PREFIX/tools/node/bin/node"
+  if [[ ! -x "$NODE_BIN" ]]; then
+    NODE_BIN="$(command -v node || true)"
+  fi
+  [[ -n "$NODE_BIN" && -x "$NODE_BIN" ]] || exit 1
+  printf '%s' "$STATUS_JSON" | "$NODE_BIN" -e '
+const fs = require("node:fs");
+const status = JSON.parse(fs.readFileSync(0, "utf8"));
+const binding = JSON.parse(process.argv[1]);
+const provider = process.argv[2];
+const modelRef = process.argv[3];
+const profile = status.auth?.oauth?.profiles?.find((entry) => entry.profileId === binding);
+const routeIssue = status.auth?.modelRouteIssues?.some(
+  (entry) => entry.provider === provider && `${entry.provider}/${entry.model}` === modelRef,
+);
+if (
+  typeof binding !== "string" ||
+  status.resolvedDefault !== modelRef ||
+  routeIssue ||
+  profile?.provider !== provider ||
+  profile?.type !== "api_key" ||
+  profile?.status !== "static"
+) {
+  process.exit(1);
+}
+' "$BINDING" "$EFFECTIVE_PROVIDER_ID" "$MODEL_REF" || exit 1
+  exit 0
 fi
 
 if [[ -z "$BASE_URL" || -z "$MODEL_ID" || -z "$DAEMON_MODE" ]]; then

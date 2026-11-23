@@ -36,13 +36,12 @@ function runSetup(root: string, cli: string, extraArgs: string[] = []) {
 }
 
 describe.skipIf(process.platform === "win32")("mac default-provider setup", () => {
-  it("reports a stale credential marker when the selected provider has no auth binding", () => {
+  it("reports a stale credential marker unless the selected provider binding is usable", () => {
     const root = tempDirs.make("openclaw-default-provider-binding-");
     const cli = path.join(root, "openclaw");
     writeExecutable(
       cli,
       `#!/bin/bash
-printf '%s\n' "$*" >> "$FIXTURE_ROOT/calls"
 if [[ "$*" == *"config get agents.defaults.model.primary --json"* ]]; then
   printf '%s\n' '"vllm/gpt-test"'
   exit 0
@@ -51,10 +50,20 @@ if [[ "$*" == *"config get models.providers.vllm.apiKey --json"* ]]; then
   printf '%s\n' "\${BINDING:-null}"
   exit 0
 fi
+if [[ "$*" == *"models status --json --agent main"* ]]; then
+  if [[ "\${AUTH_STATUS:-1}" == "0" ]]; then
+    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[],"oauth":{"profiles":[{"profileId":"vllm:manual","provider":"vllm","type":"api_key","status":"static"}]}}}'
+  elif [[ "\${AUTH_STATUS:-1}" == "2" ]]; then
+    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[{"kind":"incompatible","provider":"vllm","model":"gpt-test"}],"oauth":{"profiles":[{"profileId":"vllm:manual","provider":"vllm","type":"api_key","status":"static"}]}}}'
+  else
+    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[{"kind":"missing-auth","provider":"vllm","model":"gpt-test"}],"oauth":{"profiles":[{"profileId":"vllm:setup-inactive","provider":"vllm","type":"api_key","status":"missing","reasonCode":"setup_inactive"}]}}}'
+  fi
+  exit 0
+fi
 exit 9
 `,
     );
-    const run = (binding: string) =>
+    const run = (binding: string, authStatus: number) =>
       spawnSync(
         "/bin/bash",
         [
@@ -65,21 +74,26 @@ exit 9
           "installer-proof",
           "--check-auth-binding",
         ],
-        { encoding: "utf8", env: { ...process.env, FIXTURE_ROOT: root, BINDING: binding } },
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            FIXTURE_ROOT: root,
+            BINDING: binding,
+            AUTH_STATUS: String(authStatus),
+          },
+        },
       );
 
-    const missing = run("null");
-    const present = run('"vllm:manual"');
+    const missing = run("null", 0);
+    const inactive = run('"vllm:setup-inactive"', 1);
+    const incompatible = run('"vllm:manual"', 2);
+    const active = run('"vllm:manual"', 0);
 
     expect(missing.status, missing.stderr).toBe(1);
-    expect(present.status, present.stderr).toBe(0);
-    const calls = readFileSync(path.join(root, "calls"), "utf8").trim().split("\n");
-    expect(calls).toEqual([
-      "--profile installer-proof config get agents.defaults.model.primary --json",
-      "--profile installer-proof config get models.providers.vllm.apiKey --json",
-      "--profile installer-proof config get agents.defaults.model.primary --json",
-      "--profile installer-proof config get models.providers.vllm.apiKey --json",
-    ]);
+    expect(inactive.status, inactive.stderr).toBe(1);
+    expect(incompatible.status, incompatible.stderr).toBe(1);
+    expect(active.status, active.stderr).toBe(0);
   });
 
   it("overwrites one active profile from installer config across repeated installs", () => {
