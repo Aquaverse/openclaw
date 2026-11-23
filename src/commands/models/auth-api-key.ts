@@ -103,9 +103,15 @@ export async function saveModelProviderApiKey(params: {
   const configuredReference = connectionId
     ? resolveProviderEntryApiKeyProfileReference({ cfg: config, provider: connectionId, store })
     : undefined;
-  const configuredProfileId =
+  const configuredProfileIdCandidate =
     configuredReference?.kind === "profile" || configuredReference?.kind === "profile-incompatible"
       ? configuredReference.profileId
+      : undefined;
+  // Setup replacements remain unavailable until their setup owner activates them. A manual save
+  // must create an ordinary profile instead of preserving that inactive marker on the replacement.
+  const configuredProfileId =
+    configuredProfileIdCandidate && !store.profiles[configuredProfileIdCandidate]?.setup
+      ? configuredProfileIdCandidate
       : undefined;
   const profileId =
     params.profileId ??

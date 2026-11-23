@@ -370,6 +370,26 @@ it.each(["configured", "explicit", "ordered"])(
   },
 );
 
+it("replaces an inactive setup binding with an active manual profile", async () => {
+  const setupProfileId = "sample:setup-old";
+  const setupCredential: AuthProfileCredential = {
+    ...keyCredential("synthetic-setup-key"),
+    setup: {
+      replacement: true,
+      modelRef: "sample/model",
+      configJson: JSON.stringify(boundConfig(setupProfileId)),
+    },
+  };
+  await replaceCredential(setupProfileId, setupCredential);
+  writeConfig(boundConfig(setupProfileId));
+
+  await expect(save()).resolves.toEqual({ profileId: "sample:manual" });
+
+  expect(await readProvider()).toEqual({ ...connection, apiKey: "sample:manual" });
+  expect(savedProfile("sample:manual", null)).toEqual(keyCredential("synthetic-new-key"));
+  expect(savedProfile(setupProfileId, null)).toEqual(setupCredential);
+});
+
 it.each(["main", "reader", "full-provider"])(
   "removes planned credentials and bindings through %s while retaining unselected state",
   async (caller) => {
