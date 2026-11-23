@@ -1,9 +1,16 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ImapAccountConfig } from "./config.js";
-import { listMailboxes, saveDraft, searchEmail, sendEmail } from "./mail-client.js";
+import {
+  listMailboxes,
+  saveDraft,
+  searchEmail,
+  sendEmail,
+  testEmailConnection,
+} from "./mail-client.js";
 
 const smtp = vi.hoisted(() => ({
   sendMail: vi.fn(),
+  verify: vi.fn(),
   close: vi.fn(),
 }));
 const imap = vi.hoisted(() => ({
@@ -64,8 +71,33 @@ beforeEach(() => {
     rejected: [],
     messageId: "<message@example.com>",
   });
+  smtp.verify.mockResolvedValue(true);
+  imap.connect.mockResolvedValue(undefined);
+  imap.mailboxOpen.mockResolvedValue(undefined);
   imap.list.mockResolvedValue([{ path: "INBOX" }, { path: "Sent Items", specialUse: "\\Sent" }]);
   imap.append.mockResolvedValue({ uid: 42 });
+});
+
+it("reports the IMAP server response instead of a generic command failure", async () => {
+  const failure = Object.assign(new Error("Command failed"), {
+    responseText: "[AUTHENTICATIONFAILED] Invalid username or password",
+  });
+  imap.connect.mockRejectedValueOnce(failure);
+
+  await expect(testEmailConnection(account())).rejects.toThrow(
+    "IMAP connection to imap.example.com:993 failed: [AUTHENTICATIONFAILED] Invalid username or password",
+  );
+  expect(smtp.verify).not.toHaveBeenCalled();
+});
+
+it("reports SMTP connection details when verification fails", async () => {
+  smtp.verify.mockRejectedValueOnce(
+    Object.assign(new Error("Connection refused"), { code: "ECONNREFUSED" }),
+  );
+
+  await expect(testEmailConnection(account())).rejects.toThrow(
+    "SMTP connection to smtp.example.com:587 failed: ECONNREFUSED: Connection refused",
+  );
 });
 
 it("sends one message and archives the same RFC822 bytes in the discovered Sent mailbox", async () => {

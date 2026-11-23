@@ -19,8 +19,15 @@ function setInput(element: HTMLInputElement, value: string) {
 }
 
 it("tests both mail protocols before storing the password and account config", async () => {
+  let testAttempts = 0;
   const request = vi.fn(async (method: string) => {
     if (method === "email.testConnection") {
+      testAttempts += 1;
+      if (testAttempts === 1) {
+        throw new Error(
+          "IMAP connection to mail.example.com:993 failed: [AUTHENTICATIONFAILED] Invalid username or password",
+        );
+      }
       return { imap: "ok", smtp: "ok" };
     }
     if (method === "secrets.store.set" || method === "secrets.store.delete") {
@@ -66,8 +73,22 @@ it("tests both mail protocols before storing the password and account config", a
     await waitForSolid(() => expect(email.value).toBe("person@example.com"));
     setInput(password, "fixture-password");
     await waitForSolid(() => expect(password.value).toBe("fixture-password"));
+    const reveal = view.container.querySelector<HTMLButtonElement>(".oc-sensitive-toggle")!;
+    expect(reveal.getAttribute("aria-pressed")).toBe("false");
+    reveal.click();
+    await waitForSolid(() =>
+      expect(
+        view.container.querySelector<HTMLInputElement>("#email-account-password"),
+      ).toMatchObject({ type: "text", value: "fixture-password" }),
+    );
     const test = [...view.container.querySelectorAll("button")].find(
       (button) => button.textContent?.trim() === "Test connection",
+    );
+    test!.click();
+    await waitForSolid(() =>
+      expect(view.container.textContent).toContain(
+        "IMAP connection to mail.example.com:993 failed: [AUTHENTICATIONFAILED] Invalid username or password",
+      ),
     );
     test!.click();
     await waitForSolid(() => expect(view.container.textContent).toContain("connections succeeded"));
@@ -104,6 +125,7 @@ it("tests both mail protocols before storing the password and account config", a
     expect(savedAccount.password.id).toMatch(/^OPENCLAW_EMAIL_[A-F0-9]{32}$/u);
     expect(request.mock.calls.map(([method]) => method)).toEqual([
       "email.testConnection",
+      "email.testConnection",
       "secrets.store.set",
     ]);
   } finally {
@@ -118,4 +140,5 @@ it("loads the Simplified Chinese email account copy", async () => {
   expect(i18n.t("profilePage.email.title")).toBe("邮箱账户");
   expect(i18n.t("profilePage.email.testPassed")).toBe("IMAP 和 SMTP 连接成功。");
   expect(i18n.t("profilePage.email.saveFailed")).toBe("无法保存邮箱账户。");
+  expect(i18n.t("profilePage.email.saveSentCopy")).toBe("在已发送中保存副本");
 });

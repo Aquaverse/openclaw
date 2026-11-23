@@ -249,6 +249,15 @@
   font-size: 13px;
 }
 
+.email-account-form__field {
+  display: grid;
+  gap: 6px;
+}
+
+.email-account-form__field > label {
+  display: block;
+}
+
 .email-account-form__actions {
   grid-column: 1 / -1;
   display: flex;

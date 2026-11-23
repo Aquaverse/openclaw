@@ -2,6 +2,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { createTransport } from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
+import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { ImapAccountConfig } from "./config.js";
 
 const MAX_READ_BYTES = 1_048_576;
@@ -39,19 +40,71 @@ function smtpTransport(account: ImapAccountConfig) {
   });
 }
 
+function connectionErrorDetail(error: unknown): string {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  let genericMessage = "Command failed";
+  while (current !== undefined && current !== null && !seen.has(current)) {
+    seen.add(current);
+    const record = asOptionalRecord(current);
+    if (!record) {
+      const text = String(current).trim();
+      return text || genericMessage;
+    }
+    for (const key of ["responseText", "response"] as const) {
+      const detail = record[key];
+      if (typeof detail === "string" && detail.trim()) {
+        return detail.trim();
+      }
+    }
+    const message = typeof record.message === "string" ? record.message.trim() : "";
+    if (message && message.toLowerCase() !== "command failed") {
+      const code = typeof record.code === "string" ? record.code.trim() : "";
+      return code && !message.includes(code) ? `${code}: ${message}` : message;
+    }
+    if (message) {
+      genericMessage = message;
+    }
+    current = record.cause;
+  }
+  return genericMessage;
+}
+
+function mailConnectionError(
+  protocol: "IMAP" | "SMTP",
+  host: string,
+  port: number,
+  cause: unknown,
+) {
+  return new Error(
+    `${protocol} connection to ${host}:${port} failed: ${connectionErrorDetail(cause)}`,
+    cause instanceof Error ? { cause } : undefined,
+  );
+}
+
 export async function testEmailConnection(account: ImapAccountConfig) {
   const client = imapClient(account);
   try {
     await client.connect();
     await client.mailboxOpen(account.mailbox, { readOnly: true });
+  } catch (cause) {
+    throw mailConnectionError("IMAP", account.host, account.port, cause);
   } finally {
     client.close();
   }
-  const transport = smtpTransport(account);
+  let transport: ReturnType<typeof smtpTransport> | undefined;
   try {
+    transport = smtpTransport(account);
     await transport.verify();
+  } catch (cause) {
+    throw mailConnectionError(
+      "SMTP",
+      account.smtp?.host ?? "unconfigured",
+      account.smtp?.port ?? 0,
+      cause,
+    );
   } finally {
-    transport.close();
+    transport?.close();
   }
   return { imap: "ok" as const, smtp: "ok" as const };
 }

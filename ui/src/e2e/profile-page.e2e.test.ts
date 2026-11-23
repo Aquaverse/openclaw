@@ -150,7 +150,15 @@ suite.define(() => {
       await email.getByRole("button", { name: "添加邮箱" }).click();
       await expect(email.getByText("邮箱地址", { exact: true })).toBeVisible();
       await expect(email.getByText("密码或应用专用密码", { exact: true })).toBeVisible();
+      await expect(email.getByText("在已发送中保存副本", { exact: true })).toBeVisible();
       await expect(email.getByRole("button", { name: "测试连接" })).toBeVisible();
+      const password = email.locator("#email-account-password");
+      const reveal = email.locator(".oc-sensitive-toggle");
+      await expect(password).toHaveAttribute("type", "password");
+      await reveal.click();
+      await expect(password).toHaveAttribute("type", "text");
+      await reveal.click();
+      await expect(password).toHaveAttribute("type", "password");
 
       if (captureUiProof) {
         await page.bringToFront();

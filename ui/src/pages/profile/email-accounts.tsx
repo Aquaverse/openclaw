@@ -1,6 +1,7 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import { createMemo, createSignal, For, onCleanup, onSettled, Show } from "solid-js";
 import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
+import { SensitiveInput } from "../../components/sensitive-input.tsx";
 import { InlineAlert } from "../../components/solid/inline-alert.tsx";
 import {
   SettingsRow,
@@ -120,6 +121,7 @@ export function EmailAccounts() {
   });
   const [error, setError] = createSignal<string | null>(null, { ownedWrite: true });
   const [tested, setTested] = createSignal<string | null>(null, { ownedWrite: true });
+  const [passwordRevealed, setPasswordRevealed] = createSignal(false, { ownedWrite: true });
   const stop = context.runtimeConfig.subscribe(() => setRevision((value) => value + 1));
   onCleanup(stop);
   onSettled(() => void context.runtimeConfig.ensureLoaded());
@@ -232,6 +234,7 @@ export function EmailAccounts() {
       }
       setDraft(null);
       setTested(null);
+      setPasswordRevealed(false);
     } catch (cause) {
       setError(formatUiError(cause));
     } finally {
@@ -277,7 +280,13 @@ export function EmailAccounts() {
         description={t("profilePage.email.description")}
         actions={
           <Show when={!draft()}>
-            <button class="btn btn--sm" onClick={() => setDraft(emptyDraft())}>
+            <button
+              class="btn btn--sm"
+              onClick={() => {
+                setPasswordRevealed(false);
+                setDraft(emptyDraft());
+              }}
+            >
               {t("profilePage.email.add")}
             </button>
           </Show>
@@ -305,7 +314,10 @@ export function EmailAccounts() {
                       <button
                         class="btn btn--sm"
                         disabled={busy() !== null || !canConfigure()}
-                        onClick={() => setDraft(draftFromAccount(id, value))}
+                        onClick={() => {
+                          setPasswordRevealed(false);
+                          setDraft(draftFromAccount(id, value));
+                        }}
                       >
                         {t("profilePage.email.edit")}
                       </button>
@@ -335,15 +347,16 @@ export function EmailAccounts() {
                   onInput={(event) => update({ email: event.currentTarget.value })}
                 />
               </label>
-              <label>
-                {t("profilePage.email.password")}
-                <input
-                  class="settings-input"
-                  type="password"
+              <div class="email-account-form__field">
+                <label for="email-account-password">{t("profilePage.email.password")}</label>
+                <SensitiveInput
+                  id="email-account-password"
                   value={current().password}
-                  onInput={(event) => update({ password: event.currentTarget.value })}
+                  revealed={passwordRevealed()}
+                  onInput={(value) => update({ password: value })}
+                  onToggle={() => setPasswordRevealed((value) => !value)}
                 />
-              </label>
+              </div>
               <label>
                 {t("profilePage.email.username")}
                 <input
@@ -447,6 +460,7 @@ export function EmailAccounts() {
                   onClick={() => {
                     setDraft(null);
                     setError(null);
+                    setPasswordRevealed(false);
                   }}
                 >
                   {t("common.cancel")}
