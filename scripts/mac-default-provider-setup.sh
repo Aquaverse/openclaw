@@ -4,11 +4,10 @@ set -euo pipefail
 # Installs the credential and default model baked into a macOS installer.
 # Onboarding first resolves the physical provider identity from provider id and
 # base URL, without receiving an API key. The credential is then written through
-# the live auth owner. That owner reuses the profile bound to the resolved
-# provider connection, so a repeated install replaces the key in place. Handing
-# an already-configured provider a key during onboarding
-# instead creates an inactive setup-replacement profile, so every reinstall
-# would add another unusable setup-<uuid> entry.
+# the live auth owner. That owner reuses an ordinary profile bound to the
+# resolved provider connection, so a repeated install replaces the key in place.
+# An inactive setup-replacement binding is switched to the ordinary manual
+# profile instead; preserving its setup marker would leave the new key unusable.
 # `--check-auth-binding` is the shared read-only readiness probe used by both
 # the pkg postinstall and the dmg first-launch bootstrap; it never writes state.
 
@@ -147,6 +146,20 @@ if [[ -n "$API_KEY_FILE" ]]; then
   if [[ -z "$EFFECTIVE_PROVIDER_ID" || "$EFFECTIVE_PROVIDER_ID" == "$MODEL_REF" || "${MODEL_REF#*/}" != "$MODEL_ID" ]]; then
     echo "ERROR: onboarding selected an unexpected default model" >&2
     exit 1
+  fi
+  if [[ "$DAEMON_MODE" == "--install-daemon" ]]; then
+    GATEWAY_READY=0
+    for ((ATTEMPT = 1; ATTEMPT <= 60; ATTEMPT++)); do
+      if "${CLI[@]}" gateway call status --json >/dev/null 2>&1; then
+        GATEWAY_READY=1
+        break
+      fi
+      /bin/sleep 1
+    done
+    if [[ "$GATEWAY_READY" != "1" ]]; then
+      echo "ERROR: Gateway did not become ready for default-provider credential setup" >&2
+      exit 1
+    fi
   fi
   "${CLI[@]}" models auth paste-api-key \
     --provider "$EFFECTIVE_PROVIDER_ID" \

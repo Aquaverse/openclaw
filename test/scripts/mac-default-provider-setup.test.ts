@@ -154,6 +154,44 @@ exit 9
     expect(calls.join("\n")).not.toContain("setup-");
   });
 
+  it("waits for the installed Gateway before publishing a repaired credential", () => {
+    const root = tempDirs.make("openclaw-default-provider-gateway-wait-");
+    const cli = path.join(root, "openclaw");
+    writeFileSync(path.join(root, "key"), "installer-secret");
+    writeFileSync(path.join(root, "gateway-attempts"), "0");
+    writeExecutable(
+      cli,
+      `#!/bin/bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$FIXTURE_ROOT/calls"
+if [[ "$*" == *"onboard --non-interactive"* ]]; then exit 0; fi
+if [[ "$*" == *"config get agents.defaults.model.primary --json"* ]]; then
+  printf '%s\n' '"vllm/gpt-test"'
+  exit 0
+fi
+if [[ "$*" == *"gateway call status --json"* ]]; then
+  attempts="$(cat "$FIXTURE_ROOT/gateway-attempts")"
+  attempts="$((attempts + 1))"
+  printf '%s' "$attempts" > "$FIXTURE_ROOT/gateway-attempts"
+  [[ "$attempts" -ge 3 ]]
+  exit $?
+fi
+if [[ "$*" == *"models auth paste-api-key"* ]]; then
+  [[ "$(cat "$FIXTURE_ROOT/gateway-attempts")" -ge 3 ]]
+  cat > "$FIXTURE_ROOT/published-key"
+  exit 0
+fi
+exit 9
+`,
+    );
+
+    const result = runSetup(root, cli, ["--install-daemon"]);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(path.join(root, "gateway-attempts"), "utf8")).toBe("3");
+    expect(readFileSync(path.join(root, "published-key"), "utf8")).toBe("installer-secret");
+  });
+
   it("stops when the live auth owner cannot save the credential", () => {
     const root = tempDirs.make("openclaw-default-provider-failure-");
     const cli = path.join(root, "openclaw");
