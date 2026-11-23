@@ -71,7 +71,7 @@ type Sandbox = {
   get: (key: string) => string | undefined;
   calls: () => string[];
   marker: () => string | undefined;
-  run: () => { status: number | null; stderr: string };
+  run: (options?: { repairMissing?: boolean }) => { status: number | null; stderr: string };
 };
 
 function sandbox(): Sandbox {
@@ -112,8 +112,12 @@ function sandbox(): Sandbox {
       const file = path.join(prefix, ".nexus-preset-applied");
       return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : undefined;
     },
-    run: () => {
-      const result = spawnSync("bash", [presetScript, "--app-path", app, "--prefix", prefix], {
+    run: (options) => {
+      const args = [presetScript, "--app-path", app, "--prefix", prefix];
+      if (options?.repairMissing) {
+        args.push("--repair-missing");
+      }
+      const result = spawnSync("bash", args, {
         encoding: "utf8",
         env: {
           PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -202,7 +206,7 @@ describe("scripts/mac-nexus-preset.sh", () => {
     assert.equal(box.marker(), undefined);
   });
 
-  it("is a no-op the second time it runs against the same version", () => {
+  it("is a no-op on ordinary launches after the same version was applied", () => {
     if (!runnable) {
       return;
     }
@@ -212,7 +216,33 @@ describe("scripts/mac-nexus-preset.sh", () => {
     const callsAfterFirst = box.calls().length;
     const result = box.run();
     assert.equal(result.status, 0);
-    assert.equal(box.calls().length, callsAfterFirst, "marker short-circuits before any CLI call");
+    assert.equal(
+      box.calls().length,
+      callsAfterFirst,
+      "the marker avoids starting the CLI on app launch",
+    );
+  });
+
+  it("restores a missing Nexus entry even when the current preset marker exists", () => {
+    if (!runnable) {
+      return;
+    }
+    const box = sandbox();
+    box.set("plugins.entries", "{}");
+    box.set("tools.alsoAllow", JSON.stringify(["web_search"]));
+    fs.writeFileSync(path.join(box.prefix, ".nexus-preset-applied"), PRESET_VERSION);
+
+    const result = box.run({ repairMissing: true });
+
+    assert.equal(result.status, 0);
+    assert.equal(box.get(`${PROVIDER}.enabled`), "true");
+    for (const key of SWITCHES) {
+      assert.equal(box.get(`${PROVIDER}.config.${key}`), "true", key);
+    }
+    assert.equal(box.get(`${PROVIDER}.config.fakeProviderMode`), '"ok"');
+    assert.ok(JSON.parse(box.get("tools.alsoAllow") ?? "[]").includes("nexus_task_get"));
+    assert.equal(restarts(box.calls()).length, 1);
+    assert.equal(box.marker(), PRESET_VERSION);
   });
 });
 

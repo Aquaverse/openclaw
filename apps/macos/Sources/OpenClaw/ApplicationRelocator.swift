@@ -215,6 +215,18 @@ enum ApplicationRelocator {
         return isInside(path, root: "/Volumes") && isReadOnlyVolume
     }
 
+    static func shouldInspectInstallCandidates(
+        bundleURL: URL,
+        homeDirectory: URL,
+        isReadOnlyVolume: Bool,
+        isDebugOrTesting: Bool) -> Bool
+    {
+        !isDebugOrTesting && self.isTransientLocation(
+            bundleURL,
+            homeDirectory: homeDirectory,
+            isReadOnlyVolume: isReadOnlyVolume)
+    }
+
     static func handleLaunch(
         bundle: Bundle = .main,
         fileManager: FileManager = .default,
@@ -541,33 +553,44 @@ extension ApplicationRelocator {
         let bundleURL = self.replacementSourceBundleURL(
             fallback: bundle.bundleURL)
         let homeDirectory = fileManager.homeDirectoryForCurrentUser.standardizedFileURL
-        let appName = bundleURL.lastPathComponent
-        let destinations = [
-            URL(fileURLWithPath: "/Applications").appendingPathComponent(appName),
-            homeDirectory.appendingPathComponent("Applications").appendingPathComponent(appName),
-        ]
-        let currentRequirement = self.designatedRequirement(for: bundleURL)
-        let candidates = destinations.map { destination in
-            let exists = fileManager.fileExists(atPath: destination.path)
-            let installedBundle = exists ? Bundle(url: destination) : nil
-            return InstallCandidate(
-                url: destination,
-                exists: exists,
-                isWritable: self.canWrite(destination: destination, fileManager: fileManager),
-                isTrusted: installedBundle.map {
-                    self.isTrustedInstalledApp($0, matching: currentRequirement, fileManager: fileManager)
-                } ?? false,
-                identity: installedBundle.flatMap(self.identity(for:)))
-        }
         let isReadOnlyVolume = (try? bundleURL.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?
             .volumeIsReadOnly ?? false
+        let isDebugOrTesting = CLIInstallBuild.isDebug || processInfo.isRunningTests || processInfo.isPreview
+        let shouldInspectCandidates = self.shouldInspectInstallCandidates(
+            bundleURL: bundleURL,
+            homeDirectory: homeDirectory,
+            isReadOnlyVolume: isReadOnlyVolume,
+            isDebugOrTesting: isDebugOrTesting)
+        let appName = bundleURL.lastPathComponent
+        let candidates: [InstallCandidate]
+        if shouldInspectCandidates {
+            let destinations = [
+                URL(fileURLWithPath: "/Applications").appendingPathComponent(appName),
+                homeDirectory.appendingPathComponent("Applications").appendingPathComponent(appName),
+            ]
+            let currentRequirement = self.designatedRequirement(for: bundleURL)
+            candidates = destinations.map { destination in
+                let exists = fileManager.fileExists(atPath: destination.path)
+                let installedBundle = exists ? Bundle(url: destination) : nil
+                return InstallCandidate(
+                    url: destination,
+                    exists: exists,
+                    isWritable: self.canWrite(destination: destination, fileManager: fileManager),
+                    isTrusted: installedBundle.map {
+                        self.isTrustedInstalledApp($0, matching: currentRequirement, fileManager: fileManager)
+                    } ?? false,
+                    identity: installedBundle.flatMap(self.identity(for:)))
+            }
+        } else {
+            candidates = []
+        }
         return Environment(
             bundleURL: bundleURL,
             homeDirectory: homeDirectory,
             currentIdentity: self.identity(for: bundle),
             candidates: candidates,
             isReadOnlyVolume: isReadOnlyVolume,
-            isDebugOrTesting: CLIInstallBuild.isDebug || processInfo.isRunningTests || processInfo.isPreview)
+            isDebugOrTesting: isDebugOrTesting)
     }
 
     private static func identity(for bundle: Bundle) -> ApplicationIdentity? {

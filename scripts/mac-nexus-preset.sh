@@ -20,16 +20,18 @@
 # Called from scripts/mac-pkg-postinstall.sh (after onboarding) and from scripts/mac-llama-fallback-setup.sh, which
 # OpenClaw.app starts on every launch; both already run as the logged-in user. Never exits non-zero.
 #
-# Usage: mac-nexus-preset.sh --app-path <OpenClaw.app> --prefix <~/.openclaw>
+# Usage: mac-nexus-preset.sh --app-path <OpenClaw.app> --prefix <~/.openclaw> [--repair-missing]
 
 set -uo pipefail
 
 APP_PATH=""
 PREFIX=""
+REPAIR_MISSING=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --app-path) APP_PATH="$2"; shift 2 ;;
     --prefix) PREFIX="$2"; shift 2 ;;
+    --repair-missing) REPAIR_MISSING=1; shift ;;
     *) shift ;;
   esac
 done
@@ -63,7 +65,7 @@ SWITCHES="${SWITCHES:-worksEnabled,decisionsEnabled,claimsEnabled,preferencesEna
 MARKER="$PREFIX/.nexus-preset-applied"
 MARKER_VERSION=""
 [[ -f "$MARKER" ]] && MARKER_VERSION="$(/bin/cat "$MARKER" 2>/dev/null)"
-if [[ "$MARKER_VERSION" == "$PRESET_VERSION" ]]; then
+if [[ "$MARKER_VERSION" == "$PRESET_VERSION" && "$REPAIR_MISSING" != "1" ]]; then
   exit 0
 fi
 # Downgrade: this build is older than the preset already applied here. Leave the user's configuration exactly as it is:
@@ -92,9 +94,10 @@ oc() { "$OPENCLAW_BIN" "$@" >>"$LOG_FILE" 2>&1; }
 CHANGED=0
 P="plugins.entries.nexus-agent-core"
 
-# An existing marker means this is an upgrade, not initial provisioning. Preserve
-# the whole user-owned entry when it still exists. Only the historical case where
-# the entry disappeared is repaired by replaying the full preset.
+# An existing marker means this is an upgrade or a repeated launch, not initial provisioning. Preserve the whole
+# user-owned entry when it still exists. Do not trust the marker alone: a historical migration or interrupted repair
+# may have removed the entry after the marker was written, and that removes both the Nexus tab and its rail items.
+# Only that missing-entry case replays the full preset.
 if [[ -n "$MARKER_VERSION" ]]; then
   ENTRY_STATE="$("$OPENCLAW_BIN" config get plugins.entries --json 2>/dev/null)" \
     || soft_exit "could not inspect existing plugin configuration"

@@ -203,6 +203,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(failure).toBeGreaterThanOrEqual(0);
     expect(nexus).toBeGreaterThan(failure);
     expect(script.slice(failure, nexus)).not.toContain("exit 0");
+    expect(script.slice(nexus, defaults)).toContain("--repair-missing");
     expect(defaults).toBeGreaterThan(nexus);
   });
 

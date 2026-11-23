@@ -73,6 +73,34 @@ struct ApplicationRelocatorTests {
     }
 
     @Test
+    func `stable installed application skips install candidate inspection`() {
+        #expect(!ApplicationRelocator.shouldInspectInstallCandidates(
+            bundleURL: URL(fileURLWithPath: "/Applications/OpenClaw.app"),
+            homeDirectory: home,
+            isReadOnlyVolume: false,
+            isDebugOrTesting: false))
+        #expect(!ApplicationRelocator.shouldInspectInstallCandidates(
+            bundleURL: home.appendingPathComponent("Applications/OpenClaw.app"),
+            homeDirectory: home,
+            isReadOnlyVolume: false,
+            isDebugOrTesting: false))
+    }
+
+    @Test
+    func `transient application still inspects trusted install candidates`() {
+        #expect(ApplicationRelocator.shouldInspectInstallCandidates(
+            bundleURL: home.appendingPathComponent("Downloads/OpenClaw.app"),
+            homeDirectory: home,
+            isReadOnlyVolume: false,
+            isDebugOrTesting: false))
+        #expect(ApplicationRelocator.shouldInspectInstallCandidates(
+            bundleURL: URL(fileURLWithPath: "/Volumes/OpenClaw/OpenClaw.app"),
+            homeDirectory: home,
+            isReadOnlyVolume: true,
+            isDebugOrTesting: false))
+    }
+
+    @Test
     func `transient copy offers system installation when available`() {
         let destination = URL(fileURLWithPath: "/Applications/OpenClaw.app")
         let recommendation = ApplicationRelocator.recommendation(

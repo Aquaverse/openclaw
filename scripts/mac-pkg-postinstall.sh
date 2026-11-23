@@ -728,7 +728,7 @@ fi
 NEXUS_PRESET_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-preset.sh"
 if [[ -f "$NEXUS_PRESET_SCRIPT" ]]; then
   run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
-      /bin/bash "$NEXUS_PRESET_SCRIPT" --app-path "$APP_PATH" --prefix "$PREFIX" >>"$LOG_FILE" 2>&1 \
+      /bin/bash "$NEXUS_PRESET_SCRIPT" --app-path "$APP_PATH" --prefix "$PREFIX" --repair-missing >>"$LOG_FILE" 2>&1 \
     || log "WARN: Nexus preset script failed (non-fatal)"
 fi
 
