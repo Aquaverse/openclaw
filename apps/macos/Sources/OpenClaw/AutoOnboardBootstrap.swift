@@ -142,7 +142,7 @@ final class AutoOnboardBootstrap {
             // process activateLocalGateway() attaches to or starts next
             // reads the already-correct config from its own first boot.
             if let provider = Self.bundledDefaultProvider() {
-                if Self.defaultProviderNeedsApply(provider) {
+                if await Self.defaultProviderNeedsApply(provider) {
                     traceLog("runIfEligible: fast path applying bundled default provider (first launch of this install/upgrade)")
                     let applied = await Self.applyDefaultProvider(provider)
                     traceLog("runIfEligible: fast path applyDefaultProvider() returned \(applied)")
@@ -235,7 +235,7 @@ final class AutoOnboardBootstrap {
         // nothing left running beforehand.
         if let provider = Self.bundledDefaultProvider() {
             traceLog("runIfEligible: bundledDefaultProvider() found provider id=\(provider.id ?? "nil"), baseURL=\(provider.baseURL), modelID=\(provider.modelID), hasAPIKey=\(provider.apiKey != nil)")
-            if Self.defaultProviderNeedsApply(provider) {
+            if await Self.defaultProviderNeedsApply(provider) {
                 self.status.step = String(localized: "Configuring default model…")
                 let applied = await Self.applyDefaultProvider(provider)
                 traceLog("runIfEligible: applyDefaultProvider() returned \(applied)")
@@ -417,9 +417,11 @@ final class AutoOnboardBootstrap {
     // install/upgrade, or by the first launch after a dmg install/upgrade.
     // <prefix>/.default-provider-applied records "<env sha256>:<bundled CLI
     // package sha256>" once that has happened (the postinstall writes the same
-    // value). Every later launch finds the marker and skips the step -- no
-    // progress text, no `openclaw onboard` -- so a model the user switched to
-    // afterwards is never overridden again until the next install/upgrade.
+    // value). Every later launch with a live credential binding skips the step
+    // -- no progress text, no `openclaw onboard`. If migration or recovery
+    // removed that binding, the marker is stale and the bundled setup repairs
+    // it. A model the user switched to afterwards is otherwise never overridden
+    // again until the next install/upgrade.
 
     private static func defaultProviderMarkerURL() -> URL {
         URL(fileURLWithPath: CLIInstaller.installPrefix()).appendingPathComponent(".default-provider-applied")
@@ -429,10 +431,34 @@ final class AutoOnboardBootstrap {
         "\(provider.fingerprint):\(CLIInstaller.bundledCLIPackage()?.sha256 ?? "none")"
     }
 
-    private static func defaultProviderNeedsApply(_ provider: DefaultProvider) -> Bool {
+    private static func defaultProviderNeedsApply(_ provider: DefaultProvider) async -> Bool {
         let stored = (try? String(contentsOf: self.defaultProviderMarkerURL(), encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return stored != self.defaultProviderMarkerValue(provider)
+        guard stored == self.defaultProviderMarkerValue(provider) else { return true }
+        guard provider.apiKey != nil else { return false }
+        let bindingReady = await self.defaultProviderAuthBindingReady()
+        if !bindingReady {
+            traceLog("defaultProviderNeedsApply: applied marker has no live credential binding; repairing")
+        }
+        return !bindingReady
+    }
+
+    private static func defaultProviderAuthBindingReady() async -> Bool {
+        let executable = CLIInstaller.managedExecutableLocation()
+        guard FileManager.default.isExecutableFile(atPath: executable) else { return false }
+        let setupURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/mac-default-provider-setup.sh")
+        guard FileManager.default.isExecutableFile(atPath: setupURL.path) else { return false }
+        var arguments = [
+            setupURL.path,
+            "--openclaw-bin", executable,
+            "--check-auth-binding",
+        ]
+        if let profile = AppProfile.current.name {
+            arguments.append(contentsOf: ["--profile", profile])
+        }
+        let result = await ShellExecutor.runDetailed(command: arguments, cwd: nil, env: nil, timeout: 30)
+        return result.success
     }
 
     private static func recordDefaultProviderApplied(_ provider: DefaultProvider) {

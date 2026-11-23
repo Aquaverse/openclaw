@@ -9,6 +9,8 @@ set -euo pipefail
 # an already-configured provider a key during onboarding
 # instead creates an inactive setup-replacement profile, so every reinstall
 # would add another unusable setup-<uuid> entry.
+# `--check-auth-binding` is the shared read-only readiness probe used by both
+# the pkg postinstall and the dmg first-launch bootstrap; it never writes state.
 
 OPENCLAW_BIN=""
 PROFILE=""
@@ -17,6 +19,7 @@ BASE_URL=""
 MODEL_ID=""
 API_KEY_FILE=""
 DAEMON_MODE=""
+CHECK_AUTH_BINDING=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,6 +51,10 @@ while [[ $# -gt 0 ]]; do
       DAEMON_MODE="$1"
       shift
       ;;
+    --check-auth-binding)
+      CHECK_AUTH_BINDING=1
+      shift
+      ;;
     *)
       echo "ERROR: unknown default-provider setup option: $1" >&2
       exit 2
@@ -59,6 +66,22 @@ if [[ -z "$OPENCLAW_BIN" || ! -x "$OPENCLAW_BIN" ]]; then
   echo "ERROR: --openclaw-bin must name an executable OpenClaw CLI" >&2
   exit 2
 fi
+CLI=("$OPENCLAW_BIN")
+if [[ -n "$PROFILE" ]]; then
+  CLI+=(--profile "$PROFILE")
+fi
+
+if [[ "$CHECK_AUTH_BINDING" == "1" ]]; then
+  MODEL_REF="$("${CLI[@]}" config get agents.defaults.model.primary --json)" || exit 1
+  MODEL_REF="${MODEL_REF#\"}"
+  MODEL_REF="${MODEL_REF%\"}"
+  EFFECTIVE_PROVIDER_ID="${MODEL_REF%%/*}"
+  [[ -n "$EFFECTIVE_PROVIDER_ID" && "$EFFECTIVE_PROVIDER_ID" != "$MODEL_REF" ]] || exit 1
+  BINDING="$("${CLI[@]}" config get "models.providers.$EFFECTIVE_PROVIDER_ID.apiKey" --json)" || exit 1
+  [[ -n "$BINDING" && "$BINDING" != "null" && "$BINDING" != '""' ]]
+  exit $?
+fi
+
 if [[ -z "$BASE_URL" || -z "$MODEL_ID" || -z "$DAEMON_MODE" ]]; then
   echo "ERROR: --base-url, --model-id and one daemon mode are required" >&2
   exit 2
@@ -70,11 +93,6 @@ fi
 if [[ -n "$API_KEY_FILE" && -z "$PROVIDER_ID" ]]; then
   echo "ERROR: --provider-id is required when installing an API key" >&2
   exit 2
-fi
-
-CLI=("$OPENCLAW_BIN")
-if [[ -n "$PROFILE" ]]; then
-  CLI+=(--profile "$PROFILE")
 fi
 
 ONBOARD_ARGS=(

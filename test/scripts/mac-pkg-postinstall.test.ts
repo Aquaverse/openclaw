@@ -244,6 +244,19 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script).toContain('"$DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED" == "1"');
   });
 
+  it("does not trust an applied marker after the provider credential binding disappears", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const functionStart = script.indexOf("default_provider_auth_binding_ready() {");
+    const functionEnd = script.indexOf('\nif [[ "$APPLY_DEFAULT_PROVIDER" == "1"', functionStart);
+    expect(functionStart).toBeGreaterThanOrEqual(0);
+    expect(functionEnd).toBeGreaterThan(functionStart);
+    expect(script.slice(functionStart, functionEnd)).toContain(
+      '"$DEFAULT_PROVIDER_SETUP" --openclaw-bin "$OPENCLAW_BIN" --check-auth-binding',
+    );
+    expect(script).toContain("The default-provider marker is stale");
+    expect(script).toContain("The legacy default-provider marker is stale");
+  });
+
   it("skips repeated onboarding and starts the selected local service without forcing a rewrite", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const seen = script.indexOf('"openclaw.onboardingSeen"');

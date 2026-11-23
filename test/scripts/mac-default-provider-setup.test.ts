@@ -36,6 +36,52 @@ function runSetup(root: string, cli: string, extraArgs: string[] = []) {
 }
 
 describe.skipIf(process.platform === "win32")("mac default-provider setup", () => {
+  it("reports a stale credential marker when the selected provider has no auth binding", () => {
+    const root = tempDirs.make("openclaw-default-provider-binding-");
+    const cli = path.join(root, "openclaw");
+    writeExecutable(
+      cli,
+      `#!/bin/bash
+printf '%s\n' "$*" >> "$FIXTURE_ROOT/calls"
+if [[ "$*" == *"config get agents.defaults.model.primary --json"* ]]; then
+  printf '%s\n' '"vllm/gpt-test"'
+  exit 0
+fi
+if [[ "$*" == *"config get models.providers.vllm.apiKey --json"* ]]; then
+  printf '%s\n' "\${BINDING:-null}"
+  exit 0
+fi
+exit 9
+`,
+    );
+    const run = (binding: string) =>
+      spawnSync(
+        "/bin/bash",
+        [
+          setupScript,
+          "--openclaw-bin",
+          cli,
+          "--profile",
+          "installer-proof",
+          "--check-auth-binding",
+        ],
+        { encoding: "utf8", env: { ...process.env, FIXTURE_ROOT: root, BINDING: binding } },
+      );
+
+    const missing = run("null");
+    const present = run('"vllm:manual"');
+
+    expect(missing.status, missing.stderr).toBe(1);
+    expect(present.status, present.stderr).toBe(0);
+    const calls = readFileSync(path.join(root, "calls"), "utf8").trim().split("\n");
+    expect(calls).toEqual([
+      "--profile installer-proof config get agents.defaults.model.primary --json",
+      "--profile installer-proof config get models.providers.vllm.apiKey --json",
+      "--profile installer-proof config get agents.defaults.model.primary --json",
+      "--profile installer-proof config get models.providers.vllm.apiKey --json",
+    ]);
+  });
+
   it("overwrites one active profile from installer config across repeated installs", () => {
     const root = tempDirs.make("openclaw-default-provider-");
     const cli = path.join(root, "openclaw");

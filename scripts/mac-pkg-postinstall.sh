@@ -573,6 +573,13 @@ if [[ "$ONBOARDING_CONNECTION_MODE" == "remote" ]]; then
   fi
 fi
 
+default_provider_auth_binding_ready() {
+  [[ -x "$DEFAULT_PROVIDER_SETUP" ]] || return 1
+  run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+    "$DEFAULT_PROVIDER_SETUP" --openclaw-bin "$OPENCLAW_BIN" --check-auth-binding \
+    >/dev/null 2>&1
+}
+
 if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
   log "Configuring default AI provider from the bundled installer.env (base URL: $AI_BASE_URL, model: $AI_MODEL)"
   ENV_SHA256="$(/usr/bin/shasum -a 256 "$ENV_FILE" | /usr/bin/awk '{print $1}')"
@@ -580,8 +587,12 @@ if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]
     "$AI_PROVIDER" "$AI_BASE_URL" "$AI_MODEL" "$AI_API_KEY" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
   APPLIED_PROVIDER_AUTH_ID="$(/usr/bin/head -n1 "$PREFIX/.default-provider-auth-applied" 2>/dev/null || true)"
   if [[ -n "$APPLIED_PROVIDER_AUTH_ID" && "$APPLIED_PROVIDER_AUTH_ID" == "$DEFAULT_PROVIDER_AUTH_ID" ]]; then
-    DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
-    DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=1
+    if default_provider_auth_binding_ready; then
+      DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
+      DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=1
+    else
+      log "The default-provider marker is stale because its credential binding is missing -- repairing it from this installer."
+    fi
   elif [[ -n "$APPLIED_PROVIDER_AUTH_ID" ]]; then
     # The legacy marker includes the model even though changing only the model
     # must not rewrite the same credential. Rebuild the old fingerprint from
@@ -597,7 +608,8 @@ if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]
     if [[ -n "$CURRENT_MODEL_ID" && "$CURRENT_MODEL_ID" != "$CURRENT_MODEL_REF" ]]; then
       CURRENT_PROVIDER_AUTH_ID="$(printf 'provider=%s\nbase_url=%s\nmodel=%s\napi_key=%s\n' \
         "$AI_PROVIDER" "$AI_BASE_URL" "$CURRENT_MODEL_ID" "$AI_API_KEY" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
-      if [[ "$APPLIED_PROVIDER_AUTH_ID" == "$CURRENT_PROVIDER_AUTH_ID" ]]; then
+      if [[ "$APPLIED_PROVIDER_AUTH_ID" == "$CURRENT_PROVIDER_AUTH_ID" ]] \
+        && default_provider_auth_binding_ready; then
         DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
         log "Only the bundled default model changed -- preserving the existing credential and updating model selection."
       fi
@@ -608,8 +620,12 @@ if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]
     APPLIED_DEFAULT_PROVIDER="$(/usr/bin/head -n1 "$PREFIX/.default-provider-applied" 2>/dev/null || true)"
     case "$APPLIED_DEFAULT_PROVIDER" in
       "$ENV_SHA256":*)
-        DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
-        DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=1
+        if default_provider_auth_binding_ready; then
+          DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
+          DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=1
+        else
+          log "The legacy default-provider marker is stale because its credential binding is missing -- repairing it from this installer."
+        fi
         ;;
     esac
   fi
