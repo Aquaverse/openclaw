@@ -5,6 +5,7 @@ set -euo pipefail
 # artifact is only an installation source; trim development files before sealing.
 # Type-only metadata belongs to the public SDK artifact.
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/mac-node-distribution-cache.sh"
 DESTINATION="$1"
 shift
 [[ "$#" -gt 0 ]] || { echo "ERROR: No runtime architectures requested" >&2; exit 1; }
@@ -20,6 +21,10 @@ mkdir -p "$(dirname "$DESTINATION")"
 STAGE="$(cd "$(dirname "$DESTINATION")" && mktemp -d "$PWD/.openclaw-mac-runtime.XXXXXX")"
 trap 'rm -rf "$STAGE" "$SCRATCH"' EXIT
 mkdir -p "$SCRATCH/home" "$SCRATCH/package"
+NODE_CACHE_DIR="$ROOT_DIR/.artifacts/mac-installer-node-cache"
+NPM_CACHE_DIR="$ROOT_DIR/.artifacts/mac-installer-npm-cache"
+COREPACK_CACHE_DIR="${COREPACK_HOME:-$ROOT_DIR/.artifacts/mac-installer-corepack-cache}"
+mkdir -p "$NPM_CACHE_DIR" "$COREPACK_CACHE_DIR"
 node "$ROOT_DIR/scripts/lib/desktop-runtime-plugins.mjs" plan "$ROOT_DIR" > "$SCRATCH/plugins.json"
 PACKAGE_ARGS=(--skip-build --pnpm-pack --runtime-only --allow-unreleased-changelog --output-dir "$SCRATCH/package" --output-name openclaw.tgz)
 while IFS= read -r plugin; do
@@ -32,6 +37,7 @@ node -e 'const p = require(process.argv[1]); console.error(p.releaseTag ? `Relea
 # Use the build's pinned pnpm packer, not the host npm's expanding file globs.
 # Forward only its existing phase budgets; the packager owns defaults/validation.
 TARBALL="$(env -i HOME="$SCRATCH/home" PATH="$PATH" TMPDIR="$SCRATCH" \
+  COREPACK_HOME="$COREPACK_CACHE_DIR" NPM_CONFIG_CACHE="$NPM_CACHE_DIR" \
   OPENCLAW_DOCKER_PACKAGE_INVENTORY_TIMEOUT_MS="${OPENCLAW_DOCKER_PACKAGE_INVENTORY_TIMEOUT_MS:-}" \
   OPENCLAW_DOCKER_PACKAGE_PACK_TIMEOUT_MS="${OPENCLAW_DOCKER_PACKAGE_PACK_TIMEOUT_MS:-}" \
   OPENCLAW_DOCKER_PACKAGE_TARBALL_CHECK_TIMEOUT_MS="${OPENCLAW_DOCKER_PACKAGE_TARBALL_CHECK_TIMEOUT_MS:-}" \
@@ -41,6 +47,7 @@ TARBALL="$(env -i HOME="$SCRATCH/home" PATH="$PATH" TMPDIR="$SCRATCH" \
 
 for arch in "$@"; do
   case "$arch" in arm64|x86_64) ;; *) echo "ERROR: Unsupported Mac runtime architecture: $arch" >&2; exit 1 ;; esac
+  openclaw_cache_node_distribution "$NODE_CACHE_DIR" darwin "$arch"
 done
 # Node and npm exist only in scratch. npm selects optional packages for one CPU
 # per install, even with --force. Lifecycle hooks also load native code, so each
@@ -48,6 +55,9 @@ done
 env -i HOME="$SCRATCH/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
   TMPDIR="$SCRATCH" OPENCLAW_INSTALL_CLI_SH_NO_RUN=1 npm_config_os=darwin \
   OPENCLAW_NODE_VERSION="${OPENCLAW_NODE_VERSION:-}" \
+  OPENCLAW_MAC_NODE_VERSION="$OPENCLAW_MAC_NODE_VERSION" \
+  OPENCLAW_NODE_CACHE_DIR="$NODE_CACHE_DIR" \
+  NPM_CONFIG_CACHE="$NPM_CACHE_DIR" NPM_CONFIG_PREFER_OFFLINE=true \
   npm_config_omit=dev npm_config_include=optional \
   /bin/bash -c '
     set -euo pipefail
@@ -60,6 +70,8 @@ env -i HOME="$SCRATCH/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
     for arch in "$@"; do
       PREFIX="$scratch/prefix-$arch"
       export npm_config_cpu="${arch/x86_64/x64}"
+      export OPENCLAW_NODE_TARBALL="$OPENCLAW_NODE_CACHE_DIR/node-v${OPENCLAW_MAC_NODE_VERSION}-darwin-${npm_config_cpu}.tar.gz"
+      export OPENCLAW_NODE_TARBALL_SHA256="$(cat "${OPENCLAW_NODE_TARBALL}.sha256")"
       install_node darwin "$npm_config_cpu"
       export PATH="$(node_dir)/bin:$tools_path"
       install_openclaw

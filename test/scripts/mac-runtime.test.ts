@@ -65,6 +65,23 @@ function scriptFixture(prefix: string) {
   };
 }
 
+function seedMacNodeCache(root: string, architectures: readonly string[]) {
+  const cache = path.join(root, ".artifacts/mac-installer-node-cache");
+  const version = "24.22.1";
+  const rows: string[] = [];
+  mkdirSync(cache, { recursive: true });
+  for (const architecture of architectures) {
+    const distributionArch = architecture === "x86_64" ? "x64" : architecture;
+    const name = `node-v${version}-darwin-${distributionArch}.tar.gz`;
+    const contents = Buffer.from(`cached-node-${distributionArch}`);
+    const digest = createHash("sha256").update(contents).digest("hex");
+    writeFileSync(path.join(cache, name), contents);
+    writeFileSync(path.join(cache, `${name}.sha256`), `${digest}\n`);
+    rows.push(`${digest}  ${name}`);
+  }
+  writeFileSync(path.join(cache, `SHASUMS256-v${version}.txt`), `${rows.join("\n")}\n`);
+}
+
 function pythonInventory(root: string, marker: string, program: string, ...args: string[]) {
   const prelude = `import os, pathlib, runpy, sys, unittest
 api = runpy.run_path('scripts/lib/mac-native-inventory.py')
@@ -277,6 +294,11 @@ async function stagingFixture(
   await write(path.join(root, "operator-sentinel"), "ambient home must remain untouched");
   await write(path.join(tmp, "other-task/sentinel"), "unrelated scratch must survive");
   await cp("scripts/stage-mac-runtime.sh", path.join(scripts, "stage-mac-runtime.sh"));
+  await cp(
+    "scripts/lib/mac-node-distribution-cache.sh",
+    path.join(scripts, "lib/mac-node-distribution-cache.sh"),
+  );
+  seedMacNodeCache(root, architectures);
   await script(
     "lib/desktop-runtime-prune.mjs",
     readFileSync("scripts/lib/desktop-runtime-prune.mjs"),
@@ -1245,6 +1267,40 @@ def report():
 });
 
 describe("Mac app runtime publication", () => {
+  baseIt("reuses verified Node distributions without network access", () => {
+    const { root, at, put, bash } = scriptFixture("node-cache");
+    put(
+      "scripts/lib/mac-node-distribution-cache.sh",
+      readFileSync("scripts/lib/mac-node-distribution-cache.sh"),
+    );
+    seedMacNodeCache(root, ["arm64"]);
+    put("bin/curl", `#!/bin/bash\nprintf called > ${quote(at("curl-called"))}\nexit 91\n`, 0o755);
+    const helper = at("scripts/lib/mac-node-distribution-cache.sh");
+    const cache = path.join(root, ".artifacts/mac-installer-node-cache");
+
+    const cached = bash(
+      `source ${quote(helper)}\nopenclaw_cache_node_distribution ${quote(cache)} darwin arm64\nprintf '%s\\n' "$OPENCLAW_CACHED_NODE_TARBALL"`,
+      { PATH: `${at("bin")}:/usr/bin:/bin` },
+    );
+    expect(cached.status, cached.stderr).toBe(0);
+    expect(cached.stdout.trim()).toBe(
+      path.join(root, ".artifacts/mac-installer-node-cache/node-v24.22.1-darwin-arm64.tar.gz"),
+    );
+    expect(existsSync(at("curl-called"))).toBe(false);
+
+    writeFileSync(
+      path.join(root, ".artifacts/mac-installer-node-cache/node-v24.22.1-darwin-arm64.tar.gz"),
+      "corrupt",
+    );
+    const corrupt = bash(
+      `source ${quote(helper)}\nopenclaw_cache_node_distribution ${quote(cache)} darwin arm64`,
+      { PATH: `${at("bin")}:/usr/bin:/bin` },
+    );
+    expect(corrupt.status).toBe(1);
+    expect(corrupt.stderr).toContain("sha256 mismatch");
+    expect(existsSync(at("curl-called"))).toBe(false);
+  });
+
   baseIt("preserves the default build-time installer Node version", () => {
     const { root, at, put, link, run } = scriptFixture("version");
     put(
@@ -1253,6 +1309,11 @@ describe("Mac app runtime publication", () => {
     );
     link(process.execPath, "bin/node");
     put("scripts/stage-mac-runtime.sh", readFileSync("scripts/stage-mac-runtime.sh"));
+    put(
+      "scripts/lib/mac-node-distribution-cache.sh",
+      readFileSync("scripts/lib/mac-node-distribution-cache.sh"),
+    );
+    seedMacNodeCache(root, ["arm64"]);
     put(
       "scripts/package-openclaw-for-docker.mjs",
       `import fs from "node:fs";

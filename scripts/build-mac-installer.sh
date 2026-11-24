@@ -117,6 +117,7 @@ set -euo pipefail
 # with the OS, no Xcode install required).
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/mac-node-distribution-cache.sh"
 source "$ROOT_DIR/scripts/lib/plistbuddy.sh"
 source "$ROOT_DIR/scripts/lib/build-metadata.sh"
 
@@ -227,7 +228,7 @@ fi
 # script both still work fine without it, install-cli.sh just downloads
 # Node itself at install time like it always did.
 # ---------------------------------------------------------------------
-NODE_VERSION_FOR_BUNDLE="${OPENCLAW_NODE_VERSION:-24.22.1}"
+NODE_VERSION_FOR_BUNDLE="$OPENCLAW_MAC_NODE_VERSION"
 rm -rf "$APP/Contents/Resources/node-runtime"
 if [[ "${SKIP_NODE_BUNDLE:-0}" == "1" ]]; then
   echo "==> SKIP_NODE_BUNDLE=1 -- not bundling a Node runtime; installs will fetch Node from nodejs.org"
@@ -235,39 +236,17 @@ else
   NODE_CACHE_DIR="$ROOT_DIR/.artifacts/mac-installer-node-cache"
   mkdir -p "$NODE_CACHE_DIR" "$APP/Contents/Resources/node-runtime"
   APP_ARCHS="$(lipo -archs "$APP_BIN" 2>/dev/null || uname -m)"
-  fetch_node_tarball() {
-    local arch="$1" tarball url expected_sha actual_sha
-    tarball="node-v${NODE_VERSION_FOR_BUNDLE}-darwin-${arch}.tar.gz"
-    url="https://nodejs.org/dist/v${NODE_VERSION_FOR_BUNDLE}/${tarball}"
-    if [[ ! -f "$NODE_CACHE_DIR/$tarball" ]]; then
-      echo "    Downloading $tarball (cached under .artifacts/ for future builds)"
-      curl -fsSL --proto '=https' --tlsv1.2 -o "$NODE_CACHE_DIR/$tarball.tmp" "$url"
-      mv "$NODE_CACHE_DIR/$tarball.tmp" "$NODE_CACHE_DIR/$tarball"
-    fi
-    if [[ ! -f "$NODE_CACHE_DIR/$tarball.sha256" ]]; then
-      curl -fsSL --proto '=https' --tlsv1.2 -o "$NODE_CACHE_DIR/SHASUMS256.txt.tmp" \
-        "https://nodejs.org/dist/v${NODE_VERSION_FOR_BUNDLE}/SHASUMS256.txt"
-      expected_sha="$(grep "  ${tarball}$" "$NODE_CACHE_DIR/SHASUMS256.txt.tmp" | awk '{print $1}' | head -n1)"
-      rm -f "$NODE_CACHE_DIR/SHASUMS256.txt.tmp"
-      if [[ -z "$expected_sha" ]]; then
-        echo "ERROR: could not resolve sha256 for $tarball" >&2
-        exit 1
-      fi
-      echo "$expected_sha" > "$NODE_CACHE_DIR/$tarball.sha256"
-    fi
-    expected_sha="$(cat "$NODE_CACHE_DIR/$tarball.sha256")"
-    actual_sha="$(shasum -a 256 "$NODE_CACHE_DIR/$tarball" | awk '{print $1}')"
-    if [[ "$actual_sha" != "$expected_sha" ]]; then
-      echo "ERROR: cached $tarball sha256 mismatch (expected $expected_sha, got $actual_sha) -- delete $NODE_CACHE_DIR/$tarball and retry" >&2
-      exit 1
-    fi
-    cp "$NODE_CACHE_DIR/$tarball" "$APP/Contents/Resources/node-runtime/$tarball"
-    cp "$NODE_CACHE_DIR/$tarball.sha256" "$APP/Contents/Resources/node-runtime/$tarball.sha256"
-  }
   echo "==> Bundling Node ${NODE_VERSION_FOR_BUNDLE} for: $APP_ARCHS"
   for arch in $APP_ARCHS; do
     case "$arch" in
-      arm64 | x86_64) fetch_node_tarball "$arch" ;;
+      arm64 | x86_64)
+        openclaw_cache_node_distribution "$NODE_CACHE_DIR" darwin "$arch"
+        BUNDLED_NODE_TARBALL="node-v${NODE_VERSION_FOR_BUNDLE}-darwin-${arch}.tar.gz"
+        cp "$OPENCLAW_CACHED_NODE_TARBALL" \
+          "$APP/Contents/Resources/node-runtime/$BUNDLED_NODE_TARBALL"
+        cp "${OPENCLAW_CACHED_NODE_TARBALL}.sha256" \
+          "$APP/Contents/Resources/node-runtime/$BUNDLED_NODE_TARBALL.sha256"
+        ;;
       *) echo "    (skipping unrecognized arch: $arch)" ;;
     esac
   done

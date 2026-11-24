@@ -2,6 +2,12 @@
 
 PNPM_CMD=()
 
+# Keep Corepack's package and pnpm's native executable across macOS package
+# builds. Without an explicit owner, an isolated or changed HOME makes Corepack
+# download the pinned pnpm binary again.
+export COREPACK_HOME="${COREPACK_HOME:-$ROOT_DIR/.artifacts/mac-installer-corepack-cache}"
+mkdir -p "$COREPACK_HOME"
+
 resolve_pnpm_cmd() {
   if command -v corepack >/dev/null 2>&1 && (cd "$ROOT_DIR" && corepack pnpm --version >/dev/null 2>&1); then
     PNPM_CMD=(corepack pnpm)
