@@ -177,6 +177,31 @@ else
   GATEWAY_SERVICE_LABEL="ai.openclaw.gateway"
 fi
 
+prior_nexus_gateway_service_owned() {
+  local plist="$1"
+  local source_prefix="$2"
+  local loaded_definition="${3:-}"
+  local label=""
+  local working_directory=""
+  local program_arguments=""
+
+  [[ -f "$plist" ]] || return 1
+  label="$(/usr/libexec/PlistBuddy -c "Print :Label" "$plist" 2>/dev/null || true)"
+  working_directory="$(/usr/libexec/PlistBuddy -c "Print :WorkingDirectory" "$plist" 2>/dev/null || true)"
+  program_arguments="$(/usr/libexec/PlistBuddy -c "Print :ProgramArguments" "$plist" 2>/dev/null || true)"
+
+  [[ "$label" == "ai.openclaw.gateway" ]] || return 1
+  [[ "$working_directory" == "$source_prefix" ]] || return 1
+  [[ "$program_arguments" == *"$source_prefix/tools/node"* ]] || return 1
+  [[ "$program_arguments" == *"/lib/node_modules/openclaw/dist/index.js"* ]] || return 1
+  printf '%s\n' "$program_arguments" | /usr/bin/grep -Eq '^[[:space:]]*gateway[[:space:]]*$' || return 1
+
+  # A loaded job can outlive or differ from the plist currently on disk. Require
+  # its effective launchd definition to point at the same state root before the
+  # installer is allowed to retire it.
+  [[ -z "$loaded_definition" || "$loaded_definition" == *"$source_prefix/"* ]]
+}
+
 # Nexus builds moved from the shared default profile to a named profile so an
 # installed OpenClaw-derived app cannot capture this app's Gateway connection.
 # Import only a proven prior Nexus installation, never an unrelated default
@@ -199,11 +224,21 @@ if [[ "$APP_PROFILE" == "nexus" \
     SOURCE_GATEWAY_WAS_LOADED=0
     SOURCE_GATEWAY_INSTALLED=0
     SOURCE_GATEWAY_STOPPED=1
-    if /bin/launchctl print "$SOURCE_GATEWAY_TARGET" >/dev/null 2>&1; then
-      SOURCE_GATEWAY_WAS_LOADED=1
-      SOURCE_GATEWAY_INSTALLED=1
+    SOURCE_GATEWAY_LAUNCHD_DEFINITION=""
+    if SOURCE_GATEWAY_LAUNCHD_DEFINITION="$(/bin/launchctl print "$SOURCE_GATEWAY_TARGET" 2>/dev/null)"; then
+      if prior_nexus_gateway_service_owned \
+          "$SOURCE_GATEWAY_PLIST" "$SOURCE_PREFIX" "$SOURCE_GATEWAY_LAUNCHD_DEFINITION"; then
+        SOURCE_GATEWAY_WAS_LOADED=1
+        SOURCE_GATEWAY_INSTALLED=1
+      else
+        log "Existing $SOURCE_GATEWAY_TARGET belongs to another application; preserving it during the Nexus profile migration."
+      fi
     elif [[ -f "$SOURCE_GATEWAY_PLIST" ]]; then
-      SOURCE_GATEWAY_INSTALLED=1
+      if prior_nexus_gateway_service_owned "$SOURCE_GATEWAY_PLIST" "$SOURCE_PREFIX"; then
+        SOURCE_GATEWAY_INSTALLED=1
+      else
+        log "Existing $SOURCE_GATEWAY_PLIST belongs to another application; preserving it during the Nexus profile migration."
+      fi
     fi
     if [[ "$SOURCE_GATEWAY_INSTALLED" == "1" ]]; then
       SOURCE_GATEWAY_STOPPED=0

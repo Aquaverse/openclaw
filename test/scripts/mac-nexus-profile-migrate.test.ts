@@ -20,12 +20,20 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     mkdirSync(join(source, "service-env"), { recursive: true });
     mkdirSync(join(source, "bin"), { recursive: true });
     mkdirSync(join(source, "tools", "node-v24.22.1"), { recursive: true });
+    mkdirSync(join(source, "tools", "custom-helper"), { recursive: true });
+    mkdirSync(join(source, "backups", "pre-upgrade-old"), { recursive: true });
+    mkdirSync(join(source, "npm", "cache"), { recursive: true });
+    mkdirSync(join(source, "cache"), { recursive: true });
     symlinkSync(join(source, "tools", "node-v24.22.1"), join(source, "tools", "node"));
     writeFileSync(join(source, ".nexus-preset-applied"), "6\n");
     writeFileSync(join(source, ".installer-runtime-applied"), "old-runtime\n");
     writeFileSync(join(source, "bin", "openclaw"), "#!/bin/bash\n");
     writeFileSync(join(source, "service-env", "old.env"), "old\n");
     writeFileSync(join(source, "state", "nexus.sqlite"), "ledger\n");
+    writeFileSync(join(source, "tools", "custom-helper", "keep"), "custom\n");
+    writeFileSync(join(source, "backups", "pre-upgrade-old", "state.sqlite"), "backup\n");
+    writeFileSync(join(source, "npm", "cache", "package.tgz"), "cache\n");
+    writeFileSync(join(source, "cache", "derived"), "cache\n");
     writeFileSync(
       join(source, "openclaw.json"),
       JSON.stringify({
@@ -72,7 +80,11 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     expect(existsSync(join(target, "tmp"))).toBe(false);
     expect(existsSync(join(target, "bin", "openclaw"))).toBe(false);
     expect(existsSync(join(target, "tools", "node"))).toBe(false);
-    expect(existsSync(join(target, "tools", "node-v24.22.1"))).toBe(true);
+    expect(existsSync(join(target, "tools", "node-v24.22.1"))).toBe(false);
+    expect(readFileSync(join(target, "tools", "custom-helper", "keep"), "utf8")).toBe("custom\n");
+    expect(existsSync(join(target, "backups"))).toBe(false);
+    expect(existsSync(join(target, "npm"))).toBe(false);
+    expect(existsSync(join(target, "cache"))).toBe(false);
 
     expect(readFileSync(join(source, "openclaw.json"), "utf8")).toContain('"port":18789');
     expect(existsSync(join(source, ".installer-runtime-applied"))).toBe(true);

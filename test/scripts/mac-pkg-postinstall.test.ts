@@ -46,6 +46,75 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script).not.toContain('defaults read "$BUNDLE_ID" "openclaw.connectionMode"');
   });
 
+  it("only retires the default-profile LaunchAgent when its definition belongs to the prior Nexus state", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const ownershipFunction = script.indexOf("prior_nexus_gateway_service_owned() {");
+    const migrationStart = script.indexOf("# Nexus builds moved from the shared default profile");
+    const uninstall = script.indexOf('"$SOURCE_OPENCLAW_BIN" gateway uninstall --json');
+
+    expect(ownershipFunction).toBeGreaterThanOrEqual(0);
+    expect(ownershipFunction).toBeLessThan(migrationStart);
+    expect(script.slice(ownershipFunction, migrationStart)).toContain("Print :WorkingDirectory");
+    expect(script.slice(ownershipFunction, migrationStart)).toContain("Print :ProgramArguments");
+    expect(script.slice(migrationStart, uninstall)).toContain(
+      'prior_nexus_gateway_service_owned "$SOURCE_GATEWAY_PLIST" "$SOURCE_PREFIX"',
+    );
+    expect(script.slice(migrationStart, uninstall)).toContain(
+      "belongs to another application; preserving it",
+    );
+  });
+
+  it.runIf(process.platform === "darwin")(
+    "classifies the prior Nexus LaunchAgent by its effective state root and command",
+    () => {
+      const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+      const functionStart = script.indexOf("prior_nexus_gateway_service_owned() {");
+      const functionEnd = script.indexOf(
+        "# Nexus builds moved from the shared default profile",
+        functionStart,
+      );
+      const root = mkdtempSync(join(tmpdir(), "openclaw-nexus-launchagent-owner-"));
+      const source = join(root, ".openclaw");
+      const ownedPlist = join(root, "owned.plist");
+      const foreignWorkingDirectoryPlist = join(root, "foreign-working-directory.plist");
+      const foreignCommandPlist = join(root, "foreign-command.plist");
+      const plist = (
+        workingDirectory: string,
+        commandRoot: string,
+      ) => `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>ai.openclaw.gateway</string>
+<key>WorkingDirectory</key><string>${workingDirectory}</string>
+<key>ProgramArguments</key><array>
+<string>${commandRoot}/tools/node-v24.22.1/bin/node</string>
+<string>${commandRoot}/tools/node-v24.22.1/lib/node_modules/openclaw/dist/index.js</string>
+<string>gateway</string><string>--port</string><string>18789</string>
+</array></dict></plist>
+`;
+      writeFileSync(ownedPlist, plist(source, source));
+      writeFileSync(foreignWorkingDirectoryPlist, plist(join(root, ".telyclaw"), source));
+      writeFileSync(foreignCommandPlist, plist(source, join(root, ".telyclaw")));
+
+      const harness = join(root, "classify.sh");
+      writeFileSync(
+        harness,
+        [
+          "#!/bin/bash",
+          "set -uo pipefail",
+          script.slice(functionStart, functionEnd),
+          `prior_nexus_gateway_service_owned ${JSON.stringify(ownedPlist)} ${JSON.stringify(source)} 'program = ${source}/tools/node-v24.22.1/bin/node'`,
+          `! prior_nexus_gateway_service_owned ${JSON.stringify(foreignWorkingDirectoryPlist)} ${JSON.stringify(source)}`,
+          `! prior_nexus_gateway_service_owned ${JSON.stringify(foreignCommandPlist)} ${JSON.stringify(source)}`,
+          `! prior_nexus_gateway_service_owned ${JSON.stringify(ownedPlist)} ${JSON.stringify(source)} 'program = ${join(root, ".telyclaw")}/bin/gateway'`,
+        ].join("\n"),
+      );
+
+      const result = spawnSync("/bin/bash", [harness], { encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+    },
+  );
+
   it("keeps bundled plugins visible during offline database migration", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const migrationStart = script.indexOf("# Upgrade over an existing install");

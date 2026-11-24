@@ -46,11 +46,20 @@ function rewriteOwnedPaths(value, source, target) {
 }
 
 function copyFilter(sourceRoot) {
-  const ignoredRoots = new Set(["service-env", "tmp"]);
+  // The source profile remains intact after migration. Do not duplicate
+  // installer-owned runtimes, recovery copies, or rebuildable caches into the
+  // new profile; the pkg installs its own current runtime after this copy.
+  const ignoredRoots = new Set(["backups", "cache", "npm", "service-env", "tmp"]);
   return (candidate) => {
     const relative = path.relative(sourceRoot, candidate);
-    if (relative && ignoredRoots.has(relative.split(path.sep)[0])) {
-      return false;
+    if (relative) {
+      const parts = relative.split(path.sep);
+      if (ignoredRoots.has(parts[0])) {
+        return false;
+      }
+      if (parts[0] === "tools" && (parts[1] === "node" || /^node-v\d/.test(parts[1] ?? ""))) {
+        return false;
+      }
     }
     const stat = fs.lstatSync(candidate);
     return !stat.isSocket();
