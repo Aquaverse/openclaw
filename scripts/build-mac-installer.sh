@@ -118,6 +118,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/lib/plistbuddy.sh"
+source "$ROOT_DIR/scripts/lib/build-metadata.sh"
 
 # macOS's system bash (3.2) drops into the "C" locale with no locale env at
 # all (as a bare invocation can give it), and its byte classification there
@@ -136,6 +137,10 @@ fi
 
 mkdir -p "$DIST_DIR"
 APP="$DIST_DIR/OpenClaw.app"
+VERIFY_LOCAL_SOURCE=0
+if [[ "$INPUT" == "$APP" ]]; then
+  VERIFY_LOCAL_SOURCE=1
+fi
 
 # ---------------------------------------------------------------------
 # 1. Resolve the app to mutate. A .app is mutated in place (if it isn't
@@ -186,6 +191,22 @@ fi
 
 APP_VERSION="$(plist_print_required "$APP/Contents/Info.plist" CFBundleShortVersionString)"
 echo "==> App: $APP (version $APP_VERSION)"
+
+# The fast wrapper is allowed to reuse dist/OpenClaw.app, but it must never
+# turn an app from an older checkout generation into a newly dated installer.
+# That failure is especially deceptive: Installer.app succeeds while the GUI,
+# bundled Control UI, and private Gateway runtime all remain stale.
+if [[ "$VERIFY_LOCAL_SOURCE" == "1" ]]; then
+  EXPECTED_SOURCE_COMMIT="$(openclaw_resolve_git_commit "$ROOT_DIR")"
+  APP_SOURCE_COMMIT="$(plist_print_required "$APP/Contents/Info.plist" OpenClawGitCommit)"
+  APP_RUNTIME_BUILD_ID="$(plist_print_required "$APP/Contents/Info.plist" OpenClawRuntimeBuildID)"
+  APP_RUNTIME_BUILD_INFO="$APP/Contents/Resources/runtime/lib/node_modules/openclaw/dist/build-info.json"
+  node "$ROOT_DIR/scripts/verify-mac-installer-source.mjs" \
+    "$EXPECTED_SOURCE_COMMIT" \
+    "$APP_SOURCE_COMMIT" \
+    "$APP_RUNTIME_BUILD_ID" \
+    "$APP_RUNTIME_BUILD_INFO"
+fi
 
 if codesign -dv "$APP_BIN" 2>&1 | grep -q '^Signature=adhoc$'; then
   echo "WARN: The build being transformed is only ad-hoc signed. Re-signing"
