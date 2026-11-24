@@ -5,6 +5,47 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("scripts/mac-pkg-postinstall.sh", () => {
+  it("stamps only Nexus preset builds with the isolated app profile", () => {
+    const script = readFileSync("scripts/build-mac-installer.sh", "utf8");
+    const preset = script.indexOf('if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]');
+    const nonPreset = script.indexOf("Nexus stays off in this build", preset);
+
+    expect(preset).toBeGreaterThanOrEqual(0);
+    expect(nonPreset).toBeGreaterThan(preset);
+    expect(script.slice(preset, nonPreset)).toContain(
+      'plist_set_or_add_string "$APP/Contents/Info.plist" OpenClawDefaultProfile nexus',
+    );
+    expect(script.slice(0, preset)).toContain("Delete :OpenClawDefaultProfile");
+  });
+
+  it("uses the app's bundled profile for state, service, defaults, and CLI children", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const profileRead = script.indexOf("Print :OpenClawDefaultProfile");
+    const prefix = script.indexOf('PREFIX="$CONSOLE_HOME/.openclaw-${APP_PROFILE}"', profileRead);
+
+    expect(profileRead).toBeGreaterThanOrEqual(0);
+    expect(prefix).toBeGreaterThan(profileRead);
+    expect(script).toContain('export OPENCLAW_PROFILE="$APP_PROFILE"');
+    expect(script).toContain('GATEWAY_SERVICE_LABEL="ai.openclaw.${APP_PROFILE}"');
+    expect(script).toContain('APP_DEFAULTS_DOMAIN="ai.openclaw.mac.profile.${APP_PROFILE}"');
+    expect(script).toContain(
+      'MIGRATION_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-profile-migrate.mjs"',
+    );
+    expect(script).toContain(
+      'if [[ "$NEXUS_PROFILE_MIGRATION_REQUIRED" == "1" && "$NEXUS_PROFILE_MIGRATED" != "1" ]]',
+    );
+    expect(script).toContain("preserving the old state and leaving the new profile absent");
+    expect(script).toContain("the Nexus profile migration resources are missing");
+    expect(script).toContain("SOURCE_GATEWAY_INSTALLED=1");
+    expect(script).toContain(
+      'if [[ "$NEXUS_PROFILE_MIGRATED" != "1" && "$SOURCE_GATEWAY_WAS_LOADED" == "1"',
+    );
+    expect(script).toContain('"$SOURCE_OPENCLAW_BIN" gateway uninstall --json');
+    expect(script).toContain('"$SOURCE_OPENCLAW_BIN" gateway install --json');
+    expect(script).toContain("openclaw.connectionMode local");
+    expect(script).not.toContain('defaults read "$BUNDLE_ID" "openclaw.connectionMode"');
+  });
+
   it("keeps bundled plugins visible during offline database migration", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const migrationStart = script.indexOf("# Upgrade over an existing install");

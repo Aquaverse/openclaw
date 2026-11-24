@@ -294,6 +294,81 @@ final class AutoOnboardBootstrap {
         return true
     }
 
+    static func migrateLegacyNexusProfileIfNeeded() async -> Bool {
+        let profile = AppProfile.current
+        guard profile.name == "nexus" else { return true }
+        let fileManager = FileManager.default
+        let home = fileManager.homeDirectoryForCurrentUser
+        let source = home.appendingPathComponent(".openclaw", isDirectory: true)
+        let target = profile.stateDirectoryURL(homeDirectory: home)
+        guard !fileManager.fileExists(atPath: target.path),
+              fileManager.fileExists(atPath: source.appendingPathComponent(".nexus-preset-applied").path)
+        else { return true }
+
+        let script = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/mac-nexus-profile-migrate.mjs")
+        let bun = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/runtime/bin/bun")
+        guard fileManager.fileExists(atPath: script.path), fileManager.isExecutableFile(atPath: bun.path) else {
+            traceLog("migrateLegacyNexusProfileIfNeeded: bundled migration runtime is unavailable")
+            return false
+        }
+
+        let serviceTarget = "gui/\(geteuid())/ai.openclaw.gateway"
+        let service = await ShellExecutor.runDetailed(
+            command: ["/bin/launchctl", "print", serviceTarget], cwd: nil, env: nil, timeout: 10)
+        let servicePlist = home.appendingPathComponent("Library/LaunchAgents/ai.openclaw.gateway.plist")
+        let sourceServiceInstalled = service.success || fileManager.fileExists(atPath: servicePlist.path)
+        let sourceExecutable = source.appendingPathComponent("bin/openclaw").path
+        if sourceServiceInstalled {
+            guard fileManager.isExecutableFile(atPath: sourceExecutable) else {
+                traceLog("migrateLegacyNexusProfileIfNeeded: prior Gateway is loaded without its CLI")
+                return false
+            }
+            let stopped = await ShellExecutor.runDetailed(
+                command: [sourceExecutable, "--profile", "default", "gateway", "uninstall", "--json"],
+                cwd: nil,
+                env: nil,
+                timeout: 60)
+            guard stopped.success else {
+                traceLog("migrateLegacyNexusProfileIfNeeded: prior Gateway could not be stopped")
+                return false
+            }
+        }
+
+        let result = await ShellExecutor.runDetailed(
+            command: [
+                bun.path,
+                script.path,
+                "--source", source.path,
+                "--target", target.path,
+                "--profile", "nexus",
+                "--port", String(profile.defaultGatewayPort),
+            ],
+            cwd: nil,
+            env: nil,
+            timeout: 600)
+        traceLog("migrateLegacyNexusProfileIfNeeded: migration success=\(result.success)")
+
+        if !result.success, service.success {
+            let restarted = await ShellExecutor.runDetailed(
+                command: [sourceExecutable, "--profile", "default", "gateway", "install", "--json"],
+                cwd: nil,
+                env: nil,
+                timeout: 60)
+            if !restarted.success {
+                traceLog("migrateLegacyNexusProfileIfNeeded: prior Gateway reinstall failed")
+            }
+        }
+        guard result.success else { return false }
+
+        // The Nexus distribution owns a local named Gateway. Do not inherit
+        // the default profile's remote route or Keychain binding because a
+        // different OpenClaw-derived app may own that identity.
+        AppDefaults.standard.set(true, forKey: onboardingSeenKey)
+        AppDefaults.standard.set(AppState.ConnectionMode.local.rawValue, forKey: connectionModeKey)
+        return true
+    }
+
     // MARK: - Progress panel
 
     private func showPanel() {
@@ -578,6 +653,8 @@ final class AutoOnboardBootstrap {
             "--app-path", appPath,
             "--prefix", prefix,
         ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPENCLAW_PROFILE"] = AppProfile.current.name ?? "default"
         // Detached: this Task is intentionally never awaited by the caller.
         // The script logs its own progress/failures to
         // ~/Library/Logs/OpenClaw/llama-fallback-setup.log rather than
@@ -587,7 +664,7 @@ final class AutoOnboardBootstrap {
         // download -- so this timeout only bounds one run; a large GGUF
         // download cut short here simply continues on the next launch.
         Task.detached(priority: .background) {
-            _ = await ShellExecutor.run(command: command, cwd: nil, env: nil, timeout: 3600)
+            _ = await ShellExecutor.run(command: command, cwd: nil, env: environment, timeout: 3600)
         }
     }
 }

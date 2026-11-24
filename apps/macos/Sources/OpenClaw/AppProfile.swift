@@ -12,13 +12,18 @@ struct AppProfile: Equatable, Sendable {
         }
     }
 
-    static let current = Self(environment: ProcessInfo.processInfo.environment)
+    static let current = Self(
+        environment: ProcessInfo.processInfo.environment,
+        bundledDefaultProfile: Bundle.main.object(forInfoDictionaryKey: "OpenClawDefaultProfile") as? String)
 
     let name: String?
     let validationError: ValidationError?
 
-    init(environment: [String: String]) {
-        let raw = environment["OPENCLAW_PROFILE"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    init(environment: [String: String], bundledDefaultProfile: String? = nil) {
+        let selected = environment.keys.contains("OPENCLAW_PROFILE")
+            ? environment["OPENCLAW_PROFILE"]
+            : bundledDefaultProfile
+        let raw = selected?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if raw.isEmpty || raw.lowercased() == "default" {
             self.name = nil
             self.validationError = nil

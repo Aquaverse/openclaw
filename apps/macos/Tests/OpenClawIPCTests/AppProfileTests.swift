@@ -25,6 +25,21 @@ struct AppProfileTests {
         }
     }
 
+    @Test func `bundled profile applies only when environment does not choose one`() {
+        let bundled = AppProfile(environment: [:], bundledDefaultProfile: "nexus")
+        #expect(bundled.name == "nexus")
+        #expect(bundled.defaultGatewayPort == 43384)
+        #expect(bundled.stateDirectoryURL(homeDirectory: URL(fileURLWithPath: "/Users/test")).path ==
+            "/Users/test/.openclaw-nexus")
+
+        #expect(AppProfile(
+            environment: ["OPENCLAW_PROFILE": "work"],
+            bundledDefaultProfile: "nexus").name == "work")
+        #expect(AppProfile(
+            environment: ["OPENCLAW_PROFILE": "default"],
+            bundledDefaultProfile: "nexus").name == nil)
+    }
+
     @Test func `current profile scopes credential service identities`() {
         let suffix = AppProfile.current.name.map { ".profile.\($0)" } ?? ""
         #if DEBUG

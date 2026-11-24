@@ -330,6 +330,8 @@ chmod 0755 "$APP/Contents/Resources/mac-default-provider-setup.sh"
 # Nexus Agent Core preset (enables the bundled Nexus plugin; a no-op unless step 4 below bakes nexus-preset.env).
 cp "$ROOT_DIR/scripts/mac-nexus-preset.sh" "$APP/Contents/Resources/mac-nexus-preset.sh"
 chmod 0644 "$APP/Contents/Resources/mac-nexus-preset.sh"
+cp "$ROOT_DIR/scripts/mac-nexus-profile-migrate.mjs" "$APP/Contents/Resources/mac-nexus-profile-migrate.mjs"
+chmod 0644 "$APP/Contents/Resources/mac-nexus-profile-migrate.mjs"
 # Hardware-tiered local AI orchestrator and the LiteLLM router setup it
 # drives (mac-llama-fallback-setup.sh hands off to the orchestrator when it
 # is present, so the app/pkg entry points stay unchanged).
@@ -893,6 +895,7 @@ fi
 # ---------------------------------------------------------------------
 NEXUS_PRESET_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_PRESET:-$(read_env_var OPENCLAW_INSTALLER_NEXUS_PRESET)}"
 rm -f "$APP/Contents/Resources/nexus-preset.env"
+/usr/libexec/PlistBuddy -c "Delete :OpenClawDefaultProfile" "$APP/Contents/Info.plist" >/dev/null 2>&1 || true
 if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]; then
   NEXUS_SWITCHES_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_SWITCHES:-$(read_env_var OPENCLAW_INSTALLER_NEXUS_SWITCHES)}"
   NEXUS_SWITCHES_FOR_BUNDLE="${NEXUS_SWITCHES_FOR_BUNDLE:-worksEnabled,decisionsEnabled,claimsEnabled,preferencesEnabled,watchersEnabled,vaultEnabled,goalsEnabled,evidenceBlobsEnabled}"
@@ -906,6 +909,10 @@ if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]; then
     echo "NEXUS_PRESET_VERSION=6"
     echo "NEXUS_PRESET_SWITCHES=$NEXUS_SWITCHES_FOR_BUNDLE"
   } > "$APP/Contents/Resources/nexus-preset.env"
+  # A Nexus distribution must not attach to another OpenClaw-derived app's
+  # default Gateway. The existing named-profile owner isolates state, service,
+  # defaults, Keychain entries, app instance locks, and the derived port.
+  plist_set_or_add_string "$APP/Contents/Info.plist" OpenClawDefaultProfile nexus
 else
   echo "==> OPENCLAW_INSTALLER_NEXUS_PRESET is not 1 -- Nexus stays off in this build"
 fi

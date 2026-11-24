@@ -449,6 +449,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             defer { self.credentialStartupTask = nil }
             do {
+                guard await AutoOnboardBootstrap.migrateLegacyNexusProfileIfNeeded() else {
+                    self.credentialLogger.error(
+                        "Nexus profile migration did not complete; preserving the prior profile for retry")
+                    self.showNexusProfileMigrationFailure()
+                    return
+                }
                 let root = DeviceIdentityStore.stateDirectoryURL
                 let executionRoot = OpenClawPaths.stateDirURL
                 if BundledRuntime.isBundledApp {
@@ -518,6 +524,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             AppActivation.shared.presentAlert(alert)
         } else {
             fputs("OpenClaw client credentials need recovery. \(message)\n", stderr)
+        }
+        NSApplication.shared.terminate(nil)
+    }
+
+    private func showNexusProfileMigrationFailure() {
+        let message = String(localized: "OpenClaw could not safely move the previous Nexus data. The previous installation was preserved. Quit any running OpenClaw-derived apps, then run this installer again.")
+        if AppLaunchRuntimePlan.current.allowsActivation {
+            let alert = NSAlert()
+            alert.alertStyle = .critical
+            alert.messageText = String(localized: "Nexus data migration needs to be retried")
+            alert.informativeText = message
+            AppActivation.shared.presentAlert(alert)
+        } else {
+            fputs("\(message)\n", stderr)
         }
         NSApplication.shared.terminate(nil)
     }

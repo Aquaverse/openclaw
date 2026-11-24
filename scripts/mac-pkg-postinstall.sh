@@ -88,7 +88,12 @@ log "Fixing ownership of $APP_PATH to $CONSOLE_USER:$CONSOLE_GROUP"
 # instead of root's. This is the standard, documented pattern for a pkg
 # postinstall script that needs to act as the logged-in user.
 run_as_console_user() {
-  /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" -H "$@"
+  if [[ -n "${APP_PROFILE:-}" ]]; then
+    /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" -H \
+      /usr/bin/env OPENCLAW_PROFILE="$APP_PROFILE" "$@"
+  else
+    /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" -H "$@"
+  fi
 }
 
 INSTALL_CLI="$APP_PATH/Contents/Resources/install-cli.sh"
@@ -150,7 +155,103 @@ else
   log "No bundled OpenClaw CLI package -- install-cli.sh will install openclaw from the npm registry."
 fi
 
-PREFIX="$CONSOLE_HOME/.openclaw"
+APP_PROFILE="$(/usr/libexec/PlistBuddy -c "Print :OpenClawDefaultProfile" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+if [[ -n "$APP_PROFILE" && ! "$APP_PROFILE" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]]; then
+  log "WARN: ignoring invalid bundled app profile '$APP_PROFILE'."
+  APP_PROFILE=""
+fi
+if [[ "$APP_PROFILE" == "default" ]]; then
+  APP_PROFILE=""
+fi
+
+BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+APP_DEFAULTS_DOMAIN="$BUNDLE_ID"
+if [[ -n "$APP_PROFILE" ]]; then
+  export OPENCLAW_PROFILE="$APP_PROFILE"
+  PREFIX="$CONSOLE_HOME/.openclaw-${APP_PROFILE}"
+  GATEWAY_SERVICE_LABEL="ai.openclaw.${APP_PROFILE}"
+  APP_DEFAULTS_DOMAIN="ai.openclaw.mac.profile.${APP_PROFILE}"
+else
+  unset OPENCLAW_PROFILE
+  PREFIX="$CONSOLE_HOME/.openclaw"
+  GATEWAY_SERVICE_LABEL="ai.openclaw.gateway"
+fi
+
+# Nexus builds moved from the shared default profile to a named profile so an
+# installed OpenClaw-derived app cannot capture this app's Gateway connection.
+# Import only a proven prior Nexus installation, never an unrelated default
+# profile. The migration copies through a sibling staging directory, preserves
+# the original, and rewrites only paths owned by the copied state.
+MIGRATION_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-profile-migrate.mjs"
+NEXUS_PROFILE_MIGRATED=0
+NEXUS_PROFILE_MIGRATION_REQUIRED=0
+if [[ "$APP_PROFILE" == "nexus" \
+  && ! -e "$PREFIX" \
+  && -f "$CONSOLE_HOME/.openclaw/.nexus-preset-applied" ]]; then
+  NEXUS_PROFILE_MIGRATION_REQUIRED=1
+  if [[ ! -f "$MIGRATION_SCRIPT" || ! -x "$APP_PATH/Contents/Resources/runtime/bin/bun" ]]; then
+    log "ERROR: the Nexus profile migration resources are missing from this installer."
+  else
+    SOURCE_PREFIX="$CONSOLE_HOME/.openclaw"
+    SOURCE_OPENCLAW_BIN="$SOURCE_PREFIX/bin/openclaw"
+    SOURCE_GATEWAY_TARGET="gui/$CONSOLE_UID/ai.openclaw.gateway"
+    SOURCE_GATEWAY_PLIST="$CONSOLE_HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"
+    SOURCE_GATEWAY_WAS_LOADED=0
+    SOURCE_GATEWAY_INSTALLED=0
+    SOURCE_GATEWAY_STOPPED=1
+    if /bin/launchctl print "$SOURCE_GATEWAY_TARGET" >/dev/null 2>&1; then
+      SOURCE_GATEWAY_WAS_LOADED=1
+      SOURCE_GATEWAY_INSTALLED=1
+    elif [[ -f "$SOURCE_GATEWAY_PLIST" ]]; then
+      SOURCE_GATEWAY_INSTALLED=1
+    fi
+    if [[ "$SOURCE_GATEWAY_INSTALLED" == "1" ]]; then
+      SOURCE_GATEWAY_STOPPED=0
+      log "==> Uninstalling the prior default-profile Gateway service for the Nexus profile cutover..."
+      if [[ -x "$SOURCE_OPENCLAW_BIN" ]] \
+        && run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$SOURCE_PREFIX" OPENCLAW_PROFILE=default \
+          "$SOURCE_OPENCLAW_BIN" gateway uninstall --json >>"$LOG_FILE" 2>&1; then
+        SOURCE_GATEWAY_STOPPED=1
+      fi
+    fi
+    if [[ "$SOURCE_GATEWAY_STOPPED" == "1" ]]; then
+      log "==> Copying the prior Nexus state into the isolated '$APP_PROFILE' profile..."
+      MIGRATION_OUTPUT="$(run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+        "$APP_PATH/Contents/Resources/runtime/bin/bun" "$MIGRATION_SCRIPT" \
+        --source "$SOURCE_PREFIX" --target "$PREFIX" --profile "$APP_PROFILE" --port 43384 2>&1)"
+      MIGRATION_STATUS=$?
+      [[ -z "$MIGRATION_OUTPUT" ]] || log "$MIGRATION_OUTPUT"
+      if [[ "$MIGRATION_STATUS" == "0" && "$MIGRATION_OUTPUT" == *'"status":"migrated"'* ]]; then
+        NEXUS_PROFILE_MIGRATED=1
+      elif [[ "$MIGRATION_STATUS" != "0" ]]; then
+        log "WARN: Nexus profile migration failed; the original state remains at $SOURCE_PREFIX."
+      fi
+    else
+      log "WARN: prior Nexus Gateway could not be stopped safely; skipping profile migration and preserving its state."
+    fi
+    if [[ "$NEXUS_PROFILE_MIGRATED" != "1" && "$SOURCE_GATEWAY_WAS_LOADED" == "1" && -x "$SOURCE_OPENCLAW_BIN" ]]; then
+      run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$SOURCE_PREFIX" OPENCLAW_PROFILE=default \
+          "$SOURCE_OPENCLAW_BIN" gateway install --json >>"$LOG_FILE" 2>&1 \
+        || log "WARN: could not reinstall the prior default-profile Gateway after the failed migration attempt."
+    fi
+  fi
+fi
+
+if [[ "$NEXUS_PROFILE_MIGRATION_REQUIRED" == "1" && "$NEXUS_PROFILE_MIGRATED" != "1" ]]; then
+  log "ERROR: Nexus profile migration did not complete; preserving the old state and leaving the new profile absent so a later install can retry."
+  exit 0
+fi
+
+if [[ "$NEXUS_PROFILE_MIGRATED" == "1" && -n "$APP_DEFAULTS_DOMAIN" ]]; then
+  # This installer owns a local Nexus Gateway. Do not import the default
+  # profile's remote route or Keychain binding; another OpenClaw-derived app
+  # may own them. The copied Nexus data is served by the named local Gateway.
+  run_as_console_user /usr/bin/defaults write "$APP_DEFAULTS_DOMAIN" openclaw.onboardingSeen -bool true >>"$LOG_FILE" 2>&1 \
+    || log "WARN: could not mark the migrated Nexus profile as onboarded."
+  run_as_console_user /usr/bin/defaults write "$APP_DEFAULTS_DOMAIN" openclaw.connectionMode local >>"$LOG_FILE" 2>&1 \
+    || log "WARN: could not select the migrated Nexus profile's local Gateway."
+fi
+
 OPENCLAW_BIN="$PREFIX/bin/openclaw"
 RUNTIME_MARKER="$PREFIX/.installer-runtime-applied"
 REUSE_INSTALLED_RUNTIME=0
@@ -159,8 +260,8 @@ if [[ -n "$CLI_PACKAGE_TGZ_SHA256" ]]; then
   RUNTIME_ID="${CLI_PACKAGE_TGZ_SHA256}:${NODE_TARBALL_SHA256:-none}"
 fi
 
-GATEWAY_SERVICE_TARGET="gui/$CONSOLE_UID/ai.openclaw.gateway"
-GATEWAY_SERVICE_PLIST="$CONSOLE_HOME/Library/LaunchAgents/ai.openclaw.gateway.plist"
+GATEWAY_SERVICE_TARGET="gui/$CONSOLE_UID/$GATEWAY_SERVICE_LABEL"
+GATEWAY_SERVICE_PLIST="$CONSOLE_HOME/Library/LaunchAgents/$GATEWAY_SERVICE_LABEL.plist"
 GATEWAY_WAS_LOADED=0
 GATEWAY_STOPPED_FOR_RUNTIME=0
 RUNTIME_ROLLBACK_DIR=""
@@ -547,14 +648,13 @@ fi
 ONBOARD_ARGS=(onboard --non-interactive --accept-risk --mode local --install-daemon
   --skip-health --skip-ui --skip-hooks --skip-channels --skip-search --skip-skills --skip-bootstrap)
 DEFAULT_PROVIDER_SETUP="$APP_PATH/Contents/Resources/mac-default-provider-setup.sh"
-BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
 ONBOARDING_ALREADY_COMPLETED=0
 ONBOARDING_CONNECTION_MODE=""
 HOSTS_LOCAL_GATEWAY_WITH_REMOTE_PRIMARY=0
-if [[ -n "$BUNDLE_ID" ]]; then
-  ONBOARDING_SEEN="$(run_as_console_user /usr/bin/defaults read "$BUNDLE_ID" "openclaw.onboardingSeen" 2>/dev/null || true)"
-  ONBOARDING_CONNECTION_MODE="$(run_as_console_user /usr/bin/defaults read "$BUNDLE_ID" "openclaw.connectionMode" 2>/dev/null || true)"
-  HOSTS_LOCAL_GATEWAY_RAW="$(run_as_console_user /usr/bin/defaults read "$BUNDLE_ID" "openclaw.localGateway.hostWithRemotePrimary" 2>/dev/null || true)"
+if [[ -n "$APP_DEFAULTS_DOMAIN" ]]; then
+  ONBOARDING_SEEN="$(run_as_console_user /usr/bin/defaults read "$APP_DEFAULTS_DOMAIN" "openclaw.onboardingSeen" 2>/dev/null || true)"
+  ONBOARDING_CONNECTION_MODE="$(run_as_console_user /usr/bin/defaults read "$APP_DEFAULTS_DOMAIN" "openclaw.connectionMode" 2>/dev/null || true)"
+  HOSTS_LOCAL_GATEWAY_RAW="$(run_as_console_user /usr/bin/defaults read "$APP_DEFAULTS_DOMAIN" "openclaw.localGateway.hostWithRemotePrimary" 2>/dev/null || true)"
   if [[ "$ONBOARDING_SEEN" == "1" || "$ONBOARDING_SEEN" == "true" || "$ONBOARDING_SEEN" == "YES" ]]; then
     ONBOARDING_ALREADY_COMPLETED=1
   fi
@@ -741,9 +841,9 @@ fi
 # UserDefaults domain at launch (see AppState.swift's init).
 # ---------------------------------------------------------------------
 if [[ "$ONBOARD_OK" == "1" ]]; then
-  if [[ -n "$BUNDLE_ID" ]]; then
-    log "Marking onboarding as seen for $BUNDLE_ID"
-    run_as_console_user /usr/bin/defaults write "$BUNDLE_ID" "openclaw.onboardingSeen" -bool true >>"$LOG_FILE" 2>&1
+  if [[ -n "$APP_DEFAULTS_DOMAIN" ]]; then
+    log "Marking onboarding as seen for $APP_DEFAULTS_DOMAIN"
+    run_as_console_user /usr/bin/defaults write "$APP_DEFAULTS_DOMAIN" "openclaw.onboardingSeen" -bool true >>"$LOG_FILE" 2>&1
   else
     log "WARN: could not read CFBundleIdentifier from $APP_PATH/Contents/Info.plist -- app defaults not primed; first launch will show its own onboarding."
   fi
