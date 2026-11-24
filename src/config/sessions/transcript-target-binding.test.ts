@@ -30,3 +30,16 @@ it.each([
     Object.defineProperty(process, "platform", descriptor);
   }
 });
+
+it("resolves a named profile before dropping non-storage environment fields", () => {
+  expect(
+    structuredClone(
+      captureSessionTranscriptStorageEnvironment({
+        HOME: "/Users/test",
+        OPENCLAW_PROFILE: "nexus",
+      }),
+    ),
+  ).toEqual({
+    OPENCLAW_STATE_DIR: "/Users/test/.openclaw-nexus",
+  });
+});
