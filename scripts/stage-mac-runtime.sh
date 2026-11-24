@@ -17,6 +17,9 @@ esac
 # share the destination volume so publishing remains a rename, not a copy.
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/openclaw-mac-runtime.XXXXXX")"
 trap 'rm -rf "$SCRATCH"' EXIT
+# Native Apple tools may write xcrun_db directly under TMPDIR. Keep every
+# staging side effect under the owned scratch tree so cleanup remains complete.
+export TMPDIR="$SCRATCH"
 mkdir -p "$(dirname "$DESTINATION")"
 STAGE="$(cd "$(dirname "$DESTINATION")" && mktemp -d "$PWD/.openclaw-mac-runtime.XXXXXX")"
 trap 'rm -rf "$STAGE" "$SCRATCH"' EXIT

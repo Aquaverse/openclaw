@@ -31,21 +31,31 @@ openclaw_cache_node_distribution() {
   local arch="$3"
   local distribution_arch="$arch"
   local version="$OPENCLAW_MAC_NODE_VERSION"
-  local tarball shasums expected_sha actual_sha
+  local tarball sidecar shasums expected_sha actual_sha
 
   [[ "$arch" == "x86_64" ]] && distribution_arch="x64"
   tarball="node-v${version}-${os}-${distribution_arch}.tar.gz"
+  sidecar="$cache_dir/$tarball.sha256"
   shasums="$cache_dir/SHASUMS256-v${version}.txt"
   mkdir -p "$cache_dir"
 
-  if [[ ! -f "$shasums" ]]; then
-    echo "    Downloading Node ${version} checksums (cached for future builds)"
-    openclaw_download_node_cache_file \
-      "https://nodejs.org/dist/v${version}/SHASUMS256.txt" "$shasums"
+  # Older installer builds already cached a verified per-archive sidecar. Use
+  # it directly so upgrading the build scripts remains offline-capable.
+  expected_sha=""
+  if [[ -f "$sidecar" ]]; then
+    expected_sha="$(head -n1 "$sidecar" | tr -d '[:space:]')"
+    [[ "$expected_sha" =~ ^[a-f0-9]{64}$ ]] || expected_sha=""
   fi
-  expected_sha="$(grep "  ${tarball}$" "$shasums" | awk '{print $1}' | head -n1 || true)"
   if [[ -z "$expected_sha" ]]; then
-    echo "ERROR: could not resolve sha256 for $tarball from $shasums" >&2
+    if [[ ! -f "$shasums" ]]; then
+      echo "    Downloading Node ${version} checksums (cached for future builds)"
+      openclaw_download_node_cache_file \
+        "https://nodejs.org/dist/v${version}/SHASUMS256.txt" "$shasums"
+    fi
+    expected_sha="$(grep "  ${tarball}$" "$shasums" | awk '{print $1}' | head -n1 || true)"
+  fi
+  if [[ -z "$expected_sha" ]]; then
+    echo "ERROR: could not resolve sha256 for $tarball" >&2
     return 1
   fi
 
@@ -54,14 +64,17 @@ openclaw_cache_node_distribution() {
     openclaw_download_node_cache_file \
       "https://nodejs.org/dist/v${version}/${tarball}" "$cache_dir/$tarball"
   fi
-  actual_sha="$(shasum -a 256 "$cache_dir/$tarball" | awk '{print $1}')"
+  # Some macOS developer-tool installations create xcrun_db under TMPDIR on
+  # first use. Keep that tool-owned cache inside this cache owner instead of
+  # leaking it into the runtime staging directory.
+  actual_sha="$(TMPDIR="$cache_dir" shasum -a 256 "$cache_dir/$tarball" | awk '{print $1}')"
   if [[ "$actual_sha" != "$expected_sha" ]]; then
     echo "ERROR: cached $tarball sha256 mismatch (expected $expected_sha, got $actual_sha)" >&2
     echo "       Delete $cache_dir/$tarball and retry." >&2
     return 1
   fi
 
-  printf '%s\n' "$expected_sha" > "$cache_dir/$tarball.sha256"
+  printf '%s\n' "$expected_sha" > "$sidecar"
   OPENCLAW_CACHED_NODE_TARBALL="$cache_dir/$tarball"
   OPENCLAW_CACHED_NODE_TARBALL_SHA256="$expected_sha"
 }

@@ -2,10 +2,12 @@
 
 PNPM_CMD=()
 
-# Keep Corepack's package and pnpm's native executable across macOS package
-# builds. Without an explicit owner, an isolated or changed HOME makes Corepack
-# download the pinned pnpm binary again.
-export COREPACK_HOME="${COREPACK_HOME:-$ROOT_DIR/.artifacts/mac-installer-corepack-cache}"
+# Resolve Corepack's ordinary user cache before isolated build phases replace
+# HOME. Passing this absolute path onward lets them reuse the already-downloaded
+# pnpm package and native executable.
+if [[ -z "${COREPACK_HOME:-}" ]]; then
+  export COREPACK_HOME="${XDG_CACHE_HOME:-$HOME/.cache}/node/corepack"
+fi
 mkdir -p "$COREPACK_HOME"
 
 resolve_pnpm_cmd() {

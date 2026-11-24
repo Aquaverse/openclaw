@@ -177,6 +177,9 @@ type RuntimeScratchObservation = {
   privateRoot: string | null;
   privateRootMode: number | null;
   packageTimeouts: Record<string, string>;
+  corepackHome: string | null;
+  npmCache: string | null;
+  npmPreferOffline: string | null;
   product: string;
   productDevice: string;
   productInode: string;
@@ -337,6 +340,9 @@ module.exports = (phase, product) => {
     phase, home, temporary, createdDirectory, privateRoot,
     packageTimeouts: Object.fromEntries(${JSON.stringify(Object.keys(packageTimeouts))}.flatMap(name =>
       process.env[name] ? [[name, process.env[name]]] : [])),
+    corepackHome: process.env.COREPACK_HOME ?? null,
+    npmCache: process.env.NPM_CONFIG_CACHE ?? null,
+    npmPreferOffline: process.env.NPM_CONFIG_PREFER_OFFLINE ?? null,
     privateRootMode: privateRoot === null ? null : fs.statSync(privateRoot).mode & 0o777,
     product, productDevice: info.dev.toString(), productInode: info.ino.toString(),
     cpu: process.env.npm_config_cpu ?? null,
@@ -514,6 +520,7 @@ cp -p ${quote(path.join(canonical, "lib/libsqlite3.dylib"))} "$2/lib/libsqlite3.
             OPENCLAW_GATEWAY_TOKEN: "synthetic-do-not-forward",
             NODE_OPTIONS: "--no-warnings",
             OPENCLAW_DOCKER_PACKAGE_BUILD_TIMEOUT_MS: "345678",
+            COREPACK_HOME: path.join(root, "persistent-corepack"),
             ...overrides,
           },
         },
@@ -563,6 +570,17 @@ describe.skipIf(process.platform !== "darwin")("Mac runtime materialization", ()
       for (const observation of observations) {
         expect(observation.packageTimeouts).toEqual(
           observation.phase === "pack" && overrideBudgets ? packageTimeouts : {},
+        );
+        expect(observation.corepackHome).toBe(
+          observation.phase === "pack" ? path.join(fixture.root, "persistent-corepack") : null,
+        );
+        expect(observation.npmCache).toBe(
+          observation.phase !== "verify"
+            ? path.join(fixture.root, ".artifacts/mac-installer-npm-cache")
+            : null,
+        );
+        expect(observation.npmPreferOffline).toBe(
+          observation.phase === "driver" || observation.phase === "install" ? "true" : null,
         );
         expect(observation.privateRoot).not.toBeNull();
         expect(path.dirname(observation.privateRoot!)).toBe(fixture.tmp);
@@ -1267,6 +1285,25 @@ def report():
 });
 
 describe("Mac app runtime publication", () => {
+  baseIt("keeps Corepack downloads in the persistent user cache", () => {
+    const { root, at, put, bash } = scriptFixture("corepack-cache");
+    put("scripts/lib/mac-pnpm.sh", readFileSync("scripts/lib/mac-pnpm.sh"));
+    put(
+      "bin/corepack",
+      `#!/bin/bash\nprintf '%s\\n' "$COREPACK_HOME" > ${quote(at("corepack-home"))}\nexit 0\n`,
+      0o755,
+    );
+
+    const result = bash(
+      `unset COREPACK_HOME XDG_CACHE_HOME\nROOT_DIR=${quote(root)}\nsource ${quote(at("scripts/lib/mac-pnpm.sh"))}\nresolve_pnpm_cmd`,
+      { HOME: root, PATH: `${at("bin")}:/usr/bin:/bin` },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(at("corepack-home"), "utf8").trim()).toBe(
+      path.join(root, ".cache/node/corepack"),
+    );
+  });
+
   baseIt("reuses verified Node distributions without network access", () => {
     const { root, at, put, bash } = scriptFixture("node-cache");
     put(
