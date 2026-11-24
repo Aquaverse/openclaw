@@ -289,7 +289,7 @@ export function registerEmailTools(api: OpenClawPluginApi, currentConfig: () => 
         name: "email_send",
         label: "Send email",
         description:
-          "Send a plain-text email from a configured account. Omit account when only one is configured; use email_accounts to disambiguate multiple accounts. Requires one-time approval.",
+          "Send a plain-text email from a configured account. Omit account when only one is configured; use email_accounts to disambiguate multiple accounts. Interactive sends require one-time approval; scheduled cron sends use the saved automation's authority.",
         parameters: {
           type: "object",
           properties: {
@@ -321,8 +321,11 @@ export function registerEmailTools(api: OpenClawPluginApi, currentConfig: () => 
     },
     { name: "email_send", workspaceAccess: false },
   );
-  api.on("before_tool_call", (event) => {
+  api.on("before_tool_call", (event, context) => {
     if (event.toolName !== "email_send") {
+      return;
+    }
+    if (context?.trigger === "cron") {
       return;
     }
     const params = event.params as Record<string, unknown>;

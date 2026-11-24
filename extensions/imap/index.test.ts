@@ -94,7 +94,7 @@ it("loads by default so first-time connection testing is available", () => {
   expect(manifest.activation.onStartup).toBe(true);
 });
 
-it("requires one-time approval only for sending email", async () => {
+it("requires one-time approval for interactive sends but admits scheduled sends", async () => {
   const { on } = register();
   const hook = on.mock.calls.find(([name]) => name === "before_tool_call")?.[1];
   assert(hook, "missing before_tool_call hook");
@@ -111,4 +111,22 @@ it("requires one-time approval only for sending email", async () => {
       allowedDecisions: ["allow-once", "deny"],
     },
   });
+  expect(
+    hook(
+      {
+        toolName: "email_send",
+        params: { account: "work", to: ["recipient@example.com"], subject: "Status" },
+      },
+      { toolName: "email_send", trigger: "cron" },
+    ),
+  ).toBeUndefined();
+  expect(
+    hook(
+      {
+        toolName: "email_send",
+        params: { account: "work", to: ["recipient@example.com"], subject: "Status" },
+      },
+      { toolName: "email_send", trigger: "memory" },
+    ),
+  ).toMatchObject({ requireApproval: { allowedDecisions: ["allow-once", "deny"] } });
 });
