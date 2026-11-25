@@ -162,6 +162,59 @@ if [[ -n "$RESOLVED_MODEL_FILE" ]]; then
   printf '%s\n' "$MODEL_REF" > "$RESOLVED_MODEL_FILE"
 fi
 
+# Advertise the request contract without exposing the installer endpoint to UI clients.
+# At install or upgrade, the capability follows the endpoint, including matching
+# models the user configured under another provider id.
+PROVIDERS_JSON="$("${CLI[@]}" config get models.providers --json)"
+CLI_PREFIX="$(cd "$(dirname "$OPENCLAW_BIN")/.." 2>/dev/null && /bin/pwd -P || true)"
+NODE_BIN="$CLI_PREFIX/tools/node/bin/node"
+if [[ ! -x "$NODE_BIN" ]]; then
+  NODE_BIN="$(command -v node || true)"
+fi
+if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
+  echo "ERROR: Node is required to mark the bundled model capability" >&2
+  exit 1
+fi
+CHANGED_PROVIDER_MODELS="$(printf '%s' "$PROVIDERS_JSON" | "$NODE_BIN" -e '
+const fs = require("node:fs");
+const providers = JSON.parse(fs.readFileSync(0, "utf8"));
+const target = String(process.argv[1] || "").trim().replace(/\/+$/, "");
+const changed = [];
+for (const [providerId, provider] of Object.entries(providers || {})) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(providerId)) {
+    throw new Error(`Invalid provider id: ${providerId}`);
+  }
+  const models = Array.isArray(provider.models) ? provider.models : [];
+  const nextModels = models.map((model) => {
+    const effective = String(model.baseUrl || provider.baseUrl || "").trim().replace(/\/+$/, "");
+    const params = model.params && typeof model.params === "object" && !Array.isArray(model.params)
+      ? { ...model.params }
+      : {};
+    if (effective === target) {
+      params.supportsPiiReplace = true;
+    } else {
+      delete params.supportsPiiReplace;
+    }
+    const next = { ...model };
+    if (Object.keys(params).length > 0) {
+      next.params = params;
+    } else {
+      delete next.params;
+    }
+    return next;
+  });
+  if (JSON.stringify(nextModels) !== JSON.stringify(models)) {
+    changed.push(`${providerId}\t${JSON.stringify(nextModels)}`);
+  }
+}
+process.stdout.write(changed.join("\n"));
+' "$BASE_URL")"
+while IFS=$'\t' read -r CAPABILITY_PROVIDER_ID UPDATED_MODELS_JSON; do
+  [[ -z "$CAPABILITY_PROVIDER_ID" ]] && continue
+  "${CLI[@]}" config set "models.providers.${CAPABILITY_PROVIDER_ID}.models" \
+    "$UPDATED_MODELS_JSON" --strict-json
+done <<< "$CHANGED_PROVIDER_MODELS"
+
 # Custom-provider onboarding selects the provider it just registered. An
 # installer is allowed to initialize an empty primary, but an upgrade must not
 # replace a model the user selected. Restore that choice before credential work

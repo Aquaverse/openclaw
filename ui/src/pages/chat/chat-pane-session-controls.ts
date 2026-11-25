@@ -312,6 +312,9 @@ export function renderChatPaneComposerControls(params: {
         modelOverrides: state.sessions.state.modelOverrides,
         thinkingSession: settingsSession,
         fastModeTarget: settingsSession,
+        piiReplace: settingsSession?.piiReplace,
+        piiReplaceMutationDisabledReason:
+          snapshotReason ?? (effortAccess.allowed ? undefined : effortAccess.reason),
         accessProgramMutationDisabledReason: accessProgramAccess.allowed
           ? undefined
           : accessProgramAccess.reason,
@@ -375,6 +378,10 @@ export function renderChatPaneComposerControls(params: {
         onFastModeSelect: (next, targetSessionKey) =>
           effortAccess.allowed && canPatch({ fastMode: null }, targetSessionKey)
             ? switchChatSetting(state, { kind: "fastMode", value: next }, targetSessionKey)
+            : Promise.resolve(false),
+        onPiiReplaceSelect: (next, targetSessionKey) =>
+          effortAccess.allowed && canPatch({ piiReplace: next }, targetSessionKey)
+            ? switchChatSetting(state, { kind: "piiReplace", value: next }, targetSessionKey)
             : Promise.resolve(false),
         onContextWindowSelect: (next, targetSessionKey) =>
           contextWindowAccess.allowed && canPatch({ contextWindow: next }, targetSessionKey)

@@ -149,6 +149,8 @@ export const SessionRowSchema = Type.Object(
     hasBoard: Type.Optional(Type.Boolean()),
     /** Shared dashboard default; absent means split. */
     boardPresentation: Type.Optional(Type.Union([Type.Literal("split"), Type.Literal("expanded")])),
+    /** Explicit per-session PII replacement preference; omission means no request metadata. */
+    piiReplace: Type.Optional(Type.Boolean()),
     displayName: Type.Optional(Type.String()),
     /** A title request is currently in flight; runtime-only, never persisted. */
     titlePending: Type.Optional(Type.Boolean()),

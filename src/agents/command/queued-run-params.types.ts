@@ -62,6 +62,8 @@ export type QueuedAgentRunParams = {
   thinkingExplicit?: boolean;
   cyberAccessProgram?: SessionEntry["cyberAccessProgram"];
   fastMode?: FastMode;
+  /** Snapshotted per-session preference; candidate routing still verifies transport support. */
+  piiReplace?: boolean;
   /** Effective auto fast-mode cutoff for this run, in seconds. */
   fastModeAutoOnSeconds?: number;
   timeoutMs: number;

@@ -113,6 +113,9 @@ const enModelControls = {
       allModels: "All models ({count})",
       useDefaultReasoning: "Use default effort ({level})",
       fastResponsesAria: "Speed: {state}",
+      piiReplace: "PII redaction",
+      piiReplaceEnabled: "PII redaction is enabled. Click to disable it for the next message.",
+      piiReplaceDisabled: "PII redaction is disabled. Click to enable it for the next message.",
     },
     nativeRuntimeRecovery: {
       title: "Use {runtime}’s native permissions?",

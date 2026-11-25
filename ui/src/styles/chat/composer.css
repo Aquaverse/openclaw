@@ -259,6 +259,41 @@
   width: 100%;
 }
 
+.chat-controls__pii-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--chat-composer-chip-height, 30px);
+  height: var(--chat-composer-chip-height, 30px);
+  flex: 0 0 var(--chat-composer-chip-height, 30px);
+  padding: 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chat-controls__pii-toggle:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.chat-controls__pii-toggle.is-active {
+  color: var(--accent);
+}
+
+.chat-controls__pii-toggle svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+.chat-controls__pii-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .agent-chat__attach-menu-option,
 .agent-chat__capability-menu-item,
 .chat-controls__permission-option,
@@ -3418,6 +3453,14 @@ html[dir="rtl"] .chat-attachments-preview .chat-attachment-loading__line > span 
       min-height: 44px;
       isolation: isolate;
       background: transparent;
+    }
+
+    & .chat-controls__pii-toggle {
+      width: 44px;
+      height: 44px;
+      flex-basis: 44px;
+      padding: 13px;
+      border-radius: var(--radius-full);
     }
 
     & .chat-controls__model-trigger::before,

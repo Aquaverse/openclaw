@@ -320,6 +320,9 @@ export function buildOpenAICompletionsRequest(
     stream: (options?.streaming ?? model.params?.streaming) !== false,
     ...resolveOpenAIPromptCacheParams(model, cacheRetention, compat),
   };
+  if (options?.metadata !== undefined) {
+    params.metadata = options.metadata;
+  }
   if (params.stream && compat.supportsUsageInStreaming) {
     params.stream_options = { include_usage: true };
   }

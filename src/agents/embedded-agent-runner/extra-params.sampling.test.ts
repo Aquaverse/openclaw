@@ -62,6 +62,7 @@ describe("createStreamFnWithExtraParams sampling overrides", () => {
     { temperature: 0.4, topP: 0.7, maxTokens: 512 },
     { frequencyPenalty: 0.8, presencePenalty: 0.3, seed: 12345 },
     { stop: ["User:", "Assistant:"] },
+    { metadata: { pii_replace: true } },
   ])("forwards request overrides to stream options: %j", (override) => {
     const expected = structuredClone(override);
     expect(sample(override)).toMatchObject(expected);

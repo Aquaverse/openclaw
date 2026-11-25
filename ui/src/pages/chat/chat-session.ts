@@ -208,8 +208,11 @@ async function applyChatSetting(
   host: ChatModelSettingsHost,
   sessionKey: string,
   captured: ReturnType<typeof captureChatSettingsTarget>,
-  patch: Pick<SessionPatch, "thinkingLevel" | "fastMode" | "contextWindow" | "cyberAccessProgram">,
-  setting: "thinking" | "speed" | "contextWindow" | "accessProgram",
+  patch: Pick<
+    SessionPatch,
+    "thinkingLevel" | "fastMode" | "contextWindow" | "cyberAccessProgram" | "piiReplace"
+  >,
+  setting: "thinking" | "speed" | "contextWindow" | "accessProgram" | "piiReplace",
 ): Promise<boolean> {
   const canDispatch = (receipt?: SessionPatchResult | null) =>
     (captured.isCurrent() || Boolean(captured.row(receipt))) &&
@@ -245,6 +248,7 @@ export function switchChatSetting(
   selection:
     | { kind: "cyberAccessProgram"; value: CyberAccessProgram | null }
     | { kind: "fastMode"; value: "" | "on" | "off" | "auto" | "ultrafast" }
+    | { kind: "piiReplace"; value: boolean }
     | { kind: "thinkingLevel" | "contextWindow"; value: string },
   targetSessionKey = host.sessionKey,
 ): Promise<boolean> {
@@ -270,6 +274,18 @@ export function switchChatSetting(
       return Promise.resolve(true);
     }
     return applyChatSetting(host, targetSessionKey, captured, { fastMode: next ?? null }, "speed");
+  }
+  if (selection.kind === "piiReplace") {
+    if (captured.settings.piiReplace === selection.value) {
+      return Promise.resolve(true);
+    }
+    return applyChatSetting(
+      host,
+      targetSessionKey,
+      captured,
+      { piiReplace: selection.value },
+      "piiReplace",
+    );
   }
   if (selection.kind === "contextWindow") {
     const next = selection.value.trim() || undefined;

@@ -91,6 +91,8 @@ const ModelRuntimeProperties = {
   supportsFastMode: Type.Optional(Type.Boolean()),
   /** Selected route can safely retry rejected service tiers before output. */
   supportsServiceTierRecovery: Type.Optional(Type.Boolean()),
+  /** Selected route accepts the installer-owned pii_replace request metadata contract. */
+  supportsPiiReplace: Type.Optional(Type.Boolean()),
   /** Latest receipt retained for v2026.10.5 clients; current clients use the per-tier list. */
   serviceTierObservation: Type.Optional(ModelServiceTierObservationSchema),
   /** Recent fulfillment per requested tier; never a capability restriction. */

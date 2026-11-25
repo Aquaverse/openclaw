@@ -1,6 +1,8 @@
+import { writeFile } from "node:fs/promises";
 import { expect, it } from "vitest";
 import { selectChatLayoutAction } from "../test-helpers/chat-layout-menu.ts";
 import { evaluateControlUiContext } from "../test-helpers/control-ui-e2e-context.ts";
+import { takeControlUiScreenshotFrame } from "../test-helpers/control-ui-e2e-screenshot.ts";
 import { installMockGateway } from "../test-helpers/control-ui-e2e.ts";
 import { revealChatModelOption, selectChatModelOption } from "../test-helpers/select-picker-e2e.ts";
 import { modelSessionList } from "./chat-runtime-fixtures.test-support.ts";
@@ -9,6 +11,71 @@ import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts"
 const suite = createControlUiE2eSuite({ name: "Control UI model and effort controls" });
 
 suite.define(() => {
+  it("shows and persists PII redaction only for an endpoint-capable model", async () => {
+    await suite.withPage({ viewport: { width: 1280, height: 900 } }, async ({ page }) => {
+      const sessionKey = "agent:main:main";
+      const model = {
+        id: "private-model",
+        name: "Private model",
+        provider: "vllm",
+        supportsPiiReplace: true,
+      };
+      const gateway = await installMockGateway(page, {
+        agentModel: "vllm/private-model",
+        models: [model],
+        methodResponses: {
+          "sessions.list": modelSessionList(
+            {
+              key: sessionKey,
+              kind: "direct",
+              model: model.id,
+              modelProvider: model.provider,
+              updatedAt: 1,
+            },
+            { model: model.id, modelProvider: model.provider },
+          ),
+        },
+      });
+      await page.goto(`${suite.server.baseUrl}chat`);
+      const composer = page.locator(".agent-chat__input").first();
+      const toggle = composer.locator('[data-pii-replace="false"]');
+      await toggle.waitFor({ state: "visible" });
+      expect(
+        await composer
+          .locator(".chat-controls__model-picker, [data-pii-replace]")
+          .evaluateAll(
+            (elements) =>
+              elements[0]?.matches(".chat-controls__model-picker") === true &&
+              elements[1]?.matches("[data-pii-replace]") === true,
+          ),
+      ).toBe(true);
+      await toggle.hover();
+      const tooltip = toggle.locator("..");
+      await expect.poll(() => tooltip.getAttribute("open")).toBe("");
+      const before = await takeControlUiScreenshotFrame(page, page.locator("body"), [toggle], {
+        elements: [toggle],
+        animations: "disabled",
+      });
+      await writeFile(`${suite.artifactDir}/pii-redaction-off-tooltip.png`, before.png);
+
+      await toggle.click();
+      expect((await gateway.waitForRequest("sessions.patch")).params).toMatchObject({
+        key: sessionKey,
+        piiReplace: true,
+      });
+      const active = composer.locator('[data-pii-replace="true"]');
+      await active.waitFor({ state: "visible" });
+      await expect
+        .poll(() => active.getAttribute("aria-label"))
+        .toBe("PII redaction is enabled. Click to disable it for the next message.");
+      const after = await takeControlUiScreenshotFrame(page, composer, [active], {
+        elements: [active],
+        animations: "disabled",
+      });
+      await writeFile(`${suite.artifactDir}/pii-redaction-on.png`, after.png);
+    });
+  });
+
   it.each(["chat", "new"])(
     "opens setup directly from an empty automatic-account model control in /%s",
     async (route) => {

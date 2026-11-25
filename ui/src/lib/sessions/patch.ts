@@ -22,6 +22,7 @@ export type SessionPatch = Pick<
   | "contextWindow"
   | "thinkingLevel"
   | "fastMode"
+  | "piiReplace"
   | "cyberAccessProgram"
   | "verboseLevel"
   | "reasoningLevel"

@@ -84,6 +84,17 @@ function expectBudget(
   );
 }
 
+describe("OpenAI completions request metadata", () => {
+  it.each([
+    [undefined, undefined],
+    [true, { pii_replace: true }],
+    [false, { pii_replace: false }],
+  ] as const)("preserves the pii_replace tri-state for %s", (value, expected) => {
+    const options = value === undefined ? undefined : { metadata: { pii_replace: value } };
+    expectField(request(proxy, options), "metadata", expected);
+  });
+});
+
 describe("OpenAI completions output budgets", () => {
   it.each([
     { tokens: 1_000, output: 8_999 },

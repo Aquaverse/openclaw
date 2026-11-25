@@ -109,6 +109,7 @@ const SESSION_ENTRY_RESERVED_SLOT_KEY_LIST = [
   "cronRunContinuation",
   "cyberAccessProgram",
   "fastMode",
+  "piiReplace",
   "toolOverrides",
   "verboseLevel",
   "traceLevel",

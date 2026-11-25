@@ -149,6 +149,7 @@ export function buildPublicModelProjection(
     ...(typeof entry.compat?.supportsTools === "boolean"
       ? { supportsTools: entry.compat.supportsTools }
       : {}),
+    ...(entry.params?.supportsPiiReplace === true ? { supportsPiiReplace: true } : {}),
   };
 }
 

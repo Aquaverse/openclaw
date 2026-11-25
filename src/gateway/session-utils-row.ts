@@ -492,6 +492,7 @@ export function materializeSessionRow(
     thinkingDefault: input.thinkingProjection.thinkingDefault,
     cyberAccessProgram: entry?.cyberAccessProgram,
     fastMode: entry?.fastMode,
+    piiReplace: entry?.piiReplace,
     toolOverrides: entry?.toolOverrides,
     effectiveFastMode: input.fastModeState.mode,
     effectiveFastModeSource: input.fastModeState.source,

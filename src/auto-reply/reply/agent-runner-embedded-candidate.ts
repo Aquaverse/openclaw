@@ -5,6 +5,7 @@ import type {
 } from "../../agents/embedded-agent-runner/run/internal-params.js";
 import { runEmbeddedAgent } from "../../agents/embedded-agent.js";
 import { resolveAgentHarnessPolicy } from "../../agents/harness/policy.js";
+import { resolvePiiReplaceRequestMetadata } from "../../agents/pii-replace.js";
 import type { ReplyDeliveryState } from "../../agents/reply-completion.js";
 import type { CompactionRequestBudget } from "../../agents/sessions/compaction/preparation.types.js";
 import { resolveGroupSessionKey } from "../../config/sessions.js";
@@ -95,6 +96,12 @@ export async function runEmbeddedFallbackCandidate(
     model: params.model,
     agentRuntime: params.candidateAgentRuntime,
   });
+  const piiReplaceMetadata = resolvePiiReplaceRequestMetadata({
+    config: params.runtimeConfig,
+    provider: params.provider,
+    model: params.model,
+    piiReplace: candidateRun.piiReplace,
+  });
   if (sourceReplyDeliveryRuntime) {
     bindSourceReplyDeliveryRuntime(runBaseParams, sourceReplyDeliveryRuntime);
   }
@@ -129,6 +136,7 @@ export async function runEmbeddedFallbackCandidate(
     });
     let eventHandler: ReturnType<typeof createAgentRunEventHandler> | undefined;
     const result = await params.timing.measure("embedded_run", () => {
+      const scheduledInferenceRunParams = params.scheduledInference?.runParams(params.provider);
       const embeddedRunParams: RunEmbeddedAgentInternalParams = {
         ...runBaseParams,
         beforeRecoveryCompaction: async (recovery) => {
@@ -167,7 +175,14 @@ export async function runEmbeddedFallbackCandidate(
           });
           return flushed.outcome;
         },
-        ...params.scheduledInference?.runParams(params.provider),
+        ...scheduledInferenceRunParams,
+        ...(piiReplaceMetadata
+          ? {
+              streamParams: {
+                metadata: piiReplaceMetadata,
+              },
+            }
+          : {}),
         lifecycleGeneration: params.getLifecycleGeneration(),
         allowGatewaySubagentBinding: true,
         cronCreatorAuthorityCapability: turn.opts?.cronCreatorAuthorityCapability,

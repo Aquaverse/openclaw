@@ -37,6 +37,11 @@ export function applySessionExecutionSettings(
   } else if (patch.permissionMode !== undefined) {
     next.permissionMode = patch.permissionMode;
   }
+  if (patch.piiReplace === null) {
+    delete next.piiReplace;
+  } else if (patch.piiReplace !== undefined) {
+    next.piiReplace = patch.piiReplace;
+  }
   if (
     patch.nativeRuntimeConsent === null ||
     next.permissionMode !== "full" ||

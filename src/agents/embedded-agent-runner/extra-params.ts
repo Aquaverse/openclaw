@@ -63,7 +63,12 @@ function requireBaseStreamFn(streamFn: StreamFn | undefined): StreamFn {
   return streamFn;
 }
 
-const REQUEST_SCOPED_EXTRA_PARAM_KEYS = new Set(["response_format", "responseFormat", "stop"]);
+const REQUEST_SCOPED_EXTRA_PARAM_KEYS = new Set([
+  "response_format",
+  "responseFormat",
+  "stop",
+  "metadata",
+]);
 const GPT_PARALLEL_TOOL_CALLS_APIS = new Set([
   "openai-completions",
   "openai-responses",
@@ -348,6 +353,13 @@ function createStreamFnWithExtraParams(
   }
   if (typeof extraParams.seed === "number") {
     streamParams.seed = extraParams.seed;
+  }
+  if (
+    extraParams.metadata &&
+    typeof extraParams.metadata === "object" &&
+    !Array.isArray(extraParams.metadata)
+  ) {
+    streamParams.metadata = extraParams.metadata as Record<string, unknown>;
   }
   const resolvedStop = normalizeStopSequences(extraParams.stop);
   if (resolvedStop) {

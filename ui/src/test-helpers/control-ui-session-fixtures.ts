@@ -142,6 +142,7 @@ export function createControlUiSessionFixtures(
       "model",
       "thinkingLevel",
       "fastMode",
+      "piiReplace",
       "cyberAccessProgram",
       "permissionMode",
       "label",

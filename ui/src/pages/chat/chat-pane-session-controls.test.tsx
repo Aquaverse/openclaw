@@ -335,6 +335,75 @@ describe("chat account selection", () => {
 });
 
 describe("chat pane composer controls", () => {
+  it("shows PII redaction only for capable models and allows changing the next turn during a run", async () => {
+    const selectedSession: GatewaySessionRow = {
+      key: "main",
+      kind: "direct",
+      sessionId: "pii-session",
+      model: "private-model",
+      modelProvider: "vllm",
+      hasActiveRun: true,
+    };
+    const sessionsResult = { ...createSessionsListResult(), sessions: [selectedSession] };
+    const state = makeChatHost({
+      sessionKey: selectedSession.key,
+      sessionsResult,
+      chatSending: true,
+      chatRunId: "active-run",
+      chatModelSwitchPromises: {},
+      chatModelCatalog: [
+        {
+          id: "private-model",
+          name: "Private model",
+          provider: "vllm",
+          supportsPiiReplace: true,
+        },
+      ],
+      requestHandlers: {
+        "sessions.patch": {
+          ok: true,
+          path: "",
+          key: selectedSession.key,
+          entry: { sessionId: selectedSession.sessionId, piiReplace: true },
+          resolved: {},
+        },
+        "sessions.list": sessionsResult,
+      },
+    });
+    const controls = renderControls(state as unknown as ChatPageHost, {
+      agentDefaultModel: "vllm/private-model",
+    });
+    const { container } = mountSolid(() =>
+      createComponent(ChatPaneModelControl, controls.composerControls),
+    );
+    flush();
+
+    const toggle = container.querySelector<HTMLButtonElement>("[data-pii-replace]");
+    expect(toggle?.dataset.piiReplace).toBe("false");
+    expect(toggle?.disabled).toBe(false);
+    expect(toggle?.getAttribute("aria-label")).toBe(
+      "PII redaction is disabled. Click to enable it for the next message.",
+    );
+    expect(toggle?.closest("openclaw-tooltip")?.content).toBe(
+      "PII redaction is disabled. Click to enable it for the next message.",
+    );
+    const modelTrigger = container.querySelector(".chat-controls__model-picker");
+    expect(
+      Boolean(
+        modelTrigger &&
+        toggle &&
+        modelTrigger.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+    toggle?.click();
+    await vi.waitFor(() =>
+      expect(state.request).toHaveBeenCalledWith(
+        "sessions.patch",
+        expect.objectContaining({ key: "main", piiReplace: true }),
+      ),
+    );
+  });
+
   it("renders the selected Gateway model while keeping its model picker locked", async () => {
     const selectedSession: GatewaySessionRow = {
       key: "main",

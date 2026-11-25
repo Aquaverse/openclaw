@@ -507,6 +507,8 @@ type SessionEntryCore = SessionEntryProvenance &
     /** Explicit requested access program; omission follows the model/project default. */
     cyberAccessProgram?: SessionRow["cyberAccessProgram"];
     fastMode?: FastMode;
+    /** Explicit request metadata preference. Omission keeps pii_replace absent. */
+    piiReplace?: boolean;
     toolOverrides?: SessionToolOverrides;
     /** Swarm group for collector-mode child sessions. */
     swarmGroupId?: string;

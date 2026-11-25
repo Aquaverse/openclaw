@@ -46,6 +46,8 @@ export type ChatModelControlsProps = {
   fastModeTarget?: ChatFastModeTarget;
   fastModeDisplay?: ChatFastModePresentation;
   accessProgramMutationDisabledReason?: string;
+  piiReplace?: boolean;
+  piiReplaceMutationDisabledReason?: string;
   requestedAccessProgram?: CyberAccessProgram;
   daybreakAccessProgram?: Exclude<CyberAccessProgram, "standard">;
   onAccessProgramSelect?: (
@@ -53,6 +55,7 @@ export type ChatModelControlsProps = {
     sessionKey: string,
     previous?: Exclude<CyberAccessProgram, "standard">,
   ) => unknown;
+  onPiiReplaceSelect?: (value: boolean, sessionKey: string) => unknown;
   sending: boolean;
   sessionKey: string;
   selectedSession: SessionsListResult["sessions"][number] | undefined;

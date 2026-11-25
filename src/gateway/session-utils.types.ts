@@ -73,6 +73,7 @@ export type GatewaySessionRow = Omit<SessionRow, "archivedBy" | "updatedAt" | "w
   thinkingDefault?: string;
   cyberAccessProgram?: SessionEntry["cyberAccessProgram"];
   fastMode?: FastMode;
+  piiReplace?: boolean;
   effectiveFastMode?: FastMode;
   effectiveFastModeSource?: FastModeSource;
   fastAutoOnSeconds?: number;

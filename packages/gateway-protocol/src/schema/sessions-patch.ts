@@ -63,6 +63,8 @@ const SessionsPatchMutationProperties = {
   fastMode: Type.Optional(
     Type.Union([Type.Boolean(), Type.Literal("auto"), Type.Literal("ultrafast"), Type.Null()]),
   ),
+  /** Per-session PII replacement preference. Omitted inherits the unset default; null clears it. */
+  piiReplace: Type.Optional(Type.Union([Type.Boolean(), Type.Null()])),
   toolOverrides: Type.Optional(Type.Union([SessionToolOverridesSchema, Type.Null()])),
   verboseLevel: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
   traceLevel: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),

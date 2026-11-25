@@ -76,7 +76,9 @@ export function createChatSendMessageInjectionStarter(params: {
     | "clientRunId"
     | "resolvedSessionModel"
   >;
-  admittedSessionSettings?: Readonly<Pick<SessionEntry, "permissionMode" | "toolOverrides">>;
+  admittedSessionSettings?: Readonly<
+    Pick<SessionEntry, "permissionMode" | "toolOverrides" | "piiReplace">
+  >;
   turn: Pick<
     Awaited<ReturnType<typeof prepareChatSendUserTurn>>,
     "ctx" | "isInternalTextSlashCommandTurn" | "replyOptionImages" | "replyOptionMedia"

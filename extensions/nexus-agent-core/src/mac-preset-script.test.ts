@@ -13,8 +13,12 @@ const scriptsDir =
   process.env.NEXUS_SCRIPTS_DIR ?? path.resolve(import.meta.dirname, "..", "..", "..", "scripts");
 const presetScript = path.join(scriptsDir, "mac-nexus-preset.sh");
 const buildScript = path.join(scriptsDir, "build-mac-installer.sh");
+const defaultProviderSetupScript = path.join(scriptsDir, "mac-default-provider-setup.sh");
 const runnable =
-  process.platform !== "win32" && fs.existsSync(presetScript) && fs.existsSync(buildScript);
+  process.platform !== "win32" &&
+  fs.existsSync(presetScript) &&
+  fs.existsSync(buildScript) &&
+  fs.existsSync(defaultProviderSetupScript);
 
 const PROVIDER = "plugins.entries.nexus-agent-core";
 const SWITCHES = [
@@ -481,5 +485,95 @@ describe("scripts/build-mac-installer.sh default-ai-provider.env", () => {
       }
     }
     assert.deepEqual(lists[0], lists[1]);
+  });
+});
+
+describe("scripts/mac-default-provider-setup.sh PII capability", () => {
+  it("marks only models whose effective base URL matches the bundled endpoint", () => {
+    if (!runnable) {
+      return;
+    }
+    const root = tmp();
+    const binDir = path.join(root, "bin");
+    const state = path.join(root, "state");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.mkdirSync(state, { recursive: true });
+    const cli = path.join(binDir, "openclaw");
+    fs.writeFileSync(
+      cli,
+      `#!/bin/bash
+set -euo pipefail
+S="$FAKE_STATE"
+if [[ "$1 $2 $3" == "config get agents.defaults.model.primary" ]]; then
+  if [[ -f "$S/primary" ]]; then cat "$S/primary"; else printf 'null'; fi
+  exit 0
+fi
+if [[ "$1" == "onboard" ]]; then
+  printf '"vllm/bundled"' > "$S/primary"
+  exit 0
+fi
+if [[ "$1 $2 $3" == "config get models.providers" ]]; then
+  cat "$S/providers.json"
+  exit 0
+fi
+if [[ "$1 $2" == "config set" && "$3" =~ ^models[.]providers[.]([A-Za-z0-9._-]+)[.]models$ ]]; then
+  printf '%s' "$4" > "$S/models-\${BASH_REMATCH[1]}.json"
+  exit 0
+fi
+exit 1
+`,
+      { mode: 0o755 },
+    );
+    fs.writeFileSync(
+      path.join(state, "providers.json"),
+      JSON.stringify({
+        vllm: {
+          baseUrl: "https://example.test/v1/",
+          models: [
+            { id: "bundled", name: "Bundled", params: { temperature: 0.2 } },
+            {
+              id: "other",
+              name: "Other",
+              baseUrl: "https://other.test/v1",
+              params: { supportsPiiReplace: true, custom: "kept" },
+            },
+          ],
+        },
+        proxy: {
+          baseUrl: "https://example.test/v1",
+          models: [{ id: "alias", name: "Alias" }],
+        },
+      }),
+    );
+
+    const result = spawnSync(
+      "bash",
+      [
+        defaultProviderSetupScript,
+        "--openclaw-bin",
+        cli,
+        "--provider-id",
+        "vllm",
+        "--base-url",
+        "https://example.test/v1",
+        "--model-id",
+        "bundled",
+        "--skip-daemon",
+      ],
+      {
+        encoding: "utf8",
+        env: { ...process.env, FAKE_STATE: state },
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const models = JSON.parse(
+      fs.readFileSync(path.join(state, "models-vllm.json"), "utf8"),
+    ) as Array<{ id: string; params?: Record<string, unknown> }>;
+    const proxyModels = JSON.parse(
+      fs.readFileSync(path.join(state, "models-proxy.json"), "utf8"),
+    ) as Array<{ id: string; params?: Record<string, unknown> }>;
+    assert.deepEqual(models[0]?.params, { temperature: 0.2, supportsPiiReplace: true });
+    assert.deepEqual(models[1]?.params, { custom: "kept" });
+    assert.deepEqual(proxyModels[0]?.params, { supportsPiiReplace: true });
   });
 });

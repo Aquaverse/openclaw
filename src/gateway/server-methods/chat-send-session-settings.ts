@@ -7,7 +7,7 @@ import type { NormalizedChatSendRequest } from "./chat-send-request.js";
 
 export const SESSION_SETTINGS_CHANGED_ERROR_REASON = "session-settings-changed";
 type AdmittedChatSendSessionSettings =
-  | Readonly<Pick<SessionEntry, "permissionMode" | "toolOverrides">>
+  | Readonly<Pick<SessionEntry, "permissionMode" | "toolOverrides" | "piiReplace">>
   | undefined;
 
 export function captureAdmittedChatSendSessionSettings(params: {
@@ -31,5 +31,6 @@ export function captureAdmittedChatSendSessionSettings(params: {
   return Object.freeze({
     permissionMode: entry?.permissionMode,
     toolOverrides: normalizeSessionToolOverrides(entry?.toolOverrides),
+    piiReplace: entry?.piiReplace,
   });
 }

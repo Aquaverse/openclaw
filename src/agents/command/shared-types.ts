@@ -10,6 +10,8 @@ export type AgentStreamParams = {
   frequencyPenalty?: number;
   presencePenalty?: number;
   seed?: number;
+  /** Provider request metadata, admitted by the caller and consumed only by supporting transports. */
+  metadata?: Record<string, unknown>;
 };
 
 /** Simplified tool definition for client-provided OpenResponses hosted tools. */

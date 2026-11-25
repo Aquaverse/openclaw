@@ -165,9 +165,6 @@ export async function executePreparedReplyRun(
       normalizeOptionalString(preparedSessionState.sessionEntry?.providerOverride),
     ) &&
     !hasLegacyAutoFallbackWithoutOrigin(preparedSessionState.sessionEntry);
-  const runHasAutoFallbackProvenance =
-    runHasSessionModelOverride &&
-    hasSessionAutoModelFallbackProvenance(preparedSessionState.sessionEntry);
   const originatingThreadId = resolveRoutedDeliveryThreadId({ ctx, sessionKey });
   // Abort-signal attachment for queued followups:
   // - room_event: always inherit (source admission fence / ambient cancel).
@@ -575,9 +572,9 @@ export async function executePreparedReplyRun(
       modelSelectionLocked: preparedSessionState.sessionEntry?.modelSelectionLocked === true,
       hasSessionModelOverride: runHasSessionModelOverride,
       modelOverrideSource: runHasSessionModelOverride ? runModelOverrideSource : undefined,
-      hasAutoFallbackProvenance: runHasAutoFallbackProvenance || undefined,
-      // Visible spawn children keep dashboard keys; declared spawn lineage routes
-      // them to the subagent fallback ladder like hidden subagent sessions.
+      hasAutoFallbackProvenance:
+        runHasSessionModelOverride &&
+        (hasSessionAutoModelFallbackProvenance(preparedSessionState.sessionEntry) || undefined),
       subagentSpawnLineage: (preparedSessionState.sessionEntry?.spawnDepth ?? 0) > 0,
       autoFallbackPrimaryProbe: params.autoFallbackPrimaryProbe,
       authProfileId,
@@ -588,6 +585,7 @@ export async function executePreparedReplyRun(
       cyberAccessProgram:
         opts?.scheduledAutomation?.job.cyberAccessProgram ??
         preparedSessionState.sessionEntry?.cyberAccessProgram,
+      piiReplace: admittedSessionSettings?.piiReplace,
       thinkLevelOverride,
       ...(() => {
         if (useFastReplyRuntime) {

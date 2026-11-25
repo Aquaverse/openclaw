@@ -1,5 +1,7 @@
 import { createMemo, type Accessor } from "solid-js";
 import { resolveModelRuntimeRoute } from "../../../../../src/shared/model-runtime-route.js";
+import "../../../components/tooltip.ts";
+import { Icon } from "../../../components/solid/icon.tsx";
 import { t as translate } from "../../../i18n/index.ts";
 import { registerModelControlsEnglish } from "../../../i18n/locales/en-model-controls.ts";
 import {
@@ -75,6 +77,7 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
   model: ChatModelPickerParams;
   effort: ChatEffortPickerParams;
   showEffort: boolean;
+  piiReplace: { visible: boolean; active: boolean; disabled: boolean };
 }> {
   const catalogEntries = createMemo(() => props.modelCatalog);
   const catalogIndex = createMemo(() => prepareChatModelCatalog(catalogEntries()));
@@ -598,6 +601,11 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
       (hasAccessSelection || accessPrograms?.some((program) => program !== "standard"));
     const accessProgramDisabled =
       commonDisabled || !hasResolvableModel || Boolean(props.accessProgramMutationDisabledReason);
+    const piiReplaceModel = resolveModelRuntimeEntry(
+      catalog.entry(currentOverride || defaultModel),
+      triggerRuntime,
+    );
+    const piiReplaceVisible = piiReplaceModel?.supportsPiiReplace === true;
     const effortDisabled =
       commonDisabled ||
       (!(showAccessProgram && hasAccessSelection) &&
@@ -611,6 +619,12 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
       !catalogState.pendingProviders?.length;
     const reserveEffortPicker = !hasResolvableModel && !(showAccessProgram && hasAccessSelection);
     return {
+      piiReplace: {
+        visible: piiReplaceVisible,
+        active: props.piiReplace === true,
+        disabled:
+          commonDisabled || !hasResolvableModel || Boolean(props.piiReplaceMutationDisabledReason),
+      },
       showEffort: !confirmedEmptyCatalog || Boolean(showAccessProgram && hasAccessSelection),
       model: {
         providerAuth: props.modelAuthStatusResult ? providerAuth : undefined,
@@ -693,9 +707,32 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
 
 export function ChatModelControls(props: ChatModelControlsProps & { showEffort?: boolean }) {
   const controls = createChatModelControls(props);
+  const piiReplaceTooltip = () =>
+    controls().piiReplace.active
+      ? t("chat.modelControls.piiReplaceEnabled")
+      : t("chat.modelControls.piiReplaceDisabled");
   return (
     <div class="chat-controls__session chat-controls__model chat-controls__model-settings">
       <ChatModelPicker {...controls().model} />
+      {controls().piiReplace.visible ? (
+        <openclaw-tooltip
+          prop:content={props.piiReplaceMutationDisabledReason ?? piiReplaceTooltip()}
+        >
+          <button
+            type="button"
+            class={["chat-controls__pii-toggle", { "is-active": controls().piiReplace.active }]}
+            aria-label={piiReplaceTooltip()}
+            aria-pressed={controls().piiReplace.active ? "true" : "false"}
+            disabled={controls().piiReplace.disabled}
+            data-pii-replace={controls().piiReplace.active ? "true" : "false"}
+            onClick={() =>
+              props.onPiiReplaceSelect?.(!controls().piiReplace.active, props.sessionKey)
+            }
+          >
+            <Icon name={controls().piiReplace.active ? "shieldCheck" : "shield"} />
+          </button>
+        </openclaw-tooltip>
+      ) : undefined}
       {props.showEffort !== false && controls().showEffort ? (
         <ChatEffortPicker {...controls().effort} />
       ) : undefined}

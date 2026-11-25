@@ -98,7 +98,9 @@ type InternalReplySessionOptions = {
   /** Internal delivery owner that stages reply media using current Gateway session policy. */
   mediaNormalizationOwner?: "gateway";
   /** Exact authority-bearing settings captured by Gateway chat admission. */
-  admittedSessionSettings?: Readonly<Pick<SessionEntry, "permissionMode" | "toolOverrides">>;
+  admittedSessionSettings?: Readonly<
+    Pick<SessionEntry, "permissionMode" | "toolOverrides" | "piiReplace">
+  >;
   /** Host-stamped exact-run capability for late Codex creator-authority capture. */
   cronCreatorAuthorityCapability?: CronCreatorAuthorityCapability;
   /** Current external dashboard turn only; never persisted or inherited by another run. */
