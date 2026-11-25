@@ -662,6 +662,8 @@ AI_BASE_URL=""
 AI_MODEL=""
 AI_API_KEY=""
 ONBOARD_KEY_FILE=""
+RESOLVED_MODEL_FILE=""
+DEFAULT_PROVIDER_MODEL_REF=""
 DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=0
 DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=0
 DEFAULT_PROVIDER_AUTH_ID=""
@@ -709,9 +711,12 @@ if [[ "$ONBOARDING_CONNECTION_MODE" == "remote" ]]; then
 fi
 
 default_provider_auth_binding_ready() {
+  local model_ref="$1"
+  [[ -n "$model_ref" ]] || return 1
   [[ -x "$DEFAULT_PROVIDER_SETUP" ]] || return 1
   run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
     "$DEFAULT_PROVIDER_SETUP" --openclaw-bin "$OPENCLAW_BIN" --check-auth-binding \
+      --expected-model-ref "$model_ref" \
     >/dev/null 2>&1
 }
 
@@ -721,33 +726,17 @@ if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]
   DEFAULT_PROVIDER_AUTH_ID="$(printf 'provider=%s\nbase_url=%s\nmodel=%s\napi_key=%s\n' \
     "$AI_PROVIDER" "$AI_BASE_URL" "$AI_MODEL" "$AI_API_KEY" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
   APPLIED_PROVIDER_AUTH_ID="$(/usr/bin/head -n1 "$PREFIX/.default-provider-auth-applied" 2>/dev/null || true)"
+  APPLIED_PROVIDER_MODEL_REF="$(/usr/bin/sed -n '2p' "$PREFIX/.default-provider-auth-applied" 2>/dev/null || true)"
+  if [[ -z "$APPLIED_PROVIDER_MODEL_REF" ]]; then
+    APPLIED_PROVIDER_MODEL_REF="$(/usr/bin/sed -n '2p' "$PREFIX/.default-provider-applied" 2>/dev/null || true)"
+  fi
   if [[ -n "$APPLIED_PROVIDER_AUTH_ID" && "$APPLIED_PROVIDER_AUTH_ID" == "$DEFAULT_PROVIDER_AUTH_ID" ]]; then
-    if default_provider_auth_binding_ready; then
+    if [[ -z "$AI_API_KEY" ]] || default_provider_auth_binding_ready "$APPLIED_PROVIDER_MODEL_REF"; then
       DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
       DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=1
+      DEFAULT_PROVIDER_MODEL_REF="$APPLIED_PROVIDER_MODEL_REF"
     else
       log "The default-provider marker is stale because its credential binding is missing -- repairing it from this installer."
-    fi
-  elif [[ -n "$APPLIED_PROVIDER_AUTH_ID" ]]; then
-    # The legacy marker includes the model even though changing only the model
-    # must not rewrite the same credential. Rebuild the old fingerprint from
-    # the currently selected model: a match proves provider, base URL and key
-    # are unchanged, so setup runs without an API-key file and only moves the
-    # default model.
-    CURRENT_MODEL_REF="$(run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-      "$OPENCLAW_BIN" config get agents.defaults.model.primary --json 2>/dev/null || true)"
-    CURRENT_MODEL_REF="${CURRENT_MODEL_REF#\"}"
-    CURRENT_MODEL_REF="${CURRENT_MODEL_REF%\"}"
-    CURRENT_MODEL_ID="${CURRENT_MODEL_REF#*/}"
-    CURRENT_MODEL_ID="${CURRENT_MODEL_ID%%@*}"
-    if [[ -n "$CURRENT_MODEL_ID" && "$CURRENT_MODEL_ID" != "$CURRENT_MODEL_REF" ]]; then
-      CURRENT_PROVIDER_AUTH_ID="$(printf 'provider=%s\nbase_url=%s\nmodel=%s\napi_key=%s\n' \
-        "$AI_PROVIDER" "$AI_BASE_URL" "$CURRENT_MODEL_ID" "$AI_API_KEY" | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
-      if [[ "$APPLIED_PROVIDER_AUTH_ID" == "$CURRENT_PROVIDER_AUTH_ID" ]] \
-        && default_provider_auth_binding_ready; then
-        DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
-        log "Only the bundled default model changed -- preserving the existing credential and updating model selection."
-      fi
     fi
   elif [[ -f "$PREFIX/.default-provider-applied" ]]; then
     # Migrate installations made before the auth-only marker existed. The old
@@ -755,9 +744,11 @@ if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]
     APPLIED_DEFAULT_PROVIDER="$(/usr/bin/head -n1 "$PREFIX/.default-provider-applied" 2>/dev/null || true)"
     case "$APPLIED_DEFAULT_PROVIDER" in
       "$ENV_SHA256":*)
-        if default_provider_auth_binding_ready; then
+        LEGACY_PROVIDER_MODEL_REF="$(/usr/bin/sed -n '2p' "$PREFIX/.default-provider-applied" 2>/dev/null || true)"
+        if [[ -z "$AI_API_KEY" ]] || default_provider_auth_binding_ready "$LEGACY_PROVIDER_MODEL_REF"; then
           DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=1
           DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=1
+          DEFAULT_PROVIDER_MODEL_REF="$LEGACY_PROVIDER_MODEL_REF"
         else
           log "The legacy default-provider marker is stale because its credential binding is missing -- repairing it from this installer."
         fi
@@ -772,9 +763,9 @@ if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]
   # <provider>:setup-<uuid> replacement credentials.
   # Saving even identical key bytes is an intentional account replacement and
   # retires persisted automation authorization. Avoid that on an ordinary CLI
-  # upgrade and when only the model changes. A changed provider/base URL/key
-  # fingerprint still installs the new key and lets existing jobs surface the
-  # required account re-selection.
+  # upgrade. A changed provider, base URL, model or key fingerprint refreshes
+  # the bundled registration and credential without replacing the user's
+  # selected default model.
   if [[ -n "$AI_API_KEY" && "$DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED" != "1" ]]; then
     ONBOARD_KEY_FILE="$(/usr/bin/mktemp /tmp/openclaw-onboard-key.XXXXXX)"
     /bin/chmod 600 "$ONBOARD_KEY_FILE"
@@ -821,6 +812,10 @@ else
       --model-id "$AI_MODEL"
       --install-daemon
     )
+    RESOLVED_MODEL_FILE="$(/usr/bin/mktemp /tmp/openclaw-bundled-model.XXXXXX)"
+    /bin/chmod 600 "$RESOLVED_MODEL_FILE"
+    /usr/sbin/chown "$CONSOLE_USER" "$RESOLVED_MODEL_FILE"
+    SETUP_ARGS+=(--resolved-model-file "$RESOLVED_MODEL_FILE")
     [[ -n "$AI_PROVIDER" ]] && SETUP_ARGS+=(--provider-id "$AI_PROVIDER")
     [[ -n "$ONBOARD_KEY_FILE" ]] && SETUP_ARGS+=(--api-key-file "$ONBOARD_KEY_FILE")
     if [[ -x "$DEFAULT_PROVIDER_SETUP" ]]; then
@@ -836,25 +831,33 @@ else
 fi
 [[ -n "$ONBOARD_KEY_FILE" ]] && /bin/rm -f "$ONBOARD_KEY_FILE"
 if [[ "$ONBOARD_OK" == "1" ]]; then
+  if [[ -n "$RESOLVED_MODEL_FILE" ]]; then
+    DEFAULT_PROVIDER_MODEL_REF="$(/usr/bin/head -n1 "$RESOLVED_MODEL_FILE" 2>/dev/null || true)"
+  fi
+  [[ -n "$RESOLVED_MODEL_FILE" ]] && /bin/rm -f "$RESOLVED_MODEL_FILE"
   if [[ "$ONBOARD_RAN" == "1" ]]; then
     log "Onboarding finished."
   fi
   # The bundled default provider was just written (install and upgrade alike;
-  # other providers/models in the user's config are kept, only the default model
-  # is pointed at it). Record that, so the app does not apply it again on its
-  # first launch or on any later one. Must match AutoOnboardBootstrap's
+  # other providers/models and an existing user-selected default are kept).
+  # Record the physical bundled model reference on line two, so the app can
+  # verify this provider's auth without treating the user's current default as
+  # the bundled model. This both skips repeated setup on later launches and
+  # prevents a later install from switching Codex (or any other user choice)
+  # back to the installer model. Must match AutoOnboardBootstrap's
   # defaultProviderMarkerValue(): "<sha256 of default-ai-provider.env>:<bundled
   # CLI package sha256, or 'none'>".
   if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
     DEFAULT_PROVIDER_MARKER="${ENV_SHA256}:${CLI_PACKAGE_TGZ_SHA256:-none}"
     run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
-        /bin/bash -c 'printf "%s\n" "$1" > "$2"' _ "$DEFAULT_PROVIDER_MARKER" "$PREFIX/.default-provider-applied" >>"$LOG_FILE" 2>&1 \
+        /bin/bash -c 'printf "%s\n%s\n" "$1" "$2" > "$3"' _ "$DEFAULT_PROVIDER_MARKER" "$DEFAULT_PROVIDER_MODEL_REF" "$PREFIX/.default-provider-applied" >>"$LOG_FILE" 2>&1 \
       || log "WARN: could not record the default provider marker (non-fatal; the app may apply it once more on first launch)."
     run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
-        /bin/bash -c 'printf "%s\n" "$1" > "$2"' _ "$DEFAULT_PROVIDER_AUTH_ID" "$PREFIX/.default-provider-auth-applied" >>"$LOG_FILE" 2>&1 \
+        /bin/bash -c 'printf "%s\n%s\n" "$1" "$2" > "$3"' _ "$DEFAULT_PROVIDER_AUTH_ID" "$DEFAULT_PROVIDER_MODEL_REF" "$PREFIX/.default-provider-auth-applied" >>"$LOG_FILE" 2>&1 \
       || log "WARN: could not record the default-provider auth marker; a later upgrade may ask the auth owner to save the same key again."
   fi
 else
+  [[ -n "$RESOLVED_MODEL_FILE" ]] && /bin/rm -f "$RESOLVED_MODEL_FILE"
   log "WARN: non-interactive onboarding failed (see $LOG_FILE above) -- first launch will fall back to the app's own onboarding UI."
 fi
 

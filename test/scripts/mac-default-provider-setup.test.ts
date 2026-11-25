@@ -28,6 +28,8 @@ function runSetup(root: string, cli: string, extraArgs: string[] = []) {
       "gpt-test",
       "--api-key-file",
       path.join(root, "key"),
+      "--resolved-model-file",
+      path.join(root, "resolved-model"),
       "--skip-daemon",
       ...extraArgs,
     ],
@@ -36,7 +38,49 @@ function runSetup(root: string, cli: string, extraArgs: string[] = []) {
 }
 
 describe.skipIf(process.platform === "win32")("mac default-provider setup", () => {
-  it("reports a stale credential marker unless the selected provider binding is usable", () => {
+  it("preserves an existing user-selected default while refreshing the bundled provider", () => {
+    const root = tempDirs.make("openclaw-default-provider-preserve-primary-");
+    const cli = path.join(root, "openclaw");
+    writeFileSync(path.join(root, "key"), "replacement-installer-secret");
+    writeFileSync(path.join(root, "default-model"), "openai-codex/gpt-5.3-codex");
+    writeExecutable(
+      cli,
+      `#!/bin/bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$FIXTURE_ROOT/calls"
+if [[ "$*" == *"config get agents.defaults.model.primary --json"* ]]; then
+  printf '"%s"\n' "$(cat "$FIXTURE_ROOT/default-model")"
+  exit 0
+fi
+if [[ "$*" == *"onboard --non-interactive"* ]]; then
+  printf '%s' "vllm/gpt-test" > "$FIXTURE_ROOT/default-model"
+  exit 0
+fi
+if [[ "$*" == *"models set openai-codex/gpt-5.3-codex"* ]]; then
+  printf '%s' "openai-codex/gpt-5.3-codex" > "$FIXTURE_ROOT/default-model"
+  exit 0
+fi
+if [[ "$*" == *"models auth paste-api-key"* ]]; then
+  [[ "$*" == *"--provider vllm --agent main"* ]]
+  cat > "$FIXTURE_ROOT/profile-vllm-manual"
+  exit 0
+fi
+exit 9
+`,
+    );
+
+    const result = runSetup(root, cli, ["--profile", "installer-proof"]);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(path.join(root, "default-model"), "utf8")).toBe(
+      "openai-codex/gpt-5.3-codex",
+    );
+    expect(readFileSync(path.join(root, "profile-vllm-manual"), "utf8")).toBe(
+      "replacement-installer-secret",
+    );
+  });
+
+  it("checks the bundled provider binding independently of the selected default", () => {
     const root = tempDirs.make("openclaw-default-provider-binding-");
     const cli = path.join(root, "openclaw");
     writeExecutable(
@@ -44,11 +88,11 @@ describe.skipIf(process.platform === "win32")("mac default-provider setup", () =
       `#!/bin/bash
 if [[ "$*" == *"models status --json --agent main"* ]]; then
   if [[ "\${AUTH_STATUS:-1}" == "0" ]]; then
-    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[],"oauth":{"providers":[{"provider":"vllm","effectiveProfiles":[{"profileId":"vllm:manual","provider":"vllm","type":"api_key","status":"static"}]}]}}}'
+    printf '%s\n' '{"defaultModel":"openai-codex/gpt-5.3-codex","resolvedDefault":"openai-codex/gpt-5.3-codex","auth":{"modelRouteIssues":[],"oauth":{"providers":[{"provider":"vllm","effectiveProfiles":[{"profileId":"vllm:manual","provider":"vllm","type":"api_key","status":"static"}]}]}}}'
   elif [[ "\${AUTH_STATUS:-1}" == "2" ]]; then
-    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[{"kind":"incompatible","provider":"vllm","model":"gpt-test"}],"oauth":{"providers":[{"provider":"vllm","effectiveProfiles":[{"profileId":"vllm:manual","provider":"vllm","type":"api_key","status":"static"}]}]}}}'
+    printf '%s\n' '{"defaultModel":"openai-codex/gpt-5.3-codex","resolvedDefault":"openai-codex/gpt-5.3-codex","auth":{"modelRouteIssues":[],"oauth":{"providers":[{"provider":"vllm","effectiveProfiles":[{"profileId":"vllm:manual","provider":"vllm","type":"api_key","status":"error"}]}]}}}'
   else
-    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[{"kind":"missing-auth","provider":"vllm","model":"gpt-test"}],"oauth":{"providers":[{"provider":"vllm","effectiveProfiles":[]}]}}}'
+    printf '%s\n' '{"defaultModel":"openai-codex/gpt-5.3-codex","resolvedDefault":"openai-codex/gpt-5.3-codex","auth":{"modelRouteIssues":[],"oauth":{"providers":[{"provider":"vllm","effectiveProfiles":[]}]}}}'
   fi
   exit 0
 fi
@@ -65,6 +109,8 @@ exit 9
           "--profile",
           "installer-proof",
           "--check-auth-binding",
+          "--expected-model-ref",
+          "vllm/gpt-test",
         ],
         {
           encoding: "utf8",
@@ -130,17 +176,78 @@ exit 9
       "profile-vllm-manual",
     ]);
     const calls = readFileSync(path.join(root, "calls"), "utf8").trim().split("\n");
-    expect(calls).toHaveLength(6);
+    expect(calls).toHaveLength(8);
     expect(calls.filter((call) => call.includes("onboard --non-interactive"))).toHaveLength(2);
     expect(
       calls.filter((call) => call.includes("config get agents.defaults.model.primary --json")),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
     expect(calls.filter((call) => call.includes("models auth paste-api-key"))).toHaveLength(2);
     expect(calls.filter((call) => call.includes("models auth order set"))).toHaveLength(0);
     expect(calls.every((call) => call.startsWith("--profile installer-proof "))).toBe(true);
     expect(calls.join("\n")).not.toContain("installer-secret");
     expect(calls.join("\n")).not.toContain("replacement-installer-secret");
     expect(calls.join("\n")).not.toContain("setup-");
+    expect(readFileSync(path.join(root, "resolved-model"), "utf8")).toBe("vllm/gpt-test\n");
+  });
+
+  it("selects the bundled model when no default model exists", () => {
+    const root = tempDirs.make("openclaw-default-provider-empty-primary-");
+    const cli = path.join(root, "openclaw");
+    writeFileSync(path.join(root, "key"), "installer-secret");
+    writeExecutable(
+      cli,
+      `#!/bin/bash
+set -euo pipefail
+if [[ "$*" == *"config get agents.defaults.model.primary --json"* ]]; then
+  [[ -f "$FIXTURE_ROOT/default-model" ]] || exit 1
+  printf '"%s"\n' "$(cat "$FIXTURE_ROOT/default-model")"
+  exit 0
+fi
+if [[ "$*" == *"onboard --non-interactive"* ]]; then
+  printf '%s' "vllm/gpt-test" > "$FIXTURE_ROOT/default-model"
+  exit 0
+fi
+if [[ "$*" == *"models auth paste-api-key"* ]]; then cat >/dev/null; exit 0; fi
+exit 9
+`,
+    );
+
+    const result = runSetup(root, cli);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(path.join(root, "default-model"), "utf8")).toBe("vllm/gpt-test");
+  });
+
+  it("preserves a different default even when it uses the bundled provider id", () => {
+    const root = tempDirs.make("openclaw-default-provider-advance-primary-");
+    const cli = path.join(root, "openclaw");
+    writeFileSync(path.join(root, "key"), "installer-secret");
+    writeFileSync(path.join(root, "default-model"), "vllm/gpt-old");
+    writeExecutable(
+      cli,
+      `#!/bin/bash
+set -euo pipefail
+if [[ "$*" == *"config get agents.defaults.model.primary --json"* ]]; then
+  printf '"%s"\n' "$(cat "$FIXTURE_ROOT/default-model")"
+  exit 0
+fi
+if [[ "$*" == *"onboard --non-interactive"* ]]; then
+  printf '%s' "vllm/gpt-test" > "$FIXTURE_ROOT/default-model"
+  exit 0
+fi
+if [[ "$*" == *"models set vllm/gpt-old"* ]]; then
+  printf '%s' "vllm/gpt-old" > "$FIXTURE_ROOT/default-model"
+  exit 0
+fi
+if [[ "$*" == *"models auth paste-api-key"* ]]; then cat >/dev/null; exit 0; fi
+exit 9
+`,
+    );
+
+    const result = runSetup(root, cli);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readFileSync(path.join(root, "default-model"), "utf8")).toBe("vllm/gpt-old");
   });
 
   it("waits for the installed Gateway before publishing a repaired credential", () => {

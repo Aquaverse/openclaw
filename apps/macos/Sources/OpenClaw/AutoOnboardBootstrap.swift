@@ -144,9 +144,9 @@ final class AutoOnboardBootstrap {
             if let provider = Self.bundledDefaultProvider() {
                 if await Self.defaultProviderNeedsApply(provider) {
                     traceLog("runIfEligible: fast path applying bundled default provider (first launch of this install/upgrade)")
-                    let applied = await Self.applyDefaultProvider(provider)
-                    traceLog("runIfEligible: fast path applyDefaultProvider() returned \(applied)")
-                    if applied { Self.recordDefaultProviderApplied(provider) }
+                    let resolvedModel = await Self.applyDefaultProvider(provider)
+                    traceLog("runIfEligible: fast path applyDefaultProvider() returned \(resolvedModel != nil)")
+                    if let resolvedModel { Self.recordDefaultProviderApplied(provider, resolvedModel: resolvedModel) }
                 } else {
                     traceLog("runIfEligible: fast path bundled default provider already applied for this install -- skipping")
                 }
@@ -237,9 +237,9 @@ final class AutoOnboardBootstrap {
             traceLog("runIfEligible: bundledDefaultProvider() found provider id=\(provider.id ?? "nil"), baseURL=\(provider.baseURL), modelID=\(provider.modelID), hasAPIKey=\(provider.apiKey != nil)")
             if await Self.defaultProviderNeedsApply(provider) {
                 self.status.step = String(localized: "Configuring default model…")
-                let applied = await Self.applyDefaultProvider(provider)
-                traceLog("runIfEligible: applyDefaultProvider() returned \(applied)")
-                if applied { Self.recordDefaultProviderApplied(provider) }
+                let resolvedModel = await Self.applyDefaultProvider(provider)
+                traceLog("runIfEligible: applyDefaultProvider() returned \(resolvedModel != nil)")
+                if let resolvedModel { Self.recordDefaultProviderApplied(provider, resolvedModel: resolvedModel) }
             } else {
                 traceLog("runIfEligible: bundled default provider already applied for this install -- skipping")
             }
@@ -450,8 +450,9 @@ final class AutoOnboardBootstrap {
         let modelID: String
         let apiKey: String?
         /// SHA-256 (hex) of default-ai-provider.env's bytes. Part of the
-        /// "already applied" marker below, so a rebuilt installer with a
-        /// different default model is applied again, an unchanged one never is.
+        /// "already applied" marker below, so a rebuilt installer with changed
+        /// bundled provider settings refreshes that registration while an
+        /// unchanged one does not.
         let fingerprint: String
     }
 
@@ -492,11 +493,14 @@ final class AutoOnboardBootstrap {
     // install/upgrade, or by the first launch after a dmg install/upgrade.
     // <prefix>/.default-provider-applied records "<env sha256>:<bundled CLI
     // package sha256>" once that has happened (the postinstall writes the same
-    // value). Every later launch with a live credential binding skips the step
+    // value). The second line records the physical bundled model reference so
+    // credential readiness never depends on whichever model the user selected
+    // as their default afterwards. Every later launch with a live credential
+    // binding skips the step
     // -- no progress text, no `openclaw onboard`. If migration or recovery
     // removed that binding, the marker is stale and the bundled setup repairs
-    // it. A model the user switched to afterwards is otherwise never overridden
-    // again until the next install/upgrade.
+    // it. Registering or repairing the bundled model preserves a different
+    // default the user selected, including during a later install/upgrade.
 
     private static func defaultProviderMarkerURL() -> URL {
         URL(fileURLWithPath: CLIInstaller.installPrefix()).appendingPathComponent(".default-provider-applied")
@@ -506,19 +510,25 @@ final class AutoOnboardBootstrap {
         "\(provider.fingerprint):\(CLIInstaller.bundledCLIPackage()?.sha256 ?? "none")"
     }
 
+    private static func defaultProviderMarkerLines() -> [String] {
+        (try? String(contentsOf: self.defaultProviderMarkerURL(), encoding: .utf8))?
+            .split(whereSeparator: \.isNewline)
+            .map(String.init) ?? []
+    }
+
     private static func defaultProviderNeedsApply(_ provider: DefaultProvider) async -> Bool {
-        let stored = (try? String(contentsOf: self.defaultProviderMarkerURL(), encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard stored == self.defaultProviderMarkerValue(provider) else { return true }
+        let stored = self.defaultProviderMarkerLines()
+        guard stored.first == self.defaultProviderMarkerValue(provider) else { return true }
         guard provider.apiKey != nil else { return false }
-        let bindingReady = await self.defaultProviderAuthBindingReady()
+        guard stored.count > 1, !stored[1].isEmpty else { return true }
+        let bindingReady = await self.defaultProviderAuthBindingReady(modelRef: stored[1])
         if !bindingReady {
             traceLog("defaultProviderNeedsApply: applied marker has no live credential binding; repairing")
         }
         return !bindingReady
     }
 
-    private static func defaultProviderAuthBindingReady() async -> Bool {
+    private static func defaultProviderAuthBindingReady(modelRef: String) async -> Bool {
         let executable = CLIInstaller.managedExecutableLocation()
         guard FileManager.default.isExecutableFile(atPath: executable) else { return false }
         let setupURL = Bundle.main.bundleURL
@@ -528,6 +538,7 @@ final class AutoOnboardBootstrap {
             setupURL.path,
             "--openclaw-bin", executable,
             "--check-auth-binding",
+            "--expected-model-ref", modelRef,
         ]
         if let profile = AppProfile.current.name {
             arguments.append(contentsOf: ["--profile", profile])
@@ -536,12 +547,13 @@ final class AutoOnboardBootstrap {
         return result.success
     }
 
-    private static func recordDefaultProviderApplied(_ provider: DefaultProvider) {
+    private static func recordDefaultProviderApplied(_ provider: DefaultProvider, resolvedModel: String) {
         let url = self.defaultProviderMarkerURL()
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try (self.defaultProviderMarkerValue(provider) + "\n").write(to: url, atomically: true, encoding: .utf8)
+            try (self.defaultProviderMarkerValue(provider) + "\n" + resolvedModel + "\n")
+                .write(to: url, atomically: true, encoding: .utf8)
             traceLog("recordDefaultProviderApplied: wrote \(url.path)")
         } catch {
             traceLog("recordDefaultProviderApplied: write failed: \(error.localizedDescription)")
@@ -549,8 +561,9 @@ final class AutoOnboardBootstrap {
     }
 
     /// Shells out to the just-installed CLI's own `openclaw onboard
-    /// --non-interactive` to write the default model/provider config to
-    /// disk. scripts/mac-pkg-postinstall.sh runs a similar command for a
+    /// --non-interactive` to register the bundled provider/model and initialize
+    /// an empty default without replacing a user selection.
+    /// scripts/mac-pkg-postinstall.sh runs a similar command for a
     /// pkg install, but with --install-daemon (not --skip-daemon) --
     /// that script's onboard call is the only thing installing/starting
     /// the Gateway service on that path, so it must manage the daemon
@@ -561,17 +574,17 @@ final class AutoOnboardBootstrap {
     /// activateLocalGateway() below is solely responsible for starting (or
     /// restarting) the Gateway, and does so only after this config write
     /// has already landed on disk.
-    private static func applyDefaultProvider(_ provider: DefaultProvider) async -> Bool {
+    private static func applyDefaultProvider(_ provider: DefaultProvider) async -> String? {
         let executable = CLIInstaller.managedExecutableLocation()
         guard FileManager.default.isExecutableFile(atPath: executable) else {
             traceLog("applyDefaultProvider: managed executable not found/executable at \(executable)")
-            return false
+            return nil
         }
         let setupURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/mac-default-provider-setup.sh")
         guard FileManager.default.isExecutableFile(atPath: setupURL.path) else {
             traceLog("applyDefaultProvider: bundled setup script missing or not executable")
-            return false
+            return nil
         }
 
         var arguments = [
@@ -581,6 +594,9 @@ final class AutoOnboardBootstrap {
             "--model-id", provider.modelID,
             "--skip-daemon",
         ]
+        let resolvedModelURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openclaw-default-provider-model-\(UUID().uuidString)")
+        arguments.append(contentsOf: ["--resolved-model-file", resolvedModelURL.path])
         if let profile = AppProfile.current.name {
             arguments.append(contentsOf: ["--profile", profile])
         }
@@ -598,7 +614,7 @@ final class AutoOnboardBootstrap {
                 attributes: [.posixPermissions: 0o600])
             else {
                 traceLog("applyDefaultProvider: could not create credential file")
-                return false
+                return nil
             }
             keyURL = url
             arguments.append(contentsOf: ["--api-key-file", url.path])
@@ -607,6 +623,7 @@ final class AutoOnboardBootstrap {
             if let keyURL {
                 try? FileManager.default.removeItem(at: keyURL)
             }
+            try? FileManager.default.removeItem(at: resolvedModelURL)
         }
 
         func redactAPIKey(_ text: String) -> String {
@@ -617,14 +634,20 @@ final class AutoOnboardBootstrap {
         let result = await ShellExecutor.runDetailed(command: arguments, cwd: nil, env: nil, timeout: 90)
         traceLog("applyDefaultProvider: setup finished success=\(result.success)")
         if result.success {
-            return true
+            let resolvedModel = (try? String(contentsOf: resolvedModelURL, encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let resolvedModel, !resolvedModel.isEmpty else {
+                traceLog("applyDefaultProvider: setup did not publish the bundled model reference")
+                return nil
+            }
+            return resolvedModel
         }
         let combined = result.stdout.isEmpty ? result.stderr : result.stdout
         let summary = TextSummarySupport.summarizeLastLine(redactAPIKey(combined))
             ?? result.errorMessage
             ?? "no output captured"
         traceLog("applyDefaultProvider: failure summary: \(summary)")
-        return false
+        return nil
     }
 
     // MARK: - llama.cpp local-model fallback (installer.env's

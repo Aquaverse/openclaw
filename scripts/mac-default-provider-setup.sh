@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# Installs the credential and default model baked into a macOS installer.
+# Registers the provider/model and credential baked into a macOS installer.
+# It initializes an empty default model, but preserves any model the user
+# already selected.
 # Onboarding first resolves the physical provider identity from provider id and
 # base URL, without receiving an API key. The credential is then written through
 # the live auth owner. That owner reuses an ordinary profile bound to the
@@ -19,6 +21,8 @@ MODEL_ID=""
 API_KEY_FILE=""
 DAEMON_MODE=""
 CHECK_AUTH_BINDING=0
+EXPECTED_MODEL_REF=""
+RESOLVED_MODEL_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -54,6 +58,14 @@ while [[ $# -gt 0 ]]; do
       CHECK_AUTH_BINDING=1
       shift
       ;;
+    --expected-model-ref)
+      EXPECTED_MODEL_REF="$2"
+      shift 2
+      ;;
+    --resolved-model-file)
+      RESOLVED_MODEL_FILE="$2"
+      shift 2
+      ;;
     *)
       echo "ERROR: unknown default-provider setup option: $1" >&2
       exit 2
@@ -73,7 +85,7 @@ fi
 if [[ "$CHECK_AUTH_BINDING" == "1" ]]; then
   # The auth owner stores API-key profiles in the agent database; provider config
   # intentionally does not contain the key or a profile id. Use the one status
-  # projection that joins the selected model to its effective stored profiles.
+  # projection that exposes effective stored profiles for every provider.
   # This also avoids two extra CLI/config-worker startups during every pkg upgrade.
   STATUS_JSON="$("${CLI[@]}" models status --json --agent main)" || exit 1
   CLI_PREFIX="$(cd "$(dirname "$OPENCLAW_BIN")/.." 2>/dev/null && /bin/pwd -P || true)"
@@ -85,11 +97,11 @@ if [[ "$CHECK_AUTH_BINDING" == "1" ]]; then
   printf '%s' "$STATUS_JSON" | "$NODE_BIN" -e '
 const fs = require("node:fs");
 const status = JSON.parse(fs.readFileSync(0, "utf8"));
-const modelRef = status.resolvedDefault;
+const modelRef = process.argv[1] || status.resolvedDefault;
 const provider = typeof modelRef === "string" ? modelRef.split("/", 1)[0] : "";
 const providerStatus = status.auth?.oauth?.providers?.find((entry) => entry.provider === provider);
 const profiles = providerStatus?.effectiveProfiles ?? [];
-const routeIssue = status.auth?.modelRouteIssues?.some(
+const routeIssue = !process.argv[1] && status.auth?.modelRouteIssues?.some(
   (entry) => entry.provider === provider && `${entry.provider}/${entry.model}` === modelRef,
 );
 if (
@@ -102,7 +114,7 @@ if (
 ) {
   process.exit(1);
 }
-' || exit 1
+' "$EXPECTED_MODEL_REF" || exit 1
   exit 0
 fi
 
@@ -119,6 +131,11 @@ if [[ -n "$API_KEY_FILE" && -z "$PROVIDER_ID" ]]; then
   exit 2
 fi
 
+ORIGINAL_MODEL_REF="$("${CLI[@]}" config get agents.defaults.model.primary --json 2>/dev/null || true)"
+ORIGINAL_MODEL_REF="${ORIGINAL_MODEL_REF#\"}"
+ORIGINAL_MODEL_REF="${ORIGINAL_MODEL_REF%\"}"
+[[ "$ORIGINAL_MODEL_REF" == "null" ]] && ORIGINAL_MODEL_REF=""
+
 ONBOARD_ARGS=(
   onboard --non-interactive --accept-risk --mode local "$DAEMON_MODE"
   --skip-health --skip-ui --skip-hooks --skip-channels --skip-search --skip-skills --skip-bootstrap
@@ -133,15 +150,27 @@ fi
 
 "${CLI[@]}" "${ONBOARD_ARGS[@]}"
 
+MODEL_REF="$("${CLI[@]}" config get agents.defaults.model.primary --json)"
+MODEL_REF="${MODEL_REF#\"}"
+MODEL_REF="${MODEL_REF%\"}"
+EFFECTIVE_PROVIDER_ID="${MODEL_REF%%/*}"
+if [[ -z "$EFFECTIVE_PROVIDER_ID" || "$EFFECTIVE_PROVIDER_ID" == "$MODEL_REF" || "${MODEL_REF#*/}" != "$MODEL_ID" ]]; then
+  echo "ERROR: onboarding selected an unexpected bundled model" >&2
+  exit 1
+fi
+if [[ -n "$RESOLVED_MODEL_FILE" ]]; then
+  printf '%s\n' "$MODEL_REF" > "$RESOLVED_MODEL_FILE"
+fi
+
+# Custom-provider onboarding selects the provider it just registered. An
+# installer is allowed to initialize an empty primary, but an upgrade must not
+# replace a model the user selected. Restore that choice before credential work
+# so even a later auth-owner failure cannot leave the bundled model selected.
+if [[ -n "$ORIGINAL_MODEL_REF" && "$ORIGINAL_MODEL_REF" != "$MODEL_REF" ]]; then
+  "${CLI[@]}" models set "$ORIGINAL_MODEL_REF"
+fi
+
 if [[ -n "$API_KEY_FILE" ]]; then
-  MODEL_REF="$("${CLI[@]}" config get agents.defaults.model.primary --json)"
-  MODEL_REF="${MODEL_REF#\"}"
-  MODEL_REF="${MODEL_REF%\"}"
-  EFFECTIVE_PROVIDER_ID="${MODEL_REF%%/*}"
-  if [[ -z "$EFFECTIVE_PROVIDER_ID" || "$EFFECTIVE_PROVIDER_ID" == "$MODEL_REF" || "${MODEL_REF#*/}" != "$MODEL_ID" ]]; then
-    echo "ERROR: onboarding selected an unexpected default model" >&2
-    exit 1
-  fi
   if [[ "$DAEMON_MODE" == "--install-daemon" ]]; then
     GATEWAY_READY=0
     for ((ATTEMPT = 1; ATTEMPT <= 60; ATTEMPT++)); do

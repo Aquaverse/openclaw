@@ -326,7 +326,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(defaults).toBeGreaterThan(nexus);
   });
 
-  it("does not replace unchanged default-provider credentials during an upgrade or model-only change", () => {
+  it("refreshes changed bundled settings without coupling them to the user default", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const appliedCheck = script.indexOf('DEFAULT_PROVIDER_AUTH_ID="$(printf');
     const keyFile = script.indexOf('ONBOARD_KEY_FILE="$(/usr/bin/mktemp', appliedCheck);
@@ -343,10 +343,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
       '"$PREFIX/.default-provider-auth-applied"',
     );
     expect(script.slice(appliedCheck, keyFile)).toContain(
-      "config get agents.defaults.model.primary --json",
-    );
-    expect(script.slice(appliedCheck, keyFile)).toContain(
-      '"$AI_PROVIDER" "$AI_BASE_URL" "$CURRENT_MODEL_ID" "$AI_API_KEY"',
+      "APPLIED_PROVIDER_MODEL_REF=\"$(/usr/bin/sed -n '2p'",
     );
     expect(script.slice(appliedCheck, keyFile)).toContain(
       "DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=1",
@@ -358,8 +355,11 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script.slice(setupArgs, setupArgs + 700)).toContain(
       '[[ -n "$ONBOARD_KEY_FILE" ]] && SETUP_ARGS+=(--api-key-file "$ONBOARD_KEY_FILE")',
     );
+    expect(script.slice(setupArgs, setupArgs + 700)).toContain(
+      "SETUP_ARGS+=(--resolved-model-file",
+    );
     expect(script).toContain(
-      '"$DEFAULT_PROVIDER_AUTH_ID" "$PREFIX/.default-provider-auth-applied"',
+      '"$DEFAULT_PROVIDER_AUTH_ID" "$DEFAULT_PROVIDER_MODEL_REF" "$PREFIX/.default-provider-auth-applied"',
     );
     expect(script).toContain('"$DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED" == "1"');
   });
@@ -373,6 +373,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script.slice(functionStart, functionEnd)).toContain(
       '"$DEFAULT_PROVIDER_SETUP" --openclaw-bin "$OPENCLAW_BIN" --check-auth-binding',
     );
+    expect(script.slice(functionStart, functionEnd)).toContain('--expected-model-ref "$model_ref"');
     expect(script).toContain("The default-provider marker is stale");
     expect(script).toContain("The legacy default-provider marker is stale");
   });
