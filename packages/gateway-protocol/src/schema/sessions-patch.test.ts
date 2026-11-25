@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { validateSessionsPatchParams, validateSessionsPatchManyParams } from "../index.js";
 
 describe("session patch schema", () => {
+  it.each([true, false, null])("accepts piiReplace=%s", (piiReplace) => {
+    expect(validateSessionsPatchParams({ key: "agent:main:chat", piiReplace })).toBe(true);
+  });
+
   it("rejects the cron-only scheduled memory parent receipt", () => {
     const scheduledMemoryParent = {
       sessionKey: "agent:main:dashboard:parent",

@@ -9,6 +9,7 @@ import type {
 import { GATEWAY_STARTUP_ADMISSION_WAIT_MS } from "../../../../packages/gateway-protocol/src/startup-unavailable.js";
 import { createDeferred } from "../../../../test/helpers/promise.js";
 import type { GatewaySessionRow, ModelAuthStatusResult } from "../../api/types.ts";
+import { i18n } from "../../i18n/index.ts";
 import {
   captureChatOutboxAdmission,
   storedChatOutboxScopeKey,
@@ -382,11 +383,19 @@ describe("chat pane composer controls", () => {
     expect(toggle?.dataset.piiReplace).toBe("false");
     expect(toggle?.disabled).toBe(false);
     expect(toggle?.getAttribute("aria-label")).toBe(
-      "PII redaction is disabled. Click to enable it for the next message.",
+      "Sensitive info redaction is off. Click to turn it on for the next message.",
     );
     expect(toggle?.closest("openclaw-tooltip")?.content).toBe(
-      "PII redaction is disabled. Click to enable it for the next message.",
+      "Sensitive info redaction is off. Click to turn it on for the next message.",
     );
+    onTestFinished(() => i18n.setLocale("en"));
+    await i18n.setLocale("zh-CN");
+    await waitForSolid(() =>
+      expect(toggle?.getAttribute("aria-label")).toBe(
+        "敏感信息脱敏已关闭。点击后将从下一条消息起开启。",
+      ),
+    );
+    await i18n.setLocale("en");
     const modelTrigger = container.querySelector(".chat-controls__model-picker");
     expect(
       Boolean(

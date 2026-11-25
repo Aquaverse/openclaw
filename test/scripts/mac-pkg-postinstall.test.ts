@@ -364,6 +364,41 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script).toContain('"$DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED" == "1"');
   });
 
+  it("refreshes model capabilities when unchanged credentials skip onboarding", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const unchanged = script.indexOf(
+      'log "Bundled default-provider settings are unchanged -- preserving the existing credential authorization."',
+    );
+    const capabilitySync = script.indexOf("--sync-pii-capability", unchanged);
+    const onboardingSkip = script.indexOf(
+      'log "Onboarding already completed -- skipping non-interactive onboarding."',
+      unchanged,
+    );
+
+    expect(unchanged).toBeGreaterThanOrEqual(0);
+    expect(capabilitySync).toBeGreaterThan(unchanged);
+    expect(capabilitySync).toBeLessThan(onboardingSkip);
+    expect(script.slice(unchanged, capabilitySync)).toContain(
+      'DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED" == "1"',
+    );
+    expect(script).toContain('DEFAULT_PROVIDER_CAPABILITY_VERSION="pii-replace-v1"');
+    expect(script).toContain("DEFAULT_PROVIDER_CAPABILITIES_SYNCED=1");
+  });
+
+  it("refreshes model capabilities on a DMG upgrade without rerunning provider onboarding", () => {
+    const source = readFileSync("apps/macos/Sources/OpenClaw/AutoOnboardBootstrap.swift", "utf8");
+    const sync = source.indexOf("private static func syncDefaultProviderCapabilities");
+    const command = source.indexOf('"--sync-pii-capability"', sync);
+
+    expect(sync).toBeGreaterThanOrEqual(0);
+    expect(command).toBeGreaterThan(sync);
+    expect(source.match(/await Self[.]syncDefaultProviderCapabilities\(provider\)/g)).toHaveLength(
+      2,
+    );
+    expect(source).toContain('defaultProviderCapabilityVersion = "pii-replace-v1"');
+    expect(source).toContain("defaultProviderCapabilitiesNeedSync(provider)");
+  });
+
   it("does not trust an applied marker after the provider credential binding disappears", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const functionStart = script.indexOf("default_provider_auth_binding_ready() {");

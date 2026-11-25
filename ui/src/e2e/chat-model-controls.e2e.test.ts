@@ -67,7 +67,7 @@ suite.define(() => {
       await active.waitFor({ state: "visible" });
       await expect
         .poll(() => active.getAttribute("aria-label"))
-        .toBe("PII redaction is enabled. Click to disable it for the next message.");
+        .toBe("Sensitive info redaction is on. Click to turn it off for the next message.");
       const after = await takeControlUiScreenshotFrame(page, composer, [active], {
         elements: [active],
         animations: "disabled",

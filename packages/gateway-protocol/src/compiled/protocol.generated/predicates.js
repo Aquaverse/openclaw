@@ -1422,7 +1422,7 @@ var External = [
     /(^key$|^agentId$|^subscriptionId$)/u,
     /(^agentId$|^sessionKeys$)/u,
     /(^key$|^runId$|^agentId$|^clearQueued$|^userInitiated$)/u,
-    /(^key$|^agentId$|^expectedSessionId$|^expectedLifecycleRevision$|^expectedPermissionMode$|^expectedSandboxMode$|^expectedNativeRuntimeConsent$|^expectedToolOverrides$|^expectedMarkedUnreadAt$|^expectedSidebarRoot$|^expectedCategory$|^expectedArchived$|^expectedSidebarAncestors$|^label$|^autoLabel$|^icon$|^color$|^category$|^boardFace$|^boardPresentation$|^statusNote$|^attention$|^ttlMinutes$|^archived$|^pinned$|^sidebarRoot$|^snoozedUntil$|^unread$|^contextWindow$|^thinkingLevel$|^cyberAccessProgram$|^fastMode$|^toolOverrides$|^verboseLevel$|^traceLevel$|^reasoningLevel$|^responseUsage$|^elevatedLevel$|^execHost$|^execSecurity$|^execAsk$|^execNode$|^permissionMode$|^communication$|^sandboxMode$|^nativeRuntimeConsent$|^model$|^agentRuntime$|^completionOwnerSessionKey$|^inheritedToolPolicyVersion$|^inheritedToolAllow$|^inheritedToolDeny$|^sendPolicy$|^groupActivation$)/u,
+    /(^key$|^agentId$|^expectedSessionId$|^expectedLifecycleRevision$|^expectedPermissionMode$|^expectedSandboxMode$|^expectedNativeRuntimeConsent$|^expectedToolOverrides$|^expectedMarkedUnreadAt$|^expectedSidebarRoot$|^expectedCategory$|^expectedArchived$|^expectedSidebarAncestors$|^label$|^autoLabel$|^icon$|^color$|^category$|^boardFace$|^boardPresentation$|^statusNote$|^attention$|^ttlMinutes$|^archived$|^pinned$|^sidebarRoot$|^snoozedUntil$|^unread$|^contextWindow$|^thinkingLevel$|^cyberAccessProgram$|^fastMode$|^piiReplace$|^toolOverrides$|^verboseLevel$|^traceLevel$|^reasoningLevel$|^responseUsage$|^elevatedLevel$|^execHost$|^execSecurity$|^execAsk$|^execNode$|^permissionMode$|^communication$|^sandboxMode$|^nativeRuntimeConsent$|^model$|^agentRuntime$|^completionOwnerSessionKey$|^inheritedToolPolicyVersion$|^inheritedToolAllow$|^inheritedToolDeny$|^sendPolicy$|^groupActivation$)/u,
     /(^key$|^agentId$|^expectedSessionId$|^expectedSidebarRoot$|^expectedCategory$)/u,
     /(^send$|^receive$)/u,
     /(^sessionKey$|^agentId$|^sessionId$|^goalId$|^operationId$|^issuedAtMs$|^action$|^objective$|^expectedGoalUpdatedAt$|^expectedRunId$)/u,
@@ -1432,7 +1432,7 @@ var External = [
     /(^sessionKey$|^agentId$|^sessionId$|^reviewId$|^idempotencyKey$)/u,
     /(^targets$|^patch$)/u,
     /(^key$|^expectedMarkedUnreadAt$|^expectedSidebarRoot$|^expectedCategory$|^expectedArchived$|^expectedSidebarAncestors$|^agentId$|^expectedSessionId$|^expectedLifecycleRevision$|^expectedSandboxMode$|^expectedPermissionMode$|^expectedNativeRuntimeConsent$)/u,
-    /(^label$|^autoLabel$|^icon$|^color$|^category$|^boardFace$|^boardPresentation$|^statusNote$|^attention$|^ttlMinutes$|^archived$|^pinned$|^sidebarRoot$|^snoozedUntil$|^unread$|^contextWindow$|^thinkingLevel$|^cyberAccessProgram$|^fastMode$|^toolOverrides$|^verboseLevel$|^traceLevel$|^reasoningLevel$|^responseUsage$|^elevatedLevel$|^execHost$|^execSecurity$|^execAsk$|^execNode$|^permissionMode$|^communication$|^sandboxMode$|^nativeRuntimeConsent$|^model$|^agentRuntime$|^completionOwnerSessionKey$|^inheritedToolPolicyVersion$|^inheritedToolAllow$|^inheritedToolDeny$|^sendPolicy$|^groupActivation$)/u,
+    /(^label$|^autoLabel$|^icon$|^color$|^category$|^boardFace$|^boardPresentation$|^statusNote$|^attention$|^ttlMinutes$|^archived$|^pinned$|^sidebarRoot$|^snoozedUntil$|^unread$|^contextWindow$|^thinkingLevel$|^cyberAccessProgram$|^fastMode$|^piiReplace$|^toolOverrides$|^verboseLevel$|^traceLevel$|^reasoningLevel$|^responseUsage$|^elevatedLevel$|^execHost$|^execSecurity$|^execAsk$|^execNode$|^permissionMode$|^communication$|^sandboxMode$|^nativeRuntimeConsent$|^model$|^agentRuntime$|^completionOwnerSessionKey$|^inheritedToolPolicyVersion$|^inheritedToolAllow$|^inheritedToolDeny$|^sendPolicy$|^groupActivation$)/u,
     /(^key$|^agentId$|^pluginId$|^namespace$|^value$|^unset$)/u,
     /(^key$|^agentId$|^reason$|^expectedSessionId$)/u,
     /(^key$|^agentId$|^deleteTranscript$|^expectedSessionId$|^expectedLifecycleRevision$|^expectedSessionUpdatedAt$|^emitLifecycleHooks$|^archivedOnly$)/u,
@@ -16038,6 +16038,7 @@ var External = [
       !("cyberAccessProgram" in value) ||
       check_1680(value.cyberAccessProgram)) &&
     (value.fastMode === void 0 || !("fastMode" in value) || check_2406(value.fastMode)) &&
+    (value.piiReplace === void 0 || !("piiReplace" in value) || check_1679(value.piiReplace)) &&
     (value.toolOverrides === void 0 ||
       !("toolOverrides" in value) ||
       check_885(value.toolOverrides)) &&
@@ -16358,6 +16359,7 @@ var External = [
       !("cyberAccessProgram" in value) ||
       check_1680(value.cyberAccessProgram)) &&
     (value.fastMode === void 0 || !("fastMode" in value) || check_2406(value.fastMode)) &&
+    (value.piiReplace === void 0 || !("piiReplace" in value) || check_1679(value.piiReplace)) &&
     (value.toolOverrides === void 0 ||
       !("toolOverrides" in value) ||
       check_885(value.toolOverrides)) &&

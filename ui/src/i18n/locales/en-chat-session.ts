@@ -12,7 +12,7 @@ const enChatSession = {
       speed: "Couldn’t change the speed. Try again. {error}",
       contextWindow: "Couldn’t change the context window. Try again. {error}",
       accessProgram: "Couldn’t change the access program. Try again. {error}",
-      piiReplace: "Couldn’t change PII redaction. Try again. {error}",
+      piiReplace: "Couldn’t change sensitive info redaction. Try again. {error}",
     },
     savedConversation: "{status} · Saved conversation",
     sessionAutomation: {

@@ -12,6 +12,8 @@ set -euo pipefail
 # profile instead; preserving its setup marker would leave the new key unusable.
 # `--check-auth-binding` is the shared read-only readiness probe used by both
 # the pkg postinstall and the dmg first-launch bootstrap; it never writes state.
+# `--sync-pii-capability` only refreshes model catalog metadata for the baked
+# endpoint. It does not onboard, touch credentials, or change the default model.
 
 OPENCLAW_BIN=""
 PROFILE=""
@@ -21,6 +23,7 @@ MODEL_ID=""
 API_KEY_FILE=""
 DAEMON_MODE=""
 CHECK_AUTH_BINDING=0
+SYNC_PII_CAPABILITY=0
 EXPECTED_MODEL_REF=""
 RESOLVED_MODEL_FILE=""
 
@@ -58,6 +61,10 @@ while [[ $# -gt 0 ]]; do
       CHECK_AUTH_BINDING=1
       shift
       ;;
+    --sync-pii-capability)
+      SYNC_PII_CAPABILITY=1
+      shift
+      ;;
     --expected-model-ref)
       EXPECTED_MODEL_REF="$2"
       shift 2
@@ -82,18 +89,86 @@ if [[ -n "$PROFILE" ]]; then
   CLI+=(--profile "$PROFILE")
 fi
 
+resolve_node_bin() {
+  local cli_prefix node_bin
+  cli_prefix="$(cd "$(dirname "$OPENCLAW_BIN")/.." 2>/dev/null && /bin/pwd -P || true)"
+  node_bin="$cli_prefix/tools/node/bin/node"
+  if [[ ! -x "$node_bin" ]]; then
+    node_bin="$(command -v node || true)"
+  fi
+  if [[ -z "$node_bin" || ! -x "$node_bin" ]]; then
+    echo "ERROR: Node is required to update the bundled model capability" >&2
+    return 1
+  fi
+  printf '%s\n' "$node_bin"
+}
+
+sync_pii_capability() {
+  local providers_json node_bin changed_provider_models capability_provider_id updated_models_json
+  providers_json="$("${CLI[@]}" config get models.providers --json)"
+  node_bin="$(resolve_node_bin)"
+  changed_provider_models="$(printf '%s' "$providers_json" | "$node_bin" -e '
+const fs = require("node:fs");
+const providers = JSON.parse(fs.readFileSync(0, "utf8"));
+const target = String(process.argv[1] || "").trim().replace(/\/+$/, "");
+const changed = [];
+for (const [providerId, provider] of Object.entries(providers || {})) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(providerId)) {
+    throw new Error(`Invalid provider id: ${providerId}`);
+  }
+  const models = Array.isArray(provider.models) ? provider.models : [];
+  const nextModels = models.map((model) => {
+    const effective = String(model.baseUrl || provider.baseUrl || "").trim().replace(/\/+$/, "");
+    const params = model.params && typeof model.params === "object" && !Array.isArray(model.params)
+      ? { ...model.params }
+      : {};
+    if (effective === target) {
+      params.supportsPiiReplace = true;
+    } else {
+      delete params.supportsPiiReplace;
+    }
+    const next = { ...model };
+    if (Object.keys(params).length > 0) {
+      next.params = params;
+    } else {
+      delete next.params;
+    }
+    return next;
+  });
+  if (JSON.stringify(nextModels) !== JSON.stringify(models)) {
+    changed.push(`${providerId}\t${JSON.stringify(nextModels)}`);
+  }
+}
+process.stdout.write(changed.join("\n"));
+' "$BASE_URL")"
+  while IFS=$'\t' read -r capability_provider_id updated_models_json; do
+    [[ -z "$capability_provider_id" ]] && continue
+    "${CLI[@]}" config set "models.providers.${capability_provider_id}.models" \
+      "$updated_models_json" --strict-json
+  done <<< "$changed_provider_models"
+}
+
+if [[ "$CHECK_AUTH_BINDING" == "1" && "$SYNC_PII_CAPABILITY" == "1" ]]; then
+  echo "ERROR: choose only one default-provider maintenance mode" >&2
+  exit 2
+fi
+
+if [[ "$SYNC_PII_CAPABILITY" == "1" ]]; then
+  if [[ -z "$BASE_URL" ]]; then
+    echo "ERROR: --base-url is required when syncing the PII capability" >&2
+    exit 2
+  fi
+  sync_pii_capability
+  exit 0
+fi
+
 if [[ "$CHECK_AUTH_BINDING" == "1" ]]; then
   # The auth owner stores API-key profiles in the agent database; provider config
   # intentionally does not contain the key or a profile id. Use the one status
   # projection that exposes effective stored profiles for every provider.
   # This also avoids two extra CLI/config-worker startups during every pkg upgrade.
   STATUS_JSON="$("${CLI[@]}" models status --json --agent main)" || exit 1
-  CLI_PREFIX="$(cd "$(dirname "$OPENCLAW_BIN")/.." 2>/dev/null && /bin/pwd -P || true)"
-  NODE_BIN="$CLI_PREFIX/tools/node/bin/node"
-  if [[ ! -x "$NODE_BIN" ]]; then
-    NODE_BIN="$(command -v node || true)"
-  fi
-  [[ -n "$NODE_BIN" && -x "$NODE_BIN" ]] || exit 1
+  NODE_BIN="$(resolve_node_bin)" || exit 1
   printf '%s' "$STATUS_JSON" | "$NODE_BIN" -e '
 const fs = require("node:fs");
 const status = JSON.parse(fs.readFileSync(0, "utf8"));
@@ -165,55 +240,7 @@ fi
 # Advertise the request contract without exposing the installer endpoint to UI clients.
 # At install or upgrade, the capability follows the endpoint, including matching
 # models the user configured under another provider id.
-PROVIDERS_JSON="$("${CLI[@]}" config get models.providers --json)"
-CLI_PREFIX="$(cd "$(dirname "$OPENCLAW_BIN")/.." 2>/dev/null && /bin/pwd -P || true)"
-NODE_BIN="$CLI_PREFIX/tools/node/bin/node"
-if [[ ! -x "$NODE_BIN" ]]; then
-  NODE_BIN="$(command -v node || true)"
-fi
-if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
-  echo "ERROR: Node is required to mark the bundled model capability" >&2
-  exit 1
-fi
-CHANGED_PROVIDER_MODELS="$(printf '%s' "$PROVIDERS_JSON" | "$NODE_BIN" -e '
-const fs = require("node:fs");
-const providers = JSON.parse(fs.readFileSync(0, "utf8"));
-const target = String(process.argv[1] || "").trim().replace(/\/+$/, "");
-const changed = [];
-for (const [providerId, provider] of Object.entries(providers || {})) {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(providerId)) {
-    throw new Error(`Invalid provider id: ${providerId}`);
-  }
-  const models = Array.isArray(provider.models) ? provider.models : [];
-  const nextModels = models.map((model) => {
-    const effective = String(model.baseUrl || provider.baseUrl || "").trim().replace(/\/+$/, "");
-    const params = model.params && typeof model.params === "object" && !Array.isArray(model.params)
-      ? { ...model.params }
-      : {};
-    if (effective === target) {
-      params.supportsPiiReplace = true;
-    } else {
-      delete params.supportsPiiReplace;
-    }
-    const next = { ...model };
-    if (Object.keys(params).length > 0) {
-      next.params = params;
-    } else {
-      delete next.params;
-    }
-    return next;
-  });
-  if (JSON.stringify(nextModels) !== JSON.stringify(models)) {
-    changed.push(`${providerId}\t${JSON.stringify(nextModels)}`);
-  }
-}
-process.stdout.write(changed.join("\n"));
-' "$BASE_URL")"
-while IFS=$'\t' read -r CAPABILITY_PROVIDER_ID UPDATED_MODELS_JSON; do
-  [[ -z "$CAPABILITY_PROVIDER_ID" ]] && continue
-  "${CLI[@]}" config set "models.providers.${CAPABILITY_PROVIDER_ID}.models" \
-    "$UPDATED_MODELS_JSON" --strict-json
-done <<< "$CHANGED_PROVIDER_MODELS"
+sync_pii_capability
 
 # Custom-provider onboarding selects the provider it just registered. An
 # installer is allowed to initialize an empty primary, but an upgrade must not

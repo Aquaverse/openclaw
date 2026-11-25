@@ -14,12 +14,27 @@ function writeExecutable(file: string, source: string) {
 }
 
 function runSetup(root: string, cli: string, extraArgs: string[] = []) {
+  const wrapper = path.join(root, "openclaw-with-provider-catalog");
+  writeExecutable(
+    wrapper,
+    `#!/bin/bash
+set -euo pipefail
+if [[ "$*" == *"config get models.providers --json"* ]]; then
+  printf '{}'
+  exit 0
+fi
+if [[ "$*" == *"config set models.providers."* ]]; then
+  exit 0
+fi
+exec "$FIXTURE_CLI" "$@"
+`,
+  );
   return spawnSync(
     "/bin/bash",
     [
       setupScript,
       "--openclaw-bin",
-      cli,
+      wrapper,
       "--provider-id",
       "vllm",
       "--base-url",
@@ -33,7 +48,7 @@ function runSetup(root: string, cli: string, extraArgs: string[] = []) {
       "--skip-daemon",
       ...extraArgs,
     ],
-    { encoding: "utf8", env: { ...process.env, FIXTURE_ROOT: root } },
+    { encoding: "utf8", env: { ...process.env, FIXTURE_ROOT: root, FIXTURE_CLI: cli } },
   );
 }
 
@@ -129,6 +144,74 @@ exit 9
     expect(inactive.status, inactive.stderr).toBe(1);
     expect(incompatible.status, incompatible.stderr).toBe(1);
     expect(active.status, active.stderr).toBe(0);
+  });
+
+  it("syncs PII capability without onboarding, credentials, or default-model changes", () => {
+    const root = tempDirs.make("openclaw-default-provider-pii-sync-");
+    const cli = path.join(root, "openclaw");
+    writeFileSync(
+      path.join(root, "providers.json"),
+      JSON.stringify({
+        vllm: {
+          baseUrl: "https://models.example.invalid/v1/",
+          models: [{ id: "gpt-test", params: { temperature: 0.2 } }],
+        },
+        other: {
+          baseUrl: "https://other.example.invalid/v1",
+          models: [{ id: "other", params: { supportsPiiReplace: true, custom: "kept" } }],
+        },
+      }),
+    );
+    writeExecutable(
+      cli,
+      `#!/bin/bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$FIXTURE_ROOT/calls"
+if [[ "$*" == *"config get models.providers --json"* ]]; then
+  cat "$FIXTURE_ROOT/providers.json"
+  exit 0
+fi
+if [[ "$*" == *"config set models.providers.vllm.models"* ]]; then
+  printf '%s' "$6" > "$FIXTURE_ROOT/vllm-models.json"
+  exit 0
+fi
+if [[ "$*" == *"config set models.providers.other.models"* ]]; then
+  printf '%s' "$6" > "$FIXTURE_ROOT/other-models.json"
+  exit 0
+fi
+exit 9
+`,
+    );
+
+    const result = spawnSync(
+      "/bin/bash",
+      [
+        setupScript,
+        "--openclaw-bin",
+        cli,
+        "--profile",
+        "installer-proof",
+        "--base-url",
+        "https://models.example.invalid/v1",
+        "--sync-pii-capability",
+      ],
+      { encoding: "utf8", env: { ...process.env, FIXTURE_ROOT: root } },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(path.join(root, "vllm-models.json"), "utf8"))).toEqual([
+      {
+        id: "gpt-test",
+        params: { temperature: 0.2, supportsPiiReplace: true },
+      },
+    ]);
+    expect(JSON.parse(readFileSync(path.join(root, "other-models.json"), "utf8"))).toEqual([
+      { id: "other", params: { custom: "kept" } },
+    ]);
+    const calls = readFileSync(path.join(root, "calls"), "utf8");
+    expect(calls).not.toContain("onboard");
+    expect(calls).not.toContain("models auth");
+    expect(calls).not.toContain("models set");
   });
 
   it("overwrites one active profile from installer config across repeated installs", () => {

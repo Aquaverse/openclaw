@@ -666,6 +666,8 @@ RESOLVED_MODEL_FILE=""
 DEFAULT_PROVIDER_MODEL_REF=""
 DEFAULT_PROVIDER_AUTH_ALREADY_APPLIED=0
 DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED=0
+DEFAULT_PROVIDER_CAPABILITIES_SYNCED=0
+DEFAULT_PROVIDER_CAPABILITY_VERSION="pii-replace-v1"
 DEFAULT_PROVIDER_AUTH_ID=""
 APPLY_DEFAULT_PROVIDER=1
 ENV_FILE="$APP_PATH/Contents/Resources/default-ai-provider.env"
@@ -774,6 +776,20 @@ if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]
   elif [[ -n "$AI_API_KEY" ]]; then
     log "Bundled default-provider settings are unchanged -- preserving the existing credential authorization."
   fi
+  if [[ "$DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED" == "1" ]]; then
+    log "Refreshing bundled model capabilities without changing credentials or the selected default model..."
+    if [[ -x "$DEFAULT_PROVIDER_SETUP" ]]; then
+      if run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+          "$DEFAULT_PROVIDER_SETUP" --openclaw-bin "$OPENCLAW_BIN" --base-url "$AI_BASE_URL" \
+          --sync-pii-capability >>"$LOG_FILE" 2>&1; then
+        DEFAULT_PROVIDER_CAPABILITIES_SYNCED=1
+      else
+        log "WARN: bundled model capability refresh failed (non-fatal; see $LOG_FILE above)."
+      fi
+    else
+      log "WARN: $DEFAULT_PROVIDER_SETUP is missing or not executable; bundled model capabilities were not refreshed."
+    fi
+  fi
 else
   log "No default AI provider baked into this build -- setting up the Gateway/daemon only; the app will still ask for a model on first launch."
 fi
@@ -819,8 +835,11 @@ else
     [[ -n "$AI_PROVIDER" ]] && SETUP_ARGS+=(--provider-id "$AI_PROVIDER")
     [[ -n "$ONBOARD_KEY_FILE" ]] && SETUP_ARGS+=(--api-key-file "$ONBOARD_KEY_FILE")
     if [[ -x "$DEFAULT_PROVIDER_SETUP" ]]; then
-      run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-          "$DEFAULT_PROVIDER_SETUP" "${SETUP_ARGS[@]}" >>"$LOG_FILE" 2>&1 && ONBOARD_OK=1
+      if run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+          "$DEFAULT_PROVIDER_SETUP" "${SETUP_ARGS[@]}" >>"$LOG_FILE" 2>&1; then
+        ONBOARD_OK=1
+        DEFAULT_PROVIDER_CAPABILITIES_SYNCED=1
+      fi
     else
       log "WARN: $DEFAULT_PROVIDER_SETUP is missing or not executable."
     fi
@@ -850,7 +869,9 @@ if [[ "$ONBOARD_OK" == "1" ]]; then
   if [[ "$APPLY_DEFAULT_PROVIDER" == "1" && -n "$AI_BASE_URL" && -n "$AI_MODEL" ]]; then
     DEFAULT_PROVIDER_MARKER="${ENV_SHA256}:${CLI_PACKAGE_TGZ_SHA256:-none}"
     run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
-        /bin/bash -c 'printf "%s\n%s\n" "$1" "$2" > "$3"' _ "$DEFAULT_PROVIDER_MARKER" "$DEFAULT_PROVIDER_MODEL_REF" "$PREFIX/.default-provider-applied" >>"$LOG_FILE" 2>&1 \
+        /bin/bash -c 'printf "%s\n%s\n" "$1" "$2" > "$4"; [[ "$3" == "1" ]] && printf "%s\n" "$5" >> "$4"' \
+          _ "$DEFAULT_PROVIDER_MARKER" "$DEFAULT_PROVIDER_MODEL_REF" "$DEFAULT_PROVIDER_CAPABILITIES_SYNCED" \
+          "$PREFIX/.default-provider-applied" "$DEFAULT_PROVIDER_CAPABILITY_VERSION" >>"$LOG_FILE" 2>&1 \
       || log "WARN: could not record the default provider marker (non-fatal; the app may apply it once more on first launch)."
     run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
         /bin/bash -c 'printf "%s\n%s\n" "$1" "$2" > "$3"' _ "$DEFAULT_PROVIDER_AUTH_ID" "$DEFAULT_PROVIDER_MODEL_REF" "$PREFIX/.default-provider-auth-applied" >>"$LOG_FILE" 2>&1 \

@@ -149,6 +149,9 @@ final class AutoOnboardBootstrap {
                     if let resolvedModel { Self.recordDefaultProviderApplied(provider, resolvedModel: resolvedModel) }
                 } else {
                     traceLog("runIfEligible: fast path bundled default provider already applied for this install -- skipping")
+                    if Self.defaultProviderCapabilitiesNeedSync(provider) {
+                        await Self.syncDefaultProviderCapabilities(provider)
+                    }
                 }
             } else {
                 traceLog("runIfEligible: fast path found no bundled default provider -- skipping")
@@ -242,6 +245,9 @@ final class AutoOnboardBootstrap {
                 if let resolvedModel { Self.recordDefaultProviderApplied(provider, resolvedModel: resolvedModel) }
             } else {
                 traceLog("runIfEligible: bundled default provider already applied for this install -- skipping")
+                if Self.defaultProviderCapabilitiesNeedSync(provider) {
+                    await Self.syncDefaultProviderCapabilities(provider)
+                }
             }
         } else {
             traceLog("runIfEligible: bundledDefaultProvider() found no provider (missing/unreadable default-ai-provider.env, or empty baseURL/modelID) -- skipping default model configuration")
@@ -506,6 +512,8 @@ final class AutoOnboardBootstrap {
         URL(fileURLWithPath: CLIInstaller.installPrefix()).appendingPathComponent(".default-provider-applied")
     }
 
+    private static let defaultProviderCapabilityVersion = "pii-replace-v1"
+
     private static func defaultProviderMarkerValue(_ provider: DefaultProvider) -> String {
         "\(provider.fingerprint):\(CLIInstaller.bundledCLIPackage()?.sha256 ?? "none")"
     }
@@ -528,6 +536,12 @@ final class AutoOnboardBootstrap {
         return !bindingReady
     }
 
+    private static func defaultProviderCapabilitiesNeedSync(_ provider: DefaultProvider) -> Bool {
+        let stored = self.defaultProviderMarkerLines()
+        guard stored.first == self.defaultProviderMarkerValue(provider) else { return false }
+        return stored.count < 3 || stored[2] != self.defaultProviderCapabilityVersion
+    }
+
     private static func defaultProviderAuthBindingReady(modelRef: String) async -> Bool {
         let executable = CLIInstaller.managedExecutableLocation()
         guard FileManager.default.isExecutableFile(atPath: executable) else { return false }
@@ -547,12 +561,42 @@ final class AutoOnboardBootstrap {
         return result.success
     }
 
+    private static func syncDefaultProviderCapabilities(_ provider: DefaultProvider) async {
+        let executable = CLIInstaller.managedExecutableLocation()
+        guard FileManager.default.isExecutableFile(atPath: executable) else { return }
+        let setupURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/mac-default-provider-setup.sh")
+        guard FileManager.default.isExecutableFile(atPath: setupURL.path) else { return }
+        var arguments = [
+            setupURL.path,
+            "--openclaw-bin", executable,
+            "--base-url", provider.baseURL,
+            "--sync-pii-capability",
+        ]
+        if let profile = AppProfile.current.name {
+            arguments.append(contentsOf: ["--profile", profile])
+        }
+        let result = await ShellExecutor.runDetailed(
+            command: arguments,
+            cwd: nil,
+            env: nil,
+            timeout: 30)
+        traceLog("syncDefaultProviderCapabilities: finished success=\(result.success)")
+        guard result.success else { return }
+        let stored = self.defaultProviderMarkerLines()
+        guard stored.count > 1 else { return }
+        self.recordDefaultProviderApplied(provider, resolvedModel: stored[1])
+    }
+
     private static func recordDefaultProviderApplied(_ provider: DefaultProvider, resolvedModel: String) {
         let url = self.defaultProviderMarkerURL()
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try (self.defaultProviderMarkerValue(provider) + "\n" + resolvedModel + "\n")
+            let marker = self.defaultProviderMarkerValue(provider)
+                + "\n" + resolvedModel
+                + "\n" + self.defaultProviderCapabilityVersion + "\n"
+            try marker
                 .write(to: url, atomically: true, encoding: .utf8)
             traceLog("recordDefaultProviderApplied: wrote \(url.path)")
         } catch {
