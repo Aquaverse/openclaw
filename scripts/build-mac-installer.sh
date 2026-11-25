@@ -870,8 +870,8 @@ fi
 # secrets. NEXUS_PRESET_VERSION: bump to make already-installed machines apply the preset again.
 # OPENCLAW_INSTALLER_NEXUS_SWITCHES overrides the switch list (comma separated, letters only); unset = every switch below,
 # including the personal file vault (vaultEnabled), goals (goalsEnabled) and evidence bytes (evidenceBlobsEnabled).
-# Version 6 repairs machines where an older installer migration removed the bundled Nexus entry. Existing entries
-# keep their user-owned switches and tools; only a missing entry receives the full preset again.
+# Version 7 adds narrow RFC 2544 fake-IP compatibility for browser and web fetch. Existing explicit network-policy
+# choices, Nexus switches and tools remain user-owned; only absent compatibility keys receive the new defaults.
 # ---------------------------------------------------------------------
 NEXUS_PRESET_FOR_BUNDLE="${OPENCLAW_INSTALLER_NEXUS_PRESET:-$(read_env_var OPENCLAW_INSTALLER_NEXUS_PRESET)}"
 rm -f "$APP/Contents/Resources/nexus-preset.env"
@@ -886,7 +886,7 @@ if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]; then
   echo "==> Baking the Nexus preset (switches: $NEXUS_SWITCHES_FOR_BUNDLE)"
   {
     echo "NEXUS_PRESET=1"
-    echo "NEXUS_PRESET_VERSION=6"
+    echo "NEXUS_PRESET_VERSION=7"
     echo "NEXUS_PRESET_SWITCHES=$NEXUS_SWITCHES_FOR_BUNDLE"
   } > "$APP/Contents/Resources/nexus-preset.env"
   # A Nexus distribution must not attach to another OpenClaw-derived app's

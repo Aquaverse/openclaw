@@ -21,6 +21,8 @@ const runnable =
   fs.existsSync(defaultProviderSetupScript);
 
 const PROVIDER = "plugins.entries.nexus-agent-core";
+const BROWSER_FAKE_IP_POLICY = "browser.ssrfPolicy.allowRfc2544BenchmarkRange";
+const WEB_FETCH_FAKE_IP_POLICY = "tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange";
 const SWITCHES = [
   "worksEnabled",
   "decisionsEnabled",
@@ -139,6 +141,8 @@ function sandbox(): Sandbox {
 }
 
 function seedFullyConfigured(box: Sandbox, allow: string[]): void {
+  box.set(BROWSER_FAKE_IP_POLICY, "true");
+  box.set(WEB_FETCH_FAKE_IP_POLICY, "true");
   box.set(`${PROVIDER}.enabled`, "true");
   for (const key of SWITCHES) {
     box.set(`${PROVIDER}.config.${key}`, "true");
@@ -176,6 +180,8 @@ describe("scripts/mac-nexus-preset.sh", () => {
       assert.equal(box.get(`${PROVIDER}.config.${key}`), "true", key);
     }
     assert.equal(box.get(`${PROVIDER}.config.fakeProviderMode`), '"ok"');
+    assert.equal(box.get(BROWSER_FAKE_IP_POLICY), "true");
+    assert.equal(box.get(WEB_FETCH_FAKE_IP_POLICY), "true");
     assert.equal(restarts(box.calls()).length, 1);
     assert.equal(box.marker(), PRESET_VERSION);
   });
@@ -289,6 +295,52 @@ describe("scripts/mac-nexus-preset.sh across versions", () => {
     assert.equal(box.marker(), PRESET_VERSION);
   });
 
+  it("an upgrade adds only the narrow fake-IP defaults and preserves the existing Nexus entry", () => {
+    if (!runnable) {
+      return;
+    }
+    const box = sandbox();
+    seedFullyConfigured(box, ["web_search"]);
+    box.set(`${PROVIDER}.config.watchersEnabled`, "false");
+    fs.rmSync(path.join(box.state, "cfg", BROWSER_FAKE_IP_POLICY));
+    fs.rmSync(path.join(box.state, "cfg", WEB_FETCH_FAKE_IP_POLICY));
+    fs.writeFileSync(markerFile(box), String(Number(PRESET_VERSION) - 1));
+
+    const result = box.run();
+
+    assert.equal(result.status, 0);
+    assert.equal(box.get(BROWSER_FAKE_IP_POLICY), "true");
+    assert.equal(box.get(WEB_FETCH_FAKE_IP_POLICY), "true");
+    assert.equal(box.get(`${PROVIDER}.config.watchersEnabled`), "false");
+    assert.equal(box.get("tools.alsoAllow"), JSON.stringify(["web_search"]));
+    assert.deepEqual(writes(box.calls()), [
+      `config set ${BROWSER_FAKE_IP_POLICY} true`,
+      `config set ${WEB_FETCH_FAKE_IP_POLICY} true`,
+    ]);
+    assert.equal(restarts(box.calls()).length, 1);
+    assert.equal(box.marker(), PRESET_VERSION);
+  });
+
+  it("an upgrade preserves explicit fake-IP policy choices", () => {
+    if (!runnable) {
+      return;
+    }
+    const box = sandbox();
+    seedFullyConfigured(box, ["web_search"]);
+    box.set(BROWSER_FAKE_IP_POLICY, "false");
+    box.set(WEB_FETCH_FAKE_IP_POLICY, "false");
+    fs.writeFileSync(markerFile(box), String(Number(PRESET_VERSION) - 1));
+
+    const result = box.run();
+
+    assert.equal(result.status, 0);
+    assert.equal(box.get(BROWSER_FAKE_IP_POLICY), "false");
+    assert.equal(box.get(WEB_FETCH_FAKE_IP_POLICY), "false");
+    assert.deepEqual(writes(box.calls()), []);
+    assert.equal(restarts(box.calls()).length, 0);
+    assert.equal(box.marker(), PRESET_VERSION);
+  });
+
   it("an upgrade restores the full preset when the Nexus entry is missing", () => {
     if (!runnable) {
       return;
@@ -333,10 +385,7 @@ describe("scripts/build-mac-installer.sh Nexus preset", () => {
     const source = fs.readFileSync(buildScript, "utf8");
     const match = /echo "NEXUS_PRESET_VERSION=(\d+)"/u.exec(source);
     assert.ok(match, "NEXUS_PRESET_VERSION not found in build-mac-installer.sh");
-    assert.ok(
-      Number(match[1]) >= 6,
-      "preset v5 cannot repair machines damaged by the old migration",
-    );
+    assert.ok(Number(match[1]) >= 7, "preset v6 does not add RFC 2544 fake-IP compatibility");
   });
 });
 

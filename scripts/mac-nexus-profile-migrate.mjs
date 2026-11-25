@@ -70,6 +70,72 @@ function print(result) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
+function removeCopiedBrowserSingletonArtifacts(stateRoot) {
+  const browserRoot = path.join(stateRoot, "browser");
+  if (!fs.existsSync(browserRoot)) {
+    return 0;
+  }
+  let removed = 0;
+  for (const profile of fs.readdirSync(browserRoot, { withFileTypes: true })) {
+    if (!profile.isDirectory()) {
+      continue;
+    }
+    const userDataDir = path.join(browserRoot, profile.name, "user-data");
+    const lockPath = path.join(userDataDir, "SingletonLock");
+    let lockTarget;
+    try {
+      lockTarget = fs.readlinkSync(lockPath);
+    } catch {
+      continue;
+    }
+    if (!path.isAbsolute(lockTarget)) {
+      continue;
+    }
+    const relativeTarget = path.relative(userDataDir, lockTarget);
+    if (relativeTarget && !relativeTarget.startsWith(`..${path.sep}`) && relativeTarget !== "..") {
+      continue;
+    }
+    for (const basename of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+      const artifactPath = path.join(userDataDir, basename);
+      try {
+        fs.lstatSync(artifactPath);
+        fs.rmSync(artifactPath, { force: true });
+        removed += 1;
+      } catch {
+        // A copied browser profile remains usable without these ephemeral locks.
+      }
+    }
+  }
+  return removed;
+}
+
+function repairMigratedTarget(options) {
+  const receiptPath = path.join(options.target, ".nexus-profile-migration.json");
+  if (!fs.existsSync(receiptPath)) {
+    return false;
+  }
+  let receipt;
+  try {
+    receipt = JSON.parse(fs.readFileSync(receiptPath, "utf8"));
+  } catch {
+    return false;
+  }
+  if (
+    receipt?.profile !== options.profile ||
+    path.resolve(receipt?.target ?? "") !== options.target
+  ) {
+    return false;
+  }
+  const removedBrowserSingletonArtifacts = removeCopiedBrowserSingletonArtifacts(options.target);
+  const upgraded = receipt.version !== 2;
+  if (upgraded) {
+    receipt.version = 2;
+    receipt.repairedAt = new Date().toISOString();
+    fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
+  }
+  return { removedBrowserSingletonArtifacts, upgraded };
+}
+
 function assertNoGatewayStateOwner(source) {
   const lockRoot = path.join(source, "tmp");
   if (!fs.existsSync(lockRoot)) {
@@ -96,12 +162,14 @@ const options = parseArgs(process.argv.slice(2));
 if (options.source === options.target) {
   throw new Error("Source and target must be different directories");
 }
-if (!fs.existsSync(path.join(options.source, ".nexus-preset-applied"))) {
-  print({ status: "source_ineligible" });
+if (fs.existsSync(options.target)) {
+  const repair = repairMigratedTarget(options);
+  const changed = repair && (repair.removedBrowserSingletonArtifacts > 0 || repair.upgraded);
+  print(changed ? { status: "target_repaired", ...repair } : { status: "target_exists" });
   process.exit(0);
 }
-if (fs.existsSync(options.target)) {
-  print({ status: "target_exists" });
+if (!fs.existsSync(path.join(options.source, ".nexus-preset-applied"))) {
+  print({ status: "source_ineligible" });
   process.exit(0);
 }
 assertNoGatewayStateOwner(options.source);
@@ -130,6 +198,7 @@ try {
   ]) {
     fs.rmSync(path.join(staging, relative), { recursive: true, force: true });
   }
+  removeCopiedBrowserSingletonArtifacts(staging);
 
   const configPath = path.join(staging, "openclaw.json");
   if (fs.existsSync(configPath)) {
@@ -149,7 +218,7 @@ try {
     path.join(staging, ".nexus-profile-migration.json"),
     `${JSON.stringify(
       {
-        version: 1,
+        version: 2,
         profile: options.profile,
         source: options.source,
         target: options.target,

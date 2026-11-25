@@ -40,6 +40,10 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script).toContain(
       'MIGRATION_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-profile-migrate.mjs"',
     );
+    expect(script).toContain('-f "$PREFIX/.nexus-profile-migration.json"');
+    expect(script).toContain(
+      'log "WARN: existing Nexus profile browser-lock repair failed; browser startup may require manual lock cleanup."',
+    );
     expect(script).toContain(
       'if [[ "$NEXUS_PROFILE_MIGRATION_REQUIRED" == "1" && "$NEXUS_PROFILE_MIGRATED" != "1" ]]',
     );

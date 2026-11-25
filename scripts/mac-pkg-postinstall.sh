@@ -211,6 +211,19 @@ MIGRATION_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-profile-migrate.mjs"
 NEXUS_PROFILE_MIGRATED=0
 NEXUS_PROFILE_MIGRATION_REQUIRED=0
 if [[ "$APP_PROFILE" == "nexus" \
+  && -f "$PREFIX/.nexus-profile-migration.json" \
+  && -f "$MIGRATION_SCRIPT" \
+  && -x "$APP_PATH/Contents/Resources/runtime/bin/bun" ]]; then
+  MIGRATION_REPAIR_OUTPUT="$(run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+    "$APP_PATH/Contents/Resources/runtime/bin/bun" "$MIGRATION_SCRIPT" \
+    --source "$CONSOLE_HOME/.openclaw" --target "$PREFIX" --profile "$APP_PROFILE" --port 43384 2>&1)"
+  MIGRATION_REPAIR_STATUS=$?
+  [[ -z "$MIGRATION_REPAIR_OUTPUT" ]] || log "$MIGRATION_REPAIR_OUTPUT"
+  if [[ "$MIGRATION_REPAIR_STATUS" != "0" ]]; then
+    log "WARN: existing Nexus profile browser-lock repair failed; browser startup may require manual lock cleanup."
+  fi
+fi
+if [[ "$APP_PROFILE" == "nexus" \
   && ! -e "$PREFIX" \
   && -f "$CONSOLE_HOME/.openclaw/.nexus-preset-applied" ]]; then
   NEXUS_PROFILE_MIGRATION_REQUIRED=1

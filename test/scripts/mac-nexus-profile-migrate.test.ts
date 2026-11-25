@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -24,7 +25,20 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     mkdirSync(join(source, "backups", "pre-upgrade-old"), { recursive: true });
     mkdirSync(join(source, "npm", "cache"), { recursive: true });
     mkdirSync(join(source, "cache"), { recursive: true });
+    mkdirSync(join(source, "browser", "openclaw", "user-data"), { recursive: true });
     symlinkSync(join(source, "tools", "node-v24.22.1"), join(source, "tools", "node"));
+    symlinkSync(
+      "appleMacBookPro-23065",
+      join(source, "browser", "openclaw", "user-data", "SingletonLock"),
+    );
+    symlinkSync(
+      "1630168779362291540",
+      join(source, "browser", "openclaw", "user-data", "SingletonCookie"),
+    );
+    symlinkSync(
+      "/tmp/com.google.Chrome.fixture/SingletonSocket",
+      join(source, "browser", "openclaw", "user-data", "SingletonSocket"),
+    );
     writeFileSync(join(source, ".nexus-preset-applied"), "6\n");
     writeFileSync(join(source, ".installer-runtime-applied"), "old-runtime\n");
     writeFileSync(join(source, "bin", "openclaw"), "#!/bin/bash\n");
@@ -85,6 +99,11 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     expect(existsSync(join(target, "backups"))).toBe(false);
     expect(existsSync(join(target, "npm"))).toBe(false);
     expect(existsSync(join(target, "cache"))).toBe(false);
+    for (const basename of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+      expect(() => lstatSync(join(target, "browser", "openclaw", "user-data", basename))).toThrow(
+        /ENOENT/,
+      );
+    }
 
     expect(readFileSync(join(source, "openclaw.json"), "utf8")).toContain('"port":18789');
     expect(existsSync(join(source, ".installer-runtime-applied"))).toBe(true);
@@ -154,5 +173,78 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     expect(existing.status, existing.stderr).toBe(0);
     expect(JSON.parse(existing.stdout).status).toBe("target_exists");
     expect(readFileSync(join(target, "keep"), "utf8")).toBe("target\n");
+  });
+
+  it("repairs copied Chromium singleton locks in an existing migrated profile", () => {
+    const root = mkdtempSync(join(tmpdir(), "openclaw-nexus-profile-browser-repair-"));
+    const source = join(root, ".openclaw");
+    const target = join(root, ".openclaw-nexus");
+    const userData = join(target, "browser", "openclaw", "user-data");
+    mkdirSync(userData, { recursive: true });
+    writeFileSync(join(target, "keep"), "target\n");
+    writeFileSync(
+      join(target, ".nexus-profile-migration.json"),
+      JSON.stringify({ version: 1, profile: "nexus", source, target }),
+    );
+    symlinkSync(
+      join(source, "browser", "openclaw", "user-data", "appleMacBookPro-23065"),
+      join(userData, "SingletonLock"),
+    );
+    symlinkSync(
+      join(source, "browser", "openclaw", "user-data", "1630168779362291540"),
+      join(userData, "SingletonCookie"),
+    );
+    symlinkSync(
+      "/tmp/com.google.Chrome.fixture/SingletonSocket",
+      join(userData, "SingletonSocket"),
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/mac-nexus-profile-migrate.mjs",
+        "--source",
+        source,
+        "--target",
+        target,
+        "--profile",
+        "nexus",
+        "--port",
+        "43384",
+      ],
+      { encoding: "utf8" },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "target_repaired",
+      removedBrowserSingletonArtifacts: 3,
+      upgraded: true,
+    });
+    expect(
+      JSON.parse(readFileSync(join(target, ".nexus-profile-migration.json"), "utf8")),
+    ).toMatchObject({ version: 2, profile: "nexus", target });
+    expect(readFileSync(join(target, "keep"), "utf8")).toBe("target\n");
+    for (const basename of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+      expect(() => lstatSync(join(userData, basename))).toThrow(/ENOENT/);
+    }
+
+    const repeated = spawnSync(
+      process.execPath,
+      [
+        "scripts/mac-nexus-profile-migrate.mjs",
+        "--source",
+        source,
+        "--target",
+        target,
+        "--profile",
+        "nexus",
+        "--port",
+        "43384",
+      ],
+      { encoding: "utf8" },
+    );
+    expect(repeated.status, repeated.stderr).toBe(0);
+    expect(JSON.parse(repeated.stdout).status).toBe("target_exists");
   });
 });

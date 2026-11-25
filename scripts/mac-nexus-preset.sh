@@ -2,11 +2,13 @@
 # Nexus Agent Core preset (best-effort, idempotent): turns the bundled Nexus plugin on for this user, so a fresh
 # install of OpenClaw.app has Nexus working in the UI without the user touching `openclaw config`.
 #
-# It does exactly four things, all through the `openclaw` CLI the installer put in <prefix>/bin:
+# It does exactly six things, all through the `openclaw` CLI the installer put in <prefix>/bin:
 #   1. `plugins enable nexus-agent-core`
 #   2. turns on the feature switches named by the build (default: tasks, decisions, claims, preferences, watchers, vault, goals, evidence bytes)
 #   3. makes sure the demo provider is the fake one (`fakeProviderMode` = "ok": no real external effect, ever)
 #   4. appends Nexus' tools to `tools.alsoAllow`, keeping every entry already there and never duplicating
+#   5. allows the browser to recognize RFC 2544 fake-IP proxy addresses without allowing other private networks
+#   6. applies the same narrow fake-IP compatibility to web fetches
 # then restarts the gateway once, only when it actually wrote something: every value is read first and left alone when
 # it already is the target, so a second run (or a machine configured by hand) changes nothing and restarts nothing.
 #
@@ -94,6 +96,66 @@ oc() { "$OPENCLAW_BIN" "$@" >>"$LOG_FILE" 2>&1; }
 CHANGED=0
 P="plugins.entries.nexus-agent-core"
 
+# Current value of a config path as a bare scalar ("true", "ok"), or empty when unset/unreadable. The CLI prints the
+# value as JSON; surrounding quotes and blank lines are dropped.
+cfg_get() {
+  local out
+  out="$("$OPENCLAW_BIN" config get "$1" 2>/dev/null | /usr/bin/sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | /usr/bin/grep -v '^$' | /usr/bin/tail -n1)" || true
+  out="${out#\"}"
+  out="${out%\"}"
+  printf '%s' "$out"
+}
+
+# Write only when the stored value differs. $1 path, $2 expected bare value, $3 value to write, $4 extra flag (optional).
+ensure() {
+  if [[ "$(cfg_get "$1")" == "$2" ]]; then
+    log "already set: $1 = $2"
+    return 0
+  fi
+  if [[ -n "${4:-}" ]]; then
+    oc config set "$1" "$3" "$4" || return 1
+  else
+    oc config set "$1" "$3" || return 1
+  fi
+  CHANGED=1
+  log "set: $1 = $2"
+}
+
+# Versioned installer defaults fill only an absent value. An operator's explicit false is authoritative and survives
+# upgrades; after this preset version is recorded, deleting either key also remains a user-owned choice.
+ensure_if_unset() {
+  local current
+  current="$(cfg_get "$1")"
+  if [[ -n "$current" && "$current" != "null" && "$current" != "undefined" ]]; then
+    log "preserved: $1 = $current"
+    return 0
+  fi
+  oc config set "$1" "$2" || return 1
+  CHANGED=1
+  log "set installer default: $1 = $2"
+}
+
+restart_gateway_if_changed() {
+  if [[ "$CHANGED" != "1" ]]; then
+    log "Nothing to change; gateway left running"
+    return 0
+  fi
+  if oc gateway restart; then
+    log "Gateway restarted"
+  else
+    log "Gateway restart skipped or failed (not running yet?); the new config applies at its next start"
+  fi
+}
+
+# Preset v7 adds narrow compatibility for trusted fake-IP proxy stacks such as Clash and Surge. Never broaden all
+# private-network access, and never overwrite an explicit operator choice.
+if [[ "$MARKER_VERSION" != "$PRESET_VERSION" ]]; then
+  ensure_if_unset browser.ssrfPolicy.allowRfc2544BenchmarkRange true \
+    || soft_exit "configuring browser RFC 2544 fake-IP compatibility failed"
+  ensure_if_unset tools.web.fetch.ssrfPolicy.allowRfc2544BenchmarkRange true \
+    || soft_exit "configuring web fetch RFC 2544 fake-IP compatibility failed"
+fi
+
 # An existing marker means this is an upgrade or a repeated launch, not initial provisioning. Preserve the whole
 # user-owned entry when it still exists. Do not trust the marker alone: a historical migration or interrupted repair
 # may have removed the entry after the marker was written, and that removes both the Nexus tab and its rail items.
@@ -120,37 +182,13 @@ process.stdin.on("end", () => {
       printf '%s' "$PRESET_VERSION" >"$MARKER" 2>/dev/null \
         || log "WARN: could not write $MARKER (preset will inspect the entry again next launch)"
       log "Nexus entry already exists; preserved user configuration and advanced the preset marker to v$PRESET_VERSION"
+      restart_gateway_if_changed
       exit 0
       ;;
     10) log "Nexus entry is missing; restoring the bundled preset without touching other plugin entries" ;;
     *) soft_exit "existing plugin configuration was not valid JSON" ;;
   esac
 fi
-
-# Current value of a config path as a bare scalar ("true", "ok"), or empty when unset/unreadable. The CLI prints the
-# value as JSON; surrounding quotes and blank lines are dropped.
-cfg_get() {
-  local out
-  out="$("$OPENCLAW_BIN" config get "$1" 2>/dev/null | /usr/bin/sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | /usr/bin/grep -v '^$' | /usr/bin/tail -n1)" || true
-  out="${out#\"}"
-  out="${out%\"}"
-  printf '%s' "$out"
-}
-
-# Write only when the stored value differs. $1 path, $2 expected bare value, $3 value to write, $4 extra flag (optional).
-ensure() {
-  if [[ "$(cfg_get "$1")" == "$2" ]]; then
-    log "already set: $1 = $2"
-    return 0
-  fi
-  if [[ -n "${4:-}" ]]; then
-    oc config set "$1" "$3" "$4" || return 1
-  else
-    oc config set "$1" "$3" || return 1
-  fi
-  CHANGED=1
-  log "set: $1 = $2"
-}
 
 # 1. Enable the plugin.
 if [[ "$(cfg_get "$P.enabled")" == "true" ]]; then
@@ -225,15 +263,7 @@ esac
 
 # One restart so the plugin loads with its switches, only if something was written. Best-effort: the gateway may not
 # be installed yet (pkg postinstall) or the app may be about to start it, in which case it reads the new config anyway.
-if [[ "$CHANGED" == "1" ]]; then
-  if oc gateway restart; then
-    log "Gateway restarted"
-  else
-    log "Gateway restart skipped or failed (not running yet?); the new config applies at its next start"
-  fi
-else
-  log "Nothing to change; gateway left running"
-fi
+restart_gateway_if_changed
 
 if [[ "${ALLOW_FAILED:-0}" == "1" ]]; then
   soft_exit "tools.alsoAllow could not be extended, so Nexus' tools stay hidden from agents until it is fixed"
