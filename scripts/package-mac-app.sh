@@ -539,7 +539,8 @@ cp "$DEFAULT_PROVIDER_SETUP_SRC" "$APP_ROOT/Contents/Resources/mac-default-provi
 chmod 0755 "$APP_ROOT/Contents/Resources/mac-default-provider-setup.sh"
 
 echo "📦 Provisioning the matching private Bun runtime [${BUILD_ARCHS[*]}]"
-/bin/bash "$ROOT_DIR/scripts/stage-mac-runtime.sh" "$APP_ROOT/Contents/Resources/runtime" "${BUILD_ARCHS[@]}"
+OPENCLAW_STAGE_RUNTIME_DEFER_FULL_PROOF=1 \
+  /bin/bash "$ROOT_DIR/scripts/stage-mac-runtime.sh" "$APP_ROOT/Contents/Resources/runtime" "${BUILD_ARCHS[@]}"
 
 echo "🌐 Copying app localizations"
 node --import tsx "$ROOT_DIR/scripts/apple-app-i18n.ts" compile-macos \

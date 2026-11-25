@@ -151,16 +151,21 @@ for arch in "$@"; do bun_archs+=("${arch/x86_64/x64}"); done
 sqlite_arch="$1"
 [[ "$#" -eq 1 ]] || sqlite_arch=universal
 /bin/bash "$ROOT_DIR/scripts/build-mac-sqlite.sh" "$sqlite_arch" "$STAGE/runtime"
-# Execute after relocation so absolute wrappers or links cannot hide mistakes.
-for arch in "$@"; do
-  if /usr/bin/arch -"$arch" /usr/bin/true 2>/dev/null; then
-    env -i HOME="$SCRATCH/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$SCRATCH" \
-      OPENCLAW_SQLITE_LIBRARY="$STAGE/runtime/lib/libsqlite3.dylib" \
-      /usr/bin/arch -"$arch" "$STAGE/runtime/bin/bun" "$ROOT_DIR/scripts/verify-mac-runtime.mjs" \
-      "$STAGE/runtime" "$ROOT_DIR/dist/build-info.json"
-  else
-    echo "WARN: Runtime $arch verification skipped; install Rosetta to verify this architecture" >&2
-  fi
-done
+# Standalone staging proves the relocated runtime here. The app packager sets
+# OPENCLAW_STAGE_RUNTIME_DEFER_FULL_PROOF=1 because it runs the same complete
+# proof after signing against the final app payload; repeating all six worker
+# startup cases before signing only delays the build without admitting anything.
+if [[ "${OPENCLAW_STAGE_RUNTIME_DEFER_FULL_PROOF:-0}" != "1" ]]; then
+  for arch in "$@"; do
+    if /usr/bin/arch -"$arch" /usr/bin/true 2>/dev/null; then
+      env -i HOME="$SCRATCH/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$SCRATCH" \
+        OPENCLAW_SQLITE_LIBRARY="$STAGE/runtime/lib/libsqlite3.dylib" \
+        /usr/bin/arch -"$arch" "$STAGE/runtime/bin/bun" "$ROOT_DIR/scripts/verify-mac-runtime.mjs" \
+        "$STAGE/runtime" "$ROOT_DIR/dist/build-info.json"
+    else
+      echo "WARN: Runtime $arch verification skipped; install Rosetta to verify this architecture" >&2
+    fi
+  done
+fi
 [[ ! -e "$DESTINATION" && ! -L "$DESTINATION" ]] || { echo "ERROR: Runtime destination exists: $DESTINATION" >&2; exit 1; }
 mv "$STAGE/runtime" "$DESTINATION"

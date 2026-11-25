@@ -542,6 +542,15 @@ describe.skipIf(process.platform !== "darwin")("Mac runtime materialization", ()
   const cases = createMacCases(it, (mac) => mac);
   const materializations = createMacCases(it, materializationFixture);
   const stages = createMacCases(it, stagingFixture);
+
+  it("defers the staging proof only when the app packager owns the final signed proof", () => {
+    const packager = readFileSync("scripts/package-mac-app.sh", "utf8");
+    const stage = packager.indexOf("OPENCLAW_STAGE_RUNTIME_DEFER_FULL_PROOF=1");
+    const finalProof = packager.indexOf('"$ROOT_DIR/scripts/verify-mac-runtime.mjs"', stage);
+
+    expect(stage).toBeGreaterThanOrEqual(0);
+    expect(finalProof).toBeGreaterThan(stage);
+  });
   cases.for([
     ["standard", false, ["arm64"]],
     ["elevation-host", true, ["arm64", "x86_64"]],
@@ -653,6 +662,26 @@ describe.skipIf(process.platform !== "darwin")("Mac runtime materialization", ()
     expect(existsSync(fixture.calls)).toBe(false);
     expect(snapshot(fixture.root)).toEqual(before);
   });
+
+  stages(
+    "defers the standalone runtime proof when the final app proof owns it",
+    async (fixture) => {
+      expectExit(
+        await fixture.run("standard", fixture.tmp, {
+          OPENCLAW_STAGE_RUNTIME_DEFER_FULL_PROOF: "1",
+        }),
+      );
+      const phases = fixture.readScratchObservations().map(({ phase }) => phase);
+      expect(phases[0]).toBe("pack");
+      expect(phases).not.toContain("verify");
+      expect(phases.filter((phase) => phase === "driver")).toHaveLength(
+        phases.filter((phase) => phase === "install").length,
+      );
+      expect(existsSync(fixture.calls)).toBe(false);
+      expect(existsSync(fixture.destination)).toBe(true);
+      expectRuntimeScratchCleaned(fixture);
+    },
+  );
 
   stages("cleans runtime scratch and product staging after pack failure", async (fixture) => {
     await write(path.join(fixture.root, "reject-pack"), "");

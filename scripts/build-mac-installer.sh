@@ -383,6 +383,7 @@ else
   echo "==> Packing this checkout's OpenClaw CLI ${CLI_PACKAGE_VERSION} (reusing dist/ from pnpm build)"
   CLI_TGZ="$(cd "$ROOT_DIR" && node scripts/package-openclaw-for-docker.mjs \
     --skip-build \
+    --pnpm-pack \
     --allow-unreleased-changelog \
     --output-dir "$CLI_PACK_DIR" \
     --output-name "openclaw-${CLI_PACKAGE_VERSION}.tgz" | tail -n 1)"

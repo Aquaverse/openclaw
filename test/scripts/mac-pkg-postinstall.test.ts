@@ -5,6 +5,15 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("scripts/mac-pkg-postinstall.sh", () => {
+  it("uses the repository-pinned packer for the bundled installer CLI", () => {
+    const script = readFileSync("scripts/build-mac-installer.sh", "utf8");
+    const pack = script.indexOf("node scripts/package-openclaw-for-docker.mjs");
+    const end = script.indexOf("--output-name", pack);
+
+    expect(pack).toBeGreaterThanOrEqual(0);
+    expect(script.slice(pack, end)).toContain("--pnpm-pack");
+  });
+
   it("stamps only Nexus preset builds with the isolated app profile", () => {
     const script = readFileSync("scripts/build-mac-installer.sh", "utf8");
     const preset = script.indexOf('if [[ "$NEXUS_PRESET_FOR_BUNDLE" == "1" ]]');

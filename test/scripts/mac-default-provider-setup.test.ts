@@ -42,28 +42,20 @@ describe.skipIf(process.platform === "win32")("mac default-provider setup", () =
     writeExecutable(
       cli,
       `#!/bin/bash
-if [[ "$*" == *"config get agents.defaults.model.primary --json"* ]]; then
-  printf '%s\n' '"vllm/gpt-test"'
-  exit 0
-fi
-if [[ "$*" == *"config get models.providers.vllm.apiKey --json"* ]]; then
-  printf '%s\n' "\${BINDING:-null}"
-  exit 0
-fi
 if [[ "$*" == *"models status --json --agent main"* ]]; then
   if [[ "\${AUTH_STATUS:-1}" == "0" ]]; then
-    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[],"oauth":{"profiles":[{"profileId":"vllm:manual","provider":"vllm","type":"api_key","status":"static"}]}}}'
+    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[],"oauth":{"providers":[{"provider":"vllm","effectiveProfiles":[{"profileId":"vllm:manual","provider":"vllm","type":"api_key","status":"static"}]}]}}}'
   elif [[ "\${AUTH_STATUS:-1}" == "2" ]]; then
-    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[{"kind":"incompatible","provider":"vllm","model":"gpt-test"}],"oauth":{"profiles":[{"profileId":"vllm:manual","provider":"vllm","type":"api_key","status":"static"}]}}}'
+    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[{"kind":"incompatible","provider":"vllm","model":"gpt-test"}],"oauth":{"providers":[{"provider":"vllm","effectiveProfiles":[{"profileId":"vllm:manual","provider":"vllm","type":"api_key","status":"static"}]}]}}}'
   else
-    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[{"kind":"missing-auth","provider":"vllm","model":"gpt-test"}],"oauth":{"profiles":[{"profileId":"vllm:setup-inactive","provider":"vllm","type":"api_key","status":"missing","reasonCode":"setup_inactive"}]}}}'
+    printf '%s\n' '{"defaultModel":"vllm/gpt-test","resolvedDefault":"vllm/gpt-test","auth":{"modelRouteIssues":[{"kind":"missing-auth","provider":"vllm","model":"gpt-test"}],"oauth":{"providers":[{"provider":"vllm","effectiveProfiles":[]}]}}}'
   fi
   exit 0
 fi
 exit 9
 `,
     );
-    const run = (binding: string, authStatus: number) =>
+    const run = (authStatus: number) =>
       spawnSync(
         "/bin/bash",
         [
@@ -79,18 +71,15 @@ exit 9
           env: {
             ...process.env,
             FIXTURE_ROOT: root,
-            BINDING: binding,
             AUTH_STATUS: String(authStatus),
           },
         },
       );
 
-    const missing = run("null", 0);
-    const inactive = run('"vllm:setup-inactive"', 1);
-    const incompatible = run('"vllm:manual"', 2);
-    const active = run('"vllm:manual"', 0);
+    const inactive = run(1);
+    const incompatible = run(2);
+    const active = run(0);
 
-    expect(missing.status, missing.stderr).toBe(1);
     expect(inactive.status, inactive.stderr).toBe(1);
     expect(incompatible.status, incompatible.stderr).toBe(1);
     expect(active.status, active.stderr).toBe(0);
