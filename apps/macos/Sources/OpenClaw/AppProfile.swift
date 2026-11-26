@@ -14,12 +14,19 @@ struct AppProfile: Equatable, Sendable {
 
     static let current = Self(
         environment: ProcessInfo.processInfo.environment,
-        bundledDefaultProfile: Bundle.main.object(forInfoDictionaryKey: "OpenClawDefaultProfile") as? String)
+        bundledDefaultProfile: Bundle.main.object(forInfoDictionaryKey: "OpenClawDefaultProfile") as? String,
+        distribution: .current)
 
     let name: String?
     let validationError: ValidationError?
+    let distribution: AppDistribution
 
-    init(environment: [String: String], bundledDefaultProfile: String? = nil) {
+    init(
+        environment: [String: String],
+        bundledDefaultProfile: String? = nil,
+        distribution: AppDistribution = .current)
+    {
+        self.distribution = distribution
         let selected = environment.keys.contains("OPENCLAW_PROFILE")
             ? environment["OPENCLAW_PROFILE"]
             : bundledDefaultProfile
@@ -45,12 +52,13 @@ struct AppProfile: Equatable, Sendable {
     var gatewayLaunchAgentLabel: String {
         // Keep this byte-for-byte aligned with src/daemon/constants.ts
         // resolveGatewayLaunchAgentLabel; the CLI owns the managed service.
-        self.name.map { "ai.openclaw.\($0)" } ?? "ai.openclaw.gateway"
+        self.name.map { "\(self.distribution.identityPrefix).\($0)" }
+            ?? "\(self.distribution.identityPrefix).gateway"
     }
 
     var defaultsSuiteName: String? {
         // Named profiles need a stable domain even when dev and packaged bundle ids differ.
-        self.name.map { "\(launchdLabel).profile.\($0)" }
+        self.name.map { "\(self.distribution.identityPrefix).mac.profile.\($0)" }
     }
 
     var keychainServiceSuffix: String {
@@ -58,11 +66,28 @@ struct AppProfile: Equatable, Sendable {
     }
 
     func keychainService(base: String) -> String {
-        base + self.keychainServiceSuffix
+        self.distribution.serviceName(base: base) + self.keychainServiceSuffix
     }
 
     func stateDirectoryURL(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        MacControlProfile.stateDirectoryURL(name: self.name, homeDirectory: homeDirectory)
+        self.distribution.stateDirectoryURL(profileName: self.name, homeDirectory: homeDirectory)
+    }
+
+    func resolvedStateDirectoryURL(
+        environmentOverride: String?,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL
+    {
+        // A branded distribution owns one explicit state root. Do not let an inherited
+        // OpenClaw override recreate the legacy profile directory after migration.
+        if self.distribution.stateDirectoryName != nil {
+            return self.stateDirectoryURL(homeDirectory: homeDirectory)
+        }
+        guard let environmentOverride, !environmentOverride.isEmpty else {
+            return self.stateDirectoryURL(homeDirectory: homeDirectory)
+        }
+        return URL(
+            fileURLWithPath: (environmentOverride as NSString).expandingTildeInPath,
+            isDirectory: true).standardizedFileURL
     }
 
     var cliRootArguments: [String] {
@@ -74,13 +99,16 @@ struct AppProfile: Equatable, Sendable {
     }
 
     var instanceLockName: String {
-        self.name.map { "ai.openclaw.mac.profile.\($0)" } ?? "ai.openclaw.mac"
+        self.name.map { "\(self.distribution.identityPrefix).mac.profile.\($0)" }
+            ?? "\(self.distribution.identityPrefix).mac"
     }
 
     func instanceLockURL(systemTemporaryDirectory: URL = URL(fileURLWithPath: "/tmp", isDirectory: true)) -> URL {
         // Service/defaults/Keychain identity follows only the profile; state overrides must not split this lock.
         systemTemporaryDirectory
-            .appendingPathComponent("openclaw-\(geteuid())-app-instances", isDirectory: true)
+            .appendingPathComponent(
+                "\(self.distribution.fileName.lowercased())-\(geteuid())-app-instances",
+                isDirectory: true)
             .appendingPathComponent("\(self.instanceLockName).lock", isDirectory: false)
     }
 

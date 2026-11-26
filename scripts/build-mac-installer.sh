@@ -120,6 +120,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/lib/mac-node-distribution-cache.sh"
 source "$ROOT_DIR/scripts/lib/plistbuddy.sh"
 source "$ROOT_DIR/scripts/lib/build-metadata.sh"
+source "$ROOT_DIR/scripts/lib/askpepio-distribution.sh"
 
 # macOS's system bash (3.2) drops into the "C" locale with no locale env at
 # all (as a bare invocation can give it), and its byte classification there
@@ -129,7 +130,9 @@ export LANG="${LANG:-en_US.UTF-8}"
 export LC_ALL="${LC_ALL:-en_US.UTF-8}"
 
 DIST_DIR="$ROOT_DIR/dist"
-INPUT="${1:-$DIST_DIR/OpenClaw.app}"
+PRODUCT_FILE_NAME="${OPENCLAW_PRODUCT_FILE_NAME:-OpenClaw}"
+PRODUCT_DISPLAY_NAME="${OPENCLAW_PRODUCT_DISPLAY_NAME:-OpenClaw}"
+INPUT="${1:-$DIST_DIR/${PRODUCT_FILE_NAME}.app}"
 if [[ ! -e "$INPUT" ]]; then
   echo "ERROR: Not found: $INPUT" >&2
   echo "Usage: $0 [path/to/OpenClaw.app | path/to/OpenClaw-*.dmg]" >&2
@@ -137,7 +140,7 @@ if [[ ! -e "$INPUT" ]]; then
 fi
 
 mkdir -p "$DIST_DIR"
-APP="$DIST_DIR/OpenClaw.app"
+APP="$DIST_DIR/${PRODUCT_FILE_NAME}.app"
 VERIFY_LOCAL_SOURCE=0
 if [[ "$INPUT" == "$APP" ]]; then
   VERIFY_LOCAL_SOURCE=1
@@ -375,7 +378,7 @@ else
   rm -rf "$DIST_STASH_DIR"
   mkdir -p "$DIST_STASH_DIR"
   restore_dist_stash() {
-    find "$DIST_STASH_DIR" -maxdepth 1 -type f -exec mv -f {} "$ROOT_DIR/dist/" \; 2>/dev/null || true
+    find "$DIST_STASH_DIR" -mindepth 1 -maxdepth 1 -exec mv -f {} "$ROOT_DIR/dist/" \; 2>/dev/null || true
   }
   trap 'restore_dist_stash; detach_src' EXIT
   find "$ROOT_DIR/dist" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.pkg' -o -name '*.zip' \) \
@@ -946,7 +949,7 @@ else
 fi
 
 echo "==> Verifying signature (simulates Gatekeeper locally, before this leaves the build machine)"
-codesign --verify --deep --strict --verbose=2 "$APP" || echo "WARN: codesign --verify failed -- investigate before distributing"
+codesign --verify --deep --strict --verbose=2 "$APP"
 spctl --assess --type execute --verbose=2 "$APP" || echo "WARN: spctl assessment failed -- Gatekeeper will likely block this; investigate before distributing"
 
 detach_src
@@ -995,7 +998,7 @@ gatekeeper_reminder() {
 # ---------------------------------------------------------------------
 ZIP_PATH=""
 if [[ "${BUILD_ZIP:-0}" == "1" ]]; then
-  ZIP_NAME="OpenClaw-${APP_VERSION}-Install.zip"
+  ZIP_NAME="${PRODUCT_FILE_NAME}-${APP_VERSION}-Install.zip"
   ZIP_PATH="$DIST_DIR/$ZIP_NAME"
   echo "==> BUILD_ZIP=1 -- also building a zip ($ZIP_PATH); prefer the dmg below if both are available (see note above)"
   rm -f "$ZIP_PATH"
@@ -1021,7 +1024,8 @@ else
   PKG_BUNDLE_ID="$(plist_print_required "$APP/Contents/Info.plist" CFBundleIdentifier)"
   PKG_ROOT="$(mktemp -d)"
   PKG_SCRIPTS_DIR="$(mktemp -d)"
-  ditto "$APP" "$PKG_ROOT/OpenClaw.app"
+  ditto "$APP" "$PKG_ROOT/${PRODUCT_FILE_NAME}.app"
+  codesign --verify --deep --strict --verbose=2 "$PKG_ROOT/${PRODUCT_FILE_NAME}.app"
   mkdir -p "$PKG_SCRIPTS_DIR/lib"
   cp "$ROOT_DIR/scripts/mac-pkg-postinstall.sh" "$PKG_SCRIPTS_DIR/postinstall"
   cp "$ROOT_DIR/scripts/lib/mac-installer-node-runtime.sh" "$PKG_SCRIPTS_DIR/lib/mac-installer-node-runtime.sh"
@@ -1060,7 +1064,7 @@ else
   plist_set_or_add_bool "$COMPONENT_PLIST" "0:BundleIsRelocatable" false
   plist_set_or_add_bool "$COMPONENT_PLIST" "0:BundleIsVersionChecked" false
 
-  COMPONENT_PKG="$DIST_DIR/.OpenClaw-component.pkg"
+  COMPONENT_PKG="$DIST_DIR/.${PRODUCT_FILE_NAME}-component.pkg"
   rm -f "$COMPONENT_PKG"
   pkgbuild --root "$PKG_ROOT" \
     --component-plist "$COMPONENT_PLIST" \
@@ -1071,13 +1075,14 @@ else
     "$COMPONENT_PKG"
   rm -f "$COMPONENT_PLIST"
 
-  # Wrap the component package in a product archive so Installer.app shows a
-  # proper title ("Install Nexus AI" / "Installing Nexus AI"). A bare component
+  # Wrap the component package in a product archive so Installer.app shows the
+  # branded product title (for example, "Install Ask Pepio" / "Installing Ask Pepio"). A bare component
   # package has no distribution, so Installer falls back to the .pkg file name
   # ("OpenClaw-<version>-Install"). Only the display title changes: the app
   # bundle, the install location and the postinstall script are untouched.
   # Override with PKG_INSTALLER_TITLE=... if needed.
-  PKG_INSTALLER_TITLE="${PKG_INSTALLER_TITLE:-Nexus AI}"
+  PKG_INSTALLER_TITLE="${PKG_INSTALLER_TITLE:-$PRODUCT_DISPLAY_NAME}"
+  echo "==> Installer UI product title: $PKG_INSTALLER_TITLE"
   PKG_DIST_WORK="$(mktemp -d)"
   cp "$COMPONENT_PKG" "$PKG_DIST_WORK/component.pkg"
   cat > "$PKG_DIST_WORK/distribution.xml" <<DISTXML
@@ -1097,7 +1102,7 @@ else
     <pkg-ref id="${PKG_BUNDLE_ID}.installer" version="${APP_VERSION}" onConclusion="none" auth="root">component.pkg</pkg-ref>
 </installer-gui-script>
 DISTXML
-  PKG_PRODUCT="$DIST_DIR/.OpenClaw-product.pkg"
+  PKG_PRODUCT="$DIST_DIR/.${PRODUCT_FILE_NAME}-product.pkg"
   rm -f "$PKG_PRODUCT"
   productbuild --distribution "$PKG_DIST_WORK/distribution.xml" \
     --package-path "$PKG_DIST_WORK" \
@@ -1105,7 +1110,7 @@ DISTXML
   rm -rf "$PKG_DIST_WORK" "$COMPONENT_PKG"
   COMPONENT_PKG="$PKG_PRODUCT"
 
-  OUT_PKG="$DIST_DIR/OpenClaw-${APP_VERSION}-Install.pkg"
+  OUT_PKG="$DIST_DIR/${PRODUCT_FILE_NAME}-${APP_VERSION}-Install.pkg"
   rm -f "$OUT_PKG"
   if PKG_IDENTITY="$(select_installer_identity)"; then
     echo "==> Signing pkg with: $PKG_IDENTITY"
@@ -1120,6 +1125,9 @@ DISTXML
     mv "$COMPONENT_PKG" "$OUT_PKG"
   fi
   rm -rf "$PKG_ROOT" "$PKG_SCRIPTS_DIR"
+
+  echo "==> Final app signature verification after PKG packaging"
+  codesign --verify --deep --strict --verbose=2 "$APP"
 fi
 
 # ---------------------------------------------------------------------
@@ -1132,8 +1140,8 @@ if [[ "${SKIP_DMG:-0}" == "1" ]]; then
   echo "==> SKIP_DMG=1 -- not building the styled dmg"
 else
   echo "==> Building styled dmg (scripts/create-dmg.sh)"
-  export DMG_VOLUME_NAME="${DMG_VOLUME_NAME:-Install OpenClaw}"
-  OUT_DMG="$DIST_DIR/OpenClaw-${APP_VERSION}-Install.dmg"
+  export DMG_VOLUME_NAME="${DMG_VOLUME_NAME:-Install $PRODUCT_DISPLAY_NAME}"
+  OUT_DMG="$DIST_DIR/${PRODUCT_FILE_NAME}-${APP_VERSION}-Install.dmg"
   "$ROOT_DIR/scripts/create-dmg.sh" "$APP" "$OUT_DMG"
 
   if [[ "$IDENTITY" != "-" ]]; then
@@ -1149,10 +1157,10 @@ echo "  App: $APP"
 [[ -n "$OUT_DMG" ]] && echo "  dmg (plain manual install, no admin password): $OUT_DMG"
 [[ -n "$ZIP_PATH" ]] && echo "  zip: $ZIP_PATH"
 echo ""
-echo "The pkg installs OpenClaw.app to /Applications and, right after, silently"
+echo "The pkg installs ${PRODUCT_FILE_NAME}.app to /Applications and, right after, silently"
 echo "installs Node/the CLI/the Gateway and marks onboarding as seen (see"
 echo "scripts/mac-pkg-postinstall.sh) -- first launch should land straight in"
-echo "chat. The dmg is exactly \"OpenClaw.app\" plus an Applications shortcut,"
+echo "chat. The dmg is exactly \"${PRODUCT_FILE_NAME}.app\" plus an Applications shortcut,"
 echo "same as any normal Mac app, with no silent provisioning -- first-run"
 echo "Node/CLI/Gateway setup there is handled by the app's own onboarding UI,"
 echo "same as an official build."

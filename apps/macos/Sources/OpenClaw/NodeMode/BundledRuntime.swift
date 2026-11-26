@@ -39,6 +39,16 @@ struct BundledRuntime: Sendable {
         ]
     }
 
+    func environment(profile: AppProfile) -> [String: String] {
+        var result = self.environment
+        let stateDirectory = profile.stateDirectoryURL()
+        result["OPENCLAW_PROFILE"] = profile.name ?? "default"
+        result["OPENCLAW_STATE_DIR"] = stateDirectory.path
+        result["OPENCLAW_CONFIG_PATH"] = stateDirectory.appendingPathComponent("openclaw.json").path
+        result["OPENCLAW_LAUNCHD_LABEL"] = profile.gatewayLaunchAgentLabel
+        return result
+    }
+
     struct BuildInfo: Decodable, Equatable, Sendable {
         let version: String
         let commit: String
@@ -58,7 +68,7 @@ struct BundledRuntime: Sendable {
                 profile: profile,
                 desktopSharingEnabled: desktopSharingEnabled),
             currentDirectoryURL: runtime.packageRoot,
-            environment: runtime.environment)
+            environment: runtime.environment(profile: profile))
     }
 
     /// Browser setup needs the same host-local runtime as the node, including on a remote-only Mac.
@@ -69,14 +79,12 @@ struct BundledRuntime: Sendable {
         profile: AppProfile = .current) throws -> MacNodeHostWorkerLaunch
     {
         let runtime = try resolve(bundle: bundle)
-        var environment = runtime.environment
-        environment["OPENCLAW_PROFILE"] = profile.name ?? "default"
         return try MacNodeHostWorkerLaunch(
             command: runtime.command(entry: "extensions/browser/setup-entry.js") + [
                 "--action", action.rawValue, "--wait-ms", "1000",
             ],
             currentDirectoryURL: runtime.packageRoot,
-            environment: environment)
+            environment: runtime.environment(profile: profile))
     }
 
     static func resolve(bundle: Bundle) throws -> Self {

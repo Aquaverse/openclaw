@@ -267,7 +267,7 @@ struct DebugSettings: View {
 
                         Toggle("Write rolling diagnostics log (JSONL)", isOn: self.$diagnosticsFileLogEnabled)
                             .toggleStyle(.checkbox)
-                            .help("Local rotating log: ~/Library/Logs/OpenClaw/. Enable only for debugging.")
+                            .help(Text(verbatim: "Local rotating log: ~/Library/Logs/\(AppDistribution.current.logDirectoryName)/. Enable only for debugging."))
 
                         HStack(spacing: 8) {
                             Button("Open folder") {

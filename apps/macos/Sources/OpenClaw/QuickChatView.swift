@@ -63,7 +63,9 @@ struct QuickChatView: View {
             }
 
             if let status = self.statusLine {
-                Label(status.message, systemImage: status.isError ? "exclamationmark.circle" : "info.circle")
+                Label(
+                    AppDistribution.current.branded(status.message),
+                    systemImage: status.isError ? "exclamationmark.circle" : "info.circle")
                     .font(.system(size: 12))
                     .foregroundStyle(status.isError ? Color.red : Color.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)

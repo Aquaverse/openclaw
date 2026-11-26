@@ -167,6 +167,14 @@ struct BundledRuntimeTests {
         #expect(setup.environment["OPENCLAW_SQLITE_LIBRARY"] == runtime.root
             .appendingPathComponent("lib/libsqlite3.dylib").path)
         #expect(setup.environment["OPENCLAW_PROFILE"] == "browser-fixture")
+        #expect(worker.environment["OPENCLAW_PROFILE"] == "browser-fixture")
+        let stateDirectory = profile.stateDirectoryURL()
+        for environment in [worker.environment, setup.environment] {
+            #expect(environment["OPENCLAW_STATE_DIR"] == stateDirectory.path)
+            #expect(environment["OPENCLAW_CONFIG_PATH"] == stateDirectory
+                .appendingPathComponent("openclaw.json").path)
+            #expect(environment["OPENCLAW_LAUNCHD_LABEL"] == profile.gatewayLaunchAgentLabel)
+        }
     }
 
     @Test func `seeding publishes a relocatable current runtime and probes each copied build once`() async throws {

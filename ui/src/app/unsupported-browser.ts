@@ -2,6 +2,7 @@ import "./unsupported-browser.css";
 import { i18n, t } from "../i18n/lib/translate.ts";
 import { registerLoginEnglish } from "../i18n/locales/en-login.ts";
 import { listen } from "../lib/reactive/listener.ts";
+import { productDisplayName } from "../product-branding.ts";
 import { postNativeExternalLink } from "./native-link-routing.ts";
 import { webKitHostWindow } from "./native-webkit-bridge.ts";
 
@@ -16,7 +17,7 @@ export function showUnsupportedBrowser(): void {
   panel.className = "unsupported-browser__panel";
   const brand = document.createElement("p");
   brand.className = "unsupported-browser__brand";
-  brand.textContent = "OpenClaw";
+  brand.textContent = productDisplayName;
   const copyElements = {
     title: document.createElement("h1"),
     description: document.createElement("p"),

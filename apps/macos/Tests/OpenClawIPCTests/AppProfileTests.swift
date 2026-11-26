@@ -40,6 +40,48 @@ struct AppProfileTests {
             bundledDefaultProfile: "nexus").name == nil)
     }
 
+    @Test func `Ask Pepio distribution owns persistent namespaces without changing the Nexus port`() {
+        let distribution = AppDistribution(infoDictionary: [
+            "OpenClawProductDisplayName": "Ask Pepio",
+            "OpenClawProductFileName": "AskPepio",
+            "OpenClawProductIdentityPrefix": "ai.pepio",
+            "OpenClawProductStateDirectoryName": ".askpepio",
+            "OpenClawProductApplicationSupportName": "askpepio",
+            "OpenClawProductLogDirectoryName": "AskPepio",
+            "OpenClawProductCacheDirectoryName": "askpepio",
+            "OpenClawProductDomain": "pepio.ai",
+        ])
+        let profile = AppProfile(
+            environment: [:],
+            bundledDefaultProfile: "nexus",
+            distribution: distribution)
+
+        #expect(profile.name == "nexus")
+        #expect(profile.defaultGatewayPort == 43384)
+        #expect(profile.gatewayLaunchAgentLabel == "ai.pepio.nexus")
+        #expect(profile.defaultsSuiteName == "ai.pepio.mac.profile.nexus")
+        #expect(profile.keychainService(base: "ai.openclaw.onboarding-route-binding.debug") ==
+            "ai.pepio.onboarding-route-binding.debug.profile.nexus")
+        #expect(profile.stateDirectoryURL(homeDirectory: URL(fileURLWithPath: "/Users/test")).path ==
+            "/Users/test/.askpepio")
+        #expect(profile.resolvedStateDirectoryURL(
+            environmentOverride: "/Users/test/.openclaw-nexus",
+            homeDirectory: URL(fileURLWithPath: "/Users/test")).path == "/Users/test/.askpepio")
+        #expect(profile.instanceLockName == "ai.pepio.mac.profile.nexus")
+        #expect(profile.instanceLockURL(systemTemporaryDirectory: URL(fileURLWithPath: "/tmp")).path ==
+            "/tmp/askpepio-\(geteuid())-app-instances/ai.pepio.mac.profile.nexus.lock")
+        #expect(distribution.branded("OpenClaw needs an AI account") ==
+            "Ask Pepio needs an AI account")
+        #expect(distribution.branded("No product name here") == "No product name here")
+    }
+
+    @Test func `upstream distribution still honors an explicit state directory`() {
+        let profile = AppProfile(environment: [:], bundledDefaultProfile: "nexus")
+        #expect(profile.resolvedStateDirectoryURL(
+            environmentOverride: "/Users/test/custom-state",
+            homeDirectory: URL(fileURLWithPath: "/Users/test")).path == "/Users/test/custom-state")
+    }
+
     @Test func `current profile scopes credential service identities`() {
         let suffix = AppProfile.current.name.map { ".profile.\($0)" } ?? ""
         #if DEBUG

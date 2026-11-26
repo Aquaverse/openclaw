@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readlinkSync,
   readFileSync,
   symlinkSync,
   writeFileSync,
@@ -246,5 +247,172 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     );
     expect(repeated.status, repeated.stderr).toBe(0);
     expect(JSON.parse(repeated.stdout).status).toBe("target_exists");
+  });
+
+  it("explicitly migrates product state without copying installer-owned runtime files", () => {
+    const root = mkdtempSync(join(tmpdir(), "askpepio-explicit-profile-migrate-"));
+    const source = join(root, ".openclaw-nexus");
+    const target = join(root, ".askpepio");
+    mkdirSync(join(source, "agents", "main", "agent", "codex-home", ".tmp", "plugins"), {
+      recursive: true,
+    });
+    mkdirSync(join(source, "bin"), { recursive: true });
+    mkdirSync(join(source, "service-env"), { recursive: true });
+    mkdirSync(join(source, "tools", "node-v24.22.1", "bin"), { recursive: true });
+    mkdirSync(join(source, "tools", "custom-helper"), { recursive: true });
+    mkdirSync(join(source, "workspace"), { recursive: true });
+    symlinkSync(join(source, "tools", "node-v24.22.1"), join(source, "tools", "node"));
+    writeFileSync(
+      join(source, "agents", "main", "agent", "codex-home", ".tmp", "plugins", "ignored"),
+      "ephemeral\n",
+    );
+    writeFileSync(
+      join(source, "bin", "openclaw"),
+      `#!/bin/sh\nexec ${source}/tools/node/bin/node ${source}/runtime/entry.js\n`,
+    );
+    writeFileSync(join(source, "service-env", "ai.openclaw.nexus.env"), source);
+    writeFileSync(join(source, "tools", "node-v24.22.1", "bin", "node"), "runtime\n");
+    writeFileSync(join(source, "tools", "custom-helper", "keep"), "custom\n");
+    writeFileSync(join(source, "workspace", "data"), "user data\n");
+    symlinkSync(join(source, "workspace", "data"), join(source, "workspace", "data-link"));
+    symlinkSync("/tmp/external-data", join(source, "workspace", "external-link"));
+    writeFileSync(
+      join(source, "openclaw.json"),
+      JSON.stringify({
+        gateway: { mode: "remote", port: 18789, remote: { url: "wss://gateway.example" } },
+        agents: {
+          defaults: { workspace: `${source}/workspace` },
+          entries: { main: { agentDir: `${source}/agents/main/agent` } },
+        },
+      }),
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/mac-nexus-profile-migrate.mjs",
+        "--source",
+        source,
+        "--target",
+        target,
+        "--profile",
+        "nexus",
+        "--port",
+        "43384",
+        "--source-policy",
+        "explicit",
+      ],
+      { encoding: "utf8" },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ status: "migrated", profile: "nexus" });
+    const migrated = JSON.parse(readFileSync(join(target, "openclaw.json"), "utf8"));
+    expect(migrated.agents.defaults.workspace).toBe(`${target}/workspace`);
+    expect(migrated.agents.entries.main.agentDir).toBe(`${target}/agents/main/agent`);
+    expect(migrated.gateway).toEqual({
+      mode: "remote",
+      port: 18789,
+      remote: { url: "wss://gateway.example" },
+    });
+    expect(existsSync(join(target, "bin", "openclaw"))).toBe(false);
+    expect(existsSync(join(target, "service-env"))).toBe(false);
+    expect(existsSync(join(target, "tools", "node"))).toBe(false);
+    expect(existsSync(join(target, "tools", "node-v24.22.1"))).toBe(false);
+    expect(existsSync(join(target, "agents", "main", "agent", "codex-home", ".tmp"))).toBe(false);
+    expect(readFileSync(join(target, "tools", "custom-helper", "keep"), "utf8")).toBe("custom\n");
+    expect(readlinkSync(join(target, "workspace", "data-link"))).toBe(
+      join(target, "workspace", "data"),
+    );
+    expect(readlinkSync(join(target, "workspace", "external-link"))).toBe("/tmp/external-data");
+  });
+
+  it("repairs a chained product migration after installer-owned runtime files were copied", () => {
+    const root = mkdtempSync(join(tmpdir(), "askpepio-profile-repair-"));
+    const original = join(root, ".openclaw");
+    const source = join(root, ".openclaw-nexus");
+    const target = join(root, ".askpepio");
+    mkdirSync(join(target, "bin"), { recursive: true });
+    mkdirSync(join(target, "service-env"), { recursive: true });
+    mkdirSync(join(target, "tools", "node-v24.22.1", "bin"), { recursive: true });
+    mkdirSync(join(target, "workspace"), { recursive: true });
+    symlinkSync(source + "/tools/node-v24.22.1", join(target, "tools", "node"));
+    writeFileSync(join(target, "bin", "openclaw"), `exec ${source}/tools/node/bin/node\n`);
+    writeFileSync(join(target, "service-env", "ai.openclaw.nexus.env"), source);
+    writeFileSync(join(target, "tools", "node-v24.22.1", "bin", "node"), "runtime\n");
+    symlinkSync(join(source, "workspace", "data"), join(target, "workspace", "data-link"));
+    writeFileSync(
+      join(target, "openclaw.json"),
+      JSON.stringify({ agents: { defaults: { workspace: `${source}/workspace` } } }),
+    );
+    writeFileSync(
+      join(target, ".nexus-profile-migration.json"),
+      JSON.stringify({ version: 2, profile: "nexus", source: original, target: source }),
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/mac-nexus-profile-migrate.mjs",
+        "--source",
+        source,
+        "--target",
+        target,
+        "--profile",
+        "nexus",
+        "--port",
+        "43384",
+        "--source-policy",
+        "explicit",
+      ],
+      { encoding: "utf8" },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "target_repaired",
+      removedInstallerArtifacts: true,
+      rewrittenConfig: true,
+      rewrittenOwnedSymlinks: 1,
+    });
+    expect(
+      JSON.parse(readFileSync(join(target, "openclaw.json"), "utf8")).agents.defaults.workspace,
+    ).toBe(`${target}/workspace`);
+    expect(existsSync(join(target, "bin", "openclaw"))).toBe(false);
+    expect(existsSync(join(target, "service-env"))).toBe(false);
+    expect(existsSync(join(target, "tools", "node"))).toBe(false);
+    expect(existsSync(join(target, "tools", "node-v24.22.1"))).toBe(false);
+    expect(readlinkSync(join(target, "workspace", "data-link"))).toBe(
+      join(target, "workspace", "data"),
+    );
+    expect(
+      JSON.parse(readFileSync(join(target, ".nexus-profile-migration.json"), "utf8")),
+    ).toMatchObject({ version: 3, profile: "nexus", source, target });
+
+    mkdirSync(join(target, "tools", "node-v24.22.2", "bin"), { recursive: true });
+    writeFileSync(join(target, "tools", "node-v24.22.2", "bin", "node"), "new runtime\n");
+    symlinkSync(join(target, "tools", "node-v24.22.2"), join(target, "tools", "node"));
+    const repeated = spawnSync(
+      process.execPath,
+      [
+        "scripts/mac-nexus-profile-migrate.mjs",
+        "--source",
+        source,
+        "--target",
+        target,
+        "--profile",
+        "nexus",
+        "--port",
+        "43384",
+        "--source-policy",
+        "explicit",
+      ],
+      { encoding: "utf8" },
+    );
+    expect(repeated.status, repeated.stderr).toBe(0);
+    expect(JSON.parse(repeated.stdout).status).toBe("target_exists");
+    expect(readFileSync(join(target, "tools", "node-v24.22.2", "bin", "node"), "utf8")).toBe(
+      "new runtime\n",
+    );
   });
 });

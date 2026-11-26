@@ -106,7 +106,11 @@ export function resolveGatewayNativeServiceIdentityConflict(
     const envKey = "OPENCLAW_LAUNCHD_LABEL";
     const actual = env[envKey]?.trim();
     const expected = resolveGatewayLaunchAgentLabel(profile);
-    return actual && actual !== expected ? { envKey, expected } : null;
+    // Branded macOS distributions use their own reverse-DNS prefix while the
+    // profile suffix remains the service ownership boundary. Keep rejecting a
+    // different profile, but do not force every distribution into ai.openclaw.
+    const ownsProfile = actual?.endsWith(`.${profile}`) ?? false;
+    return actual && actual !== expected && !ownsProfile ? { envKey, expected } : null;
   }
   if (platform === "linux") {
     const envKey = "OPENCLAW_SYSTEMD_UNIT";

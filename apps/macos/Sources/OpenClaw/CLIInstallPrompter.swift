@@ -119,7 +119,7 @@ final class CLIInstallPrompter {
         {
             guard confirmStable else { return target }
             let alert = NSAlert()
-            alert.messageText = "Install OpenClaw CLI?"
+            alert.messageText = AppDistribution.current.branded("Install OpenClaw CLI?")
             alert.informativeText = "The app-managed local Gateway needs an external CLI runtime."
             alert.addButton(withTitle: "Install CLI")
             alert.addButton(withTitle: "Not Now")
@@ -149,12 +149,12 @@ final class CLIInstallPrompter {
     {
         let channels = [suggested] + CLIInstaller.Channel.allCases.filter { $0 != suggested }
         let alert = NSAlert()
-        alert.messageText = "Choose OpenClaw CLI channel"
-        alert.informativeText =
+        alert.messageText = AppDistribution.current.branded("Choose OpenClaw CLI channel")
+        alert.informativeText = AppDistribution.current.branded(
             "This is an unreleased OpenClaw build. " +
-            "Stable and Beta use published builds and are usually quick. " +
-            "Dev (Git main) downloads and builds from source, so it can take several minutes " +
-            "and needs several gigabytes free."
+                "Stable and Beta use published builds and are usually quick. " +
+                "Dev (Git main) downloads and builds from source, so it can take several minutes " +
+                "and needs several gigabytes free.")
         for channel in channels {
             alert.addButton(withTitle: channel.label)
         }
@@ -225,7 +225,7 @@ final class CLIInstallPrompter {
         if showCompletionAlert, let message = self.installStatus {
             let alert = NSAlert()
             alert.messageText = installed ? "CLI install finished" : "CLI install failed"
-            alert.informativeText = message
+            alert.informativeText = AppDistribution.current.branded(message)
             AppActivation.shared.presentAlert(alert)
         }
         return installed && activated

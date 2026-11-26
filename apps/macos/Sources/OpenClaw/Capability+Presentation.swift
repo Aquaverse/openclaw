@@ -9,7 +9,7 @@ extension Capability {
         case .microphone: "Microphone"
         case .speechRecognition: "Speech Recognition"
         case .camera: "Camera"
-        case .cameraEnabled: "Camera in OpenClaw"
+        case .cameraEnabled: "Camera in \(AppDistribution.current.displayName)"
         case .location: "Location"
         case .eventPosting: "Event Posting"
         case .computerControl: "Computer Control"

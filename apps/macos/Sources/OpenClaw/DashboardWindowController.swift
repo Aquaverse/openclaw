@@ -146,7 +146,7 @@ final class DashboardWindowController: NSWindowController, WKNavigationDelegate,
         tlsParams: GatewayTLSParams? = nil,
         browserSessionLease: DashboardBrowserSessionStore.Lease? = nil,
         gatewaySnapshot: DashboardGatewaySnapshot? = nil,
-        windowTitle: String = "OpenClaw",
+        windowTitle: String = AppDistribution.current.displayName,
         windowAutosaveName: String,
         reusingWindow: NSWindow? = nil,
         requestBrowserProfileImportOffer:

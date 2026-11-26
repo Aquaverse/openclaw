@@ -480,13 +480,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   console.log("fixture-bundler-ran");
 }
 `);
-    const run = (expectedExit = 0, privateQa = false) => {
+    const run = (expectedExit = 0, privateQa = false, productName?: string) => {
       const result = build.run({
         BUILD_ALL_CACHE_ROOT: cacheRoot === "explicit" ? path.join(root, "cache") : undefined,
         OPENCLAW_BUILD_CACHE: "1",
         OPENCLAW_CONTROL_UI_REQUIRE_PLUGIN_DISTRIBUTIONS: "1",
         OPENCLAW_CONTROL_UI_BUILD_ID: "cache-test",
         OPENCLAW_BUILD_PRIVATE_QA: privateQa ? "1" : "0",
+        VITE_OPENCLAW_PRODUCT_NAME: productName,
       });
       expectExit(result, expectedExit);
       return result.stdout;
@@ -557,6 +558,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     expect(run()).toContain("reused content cache");
     const output = path.join(root, "dist/control-ui/index.html");
     const published = fs.readFileSync(output, "utf8");
+    expect(run(0, false, "Ask Pepio")).toContain("fixture-bundler-ran");
+    expect(run(0, false, "Ask Pepio")).toContain("reused content cache");
     writeFiles(root, { "scripts/generate-control-ui-validators.mts": "process.exitCode = 23;\n" });
     const refused = run(23);
     expect(refused).not.toContain("fixture-bundler-ran");

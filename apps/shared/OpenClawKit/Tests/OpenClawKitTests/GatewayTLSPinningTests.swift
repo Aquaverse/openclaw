@@ -88,6 +88,16 @@ struct GatewayTLSPinningTests {
         #expect(defaultService == "ai.openclaw.tls-pinning")
         #expect(configuredDefault)
         #expect(!configuredProfileAfterDefaultUse)
+
+        var branded = GatewayTLSKeychainNamespaceState()
+        let configuredBranded = branded.configure(base: "ai.pepio.tls-pinning", suffix: ".profile.nexus")
+        let brandedService = branded.service(base: "ai.openclaw.tls-pinning")
+        let reconfiguredUpstream = branded.configure(
+            base: "ai.openclaw.tls-pinning",
+            suffix: ".profile.nexus")
+        #expect(configuredBranded)
+        #expect(brandedService == "ai.pepio.tls-pinning.profile.nexus")
+        #expect(!reconfiguredUpstream)
     }
 
     @Test func `TLS authority includes normalized host and effective port`() throws {

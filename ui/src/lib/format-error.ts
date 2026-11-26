@@ -5,6 +5,7 @@ import {
   stringifyNonErrorCause,
 } from "@openclaw/normalization-core/error-coercion";
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
+import { brandProductText } from "../product-branding.ts";
 import { redactToolDetail } from "./browser-redact.ts";
 import {
   isProgrammingError,
@@ -18,7 +19,7 @@ export { UserFacingError } from "./connection-error.ts";
 export function formatUiError(error: unknown, fallback = ""): string {
   const override = readErrorDisplayOverride(error, fallback);
   if (override !== undefined) {
-    return override;
+    return brandProductText(override);
   }
   // A wrapper keeps its own message and its other causes.
   let message = formatErrorMessage(error);
@@ -30,19 +31,19 @@ export function formatUiError(error: unknown, fallback = ""): string {
       message = message.replace(` | ${cause.message}`, "");
     }
   }
-  return redactToolDetail(message) || fallback;
+  return brandProductText(redactToolDetail(message) || fallback);
 }
 
 /** Technical details are opt-in and redacted, never replaced by recovery copy. */
 export function formatUiErrorDetails(error: unknown): string {
   const message = formatErrorMessage(error);
   const details = asNullableRecord(error)?.details;
-  return redactToolDetail(
-    details == null ? message : `${message}\n${stringifyNonErrorCause(details)}`,
+  return brandProductText(
+    redactToolDetail(details == null ? message : `${message}\n${stringifyNonErrorCause(details)}`),
   );
 }
 
 export function formatUiExternalText(value: string | null | undefined, fallback = ""): string {
   const text = value?.trim();
-  return text ? redactToolDetail(text) : fallback;
+  return brandProductText(text ? redactToolDetail(text) : fallback);
 }

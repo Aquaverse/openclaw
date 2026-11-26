@@ -38,9 +38,13 @@ set -euo pipefail
 #   dist/OpenClaw-<version>-Install.dmg   (styled, unless SKIP_DMG=1)
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/askpepio-distribution.sh"
+
+PRODUCT_FILE_NAME="${OPENCLAW_PRODUCT_FILE_NAME:-OpenClaw}"
+APP_PATH="$ROOT_DIR/dist/${PRODUCT_FILE_NAME}.app"
 
 echo "=================================================="
-echo "1/2  Building OpenClaw.app from source"
+echo "1/2  Building ${PRODUCT_FILE_NAME}.app from source"
 echo "=================================================="
 "$ROOT_DIR/scripts/package-mac-app.sh"
 
@@ -48,7 +52,7 @@ echo ""
 echo "=================================================="
 echo "2/2  Signing and packaging for distribution"
 echo "=================================================="
-"$ROOT_DIR/scripts/build-mac-installer.sh" "$ROOT_DIR/dist/OpenClaw.app"
+"$ROOT_DIR/scripts/build-mac-installer.sh" "$APP_PATH"
 
 echo ""
 echo "✅ Installer pipeline complete."

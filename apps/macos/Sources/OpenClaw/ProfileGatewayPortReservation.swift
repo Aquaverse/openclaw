@@ -29,7 +29,7 @@ final class ProfileGatewayPortReservation: @unchecked Sendable {
             return self.conflict(
                 profile: profileName,
                 port: port,
-                reason: "another running OpenClaw profile already reserves it")
+                reason: "another running \(profile.distribution.displayName) profile already reserves it")
         case let .failed(reason):
             return self.conflict(
                 profile: profileName,
@@ -49,7 +49,7 @@ final class ProfileGatewayPortReservation: @unchecked Sendable {
 
     private static func conflict(profile: String, port: Int, reason: String) -> Self {
         let message = "Profile \"\(profile)\" cannot use Gateway port \(port) because \(reason). " +
-            "Set gateway.port to a free port for this profile, or stop/uninstall the other Gateway."
+            "Stop the other Gateway before starting this profile."
         return Self(
             port: port,
             conflict: message,

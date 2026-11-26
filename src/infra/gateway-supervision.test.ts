@@ -46,6 +46,21 @@ describe("gateway supervision", () => {
     expect(mutate(profileEnv())).not.toThrow();
   });
 
+  it("allows a branded macOS profile to manage its isolated home-scoped service", () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+    const HOME = os.userInfo().homedir;
+    const OPENCLAW_STATE_DIR = path.join(HOME, ".askpepio");
+    expect(
+      mutate({
+        HOME,
+        OPENCLAW_PROFILE: "nexus",
+        OPENCLAW_STATE_DIR,
+        OPENCLAW_CONFIG_PATH: path.join(OPENCLAW_STATE_DIR, "openclaw.json"),
+        OPENCLAW_LAUNCHD_LABEL: "ai.pepio.nexus",
+      }),
+    ).not.toThrow();
+  });
+
   it.each([
     ["darwin", "macOS", "OPENCLAW_LAUNCHD_LABEL", "ai.openclaw.gateway"],
     ["linux", "Linux", "OPENCLAW_SYSTEMD_UNIT", "openclaw-gateway.service"],

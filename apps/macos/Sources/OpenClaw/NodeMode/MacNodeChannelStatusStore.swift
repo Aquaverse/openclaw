@@ -41,7 +41,11 @@ enum MacNodeChannelState: Equatable, Sendable {
             "Mac node \(status) — update the OpenClaw app: its worker supports schema \($0.supported), " +
                 "but shared state requires schema \($0.required)"
         } ?? "Mac node \(status) — \(Self.condense(reason))"
-        return (label, Self.excerpt(diagnostic), isDegraded, compatibility == nil ? nil : .checkForUpdates)
+        return (
+            AppDistribution.current.branded(label),
+            Self.excerpt(diagnostic).map(AppDistribution.current.branded),
+            isDegraded,
+            compatibility == nil ? nil : .checkForUpdates)
     }
 
     private static func workerSchemaMismatch(in message: String) -> (required: Int, supported: Int)? {

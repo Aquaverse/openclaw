@@ -7,7 +7,10 @@ import {
   resolveProfileGatewayPort,
   resolveProfileStateDir,
 } from "../cli/profile-utils.js";
-import { resolveGatewayNativeServiceIdentityConflict } from "../daemon/constants.js";
+import {
+  resolveGatewayLaunchAgentLabel,
+  resolveGatewayNativeServiceIdentityConflict,
+} from "../daemon/constants.js";
 import {
   resolveHomeRelativePath,
   resolveRequiredHomeDir,
@@ -133,10 +136,24 @@ export function isDefaultInstallIdentity(
     // before path construction so separators cannot authorize a host service.
     return false;
   }
+  const profile = normalizeProfileName(env.OPENCLAW_PROFILE);
+  const launchdLabel = env.OPENCLAW_LAUNCHD_LABEL?.trim();
+  const selectedStateDir = normalizePathForComparison(resolveStateDir(env, envHomedir(env)));
   if (
-    normalizePathForComparison(resolveStateDir(env, envHomedir(env))) !==
-    normalizePathForComparison(canonicalStateDir)
+    platform === "darwin" &&
+    profile &&
+    launchdLabel &&
+    launchdLabel !== resolveGatewayLaunchAgentLabel(profile) &&
+    launchdLabel.endsWith(`.${profile}`) &&
+    path.dirname(selectedStateDir) === accountHome &&
+    path.basename(selectedStateDir).startsWith(".")
   ) {
+    // A branded macOS distribution owns a separate LaunchAgent label and a
+    // hidden, home-scoped state root. Treat that product root as canonical;
+    // the distinct label prevents it from mutating the stock OpenClaw job.
+    canonicalStateDir = selectedStateDir;
+  }
+  if (selectedStateDir !== normalizePathForComparison(canonicalStateDir)) {
     return false;
   }
   // Named profiles must resolve their own config so they cannot inherit the default profile.

@@ -1,3 +1,4 @@
+import { productDisplayName } from "../product-branding.ts";
 import { inferControlUiPublicAssetPath } from "./public-assets.ts";
 
 type ControlUiDocumentHead = {
@@ -14,6 +15,7 @@ function bindControlUiDocumentHead(head: ControlUiDocumentHead): void {
 
 /** Set document assets before the entry module yields to the application import. */
 export function initializeControlUiDocumentHead(): void {
+  document.title = `${productDisplayName} Control`;
   const themeColors: HTMLMetaElement[] = [];
   for (const id of ["openclaw-theme-color-light", "openclaw-theme-color-dark"]) {
     const meta = document.getElementById(id);

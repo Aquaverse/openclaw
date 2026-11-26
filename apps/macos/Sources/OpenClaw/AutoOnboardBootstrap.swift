@@ -303,6 +303,10 @@ final class AutoOnboardBootstrap {
     static func migrateLegacyNexusProfileIfNeeded() async -> Bool {
         let profile = AppProfile.current
         guard profile.name == "nexus" else { return true }
+        // Ask Pepio starts with its own state root. Importing an OpenClaw or
+        // historical Nexus installation is an explicit operator action through
+        // the bundled migration script, never a first-launch side effect.
+        guard profile.distribution.identityPrefix == "ai.openclaw" else { return true }
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
         let source = home.appendingPathComponent(".openclaw", isDirectory: true)
@@ -384,7 +388,7 @@ final class AutoOnboardBootstrap {
             styleMask: [.titled],
             backing: .buffered,
             defer: false)
-        panel.title = "OpenClaw"
+        panel.title = AppDistribution.current.displayName
         panel.isReleasedWhenClosed = false
         panel.isRestorable = false
         panel.level = .floating
@@ -722,6 +726,7 @@ final class AutoOnboardBootstrap {
         ]
         var environment = ProcessInfo.processInfo.environment
         environment["OPENCLAW_PROFILE"] = AppProfile.current.name ?? "default"
+        environment["OPENCLAW_PRODUCT_LOG_DIR"] = AppDistribution.current.logDirectoryURL().path
         // Detached: this Task is intentionally never awaited by the caller.
         // The script logs its own progress/failures to
         // ~/Library/Logs/OpenClaw/llama-fallback-setup.log rather than

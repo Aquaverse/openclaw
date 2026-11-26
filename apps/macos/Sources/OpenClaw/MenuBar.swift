@@ -19,7 +19,8 @@ import SwiftUI
 // Safe to remove, along with its call sites, once the "Setting up
 // OpenClaw..." panel-timing question this exists to answer is resolved.
 func traceLog(_ message: String) {
-    let path = NSHomeDirectory() + "/Library/Logs/OpenClaw/launch-trace.log"
+    let path = AppDistribution.current.logDirectoryURL()
+        .appendingPathComponent("launch-trace.log", isDirectory: false).path
     let dir = (path as NSString).deletingLastPathComponent
     try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
     let formatter = DateFormatter()
@@ -86,8 +87,8 @@ struct OpenClawApp: App {
             }
             let alert = NSAlert()
             alert.alertStyle = .critical
-            alert.messageText = "OpenClaw profile is invalid"
-            alert.informativeText = error.localizedDescription
+            alert.messageText = AppDistribution.current.branded("OpenClaw profile is invalid")
+            alert.informativeText = AppDistribution.current.branded(error.localizedDescription)
             if launchPlan.allowsActivation {
                 AppActivation.shared.presentAlert(alert)
             } else {
@@ -100,7 +101,10 @@ struct OpenClawApp: App {
         {
             fatalError("Device identity state root was already used before app profile configuration")
         }
-        guard GatewayTLSStore.configureKeychainServiceSuffix(AppProfile.current.keychainServiceSuffix) else {
+        guard GatewayTLSStore.configureKeychainService(
+            base: AppProfile.current.distribution.serviceName(base: "ai.openclaw.tls-pinning"),
+            suffix: AppProfile.current.keychainServiceSuffix)
+        else {
             fatalError("Gateway TLS Keychain namespace was already used by another app profile")
         }
         OpenClawLogging.bootstrapIfNeeded()
@@ -284,8 +288,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let alert = NSAlert()
             alert.alertStyle = .critical
-            alert.messageText = "OpenClaw could not claim its instance lock"
-            alert.informativeText = instanceOwnershipFailure
+            alert.messageText = AppDistribution.current.branded("OpenClaw could not claim its instance lock")
+            alert.informativeText = AppDistribution.current.branded(instanceOwnershipFailure)
             if AppLaunchRuntimePlan.current.allowsActivation {
                 AppActivation.shared.presentAlert(alert)
             } else {
@@ -512,14 +516,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showCredentialStartupFailure() {
-        let message = "Quit OpenClaw, run openclaw doctor --fix with the matching CLI, then reopen OpenClaw. " +
-            "If you restored a backup, restore its matching client credentials too."
+        let message = AppDistribution.current.branded(
+            "Quit OpenClaw, run openclaw doctor --fix with the matching CLI, then reopen OpenClaw. " +
+                "If you restored a backup, restore its matching client credentials too.")
         self.credentialLogger
             .error("Client credentials unavailable. Run openclaw doctor --fix before reopening the app.")
         if AppLaunchRuntimePlan.current.allowsActivation {
             let alert = NSAlert()
             alert.alertStyle = .critical
-            alert.messageText = "OpenClaw client credentials need recovery"
+            alert.messageText = AppDistribution.current.branded("OpenClaw client credentials need recovery")
             alert.informativeText = message
             AppActivation.shared.presentAlert(alert)
         } else {
@@ -529,7 +534,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showNexusProfileMigrationFailure() {
-        let message = String(localized: "OpenClaw could not safely move the previous Nexus data. The previous installation was preserved. Quit any running OpenClaw-derived apps, then run this installer again.")
+        let message = String(
+            localized: "OpenClaw could not safely move the previous Nexus data. The previous installation was preserved.") +
+            " " + String(localized: "Quit any running OpenClaw-derived apps, then run this installer again.")
         if AppLaunchRuntimePlan.current.allowsActivation {
             let alert = NSAlert()
             alert.alertStyle = .critical

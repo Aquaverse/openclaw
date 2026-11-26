@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-LOG_FILE="${OPENCLAW_NEXUS_PRESET_LOG:-$HOME/Library/Logs/OpenClaw/nexus-preset.log}"
+LOG_FILE="${OPENCLAW_NEXUS_PRESET_LOG:-${OPENCLAW_PRODUCT_LOG_DIR:-$HOME/Library/Logs/OpenClaw}/nexus-preset.log}"
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >>"$LOG_FILE" 2>/dev/null || true

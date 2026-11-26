@@ -117,7 +117,8 @@ enum DashboardFailurePage {
         <p>\(self.htmlEscape(removal.dashboardMessage(now: now)))</p>
         <div class="actions">
           <button class="primary" onclick="window.webkit.messageHandlers.openclawGateways
-            .postMessage({type:'openclaw-id-sign-in'})">Sign in with OpenClaw ID…</button>
+            .postMessage({type:'openclaw-id-sign-in'})">\(self.htmlEscape(
+                AppDistribution.current.branded("Sign in with OpenClaw ID…")))</button>
           <button class="settings" onclick="window.webkit.messageHandlers.openclawDeviceSettings
             .postMessage({type:'open',panel:'connection'})">Set up a different connection</button>
           <button onclick="window.webkit.messageHandlers.openclawGateways

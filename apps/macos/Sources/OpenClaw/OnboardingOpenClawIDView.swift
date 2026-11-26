@@ -448,7 +448,7 @@ struct OnboardingOpenClawIDContent: View {
 
     /// Runtime text built from claw and device names (rendered as given, like `heading` and `row`).
     private func plain(_ text: String) -> Text {
-        Text(text)
+        Text(AppDistribution.current.branded(text))
     }
 
     private func note(_ text: String, font: Font = .callout) -> some View {
@@ -458,8 +458,8 @@ struct OnboardingOpenClawIDContent: View {
     private func problemHeading(_ title: String, detail: String, icon: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: icon).font(.system(size: 44)).foregroundStyle(.orange)
-            Text(title).font(.largeTitle.weight(.semibold))
-            Text(detail).foregroundStyle(.secondary)
+            Text(AppDistribution.current.branded(title)).font(.largeTitle.weight(.semibold))
+            Text(AppDistribution.current.branded(detail)).foregroundStyle(.secondary)
         }
     }
 
@@ -473,8 +473,8 @@ struct OnboardingOpenClawIDContent: View {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: icon).font(.title2).foregroundStyle(.tint).frame(width: 28)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(title).font(.headline)
-                    Text(detail).font(.callout).foregroundStyle(.secondary)
+                    Text(AppDistribution.current.branded(title)).font(.headline)
+                    Text(AppDistribution.current.branded(detail)).font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right").foregroundStyle(.tertiary)
@@ -490,8 +490,8 @@ struct OnboardingOpenClawIDContent: View {
 
     private func heading(_ title: String, subtitle: String) -> some View {
         VStack(spacing: 10) {
-            Text(title).font(.largeTitle.weight(.semibold))
-            Text(subtitle).foregroundStyle(.secondary)
+            Text(AppDistribution.current.branded(title)).font(.largeTitle.weight(.semibold))
+            Text(AppDistribution.current.branded(subtitle)).foregroundStyle(.secondary)
         }
     }
 
@@ -499,8 +499,8 @@ struct OnboardingOpenClawIDContent: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon).font(.title2).foregroundStyle(.tint).frame(width: 28)
             VStack(alignment: .leading, spacing: 5) {
-                Text(title).font(.headline)
-                Text(detail).font(.callout).foregroundStyle(.secondary)
+                Text(AppDistribution.current.branded(title)).font(.headline)
+                Text(AppDistribution.current.branded(detail)).font(.callout).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }

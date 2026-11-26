@@ -1008,7 +1008,7 @@ final class WebChatSwiftUIWindowController: NSObject, NSWindowDelegate {
         connection: GatewayConnection = .shared,
         gatewayID: String? = nil,
         gatewayTarget: DashboardGatewayTarget = .primary,
-        windowTitle: String = "OpenClaw Chat",
+        windowTitle: String = "\(AppDistribution.current.displayName) Chat",
         windowAutosaveName: String = WebChatSwiftUILayout.windowFrameAutosaveName)
     {
         // Primary route changes retire the owning window synchronously,
@@ -1040,7 +1040,7 @@ final class WebChatSwiftUIWindowController: NSObject, NSWindowDelegate {
         gatewayTarget: DashboardGatewayTarget? = nil,
         cachedRoutingIdentity: OpenClawChatSessionRoutingIdentity?,
         store: OpenClawChatSQLiteTranscriptCache?,
-        windowTitle: String = "OpenClaw Chat",
+        windowTitle: String = "\(AppDistribution.current.displayName) Chat",
         windowAutosaveName: String = WebChatSwiftUILayout.windowFrameAutosaveName)
     {
         let explicitAgentID = WebChatRoute.normalizedAgentID(agentID)
@@ -1074,7 +1074,7 @@ final class WebChatSwiftUIWindowController: NSObject, NSWindowDelegate {
         initialSessionRoutingContract: String? = nil,
         transcriptCache: (any OpenClawChatTranscriptCache)? = nil,
         outbox: (any OpenClawChatCommandOutbox)? = nil,
-        windowTitle: String = "OpenClaw Chat",
+        windowTitle: String = "\(AppDistribution.current.displayName) Chat",
         windowAutosaveName: String = WebChatSwiftUILayout.windowFrameAutosaveName)
     {
         let initialActiveAgentID = WebChatRoute.normalizedAgentID(initialActiveAgentID)

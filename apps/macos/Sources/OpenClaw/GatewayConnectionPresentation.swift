@@ -22,7 +22,7 @@ struct GatewayCompatibilityIssue: Equatable {
         self.problem = problem
         let appProtocol = minimum == maximum ? "\(maximum)" : "\(minimum)–\(maximum)"
         let gatewayProtocol = rejection.expectedProtocol.map(String.init) ?? "unknown"
-        self.versions = "OpenClaw app: \(appVersion ?? "unknown"). " +
+        self.versions = "\(AppDistribution.current.displayName) app: \(appVersion ?? "unknown"). " +
             "App protocol: \(appProtocol). Gateway protocol: \(gatewayProtocol). " +
             "The Gateway did not report its release version."
     }

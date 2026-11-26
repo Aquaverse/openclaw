@@ -72,10 +72,9 @@ enum ExecApprovalsStore {
         if let scopedStateDirectoryURL {
             return scopedStateDirectoryURL
         }
-        guard let configured = OpenClawEnv.path("OPENCLAW_STATE_DIR") else {
-            return AppProfile.current.stateDirectoryURL(homeDirectory: self.homeURL())
-        }
-        return URL(fileURLWithPath: self.expandPath(configured), isDirectory: true).standardizedFileURL
+        return AppProfile.current.resolvedStateDirectoryURL(
+            environmentOverride: OpenClawEnv.path("OPENCLAW_STATE_DIR").map(self.expandPath),
+            homeDirectory: self.homeURL())
     }
 
     private static func failClosedFallbackFile() -> ExecApprovalsFile {

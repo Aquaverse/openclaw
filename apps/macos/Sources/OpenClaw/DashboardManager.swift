@@ -336,8 +336,8 @@ final class DashboardManager {
             guard self.endpointGeneration == generation else { return }
             for controller in currentControllers() {
                 controller.showFailure(
-                    title: "OpenClaw unavailable",
-                    message: error.localizedDescription,
+                    title: "\(AppDistribution.current.displayName) unavailable",
+                    message: AppDistribution.current.branded(error.localizedDescription),
                     detail: "Reconnect to the Gateway to verify its sign-in address.",
                     present: false)
             }
@@ -391,7 +391,7 @@ final class DashboardManager {
                 auth: .unauthenticated,
                 tlsParams: nil,
                 mode: .unconfigured,
-                displayName: "OpenClaw"),
+                displayName: AppDistribution.current.displayName),
             target: .primary,
             present: false)
         replacement?.showFailure(
@@ -631,7 +631,10 @@ final class DashboardManager {
             return .success(())
         } catch {
             if reportErrors, isCurrent(), !(error is CancellationError) {
-                self.presentGatewayError(error, title: "Could Not Open OpenClaw", over: currentSource()?.window)
+                self.presentGatewayError(
+                    error,
+                    title: "Could Not Open \(AppDistribution.current.displayName)",
+                    over: currentSource()?.window)
             }
             return .failure(error)
         }
@@ -647,7 +650,7 @@ final class DashboardManager {
                 auth: .unauthenticated,
                 tlsParams: nil,
                 mode: .unconfigured,
-                displayName: "OpenClaw"),
+                displayName: AppDistribution.current.displayName),
             target: .primary,
             windowAutosaveName: self.mainWindowAutosaveName,
             auxiliary: false)

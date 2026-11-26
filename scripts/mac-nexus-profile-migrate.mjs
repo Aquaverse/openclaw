@@ -17,14 +17,19 @@ function parseArgs(argv) {
   const target = values.get("target");
   const profile = values.get("profile");
   const port = Number(values.get("port"));
+  const sourcePolicy = values.get("source-policy") ?? "preset";
   if (!source || !target || !profile || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("Usage: --source <dir> --target <dir> --profile <name> --port <port>");
+  }
+  if (sourcePolicy !== "preset" && sourcePolicy !== "explicit") {
+    throw new Error("--source-policy must be preset or explicit");
   }
   return {
     source: path.resolve(source),
     target: path.resolve(target),
     profile,
     port,
+    sourcePolicy,
   };
 }
 
@@ -49,12 +54,20 @@ function copyFilter(sourceRoot) {
   // The source profile remains intact after migration. Do not duplicate
   // installer-owned runtimes, recovery copies, or rebuildable caches into the
   // new profile; the pkg installs its own current runtime after this copy.
-  const ignoredRoots = new Set(["backups", "cache", "npm", "service-env", "tmp"]);
+  const ignoredRoots = new Set(["backups", "cache", "npm", "plugin-skills", "service-env", "tmp"]);
   return (candidate) => {
     const relative = path.relative(sourceRoot, candidate);
     if (relative) {
       const parts = relative.split(path.sep);
-      if (ignoredRoots.has(parts[0])) {
+      if (ignoredRoots.has(parts[0]) || parts.includes(".tmp") || parts.includes("tmp")) {
+        return false;
+      }
+      if (
+        relative === ".installer-runtime-applied" ||
+        relative === ".bundled-cli-package.sha256" ||
+        relative === ".nexus-profile-migration.json" ||
+        relative === path.join("bin", "openclaw")
+      ) {
         return false;
       }
       if (parts[0] === "tools" && (parts[1] === "node" || /^node-v\d/.test(parts[1] ?? ""))) {
@@ -64,6 +77,96 @@ function copyFilter(sourceRoot) {
     const stat = fs.lstatSync(candidate);
     return !stat.isSocket();
   };
+}
+
+function removePathIfPresent(candidate) {
+  try {
+    fs.lstatSync(candidate);
+  } catch {
+    return false;
+  }
+  fs.rmSync(candidate, { recursive: true, force: true });
+  return true;
+}
+
+function removeInstallerOwnedArtifacts(stateRoot) {
+  let removed = false;
+  for (const relative of [
+    ".installer-runtime-applied",
+    ".bundled-cli-package.sha256",
+    path.join("bin", "openclaw"),
+    "npm",
+    "plugin-skills",
+    "service-env",
+  ]) {
+    removed = removePathIfPresent(path.join(stateRoot, relative)) || removed;
+  }
+  const toolsRoot = path.join(stateRoot, "tools");
+  if (fs.existsSync(toolsRoot)) {
+    for (const entry of fs.readdirSync(toolsRoot, { withFileTypes: true })) {
+      if (entry.name === "node" || /^node-v\d/.test(entry.name)) {
+        removed = removePathIfPresent(path.join(toolsRoot, entry.name)) || removed;
+      }
+    }
+  }
+  return removed;
+}
+
+function rewriteOwnedAbsoluteSymlinks(stateRoot, sourceRoot, targetRoot) {
+  if (!fs.existsSync(stateRoot)) {
+    return 0;
+  }
+  let rewritten = 0;
+  const pending = [stateRoot];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const candidate = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) {
+        const linkTarget = fs.readlinkSync(candidate);
+        if (
+          path.isAbsolute(linkTarget) &&
+          (linkTarget === sourceRoot || linkTarget.startsWith(`${sourceRoot}${path.sep}`))
+        ) {
+          const rewrittenTarget = `${targetRoot}${linkTarget.slice(sourceRoot.length)}`;
+          fs.unlinkSync(candidate);
+          fs.symlinkSync(rewrittenTarget, candidate);
+          rewritten += 1;
+        }
+        continue;
+      }
+      if (entry.isDirectory()) {
+        pending.push(candidate);
+      }
+    }
+  }
+  return rewritten;
+}
+
+function rewriteTargetConfig(options, ownedRoot) {
+  const configPath = path.join(options.target, "openclaw.json");
+  if (!fs.existsSync(configPath)) {
+    return false;
+  }
+  const before = fs.readFileSync(configPath, "utf8");
+  const config = rewriteOwnedPaths(JSON.parse(before), ownedRoot, options.target);
+  normalizeGatewayConfig(config, options);
+  const after = `${JSON.stringify(config, null, 2)}\n`;
+  if (after === before) {
+    return false;
+  }
+  fs.writeFileSync(configPath, after, { mode: 0o600 });
+  return true;
+}
+
+function normalizeGatewayConfig(config, options) {
+  if (options.sourcePolicy === "explicit" && config.gateway?.mode === "remote") {
+    return;
+  }
+  config.gateway ??= {};
+  config.gateway.mode = "local";
+  config.gateway.port = options.port;
+  delete config.gateway.remote;
 }
 
 function print(result) {
@@ -120,20 +223,51 @@ function repairMigratedTarget(options) {
   } catch {
     return false;
   }
-  if (
-    receipt?.profile !== options.profile ||
-    path.resolve(receipt?.target ?? "") !== options.target
-  ) {
+  const receiptTarget = path.resolve(receipt?.target ?? "");
+  const ownsCurrentTarget = receiptTarget === options.target;
+  const continuesExplicitMigration =
+    options.sourcePolicy === "explicit" && receiptTarget === options.source;
+  if (receipt?.profile !== options.profile || (!ownsCurrentTarget && !continuesExplicitMigration)) {
     return false;
   }
   const removedBrowserSingletonArtifacts = removeCopiedBrowserSingletonArtifacts(options.target);
-  const upgraded = receipt.version !== 2;
+  const removedInstallerArtifacts = continuesExplicitMigration
+    ? removeInstallerOwnedArtifacts(options.target)
+    : false;
+  const legacyRoots =
+    options.sourcePolicy === "explicit"
+      ? [...new Set([receiptTarget, path.resolve(receipt?.source ?? "")])].filter(
+          (candidate) => candidate !== options.target && candidate !== path.parse(candidate).root,
+        )
+      : [];
+  let rewrittenOwnedSymlinks = 0;
+  let rewrittenConfig = false;
+  for (const legacyRoot of legacyRoots) {
+    rewrittenOwnedSymlinks += rewriteOwnedAbsoluteSymlinks(
+      options.target,
+      legacyRoot,
+      options.target,
+    );
+    rewrittenConfig = rewriteTargetConfig(options, legacyRoot) || rewrittenConfig;
+  }
+  const targetVersion = options.sourcePolicy === "explicit" ? 3 : 2;
+  const upgraded = receipt.version !== targetVersion || continuesExplicitMigration;
   if (upgraded) {
-    receipt.version = 2;
+    receipt.version = targetVersion;
+    if (options.sourcePolicy === "explicit") {
+      receipt.source = options.source;
+      receipt.target = options.target;
+    }
     receipt.repairedAt = new Date().toISOString();
     fs.writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
   }
-  return { removedBrowserSingletonArtifacts, upgraded };
+  return {
+    removedBrowserSingletonArtifacts,
+    removedInstallerArtifacts,
+    rewrittenOwnedSymlinks,
+    rewrittenConfig,
+    upgraded,
+  };
 }
 
 function assertNoGatewayStateOwner(source) {
@@ -164,11 +298,20 @@ if (options.source === options.target) {
 }
 if (fs.existsSync(options.target)) {
   const repair = repairMigratedTarget(options);
-  const changed = repair && (repair.removedBrowserSingletonArtifacts > 0 || repair.upgraded);
+  const changed =
+    repair &&
+    (repair.removedBrowserSingletonArtifacts > 0 ||
+      repair.removedInstallerArtifacts ||
+      repair.rewrittenOwnedSymlinks > 0 ||
+      repair.rewrittenConfig ||
+      repair.upgraded);
   print(changed ? { status: "target_repaired", ...repair } : { status: "target_exists" });
   process.exit(0);
 }
-if (!fs.existsSync(path.join(options.source, ".nexus-preset-applied"))) {
+if (
+  options.sourcePolicy !== "explicit" &&
+  !fs.existsSync(path.join(options.source, ".nexus-preset-applied"))
+) {
   print({ status: "source_ineligible" });
   process.exit(0);
 }
@@ -199,6 +342,7 @@ try {
     fs.rmSync(path.join(staging, relative), { recursive: true, force: true });
   }
   removeCopiedBrowserSingletonArtifacts(staging);
+  rewriteOwnedAbsoluteSymlinks(staging, options.source, options.target);
 
   const configPath = path.join(staging, "openclaw.json");
   if (fs.existsSync(configPath)) {
@@ -207,10 +351,7 @@ try {
       options.source,
       options.target,
     );
-    config.gateway ??= {};
-    config.gateway.mode = "local";
-    config.gateway.port = options.port;
-    delete config.gateway.remote;
+    normalizeGatewayConfig(config, options);
     fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
   }
 
@@ -218,7 +359,7 @@ try {
     path.join(staging, ".nexus-profile-migration.json"),
     `${JSON.stringify(
       {
-        version: 2,
+        version: options.sourcePolicy === "explicit" ? 3 : 2,
         profile: options.profile,
         source: options.source,
         target: options.target,

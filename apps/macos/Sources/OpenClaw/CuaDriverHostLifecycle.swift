@@ -51,7 +51,9 @@ extension CuaDriverHostCoordinator {
     private static func ownedSocketDirectories(
         in applicationSupportURL: URL) -> [CuaDriverSocketDirectory]
     {
-        let openClawRoot = applicationSupportURL.appendingPathComponent("OpenClaw", isDirectory: true)
+        let openClawRoot = applicationSupportURL.appendingPathComponent(
+            AppDistribution.current.applicationSupportName,
+            isDirectory: true)
         let root = openClawRoot.appendingPathComponent("cua", isDirectory: true)
         for ancestor in [applicationSupportURL, openClawRoot, root] {
             var status = stat()

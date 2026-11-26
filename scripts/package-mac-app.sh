@@ -10,6 +10,7 @@ source "$ROOT_DIR/scripts/lib/mac-pnpm.sh"
 source "$ROOT_DIR/scripts/lib/swift-toolchain.sh"
 source "$ROOT_DIR/scripts/lib/build-metadata.sh"
 source "$ROOT_DIR/scripts/lib/mac-app-bundle.sh"
+source "$ROOT_DIR/scripts/lib/askpepio-distribution.sh"
 REUSE_SOURCE_BUILD="${OPENCLAW_MAC_REUSE_BUILD:-0}"
 case "$REUSE_SOURCE_BUILD" in
   0 | 1) ;;
@@ -20,7 +21,7 @@ case "$CLOUD_WORKER_HOST" in
   0 | 1) ;;
   *) echo "ERROR: OPENCLAW_MAC_CLOUD_WORKER_HOST must be 0 or 1." >&2; exit 1 ;;
 esac
-APP_BUNDLE_NAME=OpenClaw.app
+APP_BUNDLE_NAME="${OPENCLAW_PRODUCT_FILE_NAME:-OpenClaw}.app"
 if [[ "$CLOUD_WORKER_HOST" == "1" ]]; then
   APP_BUNDLE_NAME=OpenClawCloudWorker.app
   if [[ "${BUNDLE_ID:-ai.openclaw.cloud-worker}" != ai.openclaw.cloud-worker ]]; then
@@ -59,7 +60,7 @@ PRODUCT="OpenClaw"
 MLX_TTS_HELPER_PRODUCT="openclaw-mlx-tts"
 MLX_TTS_HELPER_ROOT="$ROOT_DIR/apps/macos-mlx-tts"
 MLX_TTS_HELPER_BUILD_ROOT="$MLX_TTS_HELPER_ROOT/.build"
-BUNDLE_ID="${BUNDLE_ID:-ai.openclaw.mac.debug}"
+BUNDLE_ID="${BUNDLE_ID:-${OPENCLAW_PRODUCT_BUNDLE_ID:-ai.openclaw.mac.debug}}"
 PKG_VERSION="$(cd "$ROOT_DIR" && node -p "require('./package.json').version" 2>/dev/null || echo "0.0.0")"
 BUILD_CONFIG="${BUILD_CONFIG:-debug}"
 SIGNING_VARIANT="${OPENCLAW_MAC_SIGNING_VARIANT:-standard}"
@@ -359,6 +360,20 @@ if [[ ! "$PORT_GUARDIAN_STORAGE_VERSION" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 plist_set_string_required "$APP_ROOT/Contents/Info.plist" CFBundleIdentifier "$BUNDLE_ID"
+if [[ -n "${OPENCLAW_PRODUCT_DISPLAY_NAME:-}" ]]; then
+  plist_set_string_required "$APP_ROOT/Contents/Info.plist" CFBundleName "$OPENCLAW_PRODUCT_DISPLAY_NAME"
+  plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" CFBundleDisplayName "$OPENCLAW_PRODUCT_DISPLAY_NAME"
+  plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" OpenClawProductDisplayName "$OPENCLAW_PRODUCT_DISPLAY_NAME"
+  plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" OpenClawProductFileName "$OPENCLAW_PRODUCT_FILE_NAME"
+  plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" OpenClawProductIdentityPrefix "$OPENCLAW_PRODUCT_IDENTITY_PREFIX"
+  plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" OpenClawProductStateDirectoryName "$OPENCLAW_PRODUCT_STATE_DIRECTORY_NAME"
+  plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" OpenClawProductApplicationSupportName "$OPENCLAW_PRODUCT_APPLICATION_SUPPORT_NAME"
+  plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" OpenClawProductLogDirectoryName "$OPENCLAW_PRODUCT_LOG_DIRECTORY_NAME"
+  plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" OpenClawProductCacheDirectoryName "$OPENCLAW_PRODUCT_CACHE_DIRECTORY_NAME"
+  plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" OpenClawProductDomain "$OPENCLAW_PRODUCT_DOMAIN"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLName ${OPENCLAW_PRODUCT_BUNDLE_ID}.deeplink" "$APP_ROOT/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 askpepio" "$APP_ROOT/Contents/Info.plist"
+fi
 if [[ "$CLOUD_WORKER_HOST" == "1" ]]; then
   plist_set_string_required "$APP_ROOT/Contents/Info.plist" CFBundleName "OpenClaw Cloud Worker"
   plist_set_or_add_string "$APP_ROOT/Contents/Info.plist" CFBundleDisplayName "OpenClaw Cloud Worker"

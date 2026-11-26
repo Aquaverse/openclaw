@@ -152,12 +152,12 @@ struct ConnectionSettingsView: View {
     }
 
     private var connectionStatusSubtitle: String {
-        if let failure = self.localGatewayFailure { return failure }
+        if let failure = self.localGatewayFailure { return AppDistribution.current.branded(failure) }
         switch self.state.connectionMode {
         case .local:
-            return self.gatewayManager.installation == .external
+            return AppDistribution.current.branded(self.gatewayManager.installation == .external
                 ? "OpenClaw connects to an independently managed Gateway on this Mac."
-                : "OpenClaw starts and monitors the Gateway on this Mac."
+                : "OpenClaw starts and monitors the Gateway on this Mac.")
         case .remote:
             let target = self.state.remoteTransport == .ssh ? self.state.remoteTarget : self.state.remoteUrl
             let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -256,7 +256,7 @@ struct ConnectionSettingsView: View {
     private var gatewayInstallerRow: some View {
         GatewayInstallerView(
             status: self.gatewayStatus,
-            failure: self.gatewayManager.lastFailureReason,
+            failure: self.gatewayManager.lastFailureReason.map(AppDistribution.current.branded),
             existingGatewayDetails: {
                 if case let .attachedExisting(details) = self.gatewayManager.status {
                     return details ?? String(localized: "Using existing gateway instance")
@@ -264,7 +264,7 @@ struct ConnectionSettingsView: View {
                 return nil
             }(),
             isInstalling: CLIInstallPrompter.shared.isPrompting,
-            installStatus: CLIInstallPrompter.shared.installStatus,
+            installStatus: CLIInstallPrompter.shared.installStatus.map(AppDistribution.current.branded),
             onInstall: {
                 CLIInstallPrompter.shared.checkAndPromptIfNeeded(userInitiated: true)
             },
@@ -302,7 +302,7 @@ struct ConnectionSettingsView: View {
             if let error = self.localHostingError ?? (self.state.hostsLocalGatewayWithRemotePrimary
                 ? self.gatewayManager.lastFailureReason : nil)
             {
-                Text(error).foregroundStyle(.red)
+                Text(AppDistribution.current.branded(error)).foregroundStyle(.red)
             }
         }
     }

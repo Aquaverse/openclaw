@@ -933,6 +933,9 @@ export async function compileMacosLocalizations(outputDir: string) {
   ]);
   const sourceIds = infoPlistSourceIds(nativeSource);
   const infoPlistEntries = parseInfoPlistStrings(infoPlistSource);
+  const productName = process.env.OPENCLAW_PRODUCT_DISPLAY_NAME?.trim();
+  const brandValue = (value: string) =>
+    productName && productName !== "OpenClaw" ? value.replaceAll("OpenClaw", productName) : value;
 
   for (const locale of REQUIRED_LOCALES) {
     const localeDir = APPLE_LOCALE_DIRECTORIES[locale] ?? locale;
@@ -946,7 +949,7 @@ export async function compileMacosLocalizations(outputDir: string) {
             `Apple catalog ${MACOS_CATALOG_PATH} is missing ${locale} for ${JSON.stringify(key)}`,
           );
         }
-        return `${JSON.stringify(key)} = ${JSON.stringify(value)};`;
+        return `${JSON.stringify(key)} = ${JSON.stringify(brandValue(value))};`;
       });
     await mkdir(lprojDir, { recursive: true });
     await writeFile(path.join(lprojDir, "Localizable.strings"), `${lines.join("\n")}\n`, "utf8");
@@ -958,7 +961,11 @@ export async function compileMacosLocalizations(outputDir: string) {
         sourceIds,
         artifact,
       );
-      await writeFile(path.join(lprojDir, "InfoPlist.strings"), infoPlistStrings, "utf8");
+      await writeFile(
+        path.join(lprojDir, "InfoPlist.strings"),
+        brandValue(infoPlistStrings),
+        "utf8",
+      );
     }
   }
 }

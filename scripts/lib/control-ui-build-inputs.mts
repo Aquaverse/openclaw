@@ -103,6 +103,7 @@ export async function createControlUiBuildInputs(
         "OPENCLAW_CONTROL_UI_BASE_PATH",
         "OPENCLAW_CONTROL_UI_RELEASE_BUILD",
         "OPENCLAW_CONTROL_UI_REQUIRE_PLUGIN_DISTRIBUTIONS",
+        "VITE_OPENCLAW_PRODUCT_NAME",
       ],
       env,
       JSON.stringify({

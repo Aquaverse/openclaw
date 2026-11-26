@@ -83,7 +83,7 @@ final class PeekabooBridgeHostCoordinator {
         let fileManager = FileManager.default
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-        let socketPath = Self.makeSocketPath(for: "OpenClaw", in: base)
+        let socketPath = Self.makeSocketPath(for: AppDistribution.current.applicationSupportName, in: base)
         self.runtimeFactory = {
             PeekabooEmbeddedBridgeRuntime.make(
                 configuration: .init(

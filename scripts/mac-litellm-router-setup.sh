@@ -76,7 +76,8 @@ done
 LOCAL_BASE_URL="${LOCAL_BASE_URL:-http://127.0.0.1:${LOCAL_PORT}/v1}"
 LOCAL_REF="${LOCAL_REF:-llama-local-fallback/${LOCAL_MODEL}}"
 
-LOG_FILE="${OPENCLAW_LITELLM_LOG:-$HOME/Library/Logs/OpenClaw/litellm-router-setup.log}"
+PRODUCT_LOG_DIR="${OPENCLAW_PRODUCT_LOG_DIR:-$HOME/Library/Logs/OpenClaw}"
+LOG_FILE="${OPENCLAW_LITELLM_LOG:-$PRODUCT_LOG_DIR/litellm-router-setup.log}"
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE" >/dev/null
@@ -562,9 +563,9 @@ cat > "$PLIST_CANDIDATE" <<PLIST_EOF
   <key>ProcessType</key>
   <string>Interactive</string>
   <key>StandardOutPath</key>
-  <string>${HOME}/Library/Logs/OpenClaw/litellm-router.log</string>
+  <string>${PRODUCT_LOG_DIR}/litellm-router.log</string>
   <key>StandardErrorPath</key>
-  <string>${HOME}/Library/Logs/OpenClaw/litellm-router.log</string>
+  <string>${PRODUCT_LOG_DIR}/litellm-router.log</string>
 </dict>
 </plist>
 PLIST_EOF
@@ -598,7 +599,7 @@ fi
 HEALTH_WAIT="${OPENCLAW_LITELLM_HEALTH_WAIT:-180}"
 WAITED=0
 until router_healthy; do
-  (( WAITED >= HEALTH_WAIT )) && fail "router did not answer within ${HEALTH_WAIT}s (see ~/Library/Logs/OpenClaw/litellm-router.log)"
+  (( WAITED >= HEALTH_WAIT )) && fail "router did not answer within ${HEALTH_WAIT}s (see ${PRODUCT_LOG_DIR}/litellm-router.log)"
   sleep 2
   WAITED=$((WAITED + 2))
 done

@@ -120,6 +120,7 @@ struct GatewayServiceRuntimeTests {
         #expect(environment["OPENCLAW_SQLITE_LIBRARY"] == "/profile/runtime/build-two/lib/libsqlite3.dylib")
         #expect(environment["PATH"] == "/profile/runtime/build-two/bin:/usr/bin:/bin")
         #expect(environment["OPENCLAW_PROFILE"] == "service-proof")
+        #expect(environment["OPENCLAW_LAUNCHD_LABEL"] == "ai.openclaw.service-proof")
         let directory = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".openclaw-service-proof")
         #expect(environment["OPENCLAW_STATE_DIR"] == directory.path)

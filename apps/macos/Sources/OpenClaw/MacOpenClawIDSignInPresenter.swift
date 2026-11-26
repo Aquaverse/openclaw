@@ -21,7 +21,7 @@ final class MacOpenClawIDSignInPresenter: NSObject, NSWindowDelegate {
         let window = NSWindow(
             contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.delegate = self
-        window.title = "OpenClaw ID"
+        window.title = "\(AppDistribution.current.displayName) ID"
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: OnboardingOpenClawIDView(
             model: model, onClose: { [weak self] in self?.close() }))

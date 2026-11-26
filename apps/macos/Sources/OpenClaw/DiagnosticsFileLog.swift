@@ -20,11 +20,7 @@ actor DiagnosticsFileLog {
     }
 
     nonisolated static func logDirectoryURL() -> URL {
-        let library = FileManager().urls(for: .libraryDirectory, in: .userDomainMask).first
-            ?? FileManager().homeDirectoryForCurrentUser.appendingPathComponent("Library", isDirectory: true)
-        return library
-            .appendingPathComponent("Logs", isDirectory: true)
-            .appendingPathComponent("OpenClaw", isDirectory: true)
+        AppDistribution.current.logDirectoryURL()
     }
 
     nonisolated static func logFileURL() -> URL {

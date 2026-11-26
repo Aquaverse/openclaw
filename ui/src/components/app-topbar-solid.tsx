@@ -8,6 +8,7 @@ import { KEYBOARD_SHORTCUT_COMBOS } from "../lib/keyboard-shortcut-contract.ts";
 import { elementRef } from "../lib/reactive/element-ref.ts";
 import { t } from "../lib/reactive/i18n.ts";
 import { defineSolidBridge } from "../lib/solid-bridge.ts";
+import { productDisplayName } from "../product-branding.ts";
 import type { GatewayStatusProps } from "./gateway-status.ts";
 import { GatewayWordmarkText } from "./solid/gateway-connection-view.tsx";
 import { GatewayStatus } from "./solid/gateway-status.tsx";
@@ -117,7 +118,7 @@ defineSolidBridge<Props>(
                   <GatewayStatus {...props.gatewayStatus!} />
                 </div>
               </Show>
-              <div class="topbar-brand" aria-label="OpenClaw">
+              <div class="topbar-brand" aria-label={productDisplayName}>
                 <img
                   class="topbar-brand__logo"
                   src={controlUiPublicAssetPath("apple-touch-icon.png", props.resourceBasePath)}
@@ -125,7 +126,7 @@ defineSolidBridge<Props>(
                   alt=""
                   aria-hidden="true"
                 />
-                <span class="topbar-brand__title">OpenClaw</span>
+                <span class="topbar-brand__title">{productDisplayName}</span>
                 <Show when={props.environment}>
                   {(environment) => (
                     <span class="control-ui-environment-pill">{environment().label}</span>

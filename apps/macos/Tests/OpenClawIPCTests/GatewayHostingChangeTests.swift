@@ -241,6 +241,7 @@ struct GatewayHostingChangeTests {
             #expect(installer["FIXTURE_CHANNEL_SETTING"] == "service-value")
             #expect(installer["PATH"]?.contains("/fixture/custom/bin") == true)
             #expect(installer["OPENCLAW_GATEWAY_HOST_LIFELINE"] == nil)
+            #expect(installer["OPENCLAW_LAUNCHD_LABEL"] == profile.gatewayLaunchAgentLabel)
         }
         try FileManager.default.removeItem(at: artifacts.wrapper)
         #expect(throws: GatewayHostingError.self) {

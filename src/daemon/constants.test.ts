@@ -45,6 +45,7 @@ it.each([
 });
 
 it.each([
+  ["darwin", { OPENCLAW_PROFILE: "nexus", OPENCLAW_LAUNCHD_LABEL: "ai.pepio.nexus" }],
   ["linux", { OPENCLAW_PROFILE: "work", OPENCLAW_SYSTEMD_UNIT: "openclaw-gateway-work" }],
   ["linux", { OPENCLAW_SYSTEMD_UNIT: "custom-gateway.service" }],
   ["win32", { OPENCLAW_PROFILE: "work", OPENCLAW_WINDOWS_TASK_NAME: "OpenClaw Gateway (work)" }],

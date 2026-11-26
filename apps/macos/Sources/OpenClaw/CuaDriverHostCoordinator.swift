@@ -454,7 +454,9 @@ final class CuaDriverHostCoordinator {
     }
 
     static func createSocketDirectory(in applicationSupportURL: URL) throws -> CuaDriverSocketDirectory {
-        let openClawRoot = applicationSupportURL.appendingPathComponent("OpenClaw", isDirectory: true)
+        let openClawRoot = applicationSupportURL.appendingPathComponent(
+            AppDistribution.current.applicationSupportName,
+            isDirectory: true)
         let root = openClawRoot.appendingPathComponent("cua", isDirectory: true)
         for directory in [applicationSupportURL, openClawRoot, root] {
             var status = stat()

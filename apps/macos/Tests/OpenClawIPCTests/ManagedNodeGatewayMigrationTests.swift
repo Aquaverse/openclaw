@@ -745,7 +745,7 @@ struct ManagedNodeGatewayMigrationTests {
             profile: AppProfile(environment: ["OPENCLAW_PROFILE": "migration-proof"]),
             searchPaths: ["/usr/bin"])
         #expect(environment["CHANNEL_FIXTURE"] == "synthetic")
-        #expect(environment["OPENCLAW_LAUNCHD_LABEL"] == nil)
+        #expect(environment["OPENCLAW_LAUNCHD_LABEL"] == "ai.openclaw.migration-proof")
         #expect(environment["OPENCLAW_PROFILE"] == "migration-proof")
     }
 

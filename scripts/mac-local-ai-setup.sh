@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-LOG_FILE="${OPENCLAW_LOCAL_AI_LOG:-$HOME/Library/Logs/OpenClaw/local-ai-setup.log}"
+LOG_FILE="${OPENCLAW_LOCAL_AI_LOG:-${OPENCLAW_PRODUCT_LOG_DIR:-$HOME/Library/Logs/OpenClaw}/local-ai-setup.log}"
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE" >/dev/null

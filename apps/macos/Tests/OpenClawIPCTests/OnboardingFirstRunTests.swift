@@ -92,6 +92,30 @@ struct OnboardingFirstRunTests {
         #expect(failed.detail.contains("Reset Remote Tunnel"))
     }
 
+    @Test func `profile port conflict uses product branding without unrelated tunnel advice`() {
+        let distribution = AppDistribution(infoDictionary: [
+            "OpenClawProductDisplayName": "Ask Pepio",
+            "OpenClawProductFileName": "AskPepio",
+            "OpenClawProductIdentityPrefix": "ai.pepio",
+            "OpenClawProductStateDirectoryName": ".askpepio",
+        ])
+        let error = NSError(
+            domain: "AskPepioTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey:
+                "Gateway port 43384 is already used by another process or Ask Pepio profile."])
+
+        let failure = DashboardManager.failureCopy(
+            error: error,
+            joinedClaw: false,
+            distribution: distribution)
+
+        #expect(failure.message.contains("Ask Pepio profile"))
+        #expect(!failure.message.contains("OpenClaw profile"))
+        #expect(!failure.message.contains("Set gateway.port"))
+        #expect(!failure.detail.contains("Reset Remote Tunnel"))
+    }
+
     @Test func `joining a claw commits the primary before completing setup and opening the dashboard`() async throws {
         var events: [String] = []
         try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in

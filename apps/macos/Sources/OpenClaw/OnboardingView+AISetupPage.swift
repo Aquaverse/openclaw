@@ -38,15 +38,16 @@ extension OnboardingView {
     }
 
     private var aiSetupSubtitle: String {
-        if self.aiSetup.configuredGatewayAuthIssue != nil {
-            return "Finish the remote Gateway connection before continuing."
+        let subtitle = if self.aiSetup.configuredGatewayAuthIssue != nil {
+            "Finish the remote Gateway connection before continuing."
+        } else if state.connectionMode == .remote {
+            "AI access is configured on the remote Gateway. OpenClaw will use that existing setup."
+        } else {
+            "OpenClaw needs an AI account to think. " +
+                "It reuses what you already have — nothing new to sign up for if " +
+                "Claude Code, Codex, or an API key is on this Mac."
         }
-        if state.connectionMode == .remote {
-            return "AI access is configured on the remote Gateway. OpenClaw will use that existing setup."
-        }
-        return "OpenClaw needs an AI account to think. " +
-            "It reuses what you already have — nothing new to sign up for if " +
-            "Claude Code, Codex, or an API key is on this Mac."
+        return AppDistribution.current.branded(subtitle)
     }
 
     func maybeStartAISetup(for pageIndex: Int) {

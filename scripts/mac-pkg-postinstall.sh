@@ -29,21 +29,34 @@ source "$SCRIPT_DIR/lib/mac-installer-node-runtime.sh"
 # would then fail with "ENOENT: process.cwd failed ... uv_cwd". Run from a directory that always exists.
 cd / || true
 
-LOG_FILE="/var/log/openclaw-installer-postinstall.log"
+INSTALL_LOCATION="${2:-/Applications}"
+APP_PATH="$INSTALL_LOCATION/AskPepio.app"
+if [[ ! -d "$APP_PATH" ]]; then
+  APP_PATH="$INSTALL_LOCATION/OpenClaw.app"
+fi
+if [[ ! -d "$APP_PATH" ]]; then
+  APP_PATH="/Applications/AskPepio.app"
+fi
+if [[ ! -d "$APP_PATH" ]]; then
+  APP_PATH="/Applications/OpenClaw.app"
+fi
+
+if [[ "$(basename "$APP_PATH")" == "AskPepio.app" ]]; then
+  LOG_FILE="/var/log/askpepio-installer-postinstall.log"
+  INSTALLER_PRODUCT_NAME="Ask Pepio"
+else
+  LOG_FILE="/var/log/openclaw-installer-postinstall.log"
+  INSTALLER_PRODUCT_NAME="OpenClaw"
+fi
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE" >/dev/null
 }
 
 log "=================================================="
-log "OpenClaw postinstall starting"
+log "$INSTALLER_PRODUCT_NAME-compatible postinstall starting"
 
-INSTALL_LOCATION="${2:-/Applications}"
-APP_PATH="$INSTALL_LOCATION/OpenClaw.app"
 if [[ ! -d "$APP_PATH" ]]; then
-  APP_PATH="/Applications/OpenClaw.app"
-fi
-if [[ ! -d "$APP_PATH" ]]; then
-  log "ERROR: OpenClaw.app not found at an expected location (checked $INSTALL_LOCATION and /Applications) -- skipping silent provisioning. The app install itself is unaffected."
+  log "ERROR: installed app not found at an expected location (checked AskPepio.app and OpenClaw.app in $INSTALL_LOCATION and /Applications) -- skipping silent provisioning. The app install itself is unaffected."
   exit 0
 fi
 log "App: $APP_PATH"
@@ -90,7 +103,12 @@ log "Fixing ownership of $APP_PATH to $CONSOLE_USER:$CONSOLE_GROUP"
 run_as_console_user() {
   if [[ -n "${APP_PROFILE:-}" ]]; then
     /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" -H \
-      /usr/bin/env OPENCLAW_PROFILE="$APP_PROFILE" "$@"
+      /usr/bin/env OPENCLAW_PROFILE="$APP_PROFILE" \
+        OPENCLAW_STATE_DIR="$PREFIX" \
+        OPENCLAW_CONFIG_PATH="$PREFIX/openclaw.json" \
+        OPENCLAW_LAUNCHD_LABEL="$GATEWAY_SERVICE_LABEL" \
+        OPENCLAW_PRODUCT_LOG_DIR="$CONSOLE_HOME/Library/Logs/$PRODUCT_LOG_DIRECTORY_NAME" \
+        XDG_CACHE_HOME="$CONSOLE_HOME/Library/Caches/$PRODUCT_CACHE_DIRECTORY_NAME" "$@"
   else
     /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" -H "$@"
   fi
@@ -165,12 +183,23 @@ if [[ "$APP_PROFILE" == "default" ]]; then
 fi
 
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+PRODUCT_IDENTITY_PREFIX="$(/usr/libexec/PlistBuddy -c "Print OpenClawProductIdentityPrefix" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+PRODUCT_STATE_DIRECTORY_NAME="$(/usr/libexec/PlistBuddy -c "Print OpenClawProductStateDirectoryName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+PRODUCT_LOG_DIRECTORY_NAME="$(/usr/libexec/PlistBuddy -c "Print OpenClawProductLogDirectoryName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+PRODUCT_CACHE_DIRECTORY_NAME="$(/usr/libexec/PlistBuddy -c "Print OpenClawProductCacheDirectoryName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+PRODUCT_IDENTITY_PREFIX="${PRODUCT_IDENTITY_PREFIX:-ai.openclaw}"
+PRODUCT_LOG_DIRECTORY_NAME="${PRODUCT_LOG_DIRECTORY_NAME:-OpenClaw}"
+PRODUCT_CACHE_DIRECTORY_NAME="${PRODUCT_CACHE_DIRECTORY_NAME:-openclaw}"
 APP_DEFAULTS_DOMAIN="$BUNDLE_ID"
 if [[ -n "$APP_PROFILE" ]]; then
   export OPENCLAW_PROFILE="$APP_PROFILE"
-  PREFIX="$CONSOLE_HOME/.openclaw-${APP_PROFILE}"
-  GATEWAY_SERVICE_LABEL="ai.openclaw.${APP_PROFILE}"
-  APP_DEFAULTS_DOMAIN="ai.openclaw.mac.profile.${APP_PROFILE}"
+  if [[ -n "$PRODUCT_STATE_DIRECTORY_NAME" ]]; then
+    PREFIX="$CONSOLE_HOME/$PRODUCT_STATE_DIRECTORY_NAME"
+  else
+    PREFIX="$CONSOLE_HOME/.openclaw-${APP_PROFILE}"
+  fi
+  GATEWAY_SERVICE_LABEL="${PRODUCT_IDENTITY_PREFIX}.${APP_PROFILE}"
+  APP_DEFAULTS_DOMAIN="${PRODUCT_IDENTITY_PREFIX}.mac.profile.${APP_PROFILE}"
 else
   unset OPENCLAW_PROFILE
   PREFIX="$CONSOLE_HOME/.openclaw"
@@ -210,7 +239,8 @@ prior_nexus_gateway_service_owned() {
 MIGRATION_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-profile-migrate.mjs"
 NEXUS_PROFILE_MIGRATED=0
 NEXUS_PROFILE_MIGRATION_REQUIRED=0
-if [[ "$APP_PROFILE" == "nexus" \
+if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.openclaw" \
+  && "$APP_PROFILE" == "nexus" \
   && -f "$PREFIX/.nexus-profile-migration.json" \
   && -f "$MIGRATION_SCRIPT" \
   && -x "$APP_PATH/Contents/Resources/runtime/bin/bun" ]]; then
@@ -223,7 +253,8 @@ if [[ "$APP_PROFILE" == "nexus" \
     log "WARN: existing Nexus profile browser-lock repair failed; browser startup may require manual lock cleanup."
   fi
 fi
-if [[ "$APP_PROFILE" == "nexus" \
+if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.openclaw" \
+  && "$APP_PROFILE" == "nexus" \
   && ! -e "$PREFIX" \
   && -f "$CONSOLE_HOME/.openclaw/.nexus-preset-applied" ]]; then
   NEXUS_PROFILE_MIGRATION_REQUIRED=1
@@ -315,6 +346,26 @@ GATEWAY_STOPPED_FOR_RUNTIME=0
 RUNTIME_ROLLBACK_DIR=""
 PREVIOUS_RUNTIME_TARGET=""
 
+gateway_service_identity_matches() {
+  local plist="$1"
+  local expected_label="$2"
+  local expected_state_dir="$3"
+  local actual_label
+  local actual_working_directory
+  local actual_env_file
+  local expected_env_file="$expected_state_dir/service-env/$expected_label.env"
+
+  [[ -f "$plist" ]] || return 1
+  actual_label="$(/usr/libexec/PlistBuddy -c "Print :Label" "$plist" 2>/dev/null)" || return 1
+  actual_working_directory="$(/usr/libexec/PlistBuddy -c "Print :WorkingDirectory" "$plist" 2>/dev/null)" || return 1
+  actual_env_file="$(/usr/libexec/PlistBuddy -c "Print :ProgramArguments:2" "$plist" 2>/dev/null)" || return 1
+
+  [[ "$actual_label" == "$expected_label" ]] || return 1
+  [[ "$actual_working_directory" == "$expected_state_dir" ]] || return 1
+  [[ "$actual_env_file" == "$expected_env_file" && -f "$expected_env_file" ]] || return 1
+  /usr/bin/grep -Fqx "export OPENCLAW_LAUNCHD_LABEL='$expected_label'" "$expected_env_file"
+}
+
 restore_previous_runtime() {
   [[ -n "$RUNTIME_ROLLBACK_DIR" && -n "$PREVIOUS_RUNTIME_TARGET" ]] || return 1
   [[ -d "$RUNTIME_ROLLBACK_DIR/node-runtime" ]] || return 1
@@ -354,7 +405,7 @@ restart_previous_gateway() {
   log "Restarting the Gateway on the restored CLI runtime."
   run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
       "$OPENCLAW_BIN" gateway start --json >>"$LOG_FILE" 2>&1 \
-    || log "WARN: Gateway recovery start failed; open OpenClaw.app to retry recovery."
+    || log "WARN: Gateway recovery start failed; open $(basename "$APP_PATH") to retry recovery."
 }
 
 stage_previous_runtime() {
@@ -815,13 +866,20 @@ if [[ ( "$ONBOARDING_ALREADY_COMPLETED" == "1" || "$ONBOARDING_CONNECTION_MODE" 
   log "Onboarding already completed -- skipping non-interactive onboarding."
   if [[ "$ONBOARDING_CONNECTION_MODE" != "remote" || "$HOSTS_LOCAL_GATEWAY_WITH_REMOTE_PRIMARY" == "1" ]]; then
     if [[ "$GATEWAY_WAS_LOADED" == "1" || -f "$GATEWAY_SERVICE_PLIST" ]]; then
-      # `gateway start` preserves a matching service definition and repairs it
-      # only when the new runtime or Gateway target actually changed. The old
-      # `install --force` path rewrote and restarted an already-correct service.
-      log "==> Starting the Gateway on the newly installed CLI (repairing its service definition only if needed)..."
-      run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
-          "$OPENCLAW_BIN" gateway start --json >>"$LOG_FILE" 2>&1 \
-        || log "WARN: Gateway service start failed (see $LOG_FILE above); onboarding remains completed and the app can retry service recovery."
+      if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.openclaw" ]] \
+        || gateway_service_identity_matches "$GATEWAY_SERVICE_PLIST" "$GATEWAY_SERVICE_LABEL" "$PREFIX"; then
+        # `gateway start` preserves a matching service definition and repairs it
+        # only when the new runtime or Gateway target actually changed.
+        log "==> Starting the Gateway on the newly installed CLI (repairing its service definition only if needed)..."
+        run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+            "$OPENCLAW_BIN" gateway start --json >>"$LOG_FILE" 2>&1 \
+          || log "WARN: Gateway service start failed (see $LOG_FILE above); onboarding remains completed and the app can retry service recovery."
+      else
+        log "==> The branded Gateway service identity is stale; replacing its LaunchAgent definition..."
+        run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
+            "$OPENCLAW_BIN" gateway install --force --json >>"$LOG_FILE" 2>&1 \
+          || log "WARN: Gateway service identity repair failed (see $LOG_FILE above); onboarding remains completed and the app can retry service recovery."
+      fi
     else
       log "==> No Gateway service definition exists; installing it once..."
       run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" OPENCLAW_PREFIX="$PREFIX" \
@@ -937,7 +995,7 @@ fi
 # with nohup/&. OpenClaw.app starts the same setup in the
 # background on every launch (AutoOnboardBootstrap / MenuBar), so it simply
 # happens on first launch instead, without holding up the installer.
-log "Local model setup is deferred to OpenClaw.app's first launch."
+log "Local model setup is deferred to $(basename "$APP_PATH")'s first launch."
 
-log "OpenClaw postinstall finished."
+log "Postinstall finished for $(basename "$APP_PATH")."
 exit 0

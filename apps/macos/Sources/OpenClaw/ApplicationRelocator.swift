@@ -944,12 +944,13 @@ extension ApplicationRelocator {
 
     private static func confirmInstall(replacing: Bool, completion: @escaping (Bool) -> Void) {
         let alert = NSAlert()
-        alert.messageText = replacing
+        alert.messageText = AppDistribution.current.branded(replacing
             ? "Replace the older OpenClaw in Applications?"
-            : "Install OpenClaw in Applications?"
-        alert.informativeText = replacing
+            : "Install OpenClaw in Applications?")
+        let detail = replacing
             ? "This copy is newer than the installed app. OpenClaw will replace it and reopen from Applications."
             : "OpenClaw will copy itself to Applications and reopen there so updates and launch at login stay reliable."
+        alert.informativeText = AppDistribution.current.branded(detail)
         alert.alertStyle = .informational
         alert.addButton(withTitle: replacing ? "Replace and Relaunch" : "Install and Relaunch")
         let cancel = alert.addButton(withTitle: "Not Now")
@@ -1280,8 +1281,8 @@ extension ApplicationRelocator {
 
     private static func showFailure(_ message: String) {
         let alert = NSAlert()
-        alert.messageText = "Move OpenClaw to Applications"
-        alert.informativeText = message
+        alert.messageText = AppDistribution.current.branded("Move OpenClaw to Applications")
+        alert.informativeText = AppDistribution.current.branded(message)
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         AppActivation.shared.presentAlert(alert)

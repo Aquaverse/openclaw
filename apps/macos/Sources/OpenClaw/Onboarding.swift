@@ -563,7 +563,7 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         let hosting = NSHostingController(rootView: content)
         let window = NSWindow(contentViewController: hosting)
         window.isRestorable = false
-        window.title = "Welcome to OpenClaw"
+        window.title = "Welcome to \(AppDistribution.current.displayName)"
         window.styleMask = Self.windowStyleMask
         window.setContentSize(NSSize(width: OnboardingView.windowWidth, height: OnboardingView.windowHeight))
         if let visibleFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
@@ -625,7 +625,7 @@ final class OnboardingController: NSObject, NSWindowDelegate {
         let alert = NSAlert()
         alert.messageText = "Setup is still working"
         alert.informativeText =
-            "\(busyReason)\n\nYou can keep this window open until it finishes, " +
+            AppDistribution.current.branded("\(busyReason)\n\nYou can keep this window open until it finishes, ") +
             "or quit setup and pick it up again later from the menu bar."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Continue Setup")

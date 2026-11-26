@@ -6,7 +6,6 @@ import { collectEnvSecretRefIds, resolveConfigSecretRef } from "../config/resolu
 import { collectDurableServiceEnvVarSources } from "../config/state-dir-dotenv.js";
 import type { OpenClawConfig } from "../config/types.js";
 import { resolveSecretInputRef, type SecretRef } from "../config/types.secrets.js";
-import { resolveGatewayLaunchAgentLabel } from "../daemon/constants.js";
 import { resolveLaunchAgentLabel } from "../daemon/launchd-label.js";
 import { resolveLaunchAgentEnvWrapperPath } from "../daemon/launchd-service-files.js";
 import { resolveGatewayStateDir, resolveGatewayTaskScriptPath } from "../daemon/paths.js";
@@ -673,10 +672,7 @@ export async function buildGatewayInstallPlan(params: {
     runtime,
     existingNodeOptions: resolveManagedGatewayServiceCommand(params.existingCommand)?.environment
       ?.NODE_OPTIONS,
-    launchdLabel:
-      platform === "darwin"
-        ? resolveGatewayLaunchAgentLabel(serviceInputEnv.OPENCLAW_PROFILE)
-        : undefined,
+    launchdLabel: platform === "darwin" ? resolveLaunchAgentLabel(serviceInputEnv) : undefined,
     platform,
     extraPathDirs: resolveDaemonServicePathDirs({
       runtimePath,

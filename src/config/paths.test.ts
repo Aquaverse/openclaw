@@ -126,6 +126,33 @@ describe("default install identity", () => {
     expect(isDefaultInstallIdentity(env, () => accountHome, platform)).toBe(false);
   });
 
+  it("accepts a branded macOS profile with an isolated home-scoped state root", () => {
+    const stateDir = path.join(accountHome, ".askpepio");
+    const env = {
+      HOME: accountHome,
+      OPENCLAW_PROFILE: "nexus",
+      OPENCLAW_STATE_DIR: stateDir,
+      OPENCLAW_CONFIG_PATH: path.join(stateDir, "openclaw.json"),
+      OPENCLAW_LAUNCHD_LABEL: "ai.pepio.nexus",
+    };
+
+    expect(isDefaultInstallIdentity(env, () => accountHome, "darwin")).toBe(true);
+    expect(
+      isDefaultInstallIdentity(
+        { ...env, OPENCLAW_STATE_DIR: "/tmp/askpepio" },
+        () => accountHome,
+        "darwin",
+      ),
+    ).toBe(false);
+    expect(
+      isDefaultInstallIdentity(
+        { ...env, OPENCLAW_LAUNCHD_LABEL: "ai.openclaw.nexus" },
+        () => accountHome,
+        "darwin",
+      ),
+    ).toBe(false);
+  });
+
   it.each<[string, NodeJS.Platform, string | null]>([
     ["node", "darwin", "node"],
     ["node", "linux", null],

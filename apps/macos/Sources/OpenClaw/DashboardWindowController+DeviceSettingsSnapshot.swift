@@ -135,7 +135,7 @@ extension DashboardWindowController {
             detail = manager.lastSummary ?? String(localized: "Watching this Mac's browser cookie store for changes.")
         case let .error(message):
             syncState = .error
-            detail = message
+            detail = AppDistribution.current.branded(message)
         }
         return .init(
             available: manager.isAvailable,

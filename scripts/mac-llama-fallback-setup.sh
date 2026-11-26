@@ -76,7 +76,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-LOG_FILE="${OPENCLAW_LLAMA_FALLBACK_LOG:-$HOME/Library/Logs/OpenClaw/llama-fallback-setup.log}"
+PRODUCT_LOG_DIR="${OPENCLAW_PRODUCT_LOG_DIR:-$HOME/Library/Logs/OpenClaw}"
+LOG_FILE="${OPENCLAW_LLAMA_FALLBACK_LOG:-$PRODUCT_LOG_DIR/llama-fallback-setup.log}"
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE" >/dev/null
@@ -1079,9 +1080,9 @@ ${EXTRA_SERVER_ARGS_XML}  </array>
   <key>ProcessType</key>
   <string>Interactive</string>
   <key>StandardOutPath</key>
-  <string>${HOME}/Library/Logs/OpenClaw/llama-fallback-server.log</string>
+  <string>${PRODUCT_LOG_DIR}/llama-fallback-server.log</string>
   <key>StandardErrorPath</key>
-  <string>${HOME}/Library/Logs/OpenClaw/llama-fallback-server.log</string>
+  <string>${PRODUCT_LOG_DIR}/llama-fallback-server.log</string>
 </dict>
 </plist>
 PLIST_EOF
@@ -1103,7 +1104,7 @@ GOOD_PLIST="$LLAMA_DIR/.launch-agent.plist.good"
 SWITCH_PENDING="$LLAMA_DIR/.switch-pending"
 FAILED_MARKER="$LLAMA_DIR/.failed-launch"
 LEGACY_PREVIOUS_PLIST="$LLAMA_DIR/.launch-agent.plist.previous"
-SERVER_LOG_HINT="see ${HOME}/Library/Logs/OpenClaw/llama-fallback-server.log"
+SERVER_LOG_HINT="see ${PRODUCT_LOG_DIR}/llama-fallback-server.log"
 
 # Prints a plist's ProgramArguments, one per line (the plists this script
 # writes: one <string> per line, no XML entities).

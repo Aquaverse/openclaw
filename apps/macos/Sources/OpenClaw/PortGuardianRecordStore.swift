@@ -43,7 +43,7 @@ final class PortGuardianRecordStore: @unchecked Sendable {
 
     static var liveRootURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return base.appendingPathComponent("OpenClaw", isDirectory: true)
+        return base.appendingPathComponent(AppDistribution.current.applicationSupportName, isDirectory: true)
     }
 
     static var liveDatabaseURL: URL {

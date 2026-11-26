@@ -12,6 +12,7 @@ import type {
 } from "./app/native-device-settings.ts";
 import type { IconName } from "./components/icon-data.ts";
 import { t } from "./i18n/index.ts";
+import { productDisplayName } from "./product-branding.ts";
 
 export type NavigationRouteId = RouteId;
 
@@ -494,7 +495,7 @@ export function formatDocumentTitle(options: {
   attentionCount?: number;
   brandName?: string;
 }): string {
-  const brandName = options.brandName ?? "OpenClaw";
+  const brandName = options.brandName ?? productDisplayName;
   const base = options.context.endsWith(brandName)
     ? options.context
     : `${options.context} — ${brandName}`;

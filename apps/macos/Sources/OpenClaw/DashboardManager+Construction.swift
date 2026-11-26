@@ -303,7 +303,7 @@ extension DashboardManager {
                     ? config.password?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty : nil,
                 legacyCredentials: legacyCredentials?.credentials)
         }
-        let name = target == .primary ? "OpenClaw"
+        let name = target == .primary ? AppDistribution.current.displayName
             : self.gatewayEntries.first { $0.id == target.bridgeID }?.name ?? url.host ?? "Gateway"
         // The public sign-in origin owns normal HTTPS trust; an SSH/native TLS
         // pin and its bearer credentials belong only to the device connection.

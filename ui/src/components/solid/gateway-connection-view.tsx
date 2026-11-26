@@ -2,6 +2,7 @@ import type { JSX } from "@solidjs/web";
 import { For, Show } from "solid-js";
 import type { GatewayStatus } from "../../lib/gateway-status.ts";
 import { t } from "../../lib/reactive/i18n.ts";
+import { isBrandedProduct, productDisplayName } from "../../product-branding.ts";
 
 const wordmarkDarkText = new URL(
   "../../assets/brand/openclaw-horizontal-dark-text.svg",
@@ -126,6 +127,9 @@ export function GatewayWordmarkText(props: {
   fill: string;
   label: string;
 }): JSX.Element {
+  if (isBrandedProduct) {
+    return <span class={props.class}>{productDisplayName}</span>;
+  }
   return (
     <svg
       class={props.class}
@@ -145,8 +149,15 @@ export function GatewaySidebarSkeleton(): JSX.Element {
   return (
     <div class="sidebar-connection-skeleton" aria-hidden="true">
       <span class="sidebar-connection-skeleton__brand">
-        <img class="sidebar-connection-skeleton__brand-light" src={wordmarkDarkText} alt="" />
-        <img class="sidebar-connection-skeleton__brand-dark" src={wordmarkLightText} alt="" />
+        <Show
+          when={!isBrandedProduct}
+          fallback={
+            <span class="sidebar-connection-skeleton__brand-text">{productDisplayName}</span>
+          }
+        >
+          <img class="sidebar-connection-skeleton__brand-light" src={wordmarkDarkText} alt="" />
+          <img class="sidebar-connection-skeleton__brand-dark" src={wordmarkLightText} alt="" />
+        </Show>
       </span>
       <div class="sidebar-connection-skeleton__rows">
         <For each={[0, 1, 2, 3]}>

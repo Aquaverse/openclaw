@@ -10,10 +10,8 @@ enum OpenClawEnv {
 
 enum OpenClawPaths {
     static var stateDirURL: URL {
-        if let override = OpenClawEnv.path("OPENCLAW_STATE_DIR") {
-            return URL(fileURLWithPath: override, isDirectory: true)
-        }
-        return AppProfile.current.stateDirectoryURL()
+        AppProfile.current.resolvedStateDirectoryURL(
+            environmentOverride: OpenClawEnv.path("OPENCLAW_STATE_DIR"))
     }
 
     static var configURL: URL {

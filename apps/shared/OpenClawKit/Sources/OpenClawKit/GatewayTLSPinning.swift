@@ -259,21 +259,24 @@ struct GatewayTLSKeychainOperations: @unchecked Sendable {
 }
 
 struct GatewayTLSKeychainNamespaceState {
+    private(set) var base: String?
     private(set) var suffix: String?
     private(set) var used = false
 
-    mutating func configure(suffix: String) -> Bool {
+    mutating func configure(base: String? = nil, suffix: String) -> Bool {
+        if let configured = self.base, configured != base { return false }
         if let configured = self.suffix {
-            return configured == suffix
+            return configured == suffix && self.base == base
         }
         guard !self.used || suffix.isEmpty else { return false }
+        self.base = base
         self.suffix = suffix
         return true
     }
 
     mutating func service(base: String) -> String {
         self.used = true
-        return base + (self.suffix ?? "")
+        return (self.base ?? base) + (self.suffix ?? "")
     }
 }
 
@@ -301,6 +304,13 @@ public enum GatewayTLSStore {
     @discardableResult
     public static func configureKeychainServiceSuffix(_ suffix: String) -> Bool {
         self.keychainNamespace.withLock { $0.configure(suffix: suffix) }
+    }
+
+    /// Branded macOS bundles own a distinct Keychain service while preserving
+    /// the default OpenClaw namespace for every other client.
+    @discardableResult
+    public static func configureKeychainService(base: String, suffix: String) -> Bool {
+        self.keychainNamespace.withLock { $0.configure(base: base, suffix: suffix) }
     }
 
     static func resolvedKeychainService(suffix: String) -> String {

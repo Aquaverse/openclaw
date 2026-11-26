@@ -112,7 +112,7 @@ final class DashboardDeviceSettingsMessageHandler: NSObject, WKScriptMessageHand
                         : JSONEncoder().encode(result)
                     try replyHandler(JSONSerialization.jsonObject(with: data), nil)
                 } catch {
-                    replyHandler(nil, error.localizedDescription)
+                    replyHandler(nil, AppDistribution.current.branded(error.localizedDescription))
                 }
                 return nil
             }
@@ -121,7 +121,7 @@ final class DashboardDeviceSettingsMessageHandler: NSObject, WKScriptMessageHand
             do {
                 completion = try await owner.applyDeviceSettingsRequest(request)
             } catch {
-                replyHandler(nil, error.localizedDescription)
+                replyHandler(nil, AppDistribution.current.branded(error.localizedDescription))
                 return nil
             }
             let reply: @MainActor () async -> Void = {

@@ -114,7 +114,7 @@ enum GatewayLaunchAgentManager {
     private static func profile(forLaunchAgentLabel label: String) -> AppProfile? {
         let base = AppProfile(environment: [:])
         if label == base.gatewayLaunchAgentLabel { return base }
-        let prefix = "ai.openclaw."
+        let prefix = "\(AppDistribution.current.identityPrefix)."
         guard label.hasPrefix(prefix) else { return nil }
         let name = String(label.dropFirst(prefix.count))
         let profile = AppProfile(environment: ["OPENCLAW_PROFILE": name])
@@ -971,7 +971,12 @@ extension GatewayLaunchAgentManager {
             result["OPENCLAW_STATE_DIR"] = directory.path
             result["OPENCLAW_CONFIG_PATH"] = directory.appendingPathComponent("openclaw.json").path
         }
-        return GatewayChildSupervisor.environmentWithoutSupervisorMarkers(result)
+        var commandEnvironment = GatewayChildSupervisor.environmentWithoutSupervisorMarkers(result)
+        // This is an explicit service selector for the CLI invocation, not an inherited
+        // supervisor marker. Branded apps must inspect ai.pepio.* rather than the upstream
+        // ai.openclaw.* default or they reject their own live Gateway as a port conflict.
+        commandEnvironment["OPENCLAW_LAUNCHD_LABEL"] = profile.gatewayLaunchAgentLabel
+        return commandEnvironment
     }
 
     #if DEBUG

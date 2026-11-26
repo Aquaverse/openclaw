@@ -184,8 +184,8 @@ final class DeepLinkHandler {
 
     private func confirm(title: String, message: String) async -> Bool {
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
+        alert.messageText = AppDistribution.current.branded(title)
+        alert.informativeText = AppDistribution.current.branded(message)
         alert.addButton(withTitle: "Run")
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
@@ -194,8 +194,8 @@ final class DeepLinkHandler {
 
     private func presentAlert(title: String, message: String) {
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
+        alert.messageText = AppDistribution.current.branded(title)
+        alert.informativeText = AppDistribution.current.branded(message)
         alert.addButton(withTitle: "OK")
         alert.alertStyle = .informational
         AppActivation.shared.presentAlert(alert)

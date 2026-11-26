@@ -456,8 +456,8 @@ extension OnboardingView {
                 .foregroundStyle(Color.accentColor)
                 .frame(width: 26)
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.headline)
-                Text(subtitle)
+                Text(AppDistribution.current.branded(title)).font(.headline)
+                Text(AppDistribution.current.branded(subtitle))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 if let buttonTitle, let action {

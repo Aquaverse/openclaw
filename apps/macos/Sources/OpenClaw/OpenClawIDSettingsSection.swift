@@ -345,7 +345,7 @@ struct OpenClawIDSettingsSection: View {
 
     /// Runtime text built from claw and device names (rendered as given).
     private func plain(_ text: String) -> Text {
-        Text(text)
+        Text(AppDistribution.current.branded(text))
     }
 
     private func signInAgain(_ claw: String) -> some View {
@@ -361,8 +361,9 @@ struct OpenClawIDSettingsSection: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon).font(.system(size: 22, weight: .medium)).foregroundStyle(.tint).frame(width: 32)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline)
-                Text(detail).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(AppDistribution.current.branded(title)).font(.headline)
+                Text(AppDistribution.current.branded(detail))
+                    .font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 4)
@@ -437,16 +438,16 @@ struct OpenClawIDConfirmationSheet: View {
     }
 
     private func title(_ text: String) -> some View {
-        Text(text).font(.title2.weight(.semibold))
+        Text(AppDistribution.current.branded(text)).font(.title2.weight(.semibold))
     }
 
     private func detail(_ text: String) -> some View {
-        Text(text).foregroundStyle(.secondary)
+        Text(AppDistribution.current.branded(text)).foregroundStyle(.secondary)
     }
 
     private func bullet(_ text: String, icon: String) -> some View {
         Label {
-            Text(text).fixedSize(horizontal: false, vertical: true)
+            Text(AppDistribution.current.branded(text)).fixedSize(horizontal: false, vertical: true)
         } icon: {
             Image(systemName: icon).foregroundStyle(.tint)
         }

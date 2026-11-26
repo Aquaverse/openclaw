@@ -5,8 +5,8 @@ enum SessionActions {
     @MainActor
     static func confirmDestructiveAction(title: String, message: String, action: String) async -> Bool {
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
+        alert.messageText = AppDistribution.current.branded(title)
+        alert.informativeText = AppDistribution.current.branded(message)
         alert.addButton(withTitle: action)
         alert.addButton(withTitle: "Cancel")
         alert.alertStyle = .warning
@@ -16,8 +16,9 @@ enum SessionActions {
     @MainActor
     static func presentError(title: String, error: Error) {
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        alert.messageText = AppDistribution.current.branded(title)
+        let detail = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        alert.informativeText = AppDistribution.current.branded(detail)
         alert.addButton(withTitle: "OK")
         alert.alertStyle = .warning
         AppActivation.shared.presentAlert(alert)

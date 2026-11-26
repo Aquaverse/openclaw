@@ -5,6 +5,23 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("scripts/mac-pkg-postinstall.sh", () => {
+  it("writes Ask Pepio and OpenClaw installer diagnostics to separate logs", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const appSelection = script.indexOf('APP_PATH="$INSTALL_LOCATION/AskPepio.app"');
+    const askPepioLog = script.indexOf(
+      'LOG_FILE="/var/log/askpepio-installer-postinstall.log"',
+      appSelection,
+    );
+    const openClawLog = script.indexOf(
+      'LOG_FILE="/var/log/openclaw-installer-postinstall.log"',
+      askPepioLog,
+    );
+
+    expect(appSelection).toBeGreaterThanOrEqual(0);
+    expect(askPepioLog).toBeGreaterThan(appSelection);
+    expect(openClawLog).toBeGreaterThan(askPepioLog);
+  });
+
   it("uses the repository-pinned packer for the bundled installer CLI", () => {
     const script = readFileSync("scripts/build-mac-installer.sh", "utf8");
     const pack = script.indexOf("node scripts/package-openclaw-for-docker.mjs");
@@ -35,8 +52,10 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(profileRead).toBeGreaterThanOrEqual(0);
     expect(prefix).toBeGreaterThan(profileRead);
     expect(script).toContain('export OPENCLAW_PROFILE="$APP_PROFILE"');
-    expect(script).toContain('GATEWAY_SERVICE_LABEL="ai.openclaw.${APP_PROFILE}"');
-    expect(script).toContain('APP_DEFAULTS_DOMAIN="ai.openclaw.mac.profile.${APP_PROFILE}"');
+    expect(script).toContain('GATEWAY_SERVICE_LABEL="${PRODUCT_IDENTITY_PREFIX}.${APP_PROFILE}"');
+    expect(script).toContain(
+      'APP_DEFAULTS_DOMAIN="${PRODUCT_IDENTITY_PREFIX}.mac.profile.${APP_PROFILE}"',
+    );
     expect(script).toContain(
       'MIGRATION_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-profile-migrate.mjs"',
     );
@@ -120,6 +139,55 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
           `! prior_nexus_gateway_service_owned ${JSON.stringify(foreignWorkingDirectoryPlist)} ${JSON.stringify(source)}`,
           `! prior_nexus_gateway_service_owned ${JSON.stringify(foreignCommandPlist)} ${JSON.stringify(source)}`,
           `! prior_nexus_gateway_service_owned ${JSON.stringify(ownedPlist)} ${JSON.stringify(source)} 'program = ${join(root, ".telyclaw")}/bin/gateway'`,
+        ].join("\n"),
+      );
+
+      const result = spawnSync("/bin/bash", [harness], { encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+    },
+  );
+
+  it.runIf(process.platform === "darwin")(
+    "detects a branded Gateway whose persisted service environment still names the old label",
+    () => {
+      const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+      const functionStart = script.indexOf("gateway_service_identity_matches() {");
+      const functionEnd = script.indexOf("restore_previous_runtime() {", functionStart);
+      const root = mkdtempSync(join(tmpdir(), "askpepio-gateway-service-identity-"));
+      const state = join(root, ".askpepio");
+      const serviceEnvDir = join(state, "service-env");
+      const expectedEnv = join(serviceEnvDir, "ai.pepio.nexus.env");
+      const matchingPlist = join(root, "matching.plist");
+      const stalePlist = join(root, "stale.plist");
+      mkdirSync(serviceEnvDir, { recursive: true });
+      writeFileSync(expectedEnv, "export OPENCLAW_LAUNCHD_LABEL='ai.pepio.nexus'\n");
+
+      const plist = (envPath: string) => `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>ai.pepio.nexus</string>
+<key>WorkingDirectory</key><string>${state}</string>
+<key>ProgramArguments</key><array>
+<string>/bin/sh</string><string>${serviceEnvDir}/ai.pepio.nexus-env-wrapper.sh</string>
+<string>${envPath}</string><string>${state}/tools/node/bin/node</string>
+</array></dict></plist>
+`;
+      writeFileSync(matchingPlist, plist(expectedEnv));
+      writeFileSync(stalePlist, plist(join(serviceEnvDir, "ai.openclaw.nexus.env")));
+
+      expect(functionStart).toBeGreaterThanOrEqual(0);
+      expect(functionEnd).toBeGreaterThan(functionStart);
+      const harness = join(root, "classify.sh");
+      writeFileSync(
+        harness,
+        [
+          "#!/bin/bash",
+          "set -uo pipefail",
+          script.slice(functionStart, functionEnd),
+          `gateway_service_identity_matches ${JSON.stringify(matchingPlist)} ai.pepio.nexus ${JSON.stringify(state)}`,
+          `! gateway_service_identity_matches ${JSON.stringify(stalePlist)} ai.pepio.nexus ${JSON.stringify(state)}`,
+          `printf "export OPENCLAW_LAUNCHD_LABEL='ai.openclaw.nexus'\\n" > ${JSON.stringify(expectedEnv)}`,
+          `! gateway_service_identity_matches ${JSON.stringify(matchingPlist)} ai.pepio.nexus ${JSON.stringify(state)}`,
         ].join("\n"),
       );
 
@@ -417,7 +485,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(script).toContain("The legacy default-provider marker is stale");
   });
 
-  it("skips repeated onboarding and starts the selected local service without forcing a rewrite", () => {
+  it("starts a matching local service without rewriting it and repairs branded identity drift", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
     const seen = script.indexOf('"openclaw.onboardingSeen"');
     const skip = script.indexOf(
@@ -425,6 +493,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
       seen,
     );
     const start = script.indexOf("gateway start --json", skip);
+    const repairIdentity = script.indexOf("gateway install --force --json", start);
     const installMissing = script.indexOf("gateway install --json", start);
     const onboard = script.indexOf('log "==> Running non-interactive onboarding', skip);
 
@@ -432,10 +501,16 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(skip).toBeGreaterThan(seen);
     expect(script.slice(seen, skip)).toContain('DEFAULT_PROVIDER_SETUP_ALREADY_APPLIED" == "1"');
     expect(start).toBeGreaterThan(skip);
-    expect(installMissing).toBeGreaterThan(start);
+    expect(repairIdentity).toBeGreaterThan(start);
+    expect(installMissing).toBeGreaterThan(repairIdentity);
     expect(onboard).toBeGreaterThan(installMissing);
     expect(script.slice(skip, start)).not.toContain('REUSE_INSTALLED_RUNTIME" != "1"');
-    expect(script.slice(skip, onboard)).not.toContain("gateway install --force");
+    expect(script.slice(skip, onboard)).toContain(
+      'gateway_service_identity_matches "$GATEWAY_SERVICE_PLIST" "$GATEWAY_SERVICE_LABEL" "$PREFIX"',
+    );
+    expect(script.slice(skip, repairIdentity)).toContain(
+      '"$PRODUCT_IDENTITY_PREFIX" == "ai.openclaw"',
+    );
     expect(script.slice(skip, onboard)).toContain(
       'HOSTS_LOCAL_GATEWAY_WITH_REMOTE_PRIMARY" == "1"',
     );

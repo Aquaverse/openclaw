@@ -194,7 +194,7 @@ struct StatusMenuHeaderView: View {
         {
             return primaryName
         }
-        return "OpenClaw"
+        return AppDistribution.current.displayName
     }
 
     private var connectionModeLabel: String? {
@@ -218,7 +218,7 @@ struct StatusMenuHeaderView: View {
         if self.state.connectionMode == .local,
            let failure = GatewayProcessManager.shared.lastFailureReason
         {
-            lines.append((failure, nil, .red))
+            lines.append((AppDistribution.current.branded(failure), nil, .red))
         }
         if self.state.connectionMode == .remote {
             let presentation = GatewayConnectionPresentation(state: self.controlChannel.state)

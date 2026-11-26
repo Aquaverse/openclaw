@@ -57,7 +57,7 @@ extension ControlUIDocumentHost {
         host: String?) -> NSAlert
     {
         let alert = NSAlert()
-        alert.messageText = "OpenClaw"
+        alert.messageText = AppDistribution.current.displayName
         if let host, !host.isEmpty {
             alert.informativeText = "\(host) is asking:\n\n\(message)"
         } else {

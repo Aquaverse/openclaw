@@ -8,6 +8,7 @@ import {
 } from "../../../../src/shared/control-ui-locale.ts";
 import { getOrCreatePromise } from "../../../../src/shared/lazy-promise.ts";
 import { getSafeLocalStorage } from "../../local-storage.ts";
+import { brandProductText } from "../../product-branding.ts";
 import { en } from "../locales/en.ts";
 import { getLazyLocaleCatalog } from "./locale-catalog.ts";
 import { loadLazyLocaleTranslation } from "./registry.ts";
@@ -251,7 +252,7 @@ class I18nManager {
 
   public translateActive(key: string): string | undefined {
     const value = this.lookupActive(key.split("."));
-    return typeof value === "string" ? value : undefined;
+    return typeof value === "string" ? brandProductText(value) : undefined;
   }
 
   public t(key: string, params?: Record<string, string>): string {
@@ -268,10 +269,10 @@ class I18nManager {
     if (params) {
       // ?? not ||: an empty-string param is a provided value (render empty),
       // while a missing param keeps the visible {placeholder} for debugging.
-      return value.replace(/\{(\w+)\}/g, (_, k) => params[k] ?? `{${k}}`);
+      return brandProductText(value.replace(/\{(\w+)\}/g, (_, k) => params[k] ?? `{${k}}`));
     }
 
-    return value;
+    return brandProductText(value);
   }
 }
 

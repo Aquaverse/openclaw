@@ -122,7 +122,7 @@ enum MacChatTranscriptCache {
         else {
             return nil
         }
-        let root = base.appendingPathComponent("OpenClaw", isDirectory: true)
+        let root = base.appendingPathComponent(AppDistribution.current.applicationSupportName, isDirectory: true)
         let databaseDirectoryURL = root.appendingPathComponent("databases", isDirectory: true)
         guard let databases = self.databases(
             directoryURL: databaseDirectoryURL,

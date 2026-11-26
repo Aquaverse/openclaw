@@ -702,15 +702,15 @@ struct OnboardingErrorCard: View {
                 .foregroundStyle(.orange)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 4) {
-                Text(self.title)
+                Text(AppDistribution.current.branded(self.title))
                     .font(.callout.weight(.semibold))
-                Text(self.message)
+                Text(AppDistribution.current.branded(self.message))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if let details {
-                    OnboardingErrorDetails(text: details)
+                    OnboardingErrorDetails(text: AppDistribution.current.branded(details))
                 }
                 HStack(spacing: 14) {
                     if let retryTitle, let retry {

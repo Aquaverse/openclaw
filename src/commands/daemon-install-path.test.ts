@@ -63,7 +63,24 @@ function buildPlan(params: Partial<Parameters<typeof buildGatewayInstallPlan>[0]
   });
 }
 
-describe("Gateway install PATH preservation", () => {
+describe("Gateway install service environment", () => {
+  it("preserves an explicit branded macOS LaunchAgent label", async () => {
+    const actual = await vi.importActual<typeof import("../daemon/service-env.js")>(
+      "../daemon/service-env.js",
+    );
+    mocks.buildServiceEnvironment.mockImplementation(actual.buildServiceEnvironment);
+    const plan = await buildPlan({
+      env: {
+        HOME: tmpDir,
+        OPENCLAW_PROFILE: "nexus",
+        OPENCLAW_LAUNCHD_LABEL: "ai.pepio.nexus",
+      },
+      platform: "darwin",
+    });
+
+    expect(plan.environment.OPENCLAW_LAUNCHD_LABEL).toBe("ai.pepio.nexus");
+  });
+
   it.skipIf(process.platform === "win32")(
     "derives a restored CLI plan from its retained package",
     async () => {

@@ -39,6 +39,7 @@ import { controlUiHoverGuardPlugin } from "./config/control-ui-hover-guard.ts";
 import { controlUiLocaleModulesPlugin } from "./config/control-ui-locales.ts";
 import { controlUiNavigationPreloadsPlugin } from "./config/control-ui-navigation-preloads.ts";
 import { controlUiPluginDistributionsPlugin } from "./config/control-ui-plugin-distributions.ts";
+import { controlUiProductBrandingPlugin } from "./config/control-ui-product-branding.ts";
 import { controlUiSocialCardPlugin } from "./config/control-ui-social-card.ts";
 import { controlUiSolidPlugin } from "./config/control-ui-solid.ts";
 import { extractControlUiStartupAssetPaths } from "./config/control-ui-startup-assets.ts";
@@ -962,6 +963,7 @@ export default function controlUiViteConfig(
       ...(devGateway ? { proxy: devGateway.proxy } : {}),
     },
     plugins: [
+      controlUiProductBrandingPlugin(process.env.VITE_OPENCLAW_PRODUCT_NAME),
       controlUiSolidPlugin(),
       peleClassicBundlePlugin(),
       controlUiIsolatedDesktopRuntimePlugin(),

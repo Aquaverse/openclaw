@@ -7,7 +7,7 @@ extension OnboardingView {
     func pageView(for pageIndex: Int, contentHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             if let initialError, pageIndex == initialPage.rawValue {
-                Text(initialError)
+                Text(AppDistribution.current.branded(initialError))
                     .foregroundStyle(.red)
                     .font(.callout)
                     .padding(.horizontal, 28)
@@ -75,9 +75,9 @@ extension OnboardingView {
                 .frame(maxWidth: 520)
 
                 Label {
-                    Text(
+                    Text(AppDistribution.current.branded(
                         "OpenClaw can take actions using the permissions and services you enable. " +
-                            "Review prompts and only connect tools you trust.")
+                            "Review prompts and only connect tools you trust."))
                 } icon: {
                     Image(systemName: "info.circle")
                 }
@@ -573,12 +573,12 @@ extension OnboardingView {
                     .frame(width: 26)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(title)
+                        Text(AppDistribution.current.branded(title))
                             .font(.callout.weight(.semibold))
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if let badge {
-                            Text(badge)
+                            Text(AppDistribution.current.branded(badge))
                                 .font(.caption2.weight(.semibold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -587,7 +587,7 @@ extension OnboardingView {
                         }
                     }
                     if let subtitle {
-                        Text(subtitle)
+                        Text(AppDistribution.current.branded(subtitle))
                             .font(monospacedSubtitle ? .caption.monospaced() : .caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
@@ -615,7 +615,7 @@ extension OnboardingView {
         return onboardingPage {
             Text("Getting things ready")
                 .font(.largeTitle.weight(.semibold))
-            Text(detail)
+            Text(AppDistribution.current.branded(detail))
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -676,10 +676,11 @@ extension OnboardingView {
 
                 if self.installFailed {
                     OnboardingErrorCard(
-                        title: self.cliExecutableReady
+                        title: AppDistribution.current.branded(self.cliExecutableReady
                             ? "The Gateway didn’t start"
-                            : (bundled ? "OpenClaw preparation failed" : "OpenClaw installation failed"),
-                        message: self.cliStatus ?? "OpenClaw setup did not finish.",
+                            : (bundled ? "OpenClaw preparation failed" : "OpenClaw installation failed")),
+                        message: AppDistribution.current.branded(
+                            self.cliStatus ?? "OpenClaw setup did not finish."),
                         docsSlug: "platforms/mac/bundled-gateway",
                         retryTitle: "Try again")
                     {
@@ -690,7 +691,7 @@ extension OnboardingView {
                         }
                     }
                 } else if let cliStatus, !self.cliInstalled {
-                    Text(cliStatus)
+                    Text(AppDistribution.current.branded(cliStatus))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -783,10 +784,10 @@ extension OnboardingView {
             .frame(width: 26, height: 22)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                Text(AppDistribution.current.branded(title))
                     .font(.callout.weight(.semibold))
                     .foregroundStyle(state == .pending ? Color.secondary : Color.primary)
-                Text(detail)
+                Text(AppDistribution.current.branded(detail))
                     .font(monospacedDetail ? .caption.monospaced() : .caption)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
