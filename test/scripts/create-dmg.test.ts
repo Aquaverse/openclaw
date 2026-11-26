@@ -20,10 +20,11 @@ function makeApp(
     CFBundleName: "OpenClaw",
     CFBundleShortVersionString: "2026.6.16",
   },
+  fileName = "OpenClaw",
 ): string {
   const dir = mkdtempSync(path.join(tmpdir(), "openclaw-create-dmg-"));
   tempDirs.push(dir);
-  const app = path.join(dir, "OpenClaw.app");
+  const app = path.join(dir, `${fileName}.app`);
   const contents = path.join(app, "Contents");
   mkdirSync(contents, { recursive: true });
   const dict = Object.entries(entries)
@@ -236,6 +237,27 @@ describe("create-dmg plist validation", () => {
 });
 
 describe.runIf(process.platform === "darwin")("create-dmg ownership boundaries", () => {
+  it("styles the copied bundle filename when the display name contains spaces", () => {
+    const app = makeApp(
+      {
+        CFBundleName: "Ask Pepio",
+        CFBundleShortVersionString: "2026.11.5",
+      },
+      "AskPepio",
+    );
+    const root = mkdtempSync(path.join(tmpdir(), "askpepio-create-dmg-output-"));
+    tempDirs.push(root);
+    const output = path.join(root, "AskPepio.dmg");
+    const tools = makeFakeDmgTools();
+
+    const result = runScript([app, output], { ...tools.env, SKIP_DMG_STYLE: "0" });
+
+    expect(result.status, result.stderr).toBe(0);
+    const appleScript = readFileSync(tools.osascriptLog, "utf8");
+    expect(appleScript).toContain('set position of item "AskPepio.app"');
+    expect(appleScript).not.toContain('set position of item "Ask Pepio.app"');
+  });
+
   it.each(["", "nested/artifacts"])(
     "publishes to %s without touching caller siblings",
     (subdirectory) => {

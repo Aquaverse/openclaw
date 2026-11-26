@@ -37,6 +37,7 @@ BUILD_DIR="$ROOT_DIR/dist"
 mkdir -p "$BUILD_DIR"
 
 APP_NAME="$(plist_print_required "$APP_PATH/Contents/Info.plist" CFBundleName)"
+APP_BUNDLE_NAME="$(basename "$APP_PATH")"
 VERSION="$(plist_print_required "$APP_PATH/Contents/Info.plist" CFBundleShortVersionString)"
 
 DMG_NAME="${APP_NAME}-${VERSION}.dmg"
@@ -250,7 +251,7 @@ tell application "Finder"
     set label position of viewOptions to bottom
     set shows item info of viewOptions to false
     set shows icon preview of viewOptions to true
-    set position of item "${APP_NAME}.app" of container window to {$(to_applescript_pair "$DMG_APP_POS")}
+    set position of item "${APP_BUNDLE_NAME}" of container window to {$(to_applescript_pair "$DMG_APP_POS")}
     set position of item "Applications" of container window to {$(to_applescript_pair "$DMG_APPS_POS")}
     update without registering applications
     delay 2
