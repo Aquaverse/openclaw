@@ -322,6 +322,7 @@ function buildCommonServiceEnvironment(
     NODE_USE_SYSTEM_CA: startupTlsEnv.NODE_USE_SYSTEM_CA,
     OPENCLAW_STATE_DIR: env.OPENCLAW_STATE_DIR,
     OPENCLAW_CONFIG_PATH: env.OPENCLAW_CONFIG_PATH,
+    OPENCLAW_PRODUCT_LOG_DIR: normalizeOptionalString(env.OPENCLAW_PRODUCT_LOG_DIR),
     ...(proxyUrl ? { OPENCLAW_PROXY_URL: proxyUrl } : {}),
     ...(minimalPath ? { PATH: minimalPath } : {}),
   };

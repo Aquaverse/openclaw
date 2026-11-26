@@ -971,6 +971,9 @@ extension GatewayLaunchAgentManager {
             result["OPENCLAW_STATE_DIR"] = directory.path
             result["OPENCLAW_CONFIG_PATH"] = directory.appendingPathComponent("openclaw.json").path
         }
+        if profile.distribution.stateDirectoryName != nil {
+            result["OPENCLAW_PRODUCT_LOG_DIR"] = profile.distribution.logDirectoryURL().path
+        }
         var commandEnvironment = GatewayChildSupervisor.environmentWithoutSupervisorMarkers(result)
         // This is an explicit service selector for the CLI invocation, not an inherited
         // supervisor marker. Branded apps must inspect ai.pepio.* rather than the upstream

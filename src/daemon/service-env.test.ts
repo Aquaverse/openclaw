@@ -151,6 +151,14 @@ describe("service environment", () => {
       OPENCLAW_LAUNCHD_LABEL: "ai.openclaw.work",
     });
   });
+  it("preserves a branded product log directory", () => {
+    expect(
+      serviceEnv(
+        { OPENCLAW_PRODUCT_LOG_DIR: " /Users/u/Library/Logs/AskPepio " },
+        { platform: "darwin" },
+      ).OPENCLAW_PRODUCT_LOG_DIR,
+    ).toBe("/Users/u/Library/Logs/AskPepio");
+  });
   it("does not persist ambient proxy variables", () => {
     const proxies = {
       HTTP_PROXY: " http://proxy:7890 ",

@@ -67,6 +67,9 @@ struct AppProfileTests {
         #expect(profile.resolvedStateDirectoryURL(
             environmentOverride: "/Users/test/.openclaw-nexus",
             homeDirectory: URL(fileURLWithPath: "/Users/test")).path == "/Users/test/.askpepio")
+        #expect(GatewayLaunchAgentManager.daemonEnvironment(
+            environment: [:], profile: profile, searchPaths: [])["OPENCLAW_PRODUCT_LOG_DIR"]?
+            .hasSuffix("/Library/Logs/AskPepio") == true)
         #expect(profile.instanceLockName == "ai.pepio.mac.profile.nexus")
         #expect(profile.instanceLockURL(systemTemporaryDirectory: URL(fileURLWithPath: "/tmp")).path ==
             "/tmp/askpepio-\(geteuid())-app-instances/ai.pepio.mac.profile.nexus.lock")

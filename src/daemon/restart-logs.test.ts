@@ -8,6 +8,7 @@ import {
   renderPosixRestartLogSetup,
   resolveGatewayLogPaths,
   resolveGatewayRestartLogPath,
+  resolveGatewaySupervisorLogPaths,
 } from "./restart-logs.js";
 import { buildPlatformRuntimeLogHints } from "./runtime-hints.js";
 
@@ -31,6 +32,20 @@ it("resolves profile-aware gateway logs and restart attempts together", () => {
   expect(resolveGatewayRestartLogPath(env)).toBe(
     "/Users/test/.openclaw-work/logs/gateway-restart.log",
   );
+});
+
+it("uses a branded product directory for launchd supervisor logs", () => {
+  expect(
+    resolveGatewaySupervisorLogPaths({
+      HOME: "/Users/test",
+      OPENCLAW_PROFILE: "nexus",
+      OPENCLAW_PRODUCT_LOG_DIR: "/Users/test/Library/Logs/AskPepio",
+    }),
+  ).toEqual({
+    logDir: "/Users/test/Library/Logs/AskPepio",
+    stdoutPath: "/Users/test/Library/Logs/AskPepio/gateway-nexus.log",
+    stderrPath: "/Users/test/Library/Logs/AskPepio/gateway-nexus.err.log",
+  });
 });
 
 it("renders best-effort POSIX log setup with escaped paths", () => {

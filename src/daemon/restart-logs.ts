@@ -37,7 +37,8 @@ export function resolveGatewayLogPaths(env: GatewayServiceEnv): GatewayLogPaths 
 /** launchd supervisors write outside the state directory in ~/Library/Logs. */
 export function resolveGatewaySupervisorLogPaths(env: GatewayServiceEnv): GatewayLogPaths {
   const home = resolveDaemonHomeDir(env).replaceAll("\\", "/");
-  const logDir = path.posix.join(home, "Library", "Logs", "openclaw");
+  const logDir =
+    env.OPENCLAW_PRODUCT_LOG_DIR?.trim() || path.posix.join(home, "Library", "Logs", "openclaw");
   const prefix =
     env.OPENCLAW_LOG_PREFIX?.trim() ||
     `gateway${resolveGatewayProfileSuffix(env.OPENCLAW_PROFILE)}`;
