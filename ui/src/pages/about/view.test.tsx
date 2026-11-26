@@ -51,10 +51,10 @@ function render(
 
 beforeEach(() => i18n.setLocale("en"));
 
-it("renders the identity, links, license, and Clawd's active wave", () => {
+it("renders the Ask Pepio identity, website, copyright, and Clawd's active wave", () => {
   const { container, query, props, update } = render({ clawdWaving: true });
   const identity = query(".about-identity");
-  expect(identity?.querySelector(".about-identity__name")?.textContent).toBe("OpenClaw");
+  expect(identity?.querySelector(".about-identity__name")?.textContent).toBe("Ask Pepio");
   expect(identity?.querySelector(".about-identity__clawd svg")).not.toBeNull();
 
   const clawd = identity?.querySelector<HTMLButtonElement>(".about-identity__clawd");
@@ -69,21 +69,14 @@ it("renders the identity, links, license, and Clawd's active wave", () => {
   const links = Array.from(
     container.querySelectorAll<HTMLAnchorElement>("nav a.settings-row--nav"),
   );
-  expect(links.map((link) => link.getAttribute("href"))).toEqual([
-    "https://community.openclaw.ai/",
-    "https://docs.openclaw.ai",
-    "https://docs.openclaw.ai/releases",
-    "https://openclaw.ai",
-    "https://github.com/openclaw/openclaw",
-    "https://openclaw.ai/discord?from=openclaw-app-community",
-    "https://x.com/openclaw",
-  ]);
+  expect(links.map((link) => link.getAttribute("href"))).toEqual(["https://pepio.ai"]);
+  expect(links[0]?.textContent).toContain("Website");
   for (const link of links) {
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toContain("noopener");
     expect(link.getAttribute("rel")).toContain("noreferrer");
   }
-  expect(query(".about-footer")?.textContent).toContain("MIT License");
+  expect(query(".about-footer")?.textContent).toBe("@Ask Pepio copyright");
 });
 
 function facts(container: HTMLElement, label: string) {

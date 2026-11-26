@@ -36,6 +36,11 @@ suite.define(() => {
 
       const aboutLink = page.getByRole("link", { name: "About", exact: true });
       await expectAttribute(aboutLink, "aria-current").toBe("page");
+      await expectText(page.locator(".about-identity__name")).toBe("Ask Pepio");
+      const website = page.getByRole("link", { name: "Website", exact: true });
+      await expectAttribute(website, "href").toBe("https://pepio.ai");
+      await expect.poll(() => page.locator("openclaw-about-page nav a").count()).toBe(1);
+      await expectText(page.locator(".about-footer")).toBe("@Ask Pepio copyright");
 
       const ui = page.locator('dl.about-build__facts[aria-label="Web app build details"]');
       const gatewayFacts = page.locator('dl.about-build__facts[aria-label="Gateway"]');

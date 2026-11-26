@@ -5,7 +5,7 @@ const shared = en.aboutPage;
 
 const enAbout = {
   aboutPage: {
-    productName: "OpenClaw",
+    productName: "Ask Pepio",
     tagline: "Your personal AI agent, running on your own devices.",
     waveHello: "Wave hello to Clawd",
     linksLabel: "Community and resources",
@@ -16,7 +16,7 @@ const enAbout = {
     linkDiscord: "Discord",
     linkX: "X (Twitter)",
     linkChangelog: "Changelog",
-    license: "© 2026 OpenClaw Foundation — MIT License.",
+    license: "@Ask Pepio copyright",
     artifactTitle: "Web app",
     artifactDetails: shared.artifactDetails,
     version: "Version",

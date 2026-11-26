@@ -1,21 +1,15 @@
 import { expectDefined } from "@openclaw/normalization-core";
-import { For, Show, createMemo } from "solid-js";
+import { Show, createMemo } from "solid-js";
 import type { ControlUiBuildInfo } from "../../build-info.ts";
 import { LobsterSvg } from "../../components/lobster-pet-artwork.tsx";
 import { canonicalLobsterLook, lobsterLookStyle } from "../../components/lobster-pet-identity.ts";
 import { LOBSTER_PET_PALETTES } from "../../components/lobster-pet-palettes.ts";
 import { CopyButton } from "../../components/solid/copy-button.tsx";
-import {
-  BrandIcon,
-  Icon,
-  type BrandIconName,
-  type IconName,
-} from "../../components/solid/icon.tsx";
+import { Icon } from "../../components/solid/icon.tsx";
 import { SettingsGroup, SettingsPage } from "../../components/solid/settings-ui.tsx";
 import { ThemeBrandIcon } from "../../components/theme-brand-icon.tsx";
 import { registerAboutEnglish } from "../../i18n/locales/en-about.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../../lib/external-link.ts";
-import { COMMUNITY_DISCORD_URL, OFFICIAL_SUPPORT_URL } from "../../lib/product-links.ts";
 import { formatDateTimeMs } from "../../lib/reactive/format.ts";
 import { t } from "../../lib/reactive/i18n.ts";
 import { themeBrandingProjection } from "../../lib/reactive/theme-branding.ts";
@@ -41,40 +35,6 @@ type AboutProps = {
 };
 
 const SHORT_COMMIT_LENGTH = 7;
-// Keep official support distinct from self-service docs and social links.
-type AboutLink = { href: string; labelKey: string } & (
-  | { kind: "icon"; name: IconName }
-  | { kind: "brand"; name: BrandIconName }
-);
-const ABOUT_LINKS: readonly AboutLink[] = [
-  {
-    href: OFFICIAL_SUPPORT_URL,
-    kind: "icon",
-    name: "messageSquare",
-    labelKey: "aboutPage.linkSupport",
-  },
-  { href: "https://docs.openclaw.ai", kind: "icon", name: "book", labelKey: "aboutPage.linkDocs" },
-  {
-    href: "https://docs.openclaw.ai/releases",
-    kind: "icon",
-    name: "scrollText",
-    labelKey: "aboutPage.linkChangelog",
-  },
-  { href: "https://openclaw.ai", kind: "icon", name: "globe", labelKey: "aboutPage.linkWebsite" },
-  {
-    href: "https://github.com/openclaw/openclaw",
-    kind: "brand",
-    name: "github",
-    labelKey: "aboutPage.linkGitHub",
-  },
-  {
-    href: COMMUNITY_DISCORD_URL,
-    kind: "brand",
-    name: "discord",
-    labelKey: "aboutPage.linkDiscord",
-  },
-  { href: "https://x.com/openclaw", kind: "brand", name: "x", labelKey: "aboutPage.linkX" },
-];
 
 const BUILT_AT_FORMAT: Intl.DateTimeFormatOptions = {
   year: "numeric",
@@ -200,7 +160,11 @@ export function AboutView(props: AboutProps) {
           </button>
         )}
         <div class="about-identity__text">
-          <h2 class="about-identity__name">{branding.read().brandName}</h2>
+          <h2 class="about-identity__name">
+            {branding.read().brandName === "OpenClaw"
+              ? t("aboutPage.productName")
+              : branding.read().brandName}
+          </h2>
           <p class="about-identity__tagline">{t("aboutPage.tagline")}</p>
         </div>
       </section>
@@ -219,30 +183,22 @@ export function AboutView(props: AboutProps) {
       <Show when={branding.read().communityLinks}>
         <nav aria-label={t("aboutPage.linksLabel")}>
           <SettingsGroup>
-            <For each={ABOUT_LINKS}>
-              {(link) => (
-                <a
-                  class="settings-row settings-row--nav about-link"
-                  href={link.href}
-                  target={EXTERNAL_LINK_TARGET}
-                  rel={buildExternalLinkRel()}
-                >
-                  <span class="about-link__icon" aria-hidden="true">
-                    {link.kind === "brand" ? (
-                      <BrandIcon name={link.name} />
-                    ) : (
-                      <Icon name={link.name} />
-                    )}
-                  </span>
-                  <span class="settings-row__text">
-                    <span class="settings-row__title">{t(link.labelKey)}</span>
-                  </span>
-                  <span class="settings-row__chevron">
-                    <Icon name="arrowUpRight" />
-                  </span>
-                </a>
-              )}
-            </For>
+            <a
+              class="settings-row settings-row--nav about-link"
+              href="https://pepio.ai"
+              target={EXTERNAL_LINK_TARGET}
+              rel={buildExternalLinkRel()}
+            >
+              <span class="about-link__icon" aria-hidden="true">
+                <Icon name="globe" />
+              </span>
+              <span class="settings-row__text">
+                <span class="settings-row__title">{t("aboutPage.linkWebsite")}</span>
+              </span>
+              <span class="settings-row__chevron">
+                <Icon name="arrowUpRight" />
+              </span>
+            </a>
           </SettingsGroup>
         </nav>
       </Show>
