@@ -73,12 +73,12 @@ describe("Gateway install service environment", () => {
       env: {
         HOME: tmpDir,
         OPENCLAW_PROFILE: "nexus",
-        OPENCLAW_LAUNCHD_LABEL: "ai.pepio.nexus",
+        OPENCLAW_LAUNCHD_LABEL: "ai.pepio",
       },
       platform: "darwin",
     });
 
-    expect(plan.environment.OPENCLAW_LAUNCHD_LABEL).toBe("ai.pepio.nexus");
+    expect(plan.environment.OPENCLAW_LAUNCHD_LABEL).toBe("ai.pepio");
   });
 
   it.skipIf(process.platform === "win32")(

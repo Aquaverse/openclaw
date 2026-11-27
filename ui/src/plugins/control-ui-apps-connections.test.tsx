@@ -1,28 +1,64 @@
 /* @vitest-environment jsdom */
 
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { mountSolid } from "../test-helpers/mount-solid.ts";
 import { AppsConnections, type AppsConnectionsCopy } from "./control-ui-apps-connections.tsx";
 
-const { onShowDetail, onStartSetup } = vi.hoisted(() => ({
+const {
+  gatewayRequest,
+  gatewayState,
+  onShowDetail,
+  onStartSetup,
+  prepareSignIn,
+  resetLogin,
+  runtimeState,
+  startMcpLogin,
+} = vi.hoisted(() => ({
+  gatewayRequest: vi.fn(),
+  gatewayState: {
+    snapshot: { client: null, phase: "disconnected", hello: null, sessionKey: "main" } as Record<
+      string,
+      unknown
+    >,
+  },
   onShowDetail: vi.fn(),
   onStartSetup: vi.fn(),
+  prepareSignIn: vi.fn(),
+  resetLogin: vi.fn(),
+  runtimeState: {
+    config: {} as Record<string, unknown>,
+    patchFromSnapshot: vi.fn(),
+  },
+  startMcpLogin: vi.fn(async () => null),
 }));
 
 vi.mock("../lib/reactive/context.ts", () => ({
   useApplication: () => ({
     gateway: {
-      snapshot: { client: null, phase: "disconnected", hello: null },
+      get snapshot() {
+        return gatewayState.snapshot;
+      },
       subscribe: () => () => undefined,
     },
-    runtimeConfig: { ensureLoaded: vi.fn() },
+    runtimeConfig: {
+      ensureLoaded: vi.fn(),
+      patchFromSnapshot: runtimeState.patchFromSnapshot,
+      subscribe: () => () => undefined,
+    },
   }),
 }));
 vi.mock("../lib/reactive/domain-capabilities.ts", () => ({
   projectRuntimeConfig: () => ({ read: () => ({ state: {} }) }),
 }));
 vi.mock("../lib/config/config-state-model.ts", () => ({
-  currentConfigObject: () => ({}),
+  currentConfigObject: () => runtimeState.config,
+}));
+vi.mock("../components/wizard-login-controller.tsx", () => ({
+  createWizardLogin: () => ({
+    reset: resetLogin,
+    runner: { prepareSignIn, startMcpLogin },
+  }),
+  WizardLogin: () => <div data-surface="fireflies-login" />,
 }));
 vi.mock("../lib/reactive/domain-github-identity.ts", () => ({
   createGitHubIdentityView: () => ({
@@ -88,6 +124,8 @@ const copy: AppsConnectionsCopy = {
   slackDescription: "Connect Slack",
   github: "GitHub",
   githubDescription: "Manage my GitHub connection",
+  fireflies: "Fireflies",
+  firefliesDescription: "Authorize Fireflies",
   whatsapp: "WhatsApp",
   whatsappDescription: "Connect WhatsApp",
   telegram: "Telegram",
@@ -108,6 +146,22 @@ const copy: AppsConnectionsCopy = {
   disconnect: "Disconnect…",
   saveToSent: "Save to Sent folder",
 };
+
+beforeEach(() => {
+  gatewayRequest.mockReset();
+  gatewayState.snapshot = {
+    client: null,
+    phase: "disconnected",
+    hello: null,
+    sessionKey: "main",
+  };
+  runtimeState.config = {};
+  runtimeState.patchFromSnapshot.mockReset();
+  prepareSignIn.mockReset();
+  resetLogin.mockReset();
+  startMcpLogin.mockReset();
+  startMcpLogin.mockResolvedValue(null);
+});
 
 function mountConnections() {
   return mountSolid(() => (
@@ -180,6 +234,93 @@ it("expands the channel selector inline and starts the selected channel setup", 
   await vi.waitFor(() => expect(view.container.textContent).toContain("Select a channel"));
   rowByTitle(view.container, "Discord").querySelector("button")?.click();
   expect(onStartSetup).toHaveBeenCalledWith("discord");
+
+  view.unmount();
+});
+
+it("authorizes the existing Fireflies MCP without adding another server", async () => {
+  runtimeState.config = {
+    mcp: {
+      servers: {
+        fireflies: {
+          url: "https://api.fireflies.ai/mcp",
+          transport: "streamable-http",
+          auth: "oauth",
+        },
+      },
+    },
+  };
+  gatewayRequest.mockResolvedValue({ groups: [], notices: [] });
+  gatewayState.snapshot = {
+    client: { request: gatewayRequest },
+    phase: "connected",
+    sessionKey: "main",
+    hello: {
+      auth: { role: "operator", scopes: ["operator.read", "operator.admin"] },
+      features: { methods: ["tools.effective", "mcp.authLogin"] },
+      server: { connId: "test-connection" },
+    },
+  };
+  const view = mountConnections();
+
+  const row = rowByTitle(view.container, "Fireflies");
+  expect(row.textContent).toContain("Not connected");
+  row.querySelector("button")?.click();
+
+  expect(prepareSignIn).toHaveBeenCalledWith("oauth", "Fireflies");
+  expect(startMcpLogin).toHaveBeenCalledWith("fireflies");
+  expect(runtimeState.patchFromSnapshot).not.toHaveBeenCalled();
+  expect(view.container.querySelectorAll("[data-surface='fireflies-login']")).toHaveLength(1);
+
+  view.unmount();
+});
+
+it("lists an authorized Fireflies MCP as one existing connection", async () => {
+  runtimeState.config = {
+    mcp: {
+      servers: {
+        fireflies: {
+          url: "https://api.fireflies.ai/mcp",
+          transport: "streamable-http",
+          auth: "oauth",
+        },
+      },
+    },
+  };
+  gatewayRequest.mockResolvedValue({
+    groups: [
+      {
+        tools: [
+          {
+            name: "fireflies_search",
+            source: "mcp",
+            mcpServer: "fireflies",
+            mcpToolName: "search",
+          },
+        ],
+      },
+    ],
+    notices: [],
+  });
+  gatewayState.snapshot = {
+    client: { request: gatewayRequest },
+    phase: "connected",
+    sessionKey: "main",
+    hello: {
+      auth: { role: "operator", scopes: ["operator.read", "operator.admin"] },
+      features: { methods: ["tools.effective", "mcp.authLogin"] },
+      server: { connId: "test-connection" },
+    },
+  };
+  const view = mountConnections();
+
+  await vi.waitFor(() => {
+    expect(view.container.querySelector(".apps-connections__count")?.textContent?.trim()).toBe("2");
+  });
+  const cards = [...view.container.querySelectorAll<HTMLElement>(".apps-connections__card")];
+  expect(cards.some((card) => card.textContent?.includes("Fireflies"))).toBe(true);
+  expect(view.container.textContent).not.toContain("Authorize FirefliesNot connected");
+  expect(runtimeState.patchFromSnapshot).not.toHaveBeenCalled();
 
   view.unmount();
 });

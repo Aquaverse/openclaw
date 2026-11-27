@@ -109,7 +109,8 @@ export function resolveGatewayNativeServiceIdentityConflict(
     // Branded macOS distributions use their own reverse-DNS prefix while the
     // profile suffix remains the service ownership boundary. Keep rejecting a
     // different profile, but do not force every distribution into ai.openclaw.
-    const ownsProfile = actual?.endsWith(`.${profile}`) ?? false;
+    const ownsProfile =
+      (actual?.endsWith(`.${profile}`) ?? false) || (profile === "nexus" && actual === "ai.pepio");
     return actual && actual !== expected && !ownsProfile ? { envKey, expected } : null;
   }
   if (platform === "linux") {

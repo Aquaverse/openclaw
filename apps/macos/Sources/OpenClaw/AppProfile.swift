@@ -50,6 +50,9 @@ struct AppProfile: Equatable, Sendable {
     }
 
     var gatewayLaunchAgentLabel: String {
+        if self.distribution.identityPrefix == "ai.pepio", self.name == "nexus" {
+            return self.distribution.identityPrefix
+        }
         // Keep this byte-for-byte aligned with src/daemon/constants.ts
         // resolveGatewayLaunchAgentLabel; the CLI owns the managed service.
         self.name.map { "\(self.distribution.identityPrefix).\($0)" }

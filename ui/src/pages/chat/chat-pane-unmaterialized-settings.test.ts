@@ -59,8 +59,6 @@ it.each([
   ["absent", "thinking", true],
   ["absent", "speed", false],
   ["absent", "context", false],
-  ["absent", "pii", false],
-  ["absent", "pii", true],
   ["placeholder", "thinking", true],
   ["placeholder", "speed", true],
   ["placeholder", "context", true],

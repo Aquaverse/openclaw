@@ -144,7 +144,8 @@ export function isDefaultInstallIdentity(
     profile &&
     launchdLabel &&
     launchdLabel !== resolveGatewayLaunchAgentLabel(profile) &&
-    launchdLabel.endsWith(`.${profile}`) &&
+    (launchdLabel.endsWith(`.${profile}`) ||
+      (profile === "nexus" && launchdLabel === "ai.pepio")) &&
     path.dirname(selectedStateDir) === accountHome &&
     path.basename(selectedStateDir).startsWith(".")
   ) {

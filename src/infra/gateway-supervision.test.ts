@@ -56,7 +56,7 @@ describe("gateway supervision", () => {
         OPENCLAW_PROFILE: "nexus",
         OPENCLAW_STATE_DIR,
         OPENCLAW_CONFIG_PATH: path.join(OPENCLAW_STATE_DIR, "openclaw.json"),
-        OPENCLAW_LAUNCHD_LABEL: "ai.pepio.nexus",
+        OPENCLAW_LAUNCHD_LABEL: "ai.pepio",
       }),
     ).not.toThrow();
   });

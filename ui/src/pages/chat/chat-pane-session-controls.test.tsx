@@ -37,7 +37,7 @@ import { ChatPaneModelControl } from "./chat-pane-model-control.tsx";
 import { renderControls } from "./chat-pane-session-controls.test-support.ts";
 import { createRenderTestChatPane } from "./chat-pane.test-support.ts";
 import { steerQueuedChatMessage } from "./chat-send-actions.ts";
-import { getPendingChatPickerPatch } from "./chat-settings-patches.ts";
+import { getPendingChatPickerPatch, readDeferredChatPiiReplace } from "./chat-settings-patches.ts";
 import { handlePageGatewayEvent } from "./chat-state-events.test-support.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import { renderChatModelAccountControl } from "./components/chat-model-account-control.ts";
@@ -336,6 +336,53 @@ describe("chat account selection", () => {
 });
 
 describe("chat pane composer controls", () => {
+  it("allows PII redaction before a new conversation has materialized a session row", async () => {
+    const sessionsResult = { ...createSessionsListResult(), sessions: [] };
+    const state = makeChatHost({
+      sessionKey: "agent:main:main",
+      sessionsResult,
+      chatModelSwitchPromises: {},
+      chatModelCatalog: [
+        {
+          id: "private-model",
+          name: "Private model",
+          provider: "vllm",
+          supportsPiiReplace: true,
+        },
+      ],
+      requestHandlers: {
+        "sessions.patch": {
+          ok: true,
+          path: "",
+          key: "agent:main:main",
+          entry: { piiReplace: true },
+          resolved: {},
+        },
+        "sessions.list": sessionsResult,
+      },
+    });
+    const controls = renderControls(state as unknown as ChatPageHost, {
+      agentDefaultModel: "vllm/private-model",
+      effortAccess: {
+        allowed: false,
+        requiredScope: "operator.write",
+        cause: "session-not-owned",
+        reason: "No materialized session row exists yet.",
+      },
+    });
+    const { container } = mountSolid(() =>
+      createComponent(ChatPaneModelControl, controls.composerControls),
+    );
+    flush();
+
+    const toggle = container.querySelector<HTMLButtonElement>("[data-pii-replace]");
+    expect(toggle?.dataset.piiReplace).toBe("false");
+    expect(toggle?.disabled).toBe(false);
+    toggle?.click();
+    expect(state.request).not.toHaveBeenCalledWith("sessions.patch", expect.anything());
+    expect(readDeferredChatPiiReplace(state, state.sessionKey)).toBe(true);
+  });
+
   it("shows PII redaction only for capable models and allows changing the next turn during a run", async () => {
     const selectedSession: GatewaySessionRow = {
       key: "main",

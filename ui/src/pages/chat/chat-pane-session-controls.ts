@@ -21,7 +21,11 @@ import { getAcceptedChatHistorySession, isChatSessionProvenAbsent } from "./chat
 import { ChatPaneModelControl } from "./chat-pane-model-control.tsx";
 import { readChatSessionActionAccess } from "./chat-session-action-access.ts";
 import { switchChatModel, switchChatSetting } from "./chat-session.ts";
-import { patchChatSessionSettings } from "./chat-settings-patches.ts";
+import {
+  patchChatSessionSettings,
+  readDeferredChatPiiReplace,
+  setDeferredChatPiiReplace,
+} from "./chat-settings-patches.ts";
 import type { ChatState } from "./chat-state-contract.ts";
 import type { ChatPageHost } from "./chat-state-host.ts";
 import {
@@ -245,14 +249,25 @@ export function renderChatPaneComposerControls(params: {
       session: selectedSession,
     },
   );
+  const piiReplaceAccess = readSessionMethodAccess(
+    { client: state.client, hello: state.hello, phase: state.connected ? "connected" : "offline" },
+    {
+      method: "sessions.patch",
+      params: { key: sessionKey, piiReplace: true },
+      sessionScope: true,
+      session: selectedSession,
+    },
+  );
   const thinkingLevelOverride = state.sessions.think(sessionKey, agentScope.agentId);
   const settingsPreview = state.sessions.settingsPreview(sessionKey, agentScope.agentId);
+  const deferredPiiReplace = readDeferredChatPiiReplace(state, sessionKey, agentScope.agentId);
   const settingsSession =
-    thinkingLevelOverride || settingsPreview
+    thinkingLevelOverride || settingsPreview || deferredPiiReplace !== undefined
       ? {
           ...selectedSession,
           ...(thinkingLevelOverride ? { thinkingLevel: thinkingLevelOverride } : {}),
           ...settingsPreview,
+          ...(deferredPiiReplace !== undefined ? { piiReplace: deferredPiiReplace } : {}),
         }
       : selectedSession;
   const acceptedHistory = getAcceptedChatHistorySession(state);
@@ -314,7 +329,7 @@ export function renderChatPaneComposerControls(params: {
         fastModeTarget: settingsSession,
         piiReplace: settingsSession?.piiReplace,
         piiReplaceMutationDisabledReason:
-          snapshotReason ?? (effortAccess.allowed ? undefined : effortAccess.reason),
+          snapshotReason ?? (piiReplaceAccess.allowed ? undefined : piiReplaceAccess.reason),
         accessProgramMutationDisabledReason: accessProgramAccess.allowed
           ? undefined
           : accessProgramAccess.reason,
@@ -379,10 +394,22 @@ export function renderChatPaneComposerControls(params: {
           effortAccess.allowed && canPatch({ fastMode: null }, targetSessionKey)
             ? switchChatSetting(state, { kind: "fastMode", value: next }, targetSessionKey)
             : Promise.resolve(false),
-        onPiiReplaceSelect: (next, targetSessionKey) =>
-          effortAccess.allowed && canPatch({ piiReplace: next }, targetSessionKey)
+        onPiiReplaceSelect: (next, targetSessionKey) => {
+          if (
+            !piiReplaceAccess.allowed ||
+            !areUiSessionKeysEquivalent(targetSessionKey, sessionKey)
+          ) {
+            return Promise.resolve(false);
+          }
+          if (!selectedChatSessionRow(state)?.sessionId) {
+            setDeferredChatPiiReplace(state, sessionKey, next, agentScope.agentId);
+            state.accessPreferenceRevision = (state.accessPreferenceRevision ?? 0) + 1;
+            return Promise.resolve(true);
+          }
+          return canPatch({ piiReplace: next }, targetSessionKey)
             ? switchChatSetting(state, { kind: "piiReplace", value: next }, targetSessionKey)
-            : Promise.resolve(false),
+            : Promise.resolve(false);
+        },
         onContextWindowSelect: (next, targetSessionKey) =>
           contextWindowAccess.allowed && canPatch({ contextWindow: next }, targetSessionKey)
             ? switchChatSetting(state, { kind: "contextWindow", value: next }, targetSessionKey)

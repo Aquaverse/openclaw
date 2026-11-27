@@ -33,6 +33,7 @@ const pendingChatPickerPatches = new WeakMap<
   SessionCapability,
   Map<string, PendingChatPickerPatch>
 >();
+const deferredChatPiiReplace = new WeakMap<object, Map<string, boolean>>();
 
 function createChatPickerPatchReceipt(sessions: SessionCapability) {
   const scope = sessions.captureConnectionScope();
@@ -97,6 +98,68 @@ export function getPendingChatPickerPatch(
 ): Promise<boolean> | undefined {
   const patchKey = resolveChatPickerPatchKey(host, sessionKey, agentId);
   return pendingChatPickerPatches.get(host.sessions)?.get(patchKey)?.ready;
+}
+
+export function readDeferredChatPiiReplace(
+  host: ChatPickerPatchHost,
+  sessionKey: string,
+  agentId?: string,
+): boolean | undefined {
+  return deferredChatPiiReplace
+    .get(host)
+    ?.get(resolveChatPickerPatchKey(host, sessionKey, agentId));
+}
+
+export function setDeferredChatPiiReplace(
+  host: ChatPickerPatchHost,
+  sessionKey: string,
+  value: boolean,
+  agentId?: string,
+): void {
+  const key = resolveChatPickerPatchKey(host, sessionKey, agentId);
+  const drafts = deferredChatPiiReplace.get(host) ?? new Map<string, boolean>();
+  deferredChatPiiReplace.set(host, drafts);
+  drafts.set(key, value);
+}
+
+/** Promote a new-conversation draft into the existing settings tail before its first send. */
+export function materializeDeferredChatPiiReplace(
+  host: ChatPickerPatchHost,
+  sessionKey: string,
+  agentId?: string,
+): Promise<boolean> | undefined {
+  const drafts = deferredChatPiiReplace.get(host);
+  const scopedKey = resolveChatPickerPatchKey(host, sessionKey, agentId);
+  const inferredKey = resolveChatPickerPatchKey(host, sessionKey);
+  const key = drafts?.has(scopedKey) ? scopedKey : inferredKey;
+  const value = drafts?.get(key);
+  if (value === undefined) {
+    return undefined;
+  }
+  drafts?.delete(key);
+  const operation = patchChatSessionSettings(host, sessionKey, { piiReplace: value }, { agentId });
+  const ready = operation.then(
+    (result) => {
+      if (!result) {
+        setDeferredChatPiiReplace(host, sessionKey, value, agentId);
+      }
+      return result !== null;
+    },
+    () => {
+      setDeferredChatPiiReplace(host, sessionKey, value, agentId);
+      return false;
+    },
+  );
+  return ready;
+}
+
+export function prepareChatPickerPatch(
+  host: ChatPickerPatchHost,
+  sessionKey: string,
+  agentId?: string,
+): Promise<boolean> | undefined {
+  materializeDeferredChatPiiReplace(host, sessionKey, agentId);
+  return getPendingChatPickerPatch(host, sessionKey, agentId);
 }
 
 export function patchChatSessionSettings(

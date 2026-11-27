@@ -61,7 +61,7 @@ import {
   prependReplyQuote,
   annotationMessageContext,
 } from "./chat-send-support.ts";
-import { getPendingChatPickerPatch } from "./chat-settings-patches.ts";
+import { getPendingChatPickerPatch, prepareChatPickerPatch } from "./chat-settings-patches.ts";
 import {
   withChatSubmitGuard,
   withChatSubmitHandoff,
@@ -515,8 +515,7 @@ export async function handleSendChat(
     end: mention.end + mentionOffset,
   }));
 
-  // A row edit and a composer send may intentionally carry the same payload.
-  // Keep their guards independent so submitting one cannot suppress the other.
+  // Row edits and composer sends keep independent guards even when their payloads match.
   const submitKey = chatSubmitKey(
     host,
     requestedEditId ? "queued-edit" : intent ? "goal" : "message",
@@ -564,15 +563,13 @@ export async function handleSendChat(
     if (admissionHoldReason()) {
       return;
     }
-    let pendingSettings = getPendingChatPickerPatch(host, submittedSessionKey);
+    let pendingSettings = prepareChatPickerPatch(host, submittedSessionKey, submittedAgentId);
     const initialTurnPending = host.hasPendingInitialTurn?.(submittedSessionKey) === true;
     const applyRunPolicy = hasDirectSessionRun(host) || isInitialChatHistoryUnavailable(host);
-    // The edited row hands its place to the replacement and is retired by the same
-    // store write, so a rejected write leaves the original queued and editable.
+    // The replacement store write retires the edited row, so rejection leaves it editable.
     const resumedEdit =
       requestedEditId && resumedEditCandidate?.id === requestedEditId ? resumedEditCandidate : null;
-    // Editing preserves the row's delivery choice; current composer defaults must
-    // not turn an explicitly queued message into a steer or interrupt.
+    // Editing preserves the row's delivery choice instead of applying current composer defaults.
     const followUpMode = initialTurnPending
       ? "queue"
       : resumedEdit
@@ -645,7 +642,7 @@ export async function handleSendChat(
       }
       // Retain a picker captured before storage, including its rejected result;
       // delivery follows the latest picker tail before issuing the request.
-      pendingSettings ??= getPendingChatPickerPatch(host, submittedSessionKey);
+      pendingSettings ??= prepareChatPickerPatch(host, submittedSessionKey);
       queued.sendState = pendingSettings ? "waiting-model" : reconnectSafeQueuedSendState(host);
     }
     const cleared = clearComposer(rawParsedCommand ? "annotations" : "none");

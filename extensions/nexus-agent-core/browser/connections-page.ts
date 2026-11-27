@@ -21,6 +21,8 @@ export function createConnectionsPage(): ControlUiView {
           slackDescription: tr(lang, "connections.slackDescription"),
           github: tr(lang, "connections.github"),
           githubDescription: tr(lang, "connections.githubDescription"),
+          fireflies: tr(lang, "connections.fireflies"),
+          firefliesDescription: tr(lang, "connections.firefliesDescription"),
           whatsapp: tr(lang, "connections.whatsapp"),
           whatsappDescription: tr(lang, "connections.whatsappDescription"),
           telegram: tr(lang, "connections.telegram"),

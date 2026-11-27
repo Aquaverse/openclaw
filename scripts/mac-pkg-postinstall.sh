@@ -205,12 +205,19 @@ if [[ -n "$APP_PROFILE" ]]; then
   else
     PREFIX="$CONSOLE_HOME/.openclaw-${APP_PROFILE}"
   fi
-  GATEWAY_SERVICE_LABEL="${PRODUCT_IDENTITY_PREFIX}.${APP_PROFILE}"
+  if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.pepio" && "$APP_PROFILE" == "nexus" ]]; then
+    GATEWAY_SERVICE_LABEL="$PRODUCT_IDENTITY_PREFIX"
+    LEGACY_GATEWAY_SERVICE_LABEL="${PRODUCT_IDENTITY_PREFIX}.${APP_PROFILE}"
+  else
+    GATEWAY_SERVICE_LABEL="${PRODUCT_IDENTITY_PREFIX}.${APP_PROFILE}"
+    LEGACY_GATEWAY_SERVICE_LABEL=""
+  fi
   APP_DEFAULTS_DOMAIN="${PRODUCT_IDENTITY_PREFIX}.mac.profile.${APP_PROFILE}"
 else
   unset OPENCLAW_PROFILE
   PREFIX="$CONSOLE_HOME/.openclaw"
   GATEWAY_SERVICE_LABEL="ai.openclaw.gateway"
+  LEGACY_GATEWAY_SERVICE_LABEL=""
 fi
 
 prior_nexus_gateway_service_owned() {
@@ -437,6 +444,25 @@ gateway_service_identity_matches() {
   [[ "$actual_env_file" == "$expected_env_file" && -f "$expected_env_file" ]] || return 1
   /usr/bin/grep -Fqx "export OPENCLAW_LAUNCHD_LABEL='$expected_label'" "$expected_env_file"
 }
+
+if [[ -n "$LEGACY_GATEWAY_SERVICE_LABEL" ]]; then
+  LEGACY_GATEWAY_SERVICE_TARGET="gui/$CONSOLE_UID/$LEGACY_GATEWAY_SERVICE_LABEL"
+  LEGACY_GATEWAY_SERVICE_PLIST="$CONSOLE_HOME/Library/LaunchAgents/$LEGACY_GATEWAY_SERVICE_LABEL.plist"
+  if gateway_service_identity_matches \
+      "$LEGACY_GATEWAY_SERVICE_PLIST" "$LEGACY_GATEWAY_SERVICE_LABEL" "$PREFIX"; then
+    log "==> Retiring the previous Ask Pepio Gateway LaunchAgent identity..."
+    if /bin/launchctl print "$LEGACY_GATEWAY_SERVICE_TARGET" >/dev/null 2>&1; then
+      if ! /bin/launchctl bootout "$LEGACY_GATEWAY_SERVICE_TARGET" >>"$LOG_FILE" 2>&1; then
+        log "WARN: the previous Ask Pepio Gateway LaunchAgent could not be stopped safely; leaving the existing installation unchanged."
+        exit 0
+      fi
+    fi
+    /bin/rm -f \
+      "$LEGACY_GATEWAY_SERVICE_PLIST" \
+      "$PREFIX/service-env/$LEGACY_GATEWAY_SERVICE_LABEL.env" \
+      "$PREFIX/service-env/$LEGACY_GATEWAY_SERVICE_LABEL-env-wrapper.sh"
+  fi
+fi
 
 restore_previous_runtime() {
   [[ -n "$RUNTIME_ROLLBACK_DIR" && -n "$PREVIOUS_RUNTIME_TARGET" ]] || return 1

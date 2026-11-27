@@ -84,7 +84,14 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(profileRead).toBeGreaterThanOrEqual(0);
     expect(prefix).toBeGreaterThan(profileRead);
     expect(script).toContain('export OPENCLAW_PROFILE="$APP_PROFILE"');
-    expect(script).toContain('GATEWAY_SERVICE_LABEL="${PRODUCT_IDENTITY_PREFIX}.${APP_PROFILE}"');
+    expect(script).toContain('GATEWAY_SERVICE_LABEL="$PRODUCT_IDENTITY_PREFIX"');
+    expect(script).toContain(
+      'LEGACY_GATEWAY_SERVICE_LABEL="${PRODUCT_IDENTITY_PREFIX}.${APP_PROFILE}"',
+    );
+    expect(script).toContain(
+      'gateway_service_identity_matches \\\n      "$LEGACY_GATEWAY_SERVICE_PLIST" "$LEGACY_GATEWAY_SERVICE_LABEL" "$PREFIX"',
+    );
+    expect(script).toContain('launchctl bootout "$LEGACY_GATEWAY_SERVICE_TARGET"');
     expect(script).toContain(
       'APP_DEFAULTS_DOMAIN="${PRODUCT_IDENTITY_PREFIX}.mac.profile.${APP_PROFILE}"',
     );
@@ -184,23 +191,26 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     () => {
       const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
       const functionStart = script.indexOf("gateway_service_identity_matches() {");
-      const functionEnd = script.indexOf("restore_previous_runtime() {", functionStart);
+      const functionEnd = script.indexOf(
+        'if [[ -n "$LEGACY_GATEWAY_SERVICE_LABEL" ]]',
+        functionStart,
+      );
       const root = mkdtempSync(join(tmpdir(), "askpepio-gateway-service-identity-"));
       const state = join(root, ".askpepio");
       const serviceEnvDir = join(state, "service-env");
-      const expectedEnv = join(serviceEnvDir, "ai.pepio.nexus.env");
+      const expectedEnv = join(serviceEnvDir, "ai.pepio.env");
       const matchingPlist = join(root, "matching.plist");
       const stalePlist = join(root, "stale.plist");
       mkdirSync(serviceEnvDir, { recursive: true });
-      writeFileSync(expectedEnv, "export OPENCLAW_LAUNCHD_LABEL='ai.pepio.nexus'\n");
+      writeFileSync(expectedEnv, "export OPENCLAW_LAUNCHD_LABEL='ai.pepio'\n");
 
       const plist = (envPath: string) => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>Label</key><string>ai.pepio.nexus</string>
+<key>Label</key><string>ai.pepio</string>
 <key>WorkingDirectory</key><string>${state}</string>
 <key>ProgramArguments</key><array>
-<string>/bin/sh</string><string>${serviceEnvDir}/ai.pepio.nexus-env-wrapper.sh</string>
+<string>/bin/sh</string><string>${serviceEnvDir}/ai.pepio-env-wrapper.sh</string>
 <string>${envPath}</string><string>${state}/tools/node/bin/node</string>
 </array></dict></plist>
 `;
@@ -216,10 +226,10 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
           "#!/bin/bash",
           "set -uo pipefail",
           script.slice(functionStart, functionEnd),
-          `gateway_service_identity_matches ${JSON.stringify(matchingPlist)} ai.pepio.nexus ${JSON.stringify(state)}`,
-          `! gateway_service_identity_matches ${JSON.stringify(stalePlist)} ai.pepio.nexus ${JSON.stringify(state)}`,
+          `gateway_service_identity_matches ${JSON.stringify(matchingPlist)} ai.pepio ${JSON.stringify(state)}`,
+          `! gateway_service_identity_matches ${JSON.stringify(stalePlist)} ai.pepio ${JSON.stringify(state)}`,
           `printf "export OPENCLAW_LAUNCHD_LABEL='ai.openclaw.nexus'\\n" > ${JSON.stringify(expectedEnv)}`,
-          `! gateway_service_identity_matches ${JSON.stringify(matchingPlist)} ai.pepio.nexus ${JSON.stringify(state)}`,
+          `! gateway_service_identity_matches ${JSON.stringify(matchingPlist)} ai.pepio ${JSON.stringify(state)}`,
         ].join("\n"),
       );
 

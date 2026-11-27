@@ -133,7 +133,7 @@ describe("default install identity", () => {
       OPENCLAW_PROFILE: "nexus",
       OPENCLAW_STATE_DIR: stateDir,
       OPENCLAW_CONFIG_PATH: path.join(stateDir, "openclaw.json"),
-      OPENCLAW_LAUNCHD_LABEL: "ai.pepio.nexus",
+      OPENCLAW_LAUNCHD_LABEL: "ai.pepio",
     };
 
     expect(isDefaultInstallIdentity(env, () => accountHome, "darwin")).toBe(true);

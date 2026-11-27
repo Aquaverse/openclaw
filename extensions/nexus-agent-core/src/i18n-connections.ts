@@ -20,6 +20,11 @@ export const CONNECTION_MESSAGES = {
   ],
   "connections.github": ["GitHub", "GitHub"],
   "connections.githubDescription": ["管理我的 GitHub 连接。", "Manage my GitHub connection."],
+  "connections.fireflies": ["Fireflies", "Fireflies"],
+  "connections.firefliesDescription": [
+    "授权 Fireflies 账户，读取会议总结和完整记录。",
+    "Authorize Fireflies to read meeting notes and transcripts.",
+  ],
   "connections.whatsapp": ["WhatsApp", "WhatsApp"],
   "connections.whatsappDescription": [
     "连接 WhatsApp 消息频道。",

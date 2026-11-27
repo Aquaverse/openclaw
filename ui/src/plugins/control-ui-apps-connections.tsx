@@ -1,16 +1,21 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import type { JSX } from "@solidjs/web";
 import { createMemo, createSignal, For, onSettled, Show } from "solid-js";
+import type { ToolsEffectiveResult } from "../api/types.ts";
 import type { ApplicationGatewaySnapshot } from "../app/context.ts";
 import { hasOperatorReadAccess } from "../app/operator-access.ts";
 import "../components/modal-dialog.tsx";
 import { ChannelIcon } from "../components/solid/channel-icon.tsx";
 import { Icon } from "../components/solid/icon.tsx";
 import { SettingsPage, SettingsPageHeader } from "../components/solid/settings-ui.tsx";
+import { createWizardLogin, WizardLogin } from "../components/wizard-login-controller.tsx";
 import { GitHubConnections } from "../features/github-connections/github-connections.tsx";
 import { channelSnapshotEntryIsActive } from "../lib/channels/index.ts";
 import { currentConfigObject } from "../lib/config/config-state-model.ts";
+import { resolveReadMcpServerRuntime, type McpToolsRead } from "../lib/config/mcp-server-status.ts";
+import { summarizeMcpServers } from "../lib/config/mcp-servers.ts";
 import { formatCompactMs } from "../lib/format.ts";
+import { canCallGatewayMethod } from "../lib/gateway-methods.ts";
 import { useApplication } from "../lib/reactive/context.ts";
 import { projectRuntimeConfig } from "../lib/reactive/domain-capabilities.ts";
 import { createGitHubIdentityView } from "../lib/reactive/domain-github-identity.ts";
@@ -35,6 +40,8 @@ export type AppsConnectionsCopy = {
   slackDescription: string;
   github: string;
   githubDescription: string;
+  fireflies: string;
+  firefliesDescription: string;
   whatsapp: string;
   whatsappDescription: string;
   telegram: string;
@@ -73,6 +80,8 @@ const emptyCopy: AppsConnectionsCopy = {
   slackDescription: "",
   github: "",
   githubDescription: "",
+  fireflies: "",
+  firefliesDescription: "",
   whatsapp: "",
   whatsappDescription: "",
   telegram: "",
@@ -184,8 +193,74 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
   const github = createGitHubIdentityView();
   const [dialog, setDialog] = createSignal<ConnectionDialog>(null);
   const [showChannelPicker, setShowChannelPicker] = createSignal(false);
+  const [mcpToolsRead, setMcpToolsRead] = createSignal<McpToolsRead | null>(null);
   let githubClientRevision = 0;
   let githubSnapshot: ApplicationGatewaySnapshot | null = null;
+  let mcpToolsReadId = 0;
+  let mcpToolsReadKey: string | null = null;
+  let active = true;
+  let gatewayHello = context.gateway.snapshot.hello;
+
+  const config = () => currentConfigObject(runtimeConfig.read().state);
+  const mcpServers = () => asOptionalRecord(asOptionalRecord(config()?.mcp)?.servers) ?? {};
+  const firefliesServer = createMemo(
+    () =>
+      summarizeMcpServers(config())?.find(
+        (server) => server.name.toLocaleLowerCase() === "fireflies",
+      ) ?? null,
+  );
+  const readEffectiveTools = async () => {
+    const snapshot = context.gateway.snapshot;
+    const client = snapshot.client;
+    const sessionKey = snapshot.sessionKey?.trim();
+    if (
+      !firefliesServer() ||
+      !client ||
+      !sessionKey ||
+      !canCallGatewayMethod(snapshot, "tools.effective", "operator.read")
+    ) {
+      mcpToolsReadId += 1;
+      mcpToolsReadKey = null;
+      setMcpToolsRead(null);
+      return;
+    }
+    const key = JSON.stringify([
+      snapshot.hello?.server?.connId,
+      sessionKey,
+      mcpServers()[firefliesServer()?.name ?? ""],
+    ]);
+    if (key === mcpToolsReadKey) {
+      return;
+    }
+    mcpToolsReadKey = key;
+    setMcpToolsRead(null);
+    const readId = ++mcpToolsReadId;
+    try {
+      const result = await client.request<ToolsEffectiveResult>("tools.effective", { sessionKey });
+      if (active && readId === mcpToolsReadId) {
+        setMcpToolsRead({ result, servers: mcpServers() });
+      }
+    } catch {
+      if (active && readId === mcpToolsReadId) {
+        setMcpToolsRead(null);
+      }
+    }
+  };
+  const refreshFireflies = async () => {
+    mcpToolsReadKey = null;
+    await readEffectiveTools();
+  };
+  const firefliesLogin = createWizardLogin({
+    getClient: () => context.gateway.snapshot.client,
+    getAgentId: () => null,
+    onClose: () => {
+      firefliesLogin.reset();
+      void refreshFireflies();
+    },
+    requestFailedMessage: () => props.copy.notConnected,
+    sessionExpiredMessage: () => props.copy.notConnected,
+    onBackgroundCompletion: async () => refreshFireflies(),
+  });
 
   onSettled(() => {
     const apply = (snapshot: ApplicationGatewaySnapshot) => {
@@ -201,13 +276,25 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
       githubSnapshot = snapshot;
       syncPersonalGitHub(github, snapshot, githubClientRevision);
     };
-    const stop = context.gateway.subscribe(apply);
+    const stopGateway = context.gateway.subscribe((snapshot) => {
+      apply(snapshot);
+      if (snapshot.hello !== gatewayHello) {
+        gatewayHello = snapshot.hello;
+        firefliesLogin.reset();
+      }
+      void readEffectiveTools();
+    });
+    const stopConfig = context.runtimeConfig.subscribe(() => void readEffectiveTools());
     apply(context.gateway.snapshot);
     void context.runtimeConfig.ensureLoaded();
-    return stop;
+    void readEffectiveTools();
+    return () => {
+      active = false;
+      stopGateway();
+      stopConfig();
+    };
   });
 
-  const config = () => currentConfigObject(runtimeConfig.read().state);
   const emailAccounts = createMemo(() => Object.entries(configuredEmailAccounts(config())));
   const channelSnapshot = () => props.channels.channels.channelsSnapshot;
   const channelOrder = createMemo(() => resolveChannelOrder(channelSnapshot()));
@@ -216,8 +303,19 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
   );
   const githubConnected = () => github.read().personal?.state === "connected";
   const githubLogin = () => github.read().personal?.account?.login;
+  const firefliesConnected = () => {
+    const server = firefliesServer();
+    return (
+      server !== null &&
+      resolveReadMcpServerRuntime(mcpToolsRead(), server.name, mcpServers()[server.name]).kind ===
+        "connected"
+    );
+  };
   const connectedCount = () =>
-    emailAccounts().length + connectedChannels().length + (githubConnected() ? 1 : 0);
+    emailAccounts().length +
+    connectedChannels().length +
+    (githubConnected() ? 1 : 0) +
+    (firefliesConnected() ? 1 : 0);
   const connectionMeta = () =>
     `${props.copy.lastSynced} ${formatCompactMs(channelSnapshot()?.ts)} · ${props.copy.providedByAskPepio}`;
   const availableOtherChannels = createMemo(() =>
@@ -236,6 +334,23 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
     />
   );
   const openChannel = (channel: string) => props.channels.onStartSetup(channel);
+  const connectFireflies = () => {
+    const server = firefliesServer();
+    if (
+      !server ||
+      !server.enabled ||
+      server.signIn !== "operator" ||
+      !canCallGatewayMethod(context.gateway.snapshot, "mcp.authLogin", "operator.admin")
+    ) {
+      return;
+    }
+    firefliesLogin.runner.prepareSignIn("oauth", props.copy.fireflies);
+    void firefliesLogin.runner.startMcpLogin(server.name).then((completion) => {
+      if (completion) {
+        void refreshFireflies();
+      }
+    });
+  };
 
   return (
     <div hidden={!props.presented}>
@@ -285,6 +400,17 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
                     meta={connectionMeta()}
                     action={props.copy.disconnect}
                     onAction={() => setDialog("github")}
+                  />
+                </Show>
+                <Show when={firefliesConnected()}>
+                  <ConnectedCard
+                    title={props.copy.fireflies}
+                    description={props.copy.firefliesDescription}
+                    icon={<Icon name="sparkles" />}
+                    status={props.copy.connected}
+                    meta={connectionMeta()}
+                    action={props.copy.manage}
+                    onAction={connectFireflies}
                   />
                 </Show>
                 <For each={connectedChannels()}>
@@ -338,6 +464,16 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
                   status={props.copy.notConnected}
                   action={props.copy.connect}
                   onAction={() => setDialog("github")}
+                />
+              </Show>
+              <Show when={firefliesServer() && !firefliesConnected()}>
+                <ConnectionRow
+                  title={props.copy.fireflies}
+                  description={props.copy.firefliesDescription}
+                  icon={<Icon name="sparkles" />}
+                  status={props.copy.notConnected}
+                  action={props.copy.connect}
+                  onAction={connectFireflies}
                 />
               </Show>
               <Show when={!channelSnapshotEntryIsActive(channelSnapshot(), "whatsapp")}>
@@ -433,6 +569,7 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
       </Show>
 
       <ChannelConnectionOverlays {...props.channels} />
+      <WizardLogin controller={firefliesLogin} options={{ doneMessage: props.copy.connected }} />
     </div>
   );
 }

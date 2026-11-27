@@ -67,6 +67,8 @@ export type ControlUiAppsConnectionsProps = {
     slackDescription: string;
     github: string;
     githubDescription: string;
+    fireflies: string;
+    firefliesDescription: string;
     whatsapp: string;
     whatsappDescription: string;
     telegram: string;

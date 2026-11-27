@@ -10,10 +10,14 @@ import {
 import { sessionMutationGatewayHello } from "../../test-helpers/gateway-methods.ts";
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
-import { expectRpc, makeChatHost } from "./chat-host.test-support.ts";
+import { expectRpc, makeChatHost, requestCalls } from "./chat-host.test-support.ts";
 import { handleSendChat } from "./chat-send-submit.ts";
 import { switchChatModel } from "./chat-session.ts";
-import { getPendingChatPickerPatch } from "./chat-settings-patches.ts";
+import {
+  getPendingChatPickerPatch,
+  readDeferredChatPiiReplace,
+  setDeferredChatPiiReplace,
+} from "./chat-settings-patches.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => vi.stubGlobal("sessionStorage", createStorageMock()));
@@ -63,6 +67,45 @@ it("sends without waiting for the background roster", async () => {
     await refresh;
   }
 });
+
+it.each([true, false])(
+  "persists a new conversation PII draft (%s) before its first message",
+  async (piiReplace) => {
+    const patch = createDeferred<SessionsPatchResult>();
+    const sessionsResult = createSessionsListResult();
+    sessionsResult.sessions = [];
+    const host = modelHost({
+      requestHandlers: {
+        "sessions.patch": () => patch.promise,
+        "sessions.list": sessionsResult,
+        "chat.send": { status: "started" },
+      },
+      sessionsResult,
+      chatMessage: "send with redaction",
+    });
+    setDeferredChatPiiReplace(host, host.sessionKey, piiReplace, "main");
+    expect(readDeferredChatPiiReplace(host, host.sessionKey)).toBe(piiReplace);
+
+    const send = handleSendChat(host);
+    await waitForFast(() => expect(host.chatQueue[0]?.sendState).toBe("waiting-model"));
+    await waitForFast(() =>
+      expect(requestCalls(host.request, "sessions.patch")[0]?.[1]).toMatchObject({
+        key: host.sessionKey,
+        piiReplace,
+      }),
+    );
+    expect(host.request.mock.calls.some(([method]) => method === "chat.send")).toBe(false);
+
+    patch.resolve({
+      ok: true,
+      key: host.sessionKey,
+      path: "",
+      entry: { key: host.sessionKey, piiReplace },
+    });
+    await waitForFast(() => expectRpc(host.request, "chat.send"));
+    await send;
+  },
+);
 
 it.each(["success", "failure"] as const)(
   "settles picker %s before later refresh",

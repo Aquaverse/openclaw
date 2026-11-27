@@ -58,7 +58,7 @@ struct AppProfileTests {
 
         #expect(profile.name == "nexus")
         #expect(profile.defaultGatewayPort == 43384)
-        #expect(profile.gatewayLaunchAgentLabel == "ai.pepio.nexus")
+        #expect(profile.gatewayLaunchAgentLabel == "ai.pepio")
         #expect(profile.defaultsSuiteName == "ai.pepio.mac.profile.nexus")
         #expect(profile.keychainService(base: "ai.openclaw.onboarding-route-binding.debug") ==
             "ai.pepio.onboarding-route-binding.debug.profile.nexus")
