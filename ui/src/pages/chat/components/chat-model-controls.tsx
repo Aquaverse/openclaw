@@ -30,6 +30,7 @@ import {
 import { i18nRevision, registerEnglishCatalog, t } from "../../../lib/reactive/i18n.ts";
 import { ChatEffortPicker, type ChatEffortPickerParams } from "./chat-effort-picker.tsx";
 import {
+  formatChatModelPickerLabel,
   normalizeChatModelProviderGroupId,
   prepareChatModelCatalog,
   resolveChatModelPickerLabel,
@@ -40,13 +41,9 @@ import {
   type ChatModelPickerOption,
 } from "./chat-model-picker-options.ts";
 import { ChatModelPicker, type ChatModelPickerParams } from "./chat-model-picker.tsx";
+import { createPiiReplaceSelection } from "./chat-pii-replace-selection.ts";
 
 registerEnglishCatalog(registerModelControlsEnglish);
-
-function formatPickerModelLabel(label: string): string {
-  const match = /^Default \((.+)\)$/u.exec(label);
-  return match?.[1] ?? label;
-}
 
 const MODEL_SELECTION_SCOPE_LABELS = new Map([
   ["session", "chat.modelControls.selectionScopeSession"],
@@ -73,7 +70,10 @@ function resolveCatalogTriggerStatus(
   return undefined;
 }
 
-function createChatModelControls(props: ChatModelControlsProps): Accessor<{
+function createChatModelControls(
+  props: ChatModelControlsProps,
+  readPiiReplace: Accessor<boolean>,
+): Accessor<{
   model: ChatModelPickerParams;
   effort: ChatEffortPickerParams;
   showEffort: boolean;
@@ -331,7 +331,7 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
         commitValue: "",
         isDefault: true,
         value: defaultModel,
-        label: formatPickerModelLabel(pickerDefaultLabel),
+        label: formatChatModelPickerLabel(pickerDefaultLabel),
         provider: catalog.provider(defaultModel, defaultProviderHint),
       });
     }
@@ -415,7 +415,7 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
         ? translate("chat.selectors.lockedSessionModel")
         : resolveChatModelPickerLabel(
             catalog.entry(triggerModelValue || defaultModel),
-            formatPickerModelLabel(
+            formatChatModelPickerLabel(
               selectOptions.find((entry) => entry.value === triggerModelValue)?.label ??
                 (catalog.entry(triggerModelValue)?.name.trim() ||
                   triggerModelValue ||
@@ -621,7 +621,7 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
     return {
       piiReplace: {
         visible: piiReplaceVisible,
-        active: props.piiReplace === true,
+        active: readPiiReplace(),
         disabled:
           commonDisabled || !hasResolvableModel || Boolean(props.piiReplaceMutationDisabledReason),
       },
@@ -659,7 +659,7 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
         selectedAgentRuntime,
         sessionModelPinned,
         sessionKey: props.sessionKey,
-        triggerModelLabel: formatPickerModelLabel(committedModelLabel),
+        triggerModelLabel: formatChatModelPickerLabel(committedModelLabel),
         triggerModelValue: triggerModelValue || undefined,
         triggerStatusLabel: props.modelSelectionLocked ? undefined : catalogTriggerStatus,
         onModelSetup:
@@ -706,7 +706,8 @@ function createChatModelControls(props: ChatModelControlsProps): Accessor<{
 }
 
 export function ChatModelControls(props: ChatModelControlsProps & { showEffort?: boolean }) {
-  const controls = createChatModelControls(props);
+  const piiReplaceSelection = createPiiReplaceSelection(props);
+  const controls = createChatModelControls(props, piiReplaceSelection.read);
   const piiReplaceTooltip = () =>
     controls().piiReplace.active
       ? t("chat.modelControls.piiReplaceEnabled")
@@ -725,9 +726,7 @@ export function ChatModelControls(props: ChatModelControlsProps & { showEffort?:
             aria-pressed={controls().piiReplace.active ? "true" : "false"}
             disabled={controls().piiReplace.disabled}
             data-pii-replace={controls().piiReplace.active ? "true" : "false"}
-            onClick={() =>
-              props.onPiiReplaceSelect?.(!controls().piiReplace.active, props.sessionKey)
-            }
+            onClick={() => piiReplaceSelection.select(!controls().piiReplace.active)}
           >
             <Icon name={controls().piiReplace.active ? "shieldCheck" : "shield"} />
           </button>

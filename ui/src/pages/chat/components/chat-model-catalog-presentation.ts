@@ -16,6 +16,10 @@ export function normalizeChatModelProviderGroupId(provider: string): string {
   return CHAT_MODEL_PROVIDER_GROUP_ALIASES[normalized] ?? normalized;
 }
 
+export function formatChatModelPickerLabel(label: string): string {
+  return /^Default \((.+)\)$/u.exec(label)?.[1] ?? label;
+}
+
 export function prepareChatModelCatalog(catalog: ModelCatalogEntry[]) {
   const qualified = new Map<string, ModelCatalogEntry[]>();
   const ids = new Map<string, ModelCatalogEntry[]>();

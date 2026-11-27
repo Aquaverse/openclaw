@@ -41,6 +41,7 @@ vi.mock("../lib/reactive/context.ts", () => ({
       subscribe: () => () => undefined,
     },
     runtimeConfig: {
+      state: {},
       ensureLoaded: vi.fn(),
       patchFromSnapshot: runtimeState.patchFromSnapshot,
       subscribe: () => () => undefined,
@@ -287,20 +288,14 @@ it("lists an authorized Fireflies MCP as one existing connection", async () => {
       },
     },
   };
-  gatewayRequest.mockResolvedValue({
-    groups: [
-      {
-        tools: [
-          {
-            name: "fireflies_search",
-            source: "mcp",
-            mcpServer: "fireflies",
-            mcpToolName: "search",
-          },
-        ],
-      },
-    ],
-    notices: [],
+  gatewayRequest.mockImplementation(async (method: string) => {
+    if (method === "mcp.authStatus") {
+      return { serverName: "fireflies", state: "authorized" };
+    }
+    if (method === "tools.effective") {
+      return { groups: [], notices: [] };
+    }
+    throw new Error(`Unexpected method: ${method}`);
   });
   gatewayState.snapshot = {
     client: { request: gatewayRequest },
@@ -308,7 +303,7 @@ it("lists an authorized Fireflies MCP as one existing connection", async () => {
     sessionKey: "main",
     hello: {
       auth: { role: "operator", scopes: ["operator.read", "operator.admin"] },
-      features: { methods: ["tools.effective", "mcp.authLogin"] },
+      features: { methods: ["tools.effective", "mcp.authStatus", "mcp.authLogin"] },
       server: { connId: "test-connection" },
     },
   };

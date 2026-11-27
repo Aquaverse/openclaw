@@ -82,6 +82,8 @@ const CORE_GATEWAY_HANDLER_MODULES = {
     import("./mcp-auth-login.js").then((module) => module.mcpAuthLoginHandlers),
   "mcp-auth-logout": () =>
     import("./mcp-auth-logout.js").then((module) => module.mcpAuthLogoutHandlers),
+  "mcp-auth-status": () =>
+    import("./mcp-auth-status.js").then((module) => module.mcpAuthStatusHandlers),
   "models-auth-order": () =>
     import("./models-auth-order.js").then((module) => module.modelsAuthOrderHandlers),
   models: () => import("./models.js").then((module) => module.modelsHandlers),

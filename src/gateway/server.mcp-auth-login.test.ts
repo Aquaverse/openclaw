@@ -365,6 +365,10 @@ describe("registered mcp.authLogin", () => {
       redirect.searchParams.set("code", "fixture-code");
       expect((await fetch(redirect)).status).toBe(200);
       expect((await store()).tokens?.access_token).toBe("fixture-access");
+      expect(await rpcReq(readOnly, "mcp.authStatus", { serverName: "docs" })).toMatchObject({
+        ok: true,
+        payload: { serverName: "docs", state: "authorized" },
+      });
       const unrelatedAttempt = await startMcpOAuthAuthorization(unrelated, resolvedTransport(), {});
       if (unrelatedAttempt.status === "redirect") {
         await cancelMcpOAuthAuthorization(unrelated, unrelatedAttempt.state);
@@ -409,6 +413,10 @@ describe("registered mcp.authLogin", () => {
       expect(await rpcReq(owner, "mcp.authLogout", { serverName: "docs" })).toMatchObject({
         ok: true,
         payload: { serverName: "docs" },
+      });
+      expect(await rpcReq(readOnly, "mcp.authStatus", { serverName: "docs" })).toMatchObject({
+        ok: true,
+        payload: { serverName: "docs", state: "unauthenticated" },
       });
       const stored = await store();
       expect([stored.tokens, stored.clientInformation]).toEqual([undefined, undefined]);

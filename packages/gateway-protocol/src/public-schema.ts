@@ -228,6 +228,8 @@ export {
   McpAuthLoginParamsSchema,
   McpAuthLoginResultSchema,
   McpAuthLogoutParamsSchema,
+  McpAuthStatusParamsSchema,
+  McpAuthStatusResultSchema,
   WizardNextParamsSchema,
   WizardCancelParamsSchema,
   WizardStatusParamsSchema,

@@ -55,7 +55,7 @@ struct AppProfile: Equatable, Sendable {
         }
         // Keep this byte-for-byte aligned with src/daemon/constants.ts
         // resolveGatewayLaunchAgentLabel; the CLI owns the managed service.
-        self.name.map { "\(self.distribution.identityPrefix).\($0)" }
+        return self.name.map { "\(self.distribution.identityPrefix).\($0)" }
             ?? "\(self.distribution.identityPrefix).gateway"
     }
 

@@ -381,6 +381,7 @@ describe("chat pane composer controls", () => {
     toggle?.click();
     expect(state.request).not.toHaveBeenCalledWith("sessions.patch", expect.anything());
     expect(readDeferredChatPiiReplace(state, state.sessionKey)).toBe(true);
+    await vi.waitFor(() => expect(toggle?.dataset.piiReplace).toBe("true"));
   });
 
   it("shows PII redaction only for capable models and allows changing the next turn during a run", async () => {

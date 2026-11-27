@@ -73,6 +73,7 @@ export {
   isWizardStartParams,
   isMcpAuthLoginParams,
   isMcpAuthLogoutParams,
+  isMcpAuthStatusParams,
   isWizardNextParams,
   isWizardCancelParams,
   isWizardStatusParams,

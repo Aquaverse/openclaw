@@ -52,6 +52,22 @@ export const McpAuthLogoutParamsSchema = closedObject({
   serverName: NonEmptyString,
 });
 
+/** Reads shared operator OAuth credential state without exposing credentials. */
+export const McpAuthStatusParamsSchema = closedObject({
+  serverName: NonEmptyString,
+});
+
+export const McpAuthStatusResultSchema = closedObject({
+  serverName: NonEmptyString,
+  state: Type.Union([
+    Type.Literal("authorized"),
+    Type.Literal("requires-authorization"),
+    Type.Literal("pending-authorization"),
+    Type.Literal("unauthenticated"),
+  ]),
+  expiresAt: Type.Optional(Type.Number()),
+});
+
 export const WizardAnswerSchema = closedObject({
   stepId: NonEmptyString,
   value: Type.Optional(Type.Unknown()),
@@ -169,6 +185,8 @@ export type McpAuthLoginParams = Static<typeof McpAuthLoginParamsSchema>;
 export type McpAuthLoginLinkResult = Static<typeof McpAuthLoginLinkResultSchema>;
 export type McpAuthLoginResult = Static<typeof McpAuthLoginResultSchema>;
 export type McpAuthLogoutParams = Static<typeof McpAuthLogoutParamsSchema>;
+export type McpAuthStatusParams = Static<typeof McpAuthStatusParamsSchema>;
+export type McpAuthStatusResult = Static<typeof McpAuthStatusResultSchema>;
 export type WizardAnswer = Static<typeof WizardAnswerSchema>;
 export type WizardNextParams = Static<typeof WizardNextParamsSchema>;
 export type WizardCancelParams = Static<typeof WizardCancelParamsSchema>;

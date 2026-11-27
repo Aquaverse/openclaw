@@ -1,4 +1,4 @@
-const configuredProductName = import.meta.env.VITE_OPENCLAW_PRODUCT_NAME?.trim();
+const configuredProductName = import.meta.env?.VITE_OPENCLAW_PRODUCT_NAME?.trim();
 
 export const productDisplayName = configuredProductName || "OpenClaw";
 export const isBrandedProduct = productDisplayName !== "OpenClaw";

@@ -294,6 +294,10 @@ export const validateMcpAuthLogoutParams = createProtocolValidator(
   S.McpAuthLogoutParamsSchema,
   Checks.isMcpAuthLogoutParams,
 );
+export const validateMcpAuthStatusParams = createProtocolValidator(
+  S.McpAuthStatusParamsSchema,
+  Checks.isMcpAuthStatusParams,
+);
 export const validateWizardNextParams = createProtocolValidator(
   S.WizardNextParamsSchema,
   Checks.isWizardNextParams,

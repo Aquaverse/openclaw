@@ -1,7 +1,6 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import type { JSX } from "@solidjs/web";
 import { createMemo, createSignal, For, onSettled, Show } from "solid-js";
-import type { ToolsEffectiveResult } from "../api/types.ts";
 import type { ApplicationGatewaySnapshot } from "../app/context.ts";
 import { hasOperatorReadAccess } from "../app/operator-access.ts";
 import "../components/modal-dialog.tsx";
@@ -12,7 +11,6 @@ import { createWizardLogin, WizardLogin } from "../components/wizard-login-contr
 import { GitHubConnections } from "../features/github-connections/github-connections.tsx";
 import { channelSnapshotEntryIsActive } from "../lib/channels/index.ts";
 import { currentConfigObject } from "../lib/config/config-state-model.ts";
-import { resolveReadMcpServerRuntime, type McpToolsRead } from "../lib/config/mcp-server-status.ts";
 import { summarizeMcpServers } from "../lib/config/mcp-servers.ts";
 import { formatCompactMs } from "../lib/format.ts";
 import { canCallGatewayMethod } from "../lib/gateway-methods.ts";
@@ -107,6 +105,12 @@ type ConnectionDialog = "email-add" | "email-manage" | "github" | null;
 
 const FEATURED_CHANNELS = new Set(["slack", "whatsapp", "telegram"]);
 
+type McpAuthStatusResult = {
+  serverName: string;
+  state: "authorized" | "requires-authorization" | "pending-authorization" | "unauthenticated";
+  expiresAt?: number;
+};
+
 function ConnectionRow(props: {
   title: string;
   description?: string;
@@ -193,62 +197,62 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
   const github = createGitHubIdentityView();
   const [dialog, setDialog] = createSignal<ConnectionDialog>(null);
   const [showChannelPicker, setShowChannelPicker] = createSignal(false);
-  const [mcpToolsRead, setMcpToolsRead] = createSignal<McpToolsRead | null>(null);
+  const [firefliesAuthStatus, setFirefliesAuthStatus] = createSignal<McpAuthStatusResult | null>(
+    null,
+  );
   let githubClientRevision = 0;
   let githubSnapshot: ApplicationGatewaySnapshot | null = null;
-  let mcpToolsReadId = 0;
-  let mcpToolsReadKey: string | null = null;
+  let firefliesStatusReadId = 0;
+  let firefliesStatusReadKey: string | null = null;
   let active = true;
   let gatewayHello = context.gateway.snapshot.hello;
 
   const config = () => currentConfigObject(runtimeConfig.read().state);
-  const mcpServers = () => asOptionalRecord(asOptionalRecord(config()?.mcp)?.servers) ?? {};
+  const savedFirefliesServer = () =>
+    summarizeMcpServers(currentConfigObject(context.runtimeConfig.state))?.find(
+      (server) => server.name.toLowerCase() === "fireflies",
+    ) ?? null;
   const firefliesServer = createMemo(
     () =>
-      summarizeMcpServers(config())?.find(
-        (server) => server.name.toLocaleLowerCase() === "fireflies",
-      ) ?? null,
+      summarizeMcpServers(config())?.find((server) => server.name.toLowerCase() === "fireflies") ??
+      null,
   );
-  const readEffectiveTools = async () => {
+  const readFirefliesAuthStatus = async () => {
     const snapshot = context.gateway.snapshot;
     const client = snapshot.client;
-    const sessionKey = snapshot.sessionKey?.trim();
-    if (
-      !firefliesServer() ||
-      !client ||
-      !sessionKey ||
-      !canCallGatewayMethod(snapshot, "tools.effective", "operator.read")
-    ) {
-      mcpToolsReadId += 1;
-      mcpToolsReadKey = null;
-      setMcpToolsRead(null);
+    const server = savedFirefliesServer();
+    if (!server || !client || !canCallGatewayMethod(snapshot, "mcp.authStatus", "operator.read")) {
+      firefliesStatusReadId += 1;
+      firefliesStatusReadKey = null;
+      setFirefliesAuthStatus(null);
       return;
     }
-    const key = JSON.stringify([
-      snapshot.hello?.server?.connId,
-      sessionKey,
-      mcpServers()[firefliesServer()?.name ?? ""],
-    ]);
-    if (key === mcpToolsReadKey) {
+    const configuredServer = asOptionalRecord(asOptionalRecord(config()?.mcp)?.servers)?.[
+      server.name
+    ];
+    const key = JSON.stringify([snapshot.hello?.server?.connId, server.name, configuredServer]);
+    if (key === firefliesStatusReadKey) {
       return;
     }
-    mcpToolsReadKey = key;
-    setMcpToolsRead(null);
-    const readId = ++mcpToolsReadId;
+    firefliesStatusReadKey = key;
+    setFirefliesAuthStatus(null);
+    const readId = ++firefliesStatusReadId;
     try {
-      const result = await client.request<ToolsEffectiveResult>("tools.effective", { sessionKey });
-      if (active && readId === mcpToolsReadId) {
-        setMcpToolsRead({ result, servers: mcpServers() });
+      const result = await client.request<McpAuthStatusResult>("mcp.authStatus", {
+        serverName: server.name,
+      });
+      if (active && readId === firefliesStatusReadId) {
+        setFirefliesAuthStatus(result);
       }
     } catch {
-      if (active && readId === mcpToolsReadId) {
-        setMcpToolsRead(null);
+      if (active && readId === firefliesStatusReadId) {
+        setFirefliesAuthStatus(null);
       }
     }
   };
   const refreshFireflies = async () => {
-    mcpToolsReadKey = null;
-    await readEffectiveTools();
+    firefliesStatusReadKey = null;
+    await readFirefliesAuthStatus();
   };
   const firefliesLogin = createWizardLogin({
     getClient: () => context.gateway.snapshot.client,
@@ -282,12 +286,12 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
         gatewayHello = snapshot.hello;
         firefliesLogin.reset();
       }
-      void readEffectiveTools();
+      void readFirefliesAuthStatus();
     });
-    const stopConfig = context.runtimeConfig.subscribe(() => void readEffectiveTools());
+    const stopConfig = context.runtimeConfig.subscribe(() => void readFirefliesAuthStatus());
     apply(context.gateway.snapshot);
     void context.runtimeConfig.ensureLoaded();
-    void readEffectiveTools();
+    void readFirefliesAuthStatus();
     return () => {
       active = false;
       stopGateway();
@@ -305,11 +309,8 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
   const githubLogin = () => github.read().personal?.account?.login;
   const firefliesConnected = () => {
     const server = firefliesServer();
-    return (
-      server !== null &&
-      resolveReadMcpServerRuntime(mcpToolsRead(), server.name, mcpServers()[server.name]).kind ===
-        "connected"
-    );
+    const status = firefliesAuthStatus();
+    return server !== null && status?.serverName === server.name && status.state === "authorized";
   };
   const connectedCount = () =>
     emailAccounts().length +

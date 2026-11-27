@@ -82,7 +82,7 @@ openclaw-plugin-apps-connections openclaw-channels-page {
 }
 
 .apps-connections__card-status {
-  color: var(--success, var(--text-muted));
+  color: var(--ok);
   font-size: var(--control-ui-text-xs);
   white-space: nowrap;
 }
@@ -97,14 +97,24 @@ openclaw-plugin-apps-connections openclaw-channels-page {
 .apps-connections__card-action {
   justify-self: start;
   margin-top: auto;
-  padding: 0;
-  border: 0;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-ctl, 8px);
   color: var(--text-primary);
   background: transparent;
   font: inherit;
   font-size: var(--control-ui-text-sm);
   font-weight: 600;
   cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.apps-connections__card-action:hover {
+  border-color: var(--border);
+  background: var(--surface-hover);
 }
 
 .apps-connections__row {
