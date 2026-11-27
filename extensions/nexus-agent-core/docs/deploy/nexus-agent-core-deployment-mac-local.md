@@ -115,7 +115,7 @@ ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer
 2. 首次启动选 **This Mac（本机）**。App 会运行内置的安装脚本：在 `~/.openclaw` 下装一份用户态 Node 和与 App 匹配的 `openclaw` 命令行，再安装并启动 launchd 服务——**不需要终端、Homebrew 或管理员权限**，但需要联网下载运行时。
 3. 失败时点 **Retry setup**；仍失败就手动安装 CLI（文档要求 Node 24.16+ 或 26.1+）：`npm install -g openclaw@<版本> --allow-scripts=openclaw`，然后在引导里点 **Check again**。
 4. 按 App 的"选择模型"界面配置模型（key 只留在 `~/.openclaw`，不进安装包）。
-5. 首次启动时预设脚本自动运行（日志 `~/Library/Logs/OpenClaw/nexus-preset.log`），有变化时会重启网关一次。
+5. 首次启动时预设脚本自动运行（Ask Pepio 日志 `~/Library/Logs/AskPepio/askpepio-preset.log`），有变化时会重启网关一次。
 
 之后 shell 里使用的命令行路径：`~/.openclaw/bin/openclaw`（下文简写为 `openclaw`，可把 `~/.openclaw/bin` 加进 `PATH`）。
 
@@ -418,7 +418,7 @@ openclaw channels status --probe        # Telegram / WhatsApp
 openclaw logs --follow
 openclaw doctor                         # 体检；加 --fix 会修复，且只清理能确认的游离 launchd 任务
 tail -n 200 ~/Library/Logs/openclaw/gateway.log
-tail -n 50  ~/Library/Logs/OpenClaw/nexus-preset.log
+tail -n 50 ~/Library/Logs/AskPepio/askpepio-preset.log
 ```
 
 ### 12.2 升级
@@ -624,7 +624,7 @@ Nexus 插件卸载或重装会**重置插件自己的配置**（开关回到 fal
 | `~/.openclaw/.nexus-preset-applied`                 | Nexus 预设已应用标记                                   |
 | `~/Library/LaunchAgents/ai.openclaw.gateway.plist`  | 网关 launchd 服务                                      |
 | `~/Library/Logs/openclaw/gateway.log`               | 网关日志（标准输出与错误合并）                         |
-| `~/Library/Logs/OpenClaw/nexus-preset.log`          | Nexus 预设日志                                         |
+| `~/Library/Logs/AskPepio/askpepio-preset.log`       | Ask Pepio 预设日志                                     |
 | 端口 `18789`                                        | 网关（默认 loopback）                                  |
 
 ### 17.2 与服务器版方案的差异一览

@@ -1,4 +1,4 @@
-// HTTP handler behind the Control UI "Nexus" tab (DESIGN section 12). The host mounts it with `auth: "gateway"`, so an
+// HTTP handler for Ask Pepio's read-only pages (DESIGN section 12). The host mounts it with `auth: "gateway"`, so an
 // unauthenticated request never reaches it; the handler still checks the operator scope itself, serves GET/HEAD only, and
 // sets a CSP with no script and no form target. The pages read the store directly and change nothing.
 import { randomBytes } from "node:crypto";
@@ -205,7 +205,7 @@ export function createNexusUiHttpHandler(deps: UiHttpDeps) {
       return send(
         500,
         "text/plain",
-        `Nexus page failed: ${error instanceof Error ? error.message : String(error)}\n`,
+        `Ask Pepio page failed: ${error instanceof Error ? error.message : String(error)}\n`,
       );
     }
   };

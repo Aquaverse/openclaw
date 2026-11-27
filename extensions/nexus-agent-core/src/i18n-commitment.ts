@@ -165,12 +165,12 @@ export const COMMITMENT_MESSAGES = {
     "Works on it with the responsible person, or helps them.",
   ],
   "cm.assist.hint.approver": [
-    "业务上需要他点头。这不是 Nexus 的批准，不会替你批准任何操作。",
-    "Needs his say-so for the business. This is not a Nexus approval and approves nothing for you.",
+    "业务上需要他点头。这不是 Ask Pepio 的批准，不会替你批准任何操作。",
+    "Needs his say-so for the business. This is not an Ask Pepio approval and approves nothing for you.",
   ],
   "cm.assist.hint.recipient": [
-    "成果是交给他的。这不是发送授权，Nexus 不会因此给他发任何消息。",
-    "The result goes to him. This is not a sending authorization: Nexus will not message him.",
+    "成果是交给他的。这不是发送授权，Ask Pepio 不会因此给他发任何消息。",
+    "The result goes to him. This is not a sending authorization: Ask Pepio will not message him.",
   ],
   "cm.assist.who": ["选一位已有的人", "Pick someone who has a record"],
   "cm.assist.role": ["他的角色", "His role"],

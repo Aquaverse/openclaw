@@ -111,6 +111,9 @@ export function createWorkboardTestHost() {
       mountDashboard: () => {
         throw new Error("This test did not install DOM components");
       },
+      mountAppsConnections: () => {
+        throw new Error("This test did not install DOM components");
+      },
     },
     ui: {
       invalidate: vi.fn(),

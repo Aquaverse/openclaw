@@ -70,6 +70,9 @@ struct AppProfileTests {
         #expect(GatewayLaunchAgentManager.daemonEnvironment(
             environment: [:], profile: profile, searchPaths: [])["OPENCLAW_PRODUCT_LOG_DIR"]?
             .hasSuffix("/Library/Logs/AskPepio") == true)
+        #expect(GatewayLaunchAgentManager.daemonEnvironment(
+            environment: [:], profile: profile, searchPaths: [])["OPENCLAW_LOG_PREFIX"] ==
+            "gateway-askpepio")
         #expect(profile.instanceLockName == "ai.pepio.mac.profile.nexus")
         #expect(profile.instanceLockURL(systemTemporaryDirectory: URL(fileURLWithPath: "/tmp")).path ==
             "/tmp/askpepio-\(geteuid())-app-instances/ai.pepio.mac.profile.nexus.lock")

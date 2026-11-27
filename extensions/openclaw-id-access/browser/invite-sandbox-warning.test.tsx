@@ -20,6 +20,7 @@ it("warns from the selected role's catalog policy and tracks backend and definit
     mountAgentPicker: unused,
     mountSessionSummary: unused,
     mountDashboard: unused,
+    mountAppsConnections: unused,
     mountSelectPicker: (_container, initial) => {
       selectRole = initial.onSelect;
       return {

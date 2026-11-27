@@ -303,17 +303,34 @@ final class AutoOnboardBootstrap {
     static func migrateLegacyNexusProfileIfNeeded() async -> Bool {
         let profile = AppProfile.current
         guard profile.name == "nexus" else { return true }
-        // Ask Pepio starts with its own state root. Importing an OpenClaw or
-        // historical Nexus installation is an explicit operator action through
-        // the bundled migration script, never a first-launch side effect.
-        guard profile.distribution.identityPrefix == "ai.openclaw" else { return true }
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
-        let source = home.appendingPathComponent(".openclaw", isDirectory: true)
         let target = profile.stateDirectoryURL(homeDirectory: home)
-        guard !fileManager.fileExists(atPath: target.path),
-              fileManager.fileExists(atPath: source.appendingPathComponent(".nexus-preset-applied").path)
-        else { return true }
+        guard !fileManager.fileExists(atPath: target.path) else { return true }
+
+        let legacyNexus = home.appendingPathComponent(".openclaw-nexus", isDirectory: true)
+        let legacyDefault = home.appendingPathComponent(".openclaw", isDirectory: true)
+        let source: URL
+        let sourcePolicy: String
+        let sourceProfile: String
+        let sourceServiceLabel: String
+        if profile.distribution.identityPrefix == "ai.pepio",
+           fileManager.fileExists(atPath: legacyNexus.path)
+        {
+            source = legacyNexus
+            sourcePolicy = "explicit"
+            sourceProfile = "nexus"
+            sourceServiceLabel = "ai.openclaw.nexus"
+        } else if fileManager.fileExists(
+            atPath: legacyDefault.appendingPathComponent(".nexus-preset-applied").path)
+        {
+            source = legacyDefault
+            sourcePolicy = "preset"
+            sourceProfile = "default"
+            sourceServiceLabel = "ai.openclaw.gateway"
+        } else {
+            return true
+        }
 
         let script = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/mac-nexus-profile-migrate.mjs")
@@ -323,10 +340,11 @@ final class AutoOnboardBootstrap {
             return false
         }
 
-        let serviceTarget = "gui/\(geteuid())/ai.openclaw.gateway"
+        let serviceTarget = "gui/\(geteuid())/\(sourceServiceLabel)"
         let service = await ShellExecutor.runDetailed(
             command: ["/bin/launchctl", "print", serviceTarget], cwd: nil, env: nil, timeout: 10)
-        let servicePlist = home.appendingPathComponent("Library/LaunchAgents/ai.openclaw.gateway.plist")
+        let servicePlist = home.appendingPathComponent(
+            "Library/LaunchAgents/\(sourceServiceLabel).plist")
         let sourceServiceInstalled = service.success || fileManager.fileExists(atPath: servicePlist.path)
         let sourceExecutable = source.appendingPathComponent("bin/openclaw").path
         if sourceServiceInstalled {
@@ -335,7 +353,7 @@ final class AutoOnboardBootstrap {
                 return false
             }
             let stopped = await ShellExecutor.runDetailed(
-                command: [sourceExecutable, "--profile", "default", "gateway", "uninstall", "--json"],
+                command: [sourceExecutable, "--profile", sourceProfile, "gateway", "uninstall", "--json"],
                 cwd: nil,
                 env: nil,
                 timeout: 60)
@@ -353,6 +371,7 @@ final class AutoOnboardBootstrap {
                 "--target", target.path,
                 "--profile", "nexus",
                 "--port", String(profile.defaultGatewayPort),
+                "--source-policy", sourcePolicy,
             ],
             cwd: nil,
             env: nil,
@@ -361,7 +380,7 @@ final class AutoOnboardBootstrap {
 
         if !result.success, service.success {
             let restarted = await ShellExecutor.runDetailed(
-                command: [sourceExecutable, "--profile", "default", "gateway", "install", "--json"],
+                command: [sourceExecutable, "--profile", sourceProfile, "gateway", "install", "--json"],
                 cwd: nil,
                 env: nil,
                 timeout: 60)

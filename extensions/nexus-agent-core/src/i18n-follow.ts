@@ -277,8 +277,8 @@ export const FOLLOW_MESSAGES = {
   "fu.f.notifyMode.fixed": ["固定文字（原样发送）", "Fixed text (sent as written)"],
   "fu.f.notifyText": ["消息文字", "Message text"],
   "fu.f.notifyTplDefault": [
-    "【Nexus 跟进】{purpose}：{result}。{summary}（来源：{source}，{time}）",
-    "[Nexus follow-up] {purpose}: {result}. {summary} (source: {source}, {time})",
+    "【Ask Pepio 跟进】{purpose}：{result}。{summary}（来源：{source}，{time}）",
+    "[Ask Pepio follow-up] {purpose}: {result}. {summary} (source: {source}, {time})",
   ],
   "fu.f.notifyTplHint": [
     "可用占位符：{placeholders}（依次是检查摘要、检查目的、结果、来源链接、时间），发送时由系统填入。",

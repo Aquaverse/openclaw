@@ -973,6 +973,7 @@ extension GatewayLaunchAgentManager {
         }
         if profile.distribution.stateDirectoryName != nil {
             result["OPENCLAW_PRODUCT_LOG_DIR"] = profile.distribution.logDirectoryURL().path
+            result["OPENCLAW_LOG_PREFIX"] = "gateway-\(profile.distribution.fileName.lowercased())"
         }
         var commandEnvironment = GatewayChildSupervisor.environmentWithoutSupervisorMarkers(result)
         // This is an explicit service selector for the CLI invocation, not an inherited

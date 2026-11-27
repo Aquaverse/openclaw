@@ -683,7 +683,7 @@ export function registerTaskModule(
     api.registerGatewayMethod(method, handler, { scope });
   }
 
-  // ---- Stage 4: Control UI tab (DESIGN section 12): read-only server-rendered pages behind gateway auth. ----
+  // ---- Stage 4: read-only server-rendered pages behind gateway auth. ----
   api.registerHttpRoute({
     path: NEXUS_UI_BASE_PATH,
     match: "prefix",
@@ -697,18 +697,6 @@ export function registerTaskModule(
       watchersEnabled: watchRuntime !== undefined,
     }),
   });
-  api.session.controls.registerControlUiDescriptor({
-    surface: "tab",
-    id: "nexus",
-    label: "Nexus",
-    slug: "nexus",
-    description: "Nexus tasks, decisions, preferences and purge receipts (read-only).",
-    icon: "kanban",
-    group: "control",
-    requiredScopes: ["operator.read"],
-    path: `${NEXUS_UI_BASE_PATH}/`,
-  });
-
   // ---- Stage 4: Preference Store (DESIGN section 11). A preference is a default, never authority. ----
   if (config.preferencesEnabled === true) {
     api.registerTool(

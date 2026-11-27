@@ -1,7 +1,7 @@
 {
   "id": "nexus-agent-core",
-  "name": "Nexus Agent Core",
-  "description": "Nexus Agent Core. Stage 1: the Task module (tools nexus_task_*, RPC nexus.task.*, open-Task prompt list). Stage 2: decisions, grants and executions with a fake provider (tools nexus_action_* / nexus_decision_request, RPC nexus.decision.* / nexus.execution.* / nexus.grant.*). Stage 3: a Claim / Evidence ledger with completion gating (tools nexus_claim_add / nexus_evidence_add / nexus_claim_verify, RPC nexus.claim.*). Stage 4: a Preference Store (tools nexus_preference_*, RPC nexus.preference.*), a read-only Control UI tab, and a Watcher for scheduled re-checks (tools nexus_watch_*, RPC nexus.watch.*). Stage 5: a personal file vault (tools nexus_file_*, RPC nexus.vault.*). Stage 6: Goals (tools nexus_goal_*, RPC nexus.goal.*, console Goals page). Stage 7: the Work layer (tools nexus_work_*, RPC nexus.work.*). All off by default. Stage 0 runtime spikes remain behind spikesEnabled (see nexus-agent-core-design.md section 13).",
+  "name": "Ask Pepio Agent Core",
+  "description": "Ask Pepio Agent Core. Task, decision, evidence, preference, watcher, file vault, goal, and work capabilities for Ask Pepio. All optional modules remain off by default unless enabled by the Ask Pepio distribution preset.",
   "categories": [
     "agent-orchestration"
   ],
@@ -9,7 +9,7 @@
   "cliCommands": [
     {
       "name": "nexus",
-      "description": "Nexus Agent Core maintenance commands",
+      "description": "Ask Pepio Agent Core maintenance commands",
       "hasSubcommands": true
     }
   ],
@@ -63,7 +63,7 @@
           "web_fetch",
           "web_search"
         ],
-        "description": "Extra read-only tools a re-check turn may use besides the Nexus ones. Only web_fetch and web_search are accepted: a re-check turn reads untrusted content, so the list is fixed by the plugin, not open to other tool names."
+        "description": "Extra read-only tools an Ask Pepio re-check turn may use. Only web_fetch and web_search are accepted: a re-check turn reads untrusted content, so the list is fixed by the plugin, not open to other tool names."
       },
       "evidenceTaskQuotaBytes": {
         "type": "integer",
@@ -124,7 +124,7 @@
       "coreApprovalEnabled": {
         "type": "boolean",
         "default": true,
-        "description": "Attach an optional core approval card to nexus_decision_request on user turns. The Nexus decision page (nexus.decision.*) is always the primary path."
+        "description": "Attach an optional core approval card to nexus_decision_request on user turns. The Ask Pepio decision page (nexus.decision.*) is always the primary path."
       },
       "approvalTimeoutMs": {
         "type": "integer",
@@ -193,7 +193,7 @@
           "type": "string"
         },
         "maxItems": 16,
-        "description": "Folders nexus.vault.importPath may read from. Default: Downloads and Documents in the user's home folder. Credential folders and the Nexus state folder are always refused."
+        "description": "Folders nexus.vault.importPath may read from. Default: Downloads and Documents in the user's home folder. Credential folders and the Ask Pepio state folder are always refused."
       },
       "vaultMinFreeBytes": {
         "type": "integer",
@@ -253,7 +253,7 @@
       "worksEnabled": {
         "type": "boolean",
         "default": false,
-        "description": "Enable the Nexus Task and Work layers: nexus_task_* and nexus_work_* tools (optional tools, allow them via tools.alsoAllow), nexus.task.* and nexus.work.* gateway methods, the open-Task prompt list and the nexus.sqlite store. Every new Task gets a Work in the same transaction (nexus_task_create accepts an optional workId to join an existing one). A Work's state is derived from its Tasks, requests, controls and outcome facts; nothing sets it directly. Every other Nexus feature switch needs this one. Existing Tasks are moved into Works by the manual command `openclaw nexus data backfill-works` (gateway stopped). Off by default."
+        "description": "Enable the Ask Pepio Task and Work layers: nexus_task_* and nexus_work_* tools (optional tools, allow them via tools.alsoAllow), nexus.task.* and nexus.work.* gateway methods, the open-Task prompt list and the nexus.sqlite store. Every new Task gets a Work in the same transaction (nexus_task_create accepts an optional workId to join an existing one). A Work's state is derived from its Tasks, requests, controls and outcome facts; nothing sets it directly. Every other Ask Pepio feature switch needs this one. Existing Tasks are moved into Works by the manual command `openclaw nexus data backfill-works` (gateway stopped). Off by default."
       },
       "goalMaxActivePerOwner": {
         "type": "integer",

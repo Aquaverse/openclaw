@@ -455,7 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 guard await AutoOnboardBootstrap.migrateLegacyNexusProfileIfNeeded() else {
                     self.credentialLogger.error(
-                        "Nexus profile migration did not complete; preserving the prior profile for retry")
+                        "Ask Pepio profile migration did not complete; preserving the prior profile for retry")
                     self.showNexusProfileMigrationFailure()
                     return
                 }
@@ -535,12 +535,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showNexusProfileMigrationFailure() {
         let message = String(
-            localized: "OpenClaw could not safely move the previous Nexus data. The previous installation was preserved.") +
-            " " + String(localized: "Quit any running OpenClaw-derived apps, then run this installer again.")
+            localized: "OpenClaw could not safely move the previous Nexus data. The previous installation was preserved. Quit any running OpenClaw-derived apps, then run this installer again.")
+            .replacingOccurrences(of: "Nexus", with: "Ask Pepio")
         if AppLaunchRuntimePlan.current.allowsActivation {
             let alert = NSAlert()
             alert.alertStyle = .critical
             alert.messageText = String(localized: "Nexus data migration needs to be retried")
+                .replacingOccurrences(of: "Nexus", with: "Ask Pepio")
             alert.informativeText = message
             AppActivation.shared.presentAlert(alert)
         } else {

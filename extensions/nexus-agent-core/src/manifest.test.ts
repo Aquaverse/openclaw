@@ -136,30 +136,21 @@ describe("Control UI browser module", () => {
     assert.deepEqual(packageJson.openclaw.extensions, ["./index.ts"]);
   });
 
-  it("registers a page with the same id as the descriptor tab", () => {
+  it("registers product rail pages without the retired Nexus descriptor tab", () => {
     const page = fs.readFileSync(path.join(root, "browser", "page.ts"), "utf8");
     const index = fs.readFileSync(path.join(root, "browser", "index.ts"), "utf8");
     const module = fs.readFileSync(path.join(root, "src", "task-module.ts"), "utf8");
-    const pageId = /NEXUS_PAGE_ID = "([^"]+)"/.exec(page)?.[1];
-    const tabId = /registerControlUiDescriptor\(\{[^}]*?\bid: "([^"]+)"/s.exec(module)?.[1];
-    assert.ok(pageId && tabId, "page id and tab id must be findable");
-    assert.equal(pageId, tabId);
+    assert.doesNotMatch(module, /registerControlUiDescriptor\(/);
+    assert.doesNotMatch(index, /id: NEXUS_PAGE_ID/);
     assert.match(index, /id: "nexus-agent-core"/);
     assert.match(index, /registerPage\(/);
-    // The descriptor stays the page's own sidebar tab; Dashboard, Work, Collaboration, Library and Goals are extra
-    // destinations of the same page, fixed in the host's left rail below the Sessions button (never user pins).
     assert.match(index, /registerNavigation\(/);
     assert.match(index, /rail: "sessions"/);
     assert.doesNotMatch(index, /pinNavigation\(/);
     const ids = [...index.matchAll(/\{\s*id: "(\w+)",\s*label: "nav\.[\w.]+"/g)].map((m) => m[1]);
-    assert.deepEqual(ids, ["dashboard", "work", "people", "library", "goals"]);
-    // Aimed at the tab's own id they would make the host hide the Nexus sidebar entry: they use a second page id.
-    assert.match(index, /page: \{ id: NEXUS_RAIL_PAGE_ID, params: destination\.params \}/);
+    assert.deepEqual(ids, ["dashboard", "work", "people", "library", "goals", "connections"]);
     const railId = /NEXUS_RAIL_PAGE_ID = "([^"]+)"/.exec(page)?.[1];
-    assert.ok(
-      railId && railId !== tabId,
-      "the rail destinations must not point at the descriptor tab's page id",
-    );
+    assert.ok(railId, "the rail page id must be findable");
     assert.match(index, /registerPage\(\{\s*id: NEXUS_RAIL_PAGE_ID/);
   });
 

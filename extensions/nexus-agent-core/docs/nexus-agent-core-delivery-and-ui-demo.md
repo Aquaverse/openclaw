@@ -64,7 +64,7 @@ ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer
 几点说明：
 
 - **每个预设版本只执行一次。** 脚本在 `~/.openclaw/.nexus-preset-applied` 记下版本；用户之后自己关掉某个开关、从允许列表里去掉某个工具，不会在下次启动时被改回。想让已装机器重新应用，要升 `scripts/build-mac-installer.sh` 里的 `NEXUS_PRESET_VERSION`。本机重测时删掉这个标记文件再启动 App 即可（删文件由你自己执行）。
-- **日志**：`~/Library/Logs/OpenClaw/nexus-preset.log`，每一步和是否改了 `alsoAllow` 都有记录。
+- **日志**：`~/Library/Logs/AskPepio/askpepio-preset.log`，每一步和是否改了 `alsoAllow` 都有记录。
 - **只对内置了 Nexus 的 App 有效。** 没有内置 Nexus 的 App（官方发行版）上 `plugins enable` 会失败，脚本记一条警告就退出，不影响别的。压缩包安装走 §2.3，不受这个开关影响。
 - **假供应商仍是唯一的供应商。** 这个预设不改变“演示 / 开发版”的性质；接入真实供应商前不要把它当正式版默认值。
 
@@ -191,7 +191,7 @@ openclaw backup create                                  # 先备份
 
 **B-1：官方发行版 App（不含 Nexus）+ 压缩包** —— 最接近“用户拿到压缩包”的真实场景。依次做 §3.1、§3.2、§3.3。
 
-**B-2：你 fork 打的 App（Nexus 是内置的）** —— 这个 App 里装压缩包会被内置版覆盖（日志 `duplicate plugin id ... bundled plugin`），所以跳过 §3.1，只做 §3.2 里的功能开关、`fakeProviderMode` 和 `tools.alsoAllow`（`customPlugins` 和 `hooks.allowConversationAccess` 可省，内置插件不需要），再做 §3.3。**如果这个 App 是用 `OPENCLAW_INSTALLER_NEXUS_PRESET=1` 打的（§2.1），§3.2 也不用做**，直接看 `~/Library/Logs/OpenClaw/nexus-preset.log` 确认预设已应用，再做 §3.3 的自检。这条路径是“内置分发”的演示，证据原文存储可用，可以额外演“查看原文”（需要先用探针脚本或 RPC 上传一份证据，页面本身没有上传按钮）。
+**B-2：你 fork 打的 App（Nexus 是内置的）** —— 这个 App 里装压缩包会被内置版覆盖（日志 `duplicate plugin id ... bundled plugin`），所以跳过 §3.1，只做 §3.2 里的功能开关、`fakeProviderMode` 和 `tools.alsoAllow`（`customPlugins` 和 `hooks.allowConversationAccess` 可省，内置插件不需要），再做 §3.3。**如果这个 App 是用 `OPENCLAW_INSTALLER_NEXUS_PRESET=1` 打的（§2.1），§3.2 也不用做**，直接看 `~/Library/Logs/AskPepio/askpepio-preset.log` 确认预设已应用，再做 §3.3 的自检。这条路径是“内置分发”的演示，证据原文存储可用，可以额外演“查看原文”（需要先用探针脚本或 RPC 上传一份证据，页面本身没有上传按钮）。
 
 ## 6. 演示脚本（全程在界面里）
 

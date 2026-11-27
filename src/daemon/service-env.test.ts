@@ -151,13 +151,16 @@ describe("service environment", () => {
       OPENCLAW_LAUNCHD_LABEL: "ai.openclaw.work",
     });
   });
-  it("preserves a branded product log directory", () => {
-    expect(
-      serviceEnv(
-        { OPENCLAW_PRODUCT_LOG_DIR: " /Users/u/Library/Logs/AskPepio " },
-        { platform: "darwin" },
-      ).OPENCLAW_PRODUCT_LOG_DIR,
-    ).toBe("/Users/u/Library/Logs/AskPepio");
+  it("preserves branded product log paths", () => {
+    const env = serviceEnv(
+      {
+        OPENCLAW_PRODUCT_LOG_DIR: " /Users/u/Library/Logs/AskPepio ",
+        OPENCLAW_LOG_PREFIX: " gateway-askpepio ",
+      },
+      { platform: "darwin" },
+    );
+    expect(env.OPENCLAW_PRODUCT_LOG_DIR).toBe("/Users/u/Library/Logs/AskPepio");
+    expect(env.OPENCLAW_LOG_PREFIX).toBe("gateway-askpepio");
   });
   it("does not persist ambient proxy variables", () => {
     const proxies = {

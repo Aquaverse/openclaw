@@ -141,7 +141,7 @@ ALLOW_ADHOC_SIGNING=1 OPENCLAW_SKIP_MLX_TTS=1 pnpm mac:installer
 **要注意的几点**
 
 - **每个预设版本只应用一次**（当前预设版本是 2：版本 2 起默认多打开文件柜和证据原文，已装过版本 1 的机器重新安装后会补上这两项，只增不改）。标记文件是 `~/.openclaw/.nexus-preset-applied`，用户之后自己关掉某个开关或删掉某个工具，不会被下次启动改回去。所以：已经安装过的机器，只改 `installer.env` 重新打包**不会**生效，要么手动执行 `openclaw config set`（见 1.2 的命令），要么把 `scripts/build-mac-installer.sh` 里的 `NEXUS_PRESET_VERSION`（目前写死为 1）加一再打包。
-- 预设日志：`~/Library/Logs/OpenClaw/nexus-preset.log`；安装后的命令行在 `~/.openclaw/bin/openclaw`。
+- Ask Pepio 预设日志：`~/Library/Logs/AskPepio/askpepio-preset.log`；安装后的命令行仍名为 `openclaw`。
 - `installer.env` 里的模型地址和 API Key 会**明文**打进安装包，只放可以共享给所有拿到安装包的人的后端，不要放个人密钥。
 - 在 Mac 应用里没有出现 Nexus 页面时，先看 `~/.openclaw/bin/openclaw plugins list` 里 `nexus-agent-core` 是否已启用；第三方方式安装的插件还需要 `gateway.controlUi.experimental.customPlugins=true`（内置版本一般不需要）。
 

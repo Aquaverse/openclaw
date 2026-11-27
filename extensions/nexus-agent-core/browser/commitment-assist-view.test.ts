@@ -126,7 +126,7 @@ describe("helpers: the dialog", () => {
     click(f.container, ".nx-dialog .nx-pick-item");
     assert.equal(add()?.disabled, false);
     choose(q(f.container, ".nx-dialog .nx-asf select"), "approver");
-    assert.match(dlg(f)?.textContent ?? "", /不是 Nexus 的批准/);
+    assert.match(dlg(f)?.textContent ?? "", /不是 Ask Pepio 的批准/);
     typeInto(q(f.container, ".nx-dialog .nx-asf label input"), "要他点头");
     add()?.click();
     await flush();

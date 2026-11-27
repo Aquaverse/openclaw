@@ -83,12 +83,12 @@ export const PEOPLE_MESSAGES = {
   "pp.via.participant": ["作为参与人", "as a participant"],
   "pp.alias": ["别名：{names}", "Also known as: {names}"],
   "pp.contact.none": [
-    "还没有联系方式。联系方式只是记给你自己看的资料，Nexus 不会用它给任何人发消息。",
-    "No contact notes. They are only notes for you; Nexus never uses them to message anyone.",
+    "还没有联系方式。联系方式只是记给你自己看的资料，Ask Pepio 不会用它给任何人发消息。",
+    "No contact notes. They are only notes for you; Ask Pepio never uses them to message anyone.",
   ],
   "pp.contact.note": [
-    "联系方式只是记给你自己看的资料，Nexus 不会用它给任何人发消息，也不会因此读取任何账号。",
-    "Contact notes are only for you. Nexus never messages anyone with them or reads any account because of them.",
+    "联系方式只是记给你自己看的资料，Ask Pepio 不会用它给任何人发消息，也不会因此读取任何账号。",
+    "Contact notes are only for you. Ask Pepio never messages anyone with them or reads any account because of them.",
   ],
   "pp.btn.edit": ["编辑", "Edit"],
   "pp.btn.off": ["删除", "Delete"],

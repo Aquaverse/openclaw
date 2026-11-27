@@ -22,6 +22,38 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(openClawLog).toBeGreaterThan(askPepioLog);
   });
 
+  it("installs Ask Pepio services with branded gateway and preset log names", () => {
+    const postinstall = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const preset = readFileSync("scripts/mac-nexus-preset.sh", "utf8");
+
+    expect(postinstall).toContain(
+      "PRODUCT_GATEWAY_LOG_PREFIX=\"gateway-$(printf '%s' \"$PRODUCT_FILE_NAME\" | /usr/bin/tr '[:upper:]' '[:lower:]')\"",
+    );
+    expect(postinstall).toContain('if [[ "$PRODUCT_FILE_NAME" != "OpenClaw" ]]');
+    expect(postinstall).toContain('OPENCLAW_LOG_PREFIX="$PRODUCT_GATEWAY_LOG_PREFIX"');
+    expect(preset).toContain("/askpepio-preset.log");
+    expect(preset).not.toContain("/nexus-preset.log");
+  });
+
+  it("migrates legacy Nexus state inside the Ask Pepio package", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const migration = script.indexOf('if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.pepio"');
+    const upstreamMigration = script.indexOf(
+      'if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.openclaw"',
+      migration,
+    );
+    const block = script.slice(migration, upstreamMigration);
+
+    expect(migration).toBeGreaterThanOrEqual(0);
+    expect(block).toContain('if [[ -d "$CONSOLE_HOME/.openclaw-nexus" ]]');
+    expect(block).toContain('elif [[ -f "$CONSOLE_HOME/.openclaw/.nexus-preset-applied" ]]');
+    expect(block.indexOf(".openclaw-nexus")).toBeLessThan(block.indexOf(".nexus-preset-applied"));
+    expect(block).toContain('--source-policy "$SOURCE_POLICY"');
+    expect(block).toContain('SOURCE_GATEWAY_LABEL="ai.openclaw.nexus"');
+    expect(block).toContain('SOURCE_GATEWAY_LABEL="ai.openclaw.gateway"');
+    expect(block).not.toContain("rm -");
+  });
+
   it("uses the repository-pinned packer for the bundled installer CLI", () => {
     const script = readFileSync("scripts/build-mac-installer.sh", "utf8");
     const pack = script.indexOf("node scripts/package-openclaw-for-docker.mjs");

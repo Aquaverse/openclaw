@@ -49,7 +49,7 @@ function tools(config: ImapPluginConfig) {
     const factory = registerTool.mock.calls.find(([, options]) => options?.name === name)?.[0];
     assert(factory && typeof factory !== "function" && "create" in factory, `missing ${name}`);
     const tool = factory.create({ assertInvocationCurrent() {} });
-    assert(!Array.isArray(tool), `expected one ${name} tool`);
+    assert(tool && !Array.isArray(tool), `expected one ${name} tool`);
     return tool;
   };
 }

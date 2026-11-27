@@ -100,7 +100,7 @@ describe("Nexus Control UI pages", () => {
       await w.rpc("nexus.preference.set", { key: "seat", value: "aisle" });
       const list = await ask(handler, "/", "en-US,en;q=0.9");
       assert.ok(list.body.includes('<html lang="en">'));
-      assert.ok(list.body.includes("<title>Nexus tasks</title>"));
+      assert.ok(list.body.includes("<title>Ask Pepio tasks</title>"));
       assert.ok(list.body.includes(">Tasks</a>") && list.body.includes(">Preferences</a>"));
       assert.ok(list.body.includes(">Purge receipts</a>"));
       assert.ok(list.body.includes(">Filter</button>") && list.body.includes(">Reset</a>"));
@@ -115,7 +115,7 @@ describe("Nexus Control UI pages", () => {
       const detail = await ask(handler, "/tasks/T00000001", "en");
       assert.ok(detail.body.includes("← Tasks") && detail.body.includes("Pending decisions"));
       assert.ok(detail.body.includes("<h2>Goal</h2>") && detail.body.includes("<h2>Entities</h2>"));
-      assert.ok(detail.body.includes("<title>Nexus task T00000001</title>"));
+      assert.ok(detail.body.includes("<title>Ask Pepio task T00000001</title>"));
     });
 
     it("answers in Chinese by default and for a Chinese browser", async () => {
@@ -125,7 +125,7 @@ describe("Nexus Control UI pages", () => {
         const list = await ask(handler, "/", header);
         assert.ok(list.body.includes('<html lang="zh-CN">'));
         assert.ok(list.body.includes(">筛选</button>") && list.body.includes(">重置</a>"));
-        assert.ok(list.body.includes("<title>Nexus 事项</title>"));
+        assert.ok(list.body.includes("<title>Ask Pepio 事项</title>"));
       }
       // A language we have no text for gets English.
       assert.ok((await ask(handler, "/", "de-DE,de;q=0.9")).body.includes('<html lang="en">'));

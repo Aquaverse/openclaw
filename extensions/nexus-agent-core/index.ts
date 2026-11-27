@@ -65,9 +65,8 @@ function readSpikeParams(raw: Record<string, unknown>): SpikeRunParams {
 
 export default definePluginEntry({
   id: "nexus-agent-core",
-  name: "Nexus Agent Core",
-  description:
-    "Nexus Agent Core (Task module, decision/grant/execution module; Stage 0 runtime spikes).",
+  name: "Ask Pepio Agent Core",
+  description: "Ask Pepio task, decision, evidence, preference, file, goal, and work capabilities.",
   register(api) {
     const config = (api.pluginConfig ?? {}) as NexusPluginConfig;
     // Visible in the gateway log and in CLI stderr, even when the spikes are off or no config reached us.

@@ -108,6 +108,7 @@ run_as_console_user() {
         OPENCLAW_CONFIG_PATH="$PREFIX/openclaw.json" \
         OPENCLAW_LAUNCHD_LABEL="$GATEWAY_SERVICE_LABEL" \
         OPENCLAW_PRODUCT_LOG_DIR="$CONSOLE_HOME/Library/Logs/$PRODUCT_LOG_DIRECTORY_NAME" \
+        OPENCLAW_LOG_PREFIX="$PRODUCT_GATEWAY_LOG_PREFIX" \
         XDG_CACHE_HOME="$CONSOLE_HOME/Library/Caches/$PRODUCT_CACHE_DIRECTORY_NAME" "$@"
   else
     /bin/launchctl asuser "$CONSOLE_UID" /usr/bin/sudo -u "$CONSOLE_USER" -H "$@"
@@ -185,9 +186,15 @@ fi
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
 PRODUCT_IDENTITY_PREFIX="$(/usr/libexec/PlistBuddy -c "Print OpenClawProductIdentityPrefix" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
 PRODUCT_STATE_DIRECTORY_NAME="$(/usr/libexec/PlistBuddy -c "Print OpenClawProductStateDirectoryName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
+PRODUCT_FILE_NAME="$(/usr/libexec/PlistBuddy -c "Print OpenClawProductFileName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
 PRODUCT_LOG_DIRECTORY_NAME="$(/usr/libexec/PlistBuddy -c "Print OpenClawProductLogDirectoryName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
 PRODUCT_CACHE_DIRECTORY_NAME="$(/usr/libexec/PlistBuddy -c "Print OpenClawProductCacheDirectoryName" "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
 PRODUCT_IDENTITY_PREFIX="${PRODUCT_IDENTITY_PREFIX:-ai.openclaw}"
+PRODUCT_FILE_NAME="${PRODUCT_FILE_NAME:-OpenClaw}"
+PRODUCT_GATEWAY_LOG_PREFIX=""
+if [[ "$PRODUCT_FILE_NAME" != "OpenClaw" ]]; then
+  PRODUCT_GATEWAY_LOG_PREFIX="gateway-$(printf '%s' "$PRODUCT_FILE_NAME" | /usr/bin/tr '[:upper:]' '[:lower:]')"
+fi
 PRODUCT_LOG_DIRECTORY_NAME="${PRODUCT_LOG_DIRECTORY_NAME:-OpenClaw}"
 PRODUCT_CACHE_DIRECTORY_NAME="${PRODUCT_CACHE_DIRECTORY_NAME:-openclaw}"
 APP_DEFAULTS_DOMAIN="$BUNDLE_ID"
@@ -239,6 +246,71 @@ prior_nexus_gateway_service_owned() {
 MIGRATION_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-profile-migrate.mjs"
 NEXUS_PROFILE_MIGRATED=0
 NEXUS_PROFILE_MIGRATION_REQUIRED=0
+if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.pepio" \
+  && "$APP_PROFILE" == "nexus" \
+  && ! -e "$PREFIX" ]]; then
+  SOURCE_PREFIX=""
+  SOURCE_PROFILE=""
+  SOURCE_POLICY=""
+  SOURCE_GATEWAY_LABEL=""
+  if [[ -d "$CONSOLE_HOME/.openclaw-nexus" ]]; then
+    SOURCE_PREFIX="$CONSOLE_HOME/.openclaw-nexus"
+    SOURCE_PROFILE="nexus"
+    SOURCE_POLICY="explicit"
+    SOURCE_GATEWAY_LABEL="ai.openclaw.nexus"
+  elif [[ -f "$CONSOLE_HOME/.openclaw/.nexus-preset-applied" ]]; then
+    SOURCE_PREFIX="$CONSOLE_HOME/.openclaw"
+    SOURCE_PROFILE="default"
+    SOURCE_POLICY="preset"
+    SOURCE_GATEWAY_LABEL="ai.openclaw.gateway"
+  fi
+
+  if [[ -n "$SOURCE_PREFIX" ]]; then
+    NEXUS_PROFILE_MIGRATION_REQUIRED=1
+    SOURCE_OPENCLAW_BIN="$SOURCE_PREFIX/bin/openclaw"
+    SOURCE_GATEWAY_TARGET="gui/$CONSOLE_UID/$SOURCE_GATEWAY_LABEL"
+    SOURCE_GATEWAY_PLIST="$CONSOLE_HOME/Library/LaunchAgents/$SOURCE_GATEWAY_LABEL.plist"
+    SOURCE_GATEWAY_WAS_LOADED=0
+    SOURCE_GATEWAY_STOPPED=1
+    if /bin/launchctl print "$SOURCE_GATEWAY_TARGET" >/dev/null 2>&1; then
+      SOURCE_GATEWAY_WAS_LOADED=1
+    fi
+    if [[ "$SOURCE_GATEWAY_WAS_LOADED" == "1" || -f "$SOURCE_GATEWAY_PLIST" ]]; then
+      SOURCE_GATEWAY_STOPPED=0
+      log "==> Stopping the legacy $SOURCE_GATEWAY_LABEL Gateway before Ask Pepio migration..."
+      if [[ -x "$SOURCE_OPENCLAW_BIN" ]] \
+        && run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+          OPENCLAW_STATE_DIR="$SOURCE_PREFIX" \
+          OPENCLAW_CONFIG_PATH="$SOURCE_PREFIX/openclaw.json" \
+          OPENCLAW_LAUNCHD_LABEL="$SOURCE_GATEWAY_LABEL" \
+          "$SOURCE_OPENCLAW_BIN" --profile "$SOURCE_PROFILE" gateway uninstall --json >>"$LOG_FILE" 2>&1; then
+        SOURCE_GATEWAY_STOPPED=1
+      fi
+    fi
+    if [[ "$SOURCE_GATEWAY_STOPPED" == "1" \
+      && -f "$MIGRATION_SCRIPT" \
+      && -x "$APP_PATH/Contents/Resources/runtime/bin/bun" ]]; then
+      log "==> Migrating legacy state from $SOURCE_PREFIX to $PREFIX..."
+      MIGRATION_OUTPUT="$(run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+        "$APP_PATH/Contents/Resources/runtime/bin/bun" "$MIGRATION_SCRIPT" \
+        --source "$SOURCE_PREFIX" --target "$PREFIX" --profile "$APP_PROFILE" --port 43384 \
+        --source-policy "$SOURCE_POLICY" 2>&1)"
+      MIGRATION_STATUS=$?
+      [[ -z "$MIGRATION_OUTPUT" ]] || log "$MIGRATION_OUTPUT"
+      if [[ "$MIGRATION_STATUS" == "0" && "$MIGRATION_OUTPUT" == *'"status":"migrated"'* ]]; then
+        NEXUS_PROFILE_MIGRATED=1
+      fi
+    fi
+    if [[ "$NEXUS_PROFILE_MIGRATED" != "1" && "$SOURCE_GATEWAY_WAS_LOADED" == "1" && -x "$SOURCE_OPENCLAW_BIN" ]]; then
+      run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+          OPENCLAW_STATE_DIR="$SOURCE_PREFIX" \
+          OPENCLAW_CONFIG_PATH="$SOURCE_PREFIX/openclaw.json" \
+          OPENCLAW_LAUNCHD_LABEL="$SOURCE_GATEWAY_LABEL" \
+          "$SOURCE_OPENCLAW_BIN" --profile "$SOURCE_PROFILE" gateway install --json >>"$LOG_FILE" 2>&1 \
+        || log "WARN: could not restore the legacy Gateway after the failed Ask Pepio migration."
+    fi
+  fi
+fi
 if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.openclaw" \
   && "$APP_PROFILE" == "nexus" \
   && -f "$PREFIX/.nexus-profile-migration.json" \

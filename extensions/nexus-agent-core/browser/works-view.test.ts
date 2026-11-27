@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import type { ControlUiHost, ControlUiViewContext } from "openclaw/plugin-sdk/control-ui";
 import { afterEach, describe, it } from "vitest";
-import { createNexusPage, NEXUS_PAGE_ID, NEXUS_RAIL_PAGE_ID } from "./page.ts";
+import { createNexusPage, NEXUS_RAIL_PAGE_ID } from "./page.ts";
 
 const NOW = Date.now();
 
@@ -202,7 +202,7 @@ describe("work page", () => {
     const tab = mount({ view: "tasks" });
     await flush();
     for (const a of tab.container.querySelectorAll<HTMLAnchorElement>("nav a")) {
-      assert.ok((a.getAttribute("href") ?? "").includes(`id=${NEXUS_PAGE_ID}&`));
+      assert.ok((a.getAttribute("href") ?? "").includes(`id=${NEXUS_RAIL_PAGE_ID}&`));
     }
   });
 

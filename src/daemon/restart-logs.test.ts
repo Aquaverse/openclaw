@@ -40,11 +40,12 @@ it("uses a branded product directory for launchd supervisor logs", () => {
       HOME: "/Users/test",
       OPENCLAW_PROFILE: "nexus",
       OPENCLAW_PRODUCT_LOG_DIR: "/Users/test/Library/Logs/AskPepio",
+      OPENCLAW_LOG_PREFIX: "gateway-askpepio",
     }),
   ).toEqual({
     logDir: "/Users/test/Library/Logs/AskPepio",
-    stdoutPath: "/Users/test/Library/Logs/AskPepio/gateway-nexus.log",
-    stderrPath: "/Users/test/Library/Logs/AskPepio/gateway-nexus.err.log",
+    stdoutPath: "/Users/test/Library/Logs/AskPepio/gateway-askpepio.log",
+    stderrPath: "/Users/test/Library/Logs/AskPepio/gateway-askpepio.err.log",
   });
 });
 
