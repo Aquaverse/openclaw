@@ -11,7 +11,7 @@ describe("Control UI product branding", () => {
     const html =
       '<title>OpenClaw Control</title><main id="openclaw-shell"><svg><use href="#openclaw-wordmark-letters" /></svg></main>';
 
-    const branded = transform(html, {} as never);
+    const branded = transform.call({} as never, html, {} as never);
 
     expect(branded).toContain("Ask Pepio Control");
     expect(branded).toContain(">Ask Pepio</text>");

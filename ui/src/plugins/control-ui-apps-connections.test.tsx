@@ -7,6 +7,10 @@ import { AppsConnections, type AppsConnectionsCopy } from "./control-ui-apps-con
 const {
   gatewayRequest,
   gatewayState,
+  gatewaySubscribers,
+  githubEnsureVerified,
+  githubRead,
+  githubSync,
   onShowDetail,
   onStartSetup,
   prepareSignIn,
@@ -21,6 +25,10 @@ const {
       unknown
     >,
   },
+  gatewaySubscribers: new Set<(snapshot: Record<string, unknown>) => void>(),
+  githubEnsureVerified: vi.fn(),
+  githubRead: vi.fn(() => ({ personal: { state: "disconnected" } })),
+  githubSync: vi.fn(),
   onShowDetail: vi.fn(),
   onStartSetup: vi.fn(),
   prepareSignIn: vi.fn(),
@@ -38,7 +46,10 @@ vi.mock("../lib/reactive/context.ts", () => ({
       get snapshot() {
         return gatewayState.snapshot;
       },
-      subscribe: () => () => undefined,
+      subscribe: (listener: (snapshot: Record<string, unknown>) => void) => {
+        gatewaySubscribers.add(listener);
+        return () => gatewaySubscribers.delete(listener);
+      },
     },
     runtimeConfig: {
       state: {},
@@ -63,9 +74,9 @@ vi.mock("../components/wizard-login-controller.tsx", () => ({
 }));
 vi.mock("../lib/reactive/domain-github-identity.ts", () => ({
   createGitHubIdentityView: () => ({
-    read: () => ({ personal: { state: "disconnected" } }),
-    sync: vi.fn(),
-    ensureVerified: vi.fn(),
+    read: githubRead,
+    sync: githubSync,
+    ensureVerified: githubEnsureVerified,
   }),
 }));
 vi.mock("../pages/profile/email-accounts.tsx", () => ({
@@ -158,6 +169,11 @@ beforeEach(() => {
   };
   runtimeState.config = {};
   runtimeState.patchFromSnapshot.mockReset();
+  gatewaySubscribers.clear();
+  githubEnsureVerified.mockReset();
+  githubRead.mockReset();
+  githubRead.mockReturnValue({ personal: { state: "disconnected" } });
+  githubSync.mockReset();
   prepareSignIn.mockReset();
   resetLogin.mockReset();
   startMcpLogin.mockReset();
@@ -276,6 +292,42 @@ it("authorizes the existing Fireflies MCP without adding another server", async 
   view.unmount();
 });
 
+it("offers Fireflies when it is not installed and registers it before authorization", async () => {
+  runtimeState.patchFromSnapshot.mockImplementation(async (build) => {
+    const request = build(runtimeState.config);
+    runtimeState.config = {
+      mcp: {
+        servers: {
+          fireflies: request.options.raw.mcp.servers.fireflies,
+        },
+      },
+    };
+    return true;
+  });
+  gatewayState.snapshot = {
+    client: { request: gatewayRequest },
+    phase: "connected",
+    sessionKey: "main",
+    hello: {
+      auth: { role: "operator", scopes: ["operator.read", "operator.admin"] },
+      features: { methods: ["mcp.authLogin"] },
+      server: { connId: "test-connection" },
+    },
+  };
+  const view = mountConnections();
+
+  const row = rowByTitle(view.container, "Fireflies");
+  row.querySelector("button")?.click();
+
+  await vi.waitFor(() => {
+    expect(runtimeState.patchFromSnapshot).toHaveBeenCalledOnce();
+    expect(startMcpLogin).toHaveBeenCalledWith("fireflies");
+  });
+  expect(prepareSignIn).toHaveBeenCalledWith("oauth", "Fireflies");
+
+  view.unmount();
+});
+
 it("lists an authorized Fireflies MCP as one existing connection", async () => {
   runtimeState.config = {
     mcp: {
@@ -316,6 +368,37 @@ it("lists an authorized Fireflies MCP as one existing connection", async () => {
   expect(cards.some((card) => card.textContent?.includes("Fireflies"))).toBe(true);
   expect(view.container.textContent).not.toContain("Authorize FirefliesNot connected");
   expect(runtimeState.patchFromSnapshot).not.toHaveBeenCalled();
+
+  view.unmount();
+});
+
+it("adopts a GitHub authorization when the profile arrives on a reused gateway snapshot", async () => {
+  gatewayState.snapshot = {
+    client: { request: gatewayRequest },
+    phase: "connected",
+    selfUser: undefined,
+    sessionKey: "main",
+    hello: {
+      auth: { role: "operator", scopes: ["operator.read"] },
+      server: { connId: "test-connection" },
+    },
+  };
+  const view = mountConnections();
+
+  gatewayState.snapshot.selfUser = { id: "profile-user" };
+  for (const listener of gatewaySubscribers) {
+    listener(gatewayState.snapshot);
+  }
+
+  await vi.waitFor(() => {
+    expect(githubSync).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        connected: true,
+        target: { kind: "personal", profileId: "profile-user" },
+        statusReadable: true,
+      }),
+    );
+  });
 
   view.unmount();
 });

@@ -54,6 +54,22 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(block).not.toContain("rm -");
   });
 
+  it("repairs legacy paths in an existing Ask Pepio profile on every PKG upgrade", () => {
+    const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
+    const repairStart = script.indexOf(
+      "# Repair active paths retained by an earlier Ask Pepio migration.",
+    );
+    const repairEnd = script.indexOf("# Upgrade over an existing install", repairStart);
+    const repair = script.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThanOrEqual(0);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repair).toContain('if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.pepio"');
+    expect(repair).toContain('-f "$PREFIX/.nexus-profile-migration.json"');
+    expect(repair).toContain("--source-policy explicit");
+    expect(repair).toContain('"status":"target_repaired"');
+  });
+
   it("uses the repository-pinned packer for the bundled installer CLI", () => {
     const script = readFileSync("scripts/build-mac-installer.sh", "utf8");
     const pack = script.indexOf("node scripts/package-openclaw-for-docker.mjs");
@@ -293,6 +309,10 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(migration.slice(preflight, doctor)).not.toContain(
       "pending repair or could not prove current state",
     );
+    expect(migration.slice(0, doctor)).toContain(
+      'DOCTOR_REQUIRED="$ASKPEPIO_PLUGIN_REPAIR_REQUIRED"',
+    );
+    expect(script).toContain("NEXUS_PROFILE_MIGRATED=1\n        ASKPEPIO_PLUGIN_REPAIR_REQUIRED=1");
   });
 
   it("skips Doctor on a fresh runtime and lets onboarding install the Gateway once", () => {
@@ -321,7 +341,9 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
 
   it("stops a loaded Gateway before replacing its CLI runtime", () => {
     const script = readFileSync("scripts/mac-pkg-postinstall.sh", "utf8");
-    const guard = script.indexOf('if [[ "$REUSE_INSTALLED_RUNTIME" != "1" ]]');
+    const guard = script.indexOf(
+      'if [[ "$REUSE_INSTALLED_RUNTIME" != "1" || "$ASKPEPIO_PATH_REPAIR_REQUIRED" == "1" ]]',
+    );
     const loaded = script.indexOf('launchctl print "$GATEWAY_SERVICE_TARGET"', guard);
     const stop = script.indexOf("gateway stop --force --json", loaded);
     const install = script.indexOf('"$INSTALL_CLI" --json --runtime-only', stop);
@@ -331,6 +353,7 @@ describe("scripts/mac-pkg-postinstall.sh", () => {
     expect(stop).toBeGreaterThan(loaded);
     expect(install).toBeGreaterThan(stop);
     expect(script.slice(guard, install)).toContain('REUSE_INSTALLED_RUNTIME" != "1"');
+    expect(script.slice(guard, install)).toContain('ASKPEPIO_PATH_REPAIR_REQUIRED" == "1"');
     expect(script.slice(stop, install)).toContain(
       "the running Gateway could not be stopped safely",
     );

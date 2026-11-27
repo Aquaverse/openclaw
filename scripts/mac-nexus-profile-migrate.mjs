@@ -3,6 +3,25 @@
 import fs from "node:fs";
 import path from "node:path";
 
+const STATE_DATABASE_PATH_COLUMNS = new Map([
+  ["config_health_entries", ["config_path", "last_known_good_json", "last_promoted_good_json"]],
+  ["config_machine_state", ["state_key", "value_json"]],
+  ["cron_jobs", ["store_key", "job_json", "state_json"]],
+  ["cron_run_receipts", ["store_key", "authority_json"]],
+  ["plugin_state_entries", ["value_json"]],
+  ["session_watch_cursors", ["watcher_store_path", "upstream_ref_json", "last_marker_json"]],
+  ["skill_usage", ["skill_file"]],
+  ["subagent_runs", ["controller_store_path", "requester_store_path", "payload_json"]],
+  ["user_preferences", ["value_json"]],
+  ["workspace_path_aliases", ["alias_path", "workspace_path"]],
+  ["workspace_setup_state", ["workspace_path"]],
+]);
+
+const AGENT_DATABASE_PATH_COLUMNS = new Map([
+  ["session_entry_snapshots", ["value_json"]],
+  ["session_nodes", ["entry_json", "legacy_acp_migration_json"]],
+]);
+
 function parseArgs(argv) {
   const values = new Map();
   for (let index = 0; index < argv.length; index += 2) {
@@ -112,6 +131,13 @@ function removeInstallerOwnedArtifacts(stateRoot) {
   return removed;
 }
 
+function removeLegacyCaches(stateRoot) {
+  // Shell snapshots capture the source profile's PATH byte-for-byte. Keeping
+  // them after a product-state move can send later commands back through the
+  // retired OpenClaw runtime even when config and symlinks are already fixed.
+  return removePathIfPresent(path.join(stateRoot, "cache", "shell-snapshots"));
+}
+
 function rewriteOwnedAbsoluteSymlinks(stateRoot, sourceRoot, targetRoot) {
   if (!fs.existsSync(stateRoot)) {
     return 0;
@@ -139,6 +165,121 @@ function rewriteOwnedAbsoluteSymlinks(stateRoot, sourceRoot, targetRoot) {
         pending.push(candidate);
       }
     }
+  }
+  return rewritten;
+}
+
+async function openSqliteDatabase(databasePath) {
+  if (process.versions.bun) {
+    const { Database } = await import("bun:sqlite");
+    const database = new Database(databasePath);
+    return {
+      close: () => database.close(),
+      exec: (sql) => database.exec(sql),
+      all: (sql) => database.query(sql).all(),
+      run: (sql) => database.query(sql).run(),
+    };
+  }
+  const { DatabaseSync } = await import("node:sqlite");
+  const database = new DatabaseSync(databasePath);
+  return {
+    close: () => database.close(),
+    exec: (sql) => database.exec(sql),
+    all: (sql) => database.prepare(sql).all(),
+    run: (sql) => database.prepare(sql).run(),
+  };
+}
+
+function sqlString(value) {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function sqlIdentifier(value) {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+async function rewriteDatabasePathColumns(databasePath, columnsByTable, sourceRoot, targetRoot) {
+  if (!fs.existsSync(databasePath)) {
+    return 0;
+  }
+  const database = await openSqliteDatabase(databasePath);
+  let rewritten = 0;
+  try {
+    const tables = new Set(
+      database
+        .all("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .map((row) => String(row.name)),
+    );
+    database.exec("BEGIN IMMEDIATE");
+    for (const [table, candidateColumns] of columnsByTable) {
+      if (!tables.has(table)) {
+        continue;
+      }
+      const columns = new Set(
+        database.all(`PRAGMA table_info(${sqlIdentifier(table)})`).map((row) => String(row.name)),
+      );
+      for (const column of candidateColumns) {
+        if (!columns.has(column)) {
+          continue;
+        }
+        const result = database.run(
+          `UPDATE ${sqlIdentifier(table)} SET ${sqlIdentifier(column)} = replace(${sqlIdentifier(column)}, ${sqlString(sourceRoot)}, ${sqlString(targetRoot)}) WHERE instr(${sqlIdentifier(column)}, ${sqlString(sourceRoot)}) > 0`,
+        );
+        rewritten += Number(result.changes ?? 0);
+      }
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      // Preserve the original SQLite failure.
+    }
+    throw error;
+  } finally {
+    database.close();
+  }
+  return rewritten;
+}
+
+function findAgentDatabases(stateRoot) {
+  const agentsRoot = path.join(stateRoot, "agents");
+  if (!fs.existsSync(agentsRoot)) {
+    return [];
+  }
+  const databases = [];
+  const pending = [agentsRoot];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
+      const candidate = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(candidate);
+      } else if (entry.isFile() && entry.name === "openclaw-agent.sqlite") {
+        databases.push(candidate);
+      }
+    }
+  }
+  return databases;
+}
+
+async function rewriteOwnedDatabasePaths(stateRoot, sourceRoot, targetRoot) {
+  let rewritten = await rewriteDatabasePathColumns(
+    path.join(stateRoot, "state", "openclaw.sqlite"),
+    STATE_DATABASE_PATH_COLUMNS,
+    sourceRoot,
+    targetRoot,
+  );
+  for (const databasePath of findAgentDatabases(stateRoot)) {
+    rewritten += await rewriteDatabasePathColumns(
+      databasePath,
+      AGENT_DATABASE_PATH_COLUMNS,
+      sourceRoot,
+      targetRoot,
+    );
   }
   return rewritten;
 }
@@ -212,7 +353,7 @@ function removeCopiedBrowserSingletonArtifacts(stateRoot) {
   return removed;
 }
 
-function repairMigratedTarget(options) {
+async function repairMigratedTarget(options) {
   const receiptPath = path.join(options.target, ".nexus-profile-migration.json");
   if (!fs.existsSync(receiptPath)) {
     return false;
@@ -234,6 +375,9 @@ function repairMigratedTarget(options) {
   const removedInstallerArtifacts = continuesExplicitMigration
     ? removeInstallerOwnedArtifacts(options.target)
     : false;
+  const removedLegacyCaches = continuesExplicitMigration
+    ? removeLegacyCaches(options.target)
+    : false;
   const legacyRoots =
     options.sourcePolicy === "explicit"
       ? [...new Set([receiptTarget, path.resolve(receipt?.source ?? "")])].filter(
@@ -242,6 +386,7 @@ function repairMigratedTarget(options) {
       : [];
   let rewrittenOwnedSymlinks = 0;
   let rewrittenConfig = false;
+  let rewrittenDatabaseValues = 0;
   for (const legacyRoot of legacyRoots) {
     rewrittenOwnedSymlinks += rewriteOwnedAbsoluteSymlinks(
       options.target,
@@ -249,8 +394,13 @@ function repairMigratedTarget(options) {
       options.target,
     );
     rewrittenConfig = rewriteTargetConfig(options, legacyRoot) || rewrittenConfig;
+    rewrittenDatabaseValues += await rewriteOwnedDatabasePaths(
+      options.target,
+      legacyRoot,
+      options.target,
+    );
   }
-  const targetVersion = options.sourcePolicy === "explicit" ? 3 : 2;
+  const targetVersion = options.sourcePolicy === "explicit" ? 4 : 2;
   const upgraded = receipt.version !== targetVersion || continuesExplicitMigration;
   if (upgraded) {
     receipt.version = targetVersion;
@@ -264,8 +414,10 @@ function repairMigratedTarget(options) {
   return {
     removedBrowserSingletonArtifacts,
     removedInstallerArtifacts,
+    removedLegacyCaches,
     rewrittenOwnedSymlinks,
     rewrittenConfig,
+    rewrittenDatabaseValues,
     upgraded,
   };
 }
@@ -297,13 +449,15 @@ if (options.source === options.target) {
   throw new Error("Source and target must be different directories");
 }
 if (fs.existsSync(options.target)) {
-  const repair = repairMigratedTarget(options);
+  const repair = await repairMigratedTarget(options);
   const changed =
     repair &&
     (repair.removedBrowserSingletonArtifacts > 0 ||
       repair.removedInstallerArtifacts ||
+      repair.removedLegacyCaches ||
       repair.rewrittenOwnedSymlinks > 0 ||
       repair.rewrittenConfig ||
+      repair.rewrittenDatabaseValues > 0 ||
       repair.upgraded);
   print(changed ? { status: "target_repaired", ...repair } : { status: "target_exists" });
   process.exit(0);
@@ -343,6 +497,7 @@ try {
   }
   removeCopiedBrowserSingletonArtifacts(staging);
   rewriteOwnedAbsoluteSymlinks(staging, options.source, options.target);
+  await rewriteOwnedDatabasePaths(staging, options.source, options.target);
 
   const configPath = path.join(staging, "openclaw.json");
   if (fs.existsSync(configPath)) {
@@ -359,7 +514,7 @@ try {
     path.join(staging, ".nexus-profile-migration.json"),
     `${JSON.stringify(
       {
-        version: options.sourcePolicy === "explicit" ? 3 : 2,
+        version: options.sourcePolicy === "explicit" ? 4 : 2,
         profile: options.profile,
         source: options.source,
         target: options.target,

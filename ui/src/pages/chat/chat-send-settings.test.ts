@@ -100,7 +100,7 @@ it.each([true, false])(
       ok: true,
       key: host.sessionKey,
       path: "",
-      entry: { key: host.sessionKey, piiReplace },
+      entry: { sessionId: "main", piiReplace },
     });
     await waitForFast(() => expectRpc(host.request, "chat.send"));
     await send;

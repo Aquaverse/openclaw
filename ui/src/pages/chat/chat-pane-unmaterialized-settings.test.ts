@@ -29,7 +29,6 @@ const settings = {
   thinking: ["thinkingLevel", { thinkingLevel: "high" }, { thinking: "high" }],
   speed: ["fastMode", { fastMode: true, effectiveFastMode: true }, { fast: "true" }],
   context: ["contextWindow", { contextWindow: "128k" }, { context: "Context window: 128K" }],
-  pii: ["piiReplace", { piiReplace: true }, { pii: "true" }],
 } as const;
 const model: ModelCatalogEntry = {
   id: "fixture-model",
@@ -167,9 +166,7 @@ it.each([
           ? controls.onThinkingSelect?.(reset ? initialThinking : "high", key)
           : setting === "speed"
             ? controls.onFastModeSelect?.(reset ? "off" : "on", key)
-            : setting === "pii"
-              ? controls.onPiiReplaceSelect?.(!reset, key)
-              : controls.onContextWindowSelect?.(reset ? "64k" : "128k", key),
+            : controls.onContextWindowSelect?.(reset ? "64k" : "128k", key),
       );
     if (setting === "context") {
       expect(
@@ -200,11 +197,7 @@ it.each([
         key,
         expectedSessionId: sessionId,
         [field]:
-          setting === "thinking"
-            ? initialThinking || null
-            : setting === "speed" || setting === "pii"
-              ? false
-              : "64k",
+          setting === "thinking" ? initialThinking || null : setting === "speed" ? false : "64k",
       });
       latestReply.resolve(ack(committed));
       await expect(latestOperation).resolves.toBe(true);

@@ -44,6 +44,7 @@ actor GatewayConnection: Observable {
         OpenClawGatewayClientCapability.agentKind,
         OpenClawGatewayClientCapability.inlineWidgets,
         OpenClawGatewayClientCapability.modelSelectionPolicy,
+        OpenClawGatewayClientCapability.pluginApprovals,
         OpenClawGatewayClientCapability.ultrafast,
         OpenClawGatewayClientCapability.usageRefreshing,
     ]

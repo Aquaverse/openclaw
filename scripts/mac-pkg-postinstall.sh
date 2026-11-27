@@ -253,6 +253,7 @@ prior_nexus_gateway_service_owned() {
 MIGRATION_SCRIPT="$APP_PATH/Contents/Resources/mac-nexus-profile-migrate.mjs"
 NEXUS_PROFILE_MIGRATED=0
 NEXUS_PROFILE_MIGRATION_REQUIRED=0
+ASKPEPIO_PLUGIN_REPAIR_REQUIRED=0
 if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.pepio" \
   && "$APP_PROFILE" == "nexus" \
   && ! -e "$PREFIX" ]]; then
@@ -306,6 +307,7 @@ if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.pepio" \
       [[ -z "$MIGRATION_OUTPUT" ]] || log "$MIGRATION_OUTPUT"
       if [[ "$MIGRATION_STATUS" == "0" && "$MIGRATION_OUTPUT" == *'"status":"migrated"'* ]]; then
         NEXUS_PROFILE_MIGRATED=1
+        ASKPEPIO_PLUGIN_REPAIR_REQUIRED=1
       fi
     fi
     if [[ "$NEXUS_PROFILE_MIGRATED" != "1" && "$SOURCE_GATEWAY_WAS_LOADED" == "1" && -x "$SOURCE_OPENCLAW_BIN" ]]; then
@@ -580,7 +582,16 @@ if [[ -n "$RUNTIME_ID" && -x "$OPENCLAW_BIN" && -f "$RUNTIME_MARKER" ]]; then
   fi
 fi
 
-if [[ "$REUSE_INSTALLED_RUNTIME" != "1" ]] \
+ASKPEPIO_PATH_REPAIR_REQUIRED=0
+if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.pepio" \
+  && "$APP_PROFILE" == "nexus" \
+  && -f "$PREFIX/.nexus-profile-migration.json" ]] \
+  && ! /usr/bin/grep -Eq '"version"[[:space:]]*:[[:space:]]*4([,}[:space:]]|$)' \
+    "$PREFIX/.nexus-profile-migration.json"; then
+  ASKPEPIO_PATH_REPAIR_REQUIRED=1
+fi
+
+if [[ "$REUSE_INSTALLED_RUNTIME" != "1" || "$ASKPEPIO_PATH_REPAIR_REQUIRED" == "1" ]] \
   && /bin/launchctl print "$GATEWAY_SERVICE_TARGET" >/dev/null 2>&1; then
   GATEWAY_WAS_LOADED=1
   log "==> Stopping the running Gateway before replacing its CLI runtime..."
@@ -649,6 +660,28 @@ if [[ ! -x "$OPENCLAW_BIN" ]]; then
   exit 0
 fi
 
+# Repair active paths retained by an earlier Ask Pepio migration. Version 4
+# adds scoped SQLite rewrites for runtime-owned path fields while deliberately
+# preserving transcript, trajectory, diagnostic, and migration-history rows.
+if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.pepio" \
+  && "$APP_PROFILE" == "nexus" \
+  && -f "$PREFIX/.nexus-profile-migration.json" \
+  && -f "$MIGRATION_SCRIPT" \
+  && -x "$APP_PATH/Contents/Resources/runtime/bin/bun" ]]; then
+  ASKPEPIO_PATH_REPAIR_OUTPUT="$(run_as_console_user /usr/bin/env HOME="$CONSOLE_HOME" \
+    "$APP_PATH/Contents/Resources/runtime/bin/bun" "$MIGRATION_SCRIPT" \
+    --source "$CONSOLE_HOME/.openclaw-nexus" --target "$PREFIX" \
+    --profile "$APP_PROFILE" --port 43384 --source-policy explicit 2>&1)"
+  ASKPEPIO_PATH_REPAIR_STATUS=$?
+  [[ -z "$ASKPEPIO_PATH_REPAIR_OUTPUT" ]] || log "$ASKPEPIO_PATH_REPAIR_OUTPUT"
+  if [[ "$ASKPEPIO_PATH_REPAIR_STATUS" != "0" ]]; then
+    log "WARN: Ask Pepio legacy-path repair failed; preserved the existing state for a later retry."
+  elif [[ "$ASKPEPIO_PATH_REPAIR_OUTPUT" == *'"status":"target_repaired"'* ]]; then
+    ASKPEPIO_PLUGIN_REPAIR_REQUIRED=1
+    log "Ask Pepio legacy-path repair finished."
+  fi
+fi
+
 # ---------------------------------------------------------------------
 # Upgrade over an existing install: run Doctor only for a structured migration
 # or recovery finding. Gateway startup owns ordinary shared and agent database
@@ -710,7 +743,7 @@ rollback_failed_upgrade() {
 }
 
 if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && ( -d "$PREFIX/agents" || -e "$PREFIX/state/openclaw.sqlite" ) ]]; then
-  DOCTOR_REQUIRED=0
+  DOCTOR_REQUIRED="$ASKPEPIO_PLUGIN_REPAIR_REQUIRED"
   log "==> Checking whether existing OpenClaw data needs Doctor migration..."
   DOCTOR_PREFLIGHT_FILE="$(run_as_console_user /usr/bin/mktemp /tmp/openclaw-doctor-preflight.XXXXXX 2>/dev/null || true)"
   if [[ -z "$DOCTOR_PREFLIGHT_FILE" ]]; then
@@ -727,6 +760,8 @@ if [[ "$REUSE_INSTALLED_RUNTIME" != "1" && ( -d "$PREFIX/agents" || -e "$PREFIX/
         "$DOCTOR_PREFLIGHT_FILE"; then
       DOCTOR_REQUIRED=1
       log "Doctor preflight found a database migration or deletion-journal recovery requirement -- running the guarded migration path."
+    elif [[ "$DOCTOR_REQUIRED" == "1" ]]; then
+      log "Ask Pepio migration changed active paths or imported configured plugins -- running the guarded repair path."
     elif [[ "$DOCTOR_PREFLIGHT_STATUS" == "0" ]]; then
       log "Existing database state is current -- skipping full Doctor migration."
     else

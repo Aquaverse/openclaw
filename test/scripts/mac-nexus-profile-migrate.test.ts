@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 
 describe("scripts/mac-nexus-profile-migrate.mjs", () => {
@@ -335,11 +336,16 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     mkdirSync(join(target, "bin"), { recursive: true });
     mkdirSync(join(target, "service-env"), { recursive: true });
     mkdirSync(join(target, "tools", "node-v24.22.1", "bin"), { recursive: true });
+    mkdirSync(join(target, "cache", "shell-snapshots"), { recursive: true });
     mkdirSync(join(target, "workspace"), { recursive: true });
     symlinkSync(source + "/tools/node-v24.22.1", join(target, "tools", "node"));
     writeFileSync(join(target, "bin", "openclaw"), `exec ${source}/tools/node/bin/node\n`);
     writeFileSync(join(target, "service-env", "ai.openclaw.nexus.env"), source);
     writeFileSync(join(target, "tools", "node-v24.22.1", "bin", "node"), "runtime\n");
+    writeFileSync(
+      join(target, "cache", "shell-snapshots", "legacy.sh"),
+      `export PATH=${original}/bin:${source}/tools/node/bin\n`,
+    );
     symlinkSync(join(source, "workspace", "data"), join(target, "workspace", "data-link"));
     writeFileSync(
       join(target, "openclaw.json"),
@@ -372,6 +378,7 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     expect(JSON.parse(result.stdout)).toMatchObject({
       status: "target_repaired",
       removedInstallerArtifacts: true,
+      removedLegacyCaches: true,
       rewrittenConfig: true,
       rewrittenOwnedSymlinks: 1,
     });
@@ -382,12 +389,13 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     expect(existsSync(join(target, "service-env"))).toBe(false);
     expect(existsSync(join(target, "tools", "node"))).toBe(false);
     expect(existsSync(join(target, "tools", "node-v24.22.1"))).toBe(false);
+    expect(existsSync(join(target, "cache", "shell-snapshots"))).toBe(false);
     expect(readlinkSync(join(target, "workspace", "data-link"))).toBe(
       join(target, "workspace", "data"),
     );
     expect(
       JSON.parse(readFileSync(join(target, ".nexus-profile-migration.json"), "utf8")),
-    ).toMatchObject({ version: 3, profile: "nexus", source, target });
+    ).toMatchObject({ version: 4, profile: "nexus", source, target });
 
     mkdirSync(join(target, "tools", "node-v24.22.2", "bin"), { recursive: true });
     writeFileSync(join(target, "tools", "node-v24.22.2", "bin", "node"), "new runtime\n");
@@ -414,5 +422,124 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     expect(readFileSync(join(target, "tools", "node-v24.22.2", "bin", "node"), "utf8")).toBe(
       "new runtime\n",
     );
+  });
+
+  it("repairs active SQLite paths without rewriting transcript history", () => {
+    const root = mkdtempSync(join(tmpdir(), "askpepio-sqlite-path-repair-"));
+    const source = join(root, ".openclaw-nexus");
+    const target = join(root, ".askpepio");
+    const stateDatabasePath = join(target, "state", "openclaw.sqlite");
+    const agentDatabasePath = join(target, "agents", "main", "agent", "openclaw-agent.sqlite");
+    mkdirSync(join(target, "state"), { recursive: true });
+    mkdirSync(join(target, "agents", "main", "agent"), { recursive: true });
+    writeFileSync(
+      join(target, ".nexus-profile-migration.json"),
+      JSON.stringify({ version: 3, profile: "nexus", source, target }),
+    );
+
+    using stateDatabase = new DatabaseSync(stateDatabasePath);
+    stateDatabase.exec(`
+      CREATE TABLE config_machine_state (
+        state_key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL,
+        updated_at_ms INTEGER NOT NULL
+      );
+      CREATE TABLE plugin_state_entries (
+        plugin_id TEXT NOT NULL,
+        namespace TEXT NOT NULL,
+        entry_key TEXT NOT NULL,
+        value_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        PRIMARY KEY (plugin_id, namespace, entry_key)
+      );
+      CREATE TABLE diagnostic_events (
+        event_id TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL
+      );
+    `);
+    stateDatabase
+      .prepare("INSERT INTO config_machine_state VALUES (?, ?, 1)")
+      .run("plugins.installedIndex", JSON.stringify({ installPath: `${source}/npm/slack` }));
+    stateDatabase
+      .prepare("INSERT INTO plugin_state_entries VALUES (?, ?, ?, ?, 1, NULL)")
+      .run(
+        "memory-core",
+        "short-term-recall",
+        "fixture",
+        JSON.stringify({ path: `${source}/workspace/memory.md` }),
+      );
+    stateDatabase
+      .prepare("INSERT INTO diagnostic_events VALUES (?, ?)")
+      .run("history", JSON.stringify({ observedPath: `${source}/legacy.log` }));
+
+    using agentDatabase = new DatabaseSync(agentDatabasePath);
+    agentDatabase.exec(`
+      CREATE TABLE session_nodes (
+        session_key TEXT PRIMARY KEY,
+        entry_json TEXT NOT NULL
+      );
+      CREATE TABLE transcript_events (
+        session_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        event_json TEXT NOT NULL,
+        PRIMARY KEY (session_id, seq)
+      );
+    `);
+    agentDatabase
+      .prepare("INSERT INTO session_nodes VALUES (?, ?)")
+      .run("main", JSON.stringify({ workspaceDir: `${source}/workspace` }));
+    agentDatabase
+      .prepare("INSERT INTO transcript_events VALUES (?, ?, ?)")
+      .run("session", 1, JSON.stringify({ historicalPath: `${source}/workspace` }));
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/mac-nexus-profile-migrate.mjs",
+        "--source",
+        source,
+        "--target",
+        target,
+        "--profile",
+        "nexus",
+        "--port",
+        "43384",
+        "--source-policy",
+        "explicit",
+      ],
+      { encoding: "utf8" },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "target_repaired",
+      rewrittenDatabaseValues: 3,
+    });
+    expect(
+      stateDatabase
+        .prepare("SELECT value_json FROM config_machine_state WHERE state_key = ?")
+        .get("plugins.installedIndex"),
+    ).toEqual({ value_json: JSON.stringify({ installPath: `${target}/npm/slack` }) });
+    expect(
+      stateDatabase
+        .prepare("SELECT value_json FROM plugin_state_entries WHERE entry_key = ?")
+        .get("fixture"),
+    ).toEqual({ value_json: JSON.stringify({ path: `${target}/workspace/memory.md` }) });
+    expect(
+      agentDatabase
+        .prepare("SELECT entry_json FROM session_nodes WHERE session_key = ?")
+        .get("main"),
+    ).toEqual({ entry_json: JSON.stringify({ workspaceDir: `${target}/workspace` }) });
+    expect(
+      stateDatabase
+        .prepare("SELECT payload_json FROM diagnostic_events WHERE event_id = ?")
+        .get("history"),
+    ).toEqual({ payload_json: JSON.stringify({ observedPath: `${source}/legacy.log` }) });
+    expect(
+      agentDatabase
+        .prepare("SELECT event_json FROM transcript_events WHERE session_id = ? AND seq = ?")
+        .get("session", 1),
+    ).toEqual({ event_json: JSON.stringify({ historicalPath: `${source}/workspace` }) });
   });
 });

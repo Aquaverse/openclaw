@@ -11,7 +11,11 @@ import { createWizardLogin, WizardLogin } from "../components/wizard-login-contr
 import { GitHubConnections } from "../features/github-connections/github-connections.tsx";
 import { channelSnapshotEntryIsActive } from "../lib/channels/index.ts";
 import { currentConfigObject } from "../lib/config/config-state-model.ts";
-import { summarizeMcpServers } from "../lib/config/mcp-servers.ts";
+import {
+  buildAddMcpServerPatch,
+  patchMcpServers,
+  summarizeMcpServers,
+} from "../lib/config/mcp-servers.ts";
 import { formatCompactMs } from "../lib/format.ts";
 import { canCallGatewayMethod } from "../lib/gateway-methods.ts";
 import { useApplication } from "../lib/reactive/context.ts";
@@ -104,6 +108,12 @@ const emptyCopy: AppsConnectionsCopy = {
 type ConnectionDialog = "email-add" | "email-manage" | "github" | null;
 
 const FEATURED_CHANNELS = new Set(["slack", "whatsapp", "telegram"]);
+const FIREFLIES_MCP_SERVER_NAME = "fireflies";
+const FIREFLIES_MCP_SERVER_CONFIG = {
+  url: "https://api.fireflies.ai/mcp",
+  transport: "streamable-http",
+  auth: "oauth",
+} as const;
 
 type McpAuthStatusResult = {
   serverName: string;
@@ -335,10 +345,27 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
     />
   );
   const openChannel = (channel: string) => props.channels.onStartSetup(channel);
-  const connectFireflies = () => {
-    const server = firefliesServer();
+  const connectFireflies = async () => {
+    let server = firefliesServer();
+    if (!server) {
+      await patchMcpServers(context.runtimeConfig, {
+        buildPatch: (servers) =>
+          buildAddMcpServerPatch(servers, FIREFLIES_MCP_SERVER_NAME, FIREFLIES_MCP_SERVER_CONFIG),
+        note: "Add Fireflies MCP server",
+      });
+      server = {
+        name: FIREFLIES_MCP_SERVER_NAME,
+        enabled: true,
+        transport: "streamable-http",
+        target: FIREFLIES_MCP_SERVER_CONFIG.url,
+        auth: "oauth",
+        signIn: "operator",
+        toolFilter: false,
+        parallel: false,
+        tls: null,
+      };
+    }
     if (
-      !server ||
       !server.enabled ||
       server.signIn !== "operator" ||
       !canCallGatewayMethod(context.gateway.snapshot, "mcp.authLogin", "operator.admin")
@@ -411,7 +438,7 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
                     status={props.copy.connected}
                     meta={connectionMeta()}
                     action={props.copy.manage}
-                    onAction={connectFireflies}
+                    onAction={() => void connectFireflies()}
                   />
                 </Show>
                 <For each={connectedChannels()}>
@@ -467,14 +494,14 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
                   onAction={() => setDialog("github")}
                 />
               </Show>
-              <Show when={firefliesServer() && !firefliesConnected()}>
+              <Show when={!firefliesConnected()}>
                 <ConnectionRow
                   title={props.copy.fireflies}
                   description={props.copy.firefliesDescription}
                   icon={<Icon name="sparkles" />}
                   status={props.copy.notConnected}
                   action={props.copy.connect}
-                  onAction={connectFireflies}
+                  onAction={() => void connectFireflies()}
                 />
               </Show>
               <Show when={!channelSnapshotEntryIsActive(channelSnapshot(), "whatsapp")}>

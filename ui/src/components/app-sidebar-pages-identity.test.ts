@@ -248,7 +248,7 @@ describe("Pages navigation identity", () => {
     const { sidebar } = state;
     const railItem = (id: string, label: string, order: number) => ({
       ...state.fleet,
-      key: `fleet/${id}`,
+      key: `fleet/${id}` as const,
       value: {
         id,
         label,
