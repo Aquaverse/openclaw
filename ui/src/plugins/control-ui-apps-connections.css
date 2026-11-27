@@ -1,0 +1,250 @@
+openclaw-plugin-apps-connections,
+openclaw-plugin-apps-connections openclaw-channels-page {
+  display: block;
+  min-width: 0;
+}
+
+.apps-connections {
+  display: grid;
+  gap: 32px;
+}
+
+.apps-connections__section {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  scroll-margin-top: 24px;
+}
+
+.apps-connections__section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.apps-connections__section-heading h2 {
+  margin: 0;
+  font-size: var(--control-ui-text-lg);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.apps-connections__count,
+.apps-connections__catalog-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--surface-hover);
+  font-size: var(--control-ui-text-xs);
+  font-weight: 600;
+}
+
+.apps-connections__count {
+  min-width: 24px;
+  padding-inline: 7px;
+}
+
+.apps-connections__list {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+}
+
+.apps-connections__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 14px;
+}
+
+.apps-connections__card {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-height: 180px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+}
+
+.apps-connections__card-heading {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.apps-connections__card-status {
+  color: var(--success, var(--text-muted));
+  font-size: var(--control-ui-text-xs);
+  white-space: nowrap;
+}
+
+.apps-connections__card-meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--control-ui-text-xs);
+  line-height: 1.5;
+}
+
+.apps-connections__card-action {
+  justify-self: start;
+  margin-top: auto;
+  padding: 0;
+  border: 0;
+  color: var(--text-primary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--control-ui-text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.apps-connections__row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.apps-connections__row:last-child {
+  border-bottom: 0;
+}
+
+.apps-connections__row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.apps-connections__row-icon > svg {
+  width: 20px;
+  height: 20px;
+}
+
+.apps-connections__row-icon .channels-tile {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+}
+
+.apps-connections__row-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.apps-connections__row-title {
+  color: var(--text-primary);
+  font-size: var(--control-ui-text-sm);
+  font-weight: 650;
+}
+
+.apps-connections__row-description {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--control-ui-text-xs);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apps-connections__row-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
+}
+
+.apps-connections__row-status {
+  color: var(--text-muted);
+  font-size: var(--control-ui-text-xs);
+  white-space: nowrap;
+}
+
+.apps-connections__dialog {
+  width: 100%;
+  max-height: min(700px, calc(100vh - 48px));
+}
+
+.apps-connections__dialog-body {
+  --settings-control-height: 36px;
+
+  overflow: auto;
+}
+
+.apps-connections__dialog-body .settings-section__header {
+  padding-inline: 16px;
+}
+
+.apps-connections__dialog-body .email-account-form {
+  gap: 10px 14px;
+  padding: 10px 16px 16px;
+}
+
+.apps-connections__dialog-body .email-account-form > .settings-row {
+  grid-column: 1 / -1;
+  min-height: auto;
+  padding: 10px 0;
+}
+
+.apps-connections__dialog-body .oc-sensitive-input {
+  min-height: var(--settings-control-height);
+}
+
+@media (max-width: 640px) {
+  .apps-connections {
+    gap: 24px;
+  }
+
+  .apps-connections__row {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 11px;
+    min-height: 66px;
+    padding: 10px 12px;
+  }
+
+  .apps-connections__row-icon,
+  .apps-connections__row-icon .channels-tile {
+    width: 36px;
+    height: 36px;
+  }
+
+  .apps-connections__row-control {
+    grid-column: 2;
+    justify-content: space-between;
+  }
+
+  .apps-connections__card {
+    min-height: 0;
+  }
+
+  .apps-connections__card-heading {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .apps-connections__card-status {
+    grid-column: 2;
+  }
+
+  .apps-connections__dialog-body {
+    --settings-control-height: 44px;
+  }
+}

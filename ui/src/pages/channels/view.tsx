@@ -164,25 +164,36 @@ export function ChannelsView(props: ChannelsProps) {
             <For each={connected()}>{(key) => <ConnectedRow channelId={key} props={props} />}</For>
           )}
         </SettingsSection>
-        <SettingsSection
-          title={t("channels.hub.addTitle")}
-          description={t("channels.hub.addSubtitle")}
-        >
-          {!props.canAdmin && props.channels.connected ? (
-            <InlineAlert tone="info" role="note">
-              {t("channels.hub.adminRequired")}
-            </InlineAlert>
-          ) : (
-            <>
-              <For each={available()}>
-                {(key) => <AvailableRow channelId={key} props={props} />}
-              </For>
-              {renderBrowseAllRow(props)}
-            </>
-          )}
-        </SettingsSection>
+        <div id="select-channel">
+          <SettingsSection
+            title={t("channels.hub.addTitle")}
+            description={t("channels.hub.addSubtitle")}
+          >
+            {!props.canAdmin && props.channels.connected ? (
+              <InlineAlert tone="info" role="note">
+                {t("channels.hub.adminRequired")}
+              </InlineAlert>
+            ) : (
+              <>
+                <For each={available()}>
+                  {(key) => <AvailableRow channelId={key} props={props} />}
+                </For>
+                {renderBrowseAllRow(props)}
+              </>
+            )}
+          </SettingsSection>
+        </div>
         {renderChannelPairingQueue(props)}
       </SettingsPage>
+      <ChannelConnectionOverlays {...props} />
+      {renderChannelPairingPrompt(props)}
+    </Show>
+  );
+}
+
+export function ChannelConnectionOverlays(props: ChannelsProps) {
+  return (
+    <>
       <Show when={props.selectedChannel} keyed>
         {(channel) => (
           <ChannelDetail
@@ -196,8 +207,7 @@ export function ChannelsView(props: ChannelsProps) {
         )}
       </Show>
       {props.canAdmin ? <ChannelWizard {...props} /> : undefined}
-      {renderChannelPairingPrompt(props)}
-    </Show>
+    </>
   );
 }
 

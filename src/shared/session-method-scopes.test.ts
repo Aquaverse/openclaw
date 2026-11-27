@@ -35,6 +35,16 @@ it("allows session-scoped visibility mutations for single and batch patch", () =
   }
 });
 
+it("allows session-scoped PII redaction mutations for single and batch patch", () => {
+  for (const [method, params] of [
+    ["sessions.patch", { ...target, piiReplace: true }],
+    ["sessions.patchMany", { targets: [target], patch: { piiReplace: false } }],
+  ] as const) {
+    expect(resolveSessionMethodScope(method, params)).toBe("operator.sessions.write");
+    expect(scope(method, params)).toBe("operator.write");
+  }
+});
+
 it.each([{ contextWindow: "extended" }, { sandboxMode: null }])(
   "keeps privileged or unknown patch fields admin-scoped %#",
   (patch) => {

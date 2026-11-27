@@ -36,6 +36,7 @@ export const optimisticSessionRowFields = [
   "archiveReason",
   "thinkingLevel",
   "fastMode",
+  "piiReplace",
   "cyberAccessProgram",
   "effectiveFastMode",
   "contextWindow",
@@ -65,7 +66,7 @@ export type SessionPatchRowFact = {
     | SessionReadFields
     | (SessionPinFields & SessionReadFields)
     | SessionArchiveFields
-    | Pick<GatewaySessionRow, "fastMode">
+    | Pick<GatewaySessionRow, "fastMode" | "piiReplace">
     | Pick<GatewaySessionRow, "cyberAccessProgram">
     | Pick<
         GatewaySessionRow,
@@ -337,6 +338,7 @@ export function createOptimisticRowField<
     | "unread"
     | "thinkingLevel"
     | "cyberAccessProgram"
+    | "piiReplace"
     | "contextWindow",
 >(host: PendingRowCopyHost, field: Field) {
   return createOptimisticRowPatches(host, {
@@ -373,6 +375,7 @@ export function createOptimisticPinPatches(host: PendingRowCopyHost) {
 export function createOptimisticSettingsPatches(host: PendingRowCopyHost) {
   const thinking = createOptimisticRowField(host, "thinkingLevel");
   const accessProgram = createOptimisticRowField(host, "cyberAccessProgram");
+  const piiReplace = createOptimisticRowField(host, "piiReplace");
   const fastMode = createOptimisticRowPatches(host, {
     read: (row): SessionFastModeFields => ({
       fastMode: row?.fastMode,
@@ -393,25 +396,27 @@ export function createOptimisticSettingsPatches(host: PendingRowCopyHost) {
   });
   const contextWindow = createOptimisticRowField(host, "contextWindow");
   return {
-    owners: [thinking, fastMode, contextWindow, accessProgram] as const,
+    owners: [thinking, fastMode, contextWindow, accessProgram, piiReplace] as const,
     read(identity: string) {
       const thinkingValue = thinking.read(identity);
       const speedValue = fastMode.read(identity);
       const contextValue = contextWindow.read(identity);
       const accessProgramValue = accessProgram.read(identity);
-      return thinkingValue || speedValue || contextValue || accessProgramValue
+      const piiReplaceValue = piiReplace.read(identity);
+      return thinkingValue || speedValue || contextValue || accessProgramValue || piiReplaceValue
         ? {
             ...(thinkingValue ? { thinkingLevel: thinkingValue.next } : {}),
             ...speedValue?.next,
             ...(accessProgramValue ? { cyberAccessProgram: accessProgramValue.next } : {}),
             ...(contextValue ? { contextWindow: contextValue.next } : {}),
+            ...(piiReplaceValue ? { piiReplace: piiReplaceValue.next } : {}),
           }
         : undefined;
     },
     prepare(
       patch: Pick<
         SessionPatch,
-        "thinkingLevel" | "fastMode" | "contextWindow" | "cyberAccessProgram"
+        "thinkingLevel" | "fastMode" | "contextWindow" | "cyberAccessProgram" | "piiReplace"
       >,
       isCurrent: () => boolean,
     ) {
@@ -446,6 +451,12 @@ export function createOptimisticSettingsPatches(host: PendingRowCopyHost) {
         starts.push([
           contextWindow,
           contextWindow.prepare(() => patch.contextWindow?.trim() || undefined, isCurrent),
+        ]);
+      }
+      if (patch.piiReplace !== undefined) {
+        starts.push([
+          piiReplace,
+          piiReplace.prepare(() => patch.piiReplace ?? undefined, isCurrent),
         ]);
       }
       return starts.length === 0

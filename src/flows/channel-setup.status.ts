@@ -361,7 +361,11 @@ export async function collectChannelStatus(params: {
 export async function noteChannelPrimer(
   prompter: WizardPrompter,
   channels: Array<{ id: ChannelChoice; blurb: string; label: string }>,
+  options: { skip?: boolean } = {},
 ): Promise<void> {
+  if (options.skip) {
+    return;
+  }
   const channelLines = channels.map((channel) =>
     formatChannelPrimerLine(
       formatSetupDisplayMeta({

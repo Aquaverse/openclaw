@@ -44,7 +44,7 @@ const emptyDraft = (): Draft => ({
   sentMailbox: "",
 });
 
-function configuredAccounts(config: Record<string, unknown> | null) {
+export function configuredEmailAccounts(config: Record<string, unknown> | null) {
   const plugins = asOptionalRecord(config?.plugins);
   const entries = asOptionalRecord(plugins?.entries);
   const imap = asOptionalRecord(entries?.imap);
@@ -112,10 +112,13 @@ function draftFromAccount(id: string, value: unknown): Draft {
   };
 }
 
-export function EmailAccounts() {
+export function EmailAccounts(props: { initialAction?: "add"; saveSentCopyLabel?: string } = {}) {
   const context = useApplication();
   const [revision, setRevision] = createSignal(0, { ownedWrite: true });
-  const [draft, setDraft] = createSignal<Draft | null>(null, { ownedWrite: true });
+  const [draft, setDraft] = createSignal<Draft | null>(
+    props.initialAction === "add" ? emptyDraft() : null,
+    { ownedWrite: true },
+  );
   const [busy, setBusy] = createSignal<"test" | "save" | "delete" | null>(null, {
     ownedWrite: true,
   });
@@ -130,7 +133,7 @@ export function EmailAccounts() {
     revision();
     return currentConfigObject(context.runtimeConfig.state);
   };
-  const accounts = createMemo(() => Object.entries(configuredAccounts(config())));
+  const accounts = createMemo(() => Object.entries(configuredEmailAccounts(config())));
   const canConfigure = createMemo(
     () =>
       context.runtimeConfig.canPatch === true &&
@@ -185,7 +188,7 @@ export function EmailAccounts() {
       setError(t("profilePage.email.testFirst"));
       return;
     }
-    const old = current.id ? configuredAccounts(config())[current.id] : undefined;
+    const old = current.id ? configuredEmailAccounts(config())[current.id] : undefined;
     const oldSecret = passwordSecretName(old);
     const secretName = `OPENCLAW_EMAIL_${crypto.randomUUID().replaceAll("-", "").toUpperCase()}`;
     let staged = false;
@@ -200,7 +203,7 @@ export function EmailAccounts() {
       });
       staged = true;
       const id = current.id ?? `mail_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-      const currentAccounts = configuredAccounts(config());
+      const currentAccounts = configuredEmailAccounts(config());
       const saved = await context.runtimeConfig.patchFromSnapshot(() => ({
         options: {
           note: current.id ? "Update email account" : "Add email account",
@@ -422,11 +425,11 @@ export function EmailAccounts() {
                 </select>
               </label>
               <SettingsRow
-                title={t("profilePage.email.saveSentCopy")}
+                title={props.saveSentCopyLabel ?? t("profilePage.email.saveSentCopy")}
                 description={t("profilePage.email.saveSentCopyDescription")}
                 control={
                   <Switch
-                    ariaLabel={t("profilePage.email.saveSentCopy")}
+                    ariaLabel={props.saveSentCopyLabel ?? t("profilePage.email.saveSentCopy")}
                     checked={current().saveSentCopy}
                     onChange={(checked) => update({ saveSentCopy: checked })}
                   />

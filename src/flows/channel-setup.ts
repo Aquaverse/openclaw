@@ -311,7 +311,7 @@ export async function setupChannels(
     label: entry.meta.label,
     blurb: entry.meta.blurb,
   }));
-  await noteChannelPrimer(prompter, primerChannels);
+  await noteChannelPrimer(prompter, primerChannels, { skip: Boolean(targetedChannel) });
 
   const quickstartDefault =
     options?.initialSelection?.[0] ??

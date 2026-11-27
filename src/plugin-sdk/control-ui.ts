@@ -10,6 +10,7 @@ export { createSessionHeaderLink } from "./control-ui-session-link.js";
 export { translateControlUiMessage } from "./control-ui-translation.js";
 export type {
   ControlUiAgentPickerProps,
+  ControlUiAppsConnectionsProps,
   ControlUiComponentHandle,
   ControlUiComponents,
   ControlUiDashboardProps,

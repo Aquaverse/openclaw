@@ -179,7 +179,7 @@ function AgentGitHubRow(props: {
 }
 
 /** Profile credentials have their own read-scoped lifecycle, independent of users.self edits. */
-export function GitHubConnections() {
+export function GitHubConnections(props: { personalOnly?: boolean } = {}) {
   const context = useApplication();
   const gateway = projectGateway(context.gateway);
   const agents = projectAgents(context.agents);
@@ -552,66 +552,68 @@ export function GitHubConnections() {
             }
           />
         </SettingsSection>
-        <SettingsSection
-          title={t("githubConnections.agentsTitle")}
-          description={t("githubConnections.agentsDescription")}
-        >
-          <div data-github-connection="system">
-            <SettingsDetailsRow
-              detailsLabel={t("githubConnections.details")}
-              hasDetails={Boolean(view().systemIdentity)}
-              title={t("githubConnections.system")}
-              description={meta(
-                <GitHubHealth
-                  identity={view().systemIdentity}
-                  request={view().canAdmin ? systemView() : personalView()}
-                />,
-                view().systemIdentity?.account?.login,
-                t("githubConnections.systemUse"),
-              )}
+        <Show when={!props.personalOnly}>
+          <SettingsSection
+            title={t("githubConnections.agentsTitle")}
+            description={t("githubConnections.agentsDescription")}
+          >
+            <div data-github-connection="system">
+              <SettingsDetailsRow
+                detailsLabel={t("githubConnections.details")}
+                hasDetails={Boolean(view().systemIdentity)}
+                title={t("githubConnections.system")}
+                description={meta(
+                  <GitHubHealth
+                    identity={view().systemIdentity}
+                    request={view().canAdmin ? systemView() : personalView()}
+                  />,
+                  view().systemIdentity?.account?.login,
+                  t("githubConnections.systemUse"),
+                )}
+                control={
+                  view().canAdmin ? (
+                    <button
+                      class="btn btn--sm"
+                      disabled={view().locked || !systemView().status}
+                      aria-label={t("githubConnections.changeSystem")}
+                      onClick={() => openSetup("system")}
+                    >
+                      {changeSystemLabel()}
+                    </button>
+                  ) : (
+                    <SettingsValue value={t("githubConnections.adminManaged")} />
+                  )
+                }
+              >
+                <GitHubDetails identity={view().systemIdentity} />
+              </SettingsDetailsRow>
+              {setupFor("system")}
+            </div>
+            <GitHubConnectionError
+              error={systemView().error}
+              completion={systemView().completion}
               control={
-                view().canAdmin ? (
-                  <button
-                    class="btn btn--sm"
-                    disabled={view().locked || !systemView().status}
-                    aria-label={t("githubConnections.changeSystem")}
-                    onClick={() => openSetup("system")}
-                  >
-                    {changeSystemLabel()}
-                  </button>
-                ) : (
-                  <SettingsValue value={t("githubConnections.adminManaged")} />
-                )
+                <button class="btn btn--sm" disabled={view().locked} onClick={verify}>
+                  {t("common.retry")}
+                </button>
               }
-            >
-              <GitHubDetails identity={view().systemIdentity} />
-            </SettingsDetailsRow>
-            {setupFor("system")}
-          </div>
-          <GitHubConnectionError
-            error={systemView().error}
-            completion={systemView().completion}
-            control={
-              <button class="btn btn--sm" disabled={view().locked} onClick={verify}>
-                {t("common.retry")}
-              </button>
-            }
-          />
-          <Show when={view().canAdmin}>
-            <For each={view().agentList} keyed={(agent) => agent.id}>
-              {(agent) => (
-                <AgentGitHubRow
-                  agent={agent()}
-                  register={registerAgent}
-                  locked={view().locked}
-                  setupOpen={setupKey() === `agent:${agent().id}`}
-                  onOpenSetup={() => openSetup(`agent:${agent().id}`)}
-                  onCloseSetup={() => closeSetup(`agent:${agent().id}`)}
-                />
-              )}
-            </For>
-          </Show>
-        </SettingsSection>
+            />
+            <Show when={view().canAdmin}>
+              <For each={view().agentList} keyed={(agent) => agent.id}>
+                {(agent) => (
+                  <AgentGitHubRow
+                    agent={agent()}
+                    register={registerAgent}
+                    locked={view().locked}
+                    setupOpen={setupKey() === `agent:${agent().id}`}
+                    onOpenSetup={() => openSetup(`agent:${agent().id}`)}
+                    onCloseSetup={() => closeSetup(`agent:${agent().id}`)}
+                  />
+                )}
+              </For>
+            </Show>
+          </SettingsSection>
+        </Show>
       </div>
     </openclaw-github-connections>
   );

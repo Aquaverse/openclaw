@@ -291,5 +291,15 @@ export function createControlUiComponents(options: {
       undefined,
       (context) => [context.gateway],
     ),
+    mountAppsConnections: component(
+      "openclaw-plugin-apps-connections",
+      () => import("./control-ui-apps-connections.tsx"),
+      (next) => ({
+        "prop:title": next.title,
+        "prop:subtitle": next.subtitle,
+        "prop:copy": next.copy,
+        "prop:presented": next.presented ?? true,
+      }),
+    ),
   };
 }

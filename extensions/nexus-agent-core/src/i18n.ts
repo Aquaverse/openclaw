@@ -3,6 +3,7 @@
 // itself defines (task statuses, risk tiers, RPC names, ids) are never translated: they are what the model and the logs
 // say. Plain functions, no node or DOM imports, so the HTTP page and the browser module share it.
 import { COMMITMENT_MESSAGES } from "./i18n-commitment.js";
+import { CONNECTION_MESSAGES } from "./i18n-connections.js";
 import { DASHBOARD_MESSAGES } from "./i18n-dashboard.js";
 import { FOLLOW_MESSAGES } from "./i18n-follow.js";
 import { GOAL_MESSAGES } from "./i18n-goals.js";
@@ -27,16 +28,18 @@ const CATALOG = {
   "nav.rail.works": ["任务工作台", "Task workbench"],
   "nav.rail.people": ["协作关系", "Collaboration"],
   "nav.rail.library": ["资料库", "Library"],
+  "nav.rail.connections": ["应用与连接", "Apps & connections"],
+  ...CONNECTION_MESSAGES,
   "page.connecting": ["正在连接网关…", "Connecting to the gateway…"],
-  "page.loadFailed": ["Nexus 读取失败：{message}", "Nexus could not load: {message}"],
+  "page.loadFailed": ["Ask Pepio 读取失败：{message}", "Ask Pepio could not load: {message}"],
   "title.tasks": ["事项", "Tasks"],
   "title.task": ["事项 {id}", "Task {id}"],
   "title.preferences": ["偏好", "Preferences"],
   "title.receipts": ["清除回执", "Purge receipts"],
-  "title.httpTasks": ["Nexus 事项", "Nexus tasks"],
-  "title.httpTask": ["Nexus 事项 {id}", "Nexus task {id}"],
-  "title.httpPreferences": ["Nexus 偏好", "Nexus preferences"],
-  "title.httpReceipts": ["Nexus 清除回执", "Nexus purge receipts"],
+  "title.httpTasks": ["Ask Pepio 事项", "Ask Pepio tasks"],
+  "title.httpTask": ["Ask Pepio 事项 {id}", "Ask Pepio task {id}"],
+  "title.httpPreferences": ["Ask Pepio 偏好", "Ask Pepio preferences"],
+  "title.httpReceipts": ["Ask Pepio 清除回执", "Ask Pepio purge receipts"],
 
   // Task list
   "list.empty": ["还没有事项。", "No tasks yet."],
@@ -477,8 +480,8 @@ const CATALOG = {
   "files.imp.path": ["路径", "Path"],
   "files.imp.placeholder": ["例如 ~/Downloads/invoice.pdf", "e.g. ~/Downloads/invoice.pdf"],
   "files.imp.note": [
-    "只能导入已配置文件夹里的普通文件，并复制一份到文件库。密钥目录、系统目录和 Nexus 状态目录会被拒绝。",
-    "Only regular files inside the configured folders can be imported, and the file is copied into the vault. Credential folders, system folders and the Nexus state folder are refused.",
+    "只能导入已配置文件夹里的普通文件，并复制一份到文件库。密钥目录、系统目录和 Ask Pepio 状态目录会被拒绝。",
+    "Only regular files inside the configured folders can be imported, and the file is copied into the vault. Credential folders, system folders and the Ask Pepio state folder are refused.",
   ],
   "files.imp.send": ["导入", "Import"],
   "files.imp.refused": ["导入被拒绝：{reason}", "Import refused: {reason}"],

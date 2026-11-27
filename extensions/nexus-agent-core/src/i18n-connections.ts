@@ -1,0 +1,51 @@
+// Apps & connections page text (zh first, en second), merged into the plugin catalog in i18n.ts.
+export const CONNECTION_MESSAGES = {
+  "connections.title": ["应用与连接", "Apps & connections"],
+  "connections.subtitle": [
+    "管理你的账户、消息频道，以及智能助理可以使用的连接。",
+    "Manage your accounts, messaging channels, and the connections your assistant can use.",
+  ],
+  "connections.mine": ["我的连接", "My connections"],
+  "connections.capabilities": ["工作能力", "Capabilities"],
+  "connections.companyCatalog": ["企业目录", "Company catalog"],
+  "connections.mail": ["邮箱", "Mail"],
+  "connections.mailDescription": [
+    "管理邮箱账户和收发邮件能力。",
+    "Manage email accounts and mail access.",
+  ],
+  "connections.slack": ["Slack", "Slack"],
+  "connections.slackDescription": [
+    "连接 Slack 工作区和消息。",
+    "Connect Slack workspaces and messages.",
+  ],
+  "connections.github": ["GitHub", "GitHub"],
+  "connections.githubDescription": ["管理我的 GitHub 连接。", "Manage my GitHub connection."],
+  "connections.whatsapp": ["WhatsApp", "WhatsApp"],
+  "connections.whatsappDescription": [
+    "连接 WhatsApp 消息频道。",
+    "Connect a WhatsApp messaging channel.",
+  ],
+  "connections.telegram": ["Telegram", "Telegram"],
+  "connections.telegramDescription": [
+    "连接 Telegram 机器人和消息。",
+    "Connect Telegram bots and messages.",
+  ],
+  "connections.moreChannels": ["更多渠道", "More channels"],
+  "connections.moreChannelsDescription": [
+    "选择其他可用的消息渠道。",
+    "Select another available messaging channel.",
+  ],
+  "connections.connected": ["已连接", "Connected"],
+  "connections.notConnected": ["未连接", "Not connected"],
+  "connections.connect": ["连接", "Connect"],
+  "connections.add": ["添加", "Add"],
+  "connections.manage": ["管理", "Manage"],
+  "connections.view": ["查看", "View"],
+  "connections.select": ["选择", "Select"],
+  "connections.multipleAccounts": ["支持多个账户", "Multiple accounts supported"],
+  "connections.selectChannel": ["选择频道", "Select a channel"],
+  "connections.lastSynced": ["最近同步", "Last synced"],
+  "connections.providedByAskPepio": ["由 Ask Pepio 提供", "provided by Ask Pepio"],
+  "connections.disconnect": ["断开…", "Disconnect…"],
+  "connections.saveToSent": ["保存到发件箱", "Save to Sent folder"],
+} as const satisfies Record<string, readonly [string, string]>;

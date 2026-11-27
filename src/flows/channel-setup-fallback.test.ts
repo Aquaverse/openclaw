@@ -16,6 +16,7 @@ const {
   resolveChannelSetupEntries: discoverChannels,
   collectChannelStatus: collectStatus,
   isChannelConfigured: channelConfigured,
+  noteChannelPrimer,
   reset,
   factories,
 } = await vi.hoisted(async () => {
@@ -139,6 +140,9 @@ it.each(["loaded", "unrestricted", "owner-only", "disabled"] as const)(
       );
       expect(next).toEqual(cfg);
     } else {
+      expect(noteChannelPrimer).toHaveBeenCalledWith(expect.anything(), expect.any(Array), {
+        skip: true,
+      });
       expect(configure).toHaveBeenCalledTimes(1);
       expect(note).not.toHaveBeenCalledWith("external-chat plugin not available.", "Channel setup");
       expect(next).toEqual({ ...cfg, channels: { [channel]: { token: "fixture-token" } } });

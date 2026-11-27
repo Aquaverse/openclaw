@@ -29,6 +29,7 @@ const settings = {
   thinking: ["thinkingLevel", { thinkingLevel: "high" }, { thinking: "high" }],
   speed: ["fastMode", { fastMode: true, effectiveFastMode: true }, { fast: "true" }],
   context: ["contextWindow", { contextWindow: "128k" }, { context: "Context window: 128K" }],
+  pii: ["piiReplace", { piiReplace: true }, { pii: "true" }],
 } as const;
 const model: ModelCatalogEntry = {
   id: "fixture-model",
@@ -36,6 +37,7 @@ const model: ModelCatalogEntry = {
   provider: "fixture",
   reasoning: true,
   supportsFastMode: true,
+  supportsPiiReplace: true,
   thinkingLevels: ["low", "high"].map((id) => ({ id, label: id === "low" ? "Low" : "High" })),
   thinkingDefault: "low",
 };
@@ -57,6 +59,8 @@ it.each([
   ["absent", "thinking", true],
   ["absent", "speed", false],
   ["absent", "context", false],
+  ["absent", "pii", false],
+  ["absent", "pii", true],
   ["placeholder", "thinking", true],
   ["placeholder", "speed", true],
   ["placeholder", "context", true],
@@ -72,6 +76,7 @@ it.each([
     thinkingLevel: "low",
     fastMode: false,
     effectiveFastMode: false,
+    piiReplace: false,
   };
   const rows = initialState === "placeholder" ? [initial] : [];
   const reply = createDeferred<unknown>();
@@ -116,6 +121,7 @@ it.each([
       return {
         thinking: effort?.dataset.chatThinkingValue,
         fast: effort?.dataset.chatFastMode,
+        pii: container.querySelector<HTMLElement>("[data-pii-replace]")?.dataset.piiReplace,
         context: container
           .querySelector(".chat-controls__context-trigger")
           ?.getAttribute("aria-label"),
@@ -148,6 +154,7 @@ it.each([
     const initialValues = {
       thinking: initialThinking,
       fast: "false",
+      pii: "false",
       context: "Context window: 64K",
     };
     await waitForSolid(() => expect(controlValues()).toEqual(initialValues));
@@ -162,7 +169,9 @@ it.each([
           ? controls.onThinkingSelect?.(reset ? initialThinking : "high", key)
           : setting === "speed"
             ? controls.onFastModeSelect?.(reset ? "off" : "on", key)
-            : controls.onContextWindowSelect?.(reset ? "64k" : "128k", key),
+            : setting === "pii"
+              ? controls.onPiiReplaceSelect?.(!reset, key)
+              : controls.onContextWindowSelect?.(reset ? "64k" : "128k", key),
       );
     if (setting === "context") {
       expect(
@@ -193,7 +202,11 @@ it.each([
         key,
         expectedSessionId: sessionId,
         [field]:
-          setting === "thinking" ? initialThinking || null : setting === "speed" ? false : "64k",
+          setting === "thinking"
+            ? initialThinking || null
+            : setting === "speed" || setting === "pii"
+              ? false
+              : "64k",
       });
       latestReply.resolve(ack(committed));
       await expect(latestOperation).resolves.toBe(true);

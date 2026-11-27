@@ -117,6 +117,8 @@ After the Gateway applies the change, reload the browser page or reconnect to pi
 
 ## Personal identity
 
+The Nexus **Apps & connections** page brings personal accounts and messaging channels into one place. **My connections** counts and lists each configured email account, personal GitHub account, and active channel. Email remains in **Capabilities** after setup because it supports multiple accounts; GitHub and single-account channels move out of the catalog once connected. **My GitHub** also remains available under **Settings → Profile → GitHub accounts**, while shared agent GitHub administration remains only in Profile. Channel setup and the **Select a channel** picker open directly on the Apps & connections page while continuing to use the Channels owner for setup state and credentials; pairing requests and direct-message access settings remain on the Channels page.
+
 For Discord linking, Profile initially selects an already-linked Gateway account, even if it is unavailable for new links. Otherwise, it selects an available account when one exists. Refreshing account status preserves your selection while that account is still listed, even if it becomes unavailable.
 
 A session writer can set or reset **Symbol & Color** for a session they own from the sidebar, Chat header, or Sessions page without Gateway-wide write access. Read-only access or access to someone else’s session does not grant this permission.

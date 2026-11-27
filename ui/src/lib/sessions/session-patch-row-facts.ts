@@ -43,6 +43,9 @@ export function projectSessionPatchRowFields(
   if (patch.fastMode !== undefined) {
     fields.push({ fastMode: entry.fastMode });
   }
+  if (patch.piiReplace !== undefined) {
+    fields.push({ piiReplace: entry.piiReplace });
+  }
   if (patch.archived !== undefined) {
     fields.push(projectSessionArchiveFields(patch.archived, entry));
   }

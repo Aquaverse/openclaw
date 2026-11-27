@@ -54,6 +54,42 @@ export type ControlUiDashboardProps = {
   presented?: boolean;
 };
 
+export type ControlUiAppsConnectionsProps = {
+  title: string;
+  subtitle: string;
+  copy: {
+    myConnections: string;
+    capabilities: string;
+    companyCatalog: string;
+    mail: string;
+    mailDescription: string;
+    slack: string;
+    slackDescription: string;
+    github: string;
+    githubDescription: string;
+    whatsapp: string;
+    whatsappDescription: string;
+    telegram: string;
+    telegramDescription: string;
+    moreChannels: string;
+    moreChannelsDescription: string;
+    connected: string;
+    notConnected: string;
+    connect: string;
+    add: string;
+    manage: string;
+    view: string;
+    select: string;
+    multipleAccounts: string;
+    selectChannel: string;
+    lastSynced: string;
+    providedByAskPepio: string;
+    disconnect: string;
+    saveToSent: string;
+  };
+  presented?: boolean;
+};
+
 export type ControlUiSelectPickerProps = {
   options: readonly {
     value: string;
@@ -118,4 +154,9 @@ export type ControlUiComponents = {
     container: HTMLElement,
     props: ControlUiDashboardProps,
   ) => ControlUiComponentHandle<ControlUiDashboardProps>;
+  /** Mount the host-owned account and channel connection settings in a plugin page. */
+  mountAppsConnections: (
+    container: HTMLElement,
+    props: ControlUiAppsConnectionsProps,
+  ) => ControlUiComponentHandle<ControlUiAppsConnectionsProps>;
 };

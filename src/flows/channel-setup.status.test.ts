@@ -323,6 +323,14 @@ it("sanitizes channel metadata before primer notes", async () => {
   );
 });
 
+it("skips the generic primer for a targeted setup", async () => {
+  const note = vi.fn(async () => undefined);
+
+  await noteChannelPrimer({ note } as never, [], { skip: true });
+
+  expect(note).not.toHaveBeenCalled();
+});
+
 it("sanitizes channel metadata before selection notes", () => {
   discoverSelection("zalo", "Zalo\u001B[31m\nBot\u0007", {
     selectionLabel: "Zalo",

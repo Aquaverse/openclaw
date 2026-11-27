@@ -57,7 +57,9 @@ it("tests both mail protocols before storing the password and account config", a
   });
   expect(currentConfigObject(harness.context.runtimeConfig.state as never)).not.toBeNull();
   const provider = createSolidApplicationContextProvider(harness.context);
-  const view = mountSolid(() => <EmailAccounts />, { wrapper: provider.wrapper });
+  const view = mountSolid(() => <EmailAccounts saveSentCopyLabel="Save to Sent folder" />, {
+    wrapper: provider.wrapper,
+  });
   try {
     const add = [...view.container.querySelectorAll("button")].find(
       (button) => button.textContent?.trim() === "Add email",
@@ -67,6 +69,9 @@ it("tests both mail protocols before storing the password and account config", a
     await waitForSolid(() =>
       expect(view.container.querySelector<HTMLInputElement>('input[type="email"]')).not.toBeNull(),
     );
+    const saveToSent = view.container.querySelector<HTMLInputElement>('[role="switch"]');
+    expect(saveToSent?.checked).toBe(true);
+    expect(saveToSent?.getAttribute("aria-label")).toBe("Save to Sent folder");
     const email = view.container.querySelector<HTMLInputElement>('input[type="email"]')!;
     const password = view.container.querySelector<HTMLInputElement>('input[type="password"]')!;
     setInput(email, "person@example.com");

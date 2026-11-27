@@ -4,8 +4,6 @@ import { gatewayPresentationScope } from "../../app/gateway-presentation-scope.t
 import { hasOperatorAdminAccess, hasOperatorPairingAccess } from "../../app/operator-access.ts";
 import { loadSettings, patchSettings } from "../../app/settings.ts";
 import { showConfirmChoiceDialog } from "../../components/confirm-dialog.ts";
-import { LearnMoreLink, SettingsPageHeader } from "../../components/solid/settings-ui.tsx";
-import { SettingsWorkspace } from "../../components/solid/settings-workspace.tsx";
 import { registerRouteSubtitlesEnglish } from "../../i18n/locales/en-route-subtitles.ts";
 import {
   createChannelCapability,
@@ -36,17 +34,22 @@ import {
   keptChannelEdits,
   rebaseChannelConfigEdits,
 } from "./channel-config-draft.ts";
+import { ChannelsPageContent, type ChannelsPageRender } from "./channels-page-content.tsx";
 import { createChannelPluginPresentation } from "./plugin-presentation-loader.ts";
-import { ChannelsView, resolveChannelLabel, resolveChannelOrder } from "./view.tsx";
+import { resolveChannelLabel, resolveChannelOrder } from "./view.tsx";
 import type { ChannelPairingPrompt, ChannelSaveFeedback, ChannelsProps } from "./view.types.ts";
 import { createChannelSetup } from "./wizard-setup.ts";
 
 registerRouteSubtitlesEnglish();
 
 const CHANNEL_PAIRING_POLL_INTERVAL_MS = 30_000;
-const CHANNELS_DOCS_URL = "https://docs.openclaw.ai/channels";
-
-export function ChannelsPage() {
+export function ChannelsPage(
+  pageProps: {
+    render?: ChannelsPageRender;
+    routeData?: void;
+    loaderPending?: boolean;
+  } = {},
+) {
   const context = useApplication();
   const channelCapability = context.acquireChannels(createChannelCapability);
   channelCapability.syncConfigEditsScope(gatewayPresentationScope(context.gateway).key);
@@ -743,19 +746,10 @@ export function ChannelsPage() {
   });
   const presentedProps = createMemo(viewProps);
   return (
-    <openclaw-channels-page>
-      <SettingsPageHeader
-        title={t("tabs.channels")}
-        subtitle={
-          <>
-            <LearnMoreLink url={CHANNELS_DOCS_URL} />
-          </>
-        }
-      />
-      <SettingsWorkspace>
-        <ChannelsView {...presentedProps()} mutationBusy={presentation().busy} />
-      </SettingsWorkspace>
-    </openclaw-channels-page>
+    <ChannelsPageContent
+      channels={{ ...presentedProps(), mutationBusy: presentation().busy }}
+      render={pageProps.render}
+    />
   );
 }
 
