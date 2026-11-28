@@ -375,13 +375,21 @@ async function repairMigratedTarget(options) {
   const removedInstallerArtifacts = continuesExplicitMigration
     ? removeInstallerOwnedArtifacts(options.target)
     : false;
-  const removedLegacyCaches = continuesExplicitMigration
-    ? removeLegacyCaches(options.target)
-    : false;
+  const removedLegacyCaches =
+    options.sourcePolicy === "explicit" ? removeLegacyCaches(options.target) : false;
   const legacyRoots =
     options.sourcePolicy === "explicit"
-      ? [...new Set([receiptTarget, path.resolve(receipt?.source ?? "")])].filter(
-          (candidate) => candidate !== options.target && candidate !== path.parse(candidate).root,
+      ? [
+          receiptTarget,
+          path.resolve(receipt?.source ?? ""),
+          options.source,
+          path.join(path.dirname(options.target), ".openclaw"),
+          path.join(path.dirname(options.target), `.openclaw-${options.profile}`),
+        ].filter(
+          (candidate, index, candidates) =>
+            candidate !== options.target &&
+            candidate !== path.parse(candidate).root &&
+            candidates.indexOf(candidate) === index,
         )
       : [];
   let rewrittenOwnedSymlinks = 0;
@@ -400,7 +408,7 @@ async function repairMigratedTarget(options) {
       options.target,
     );
   }
-  const targetVersion = options.sourcePolicy === "explicit" ? 4 : 2;
+  const targetVersion = options.sourcePolicy === "explicit" ? 5 : 2;
   const upgraded = receipt.version !== targetVersion || continuesExplicitMigration;
   if (upgraded) {
     receipt.version = targetVersion;
@@ -514,7 +522,7 @@ try {
     path.join(staging, ".nexus-profile-migration.json"),
     `${JSON.stringify(
       {
-        version: options.sourcePolicy === "explicit" ? 4 : 2,
+        version: options.sourcePolicy === "explicit" ? 5 : 2,
         profile: options.profile,
         source: options.source,
         target: options.target,

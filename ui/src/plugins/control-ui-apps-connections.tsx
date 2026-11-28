@@ -183,7 +183,13 @@ function syncPersonalGitHub(
   clientRevision: number,
 ) {
   const connected = snapshot.phase === "connected";
-  const profileId = connected ? (snapshot.selfUser?.id ?? null) : null;
+  // Local Gateways can expose personal GitHub authorization before their
+  // optional user profile projection is populated. The users.github methods
+  // are scoped by the authenticated socket, so retain a connection-local owner
+  // until the durable profile id arrives instead of suppressing the status read.
+  const profileId = connected
+    ? (snapshot.selfUser?.id ?? snapshot.hello?.server?.connId ?? null)
+    : null;
   const canRead =
     connected &&
     Boolean(snapshot.hello?.auth) &&

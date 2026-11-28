@@ -385,6 +385,16 @@ it("adopts a GitHub authorization when the profile arrives on a reused gateway s
   };
   const view = mountConnections();
 
+  await vi.waitFor(() => {
+    expect(githubSync).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        connected: true,
+        target: { kind: "personal", profileId: "test-connection" },
+        statusReadable: true,
+      }),
+    );
+  });
+
   gatewayState.snapshot.selfUser = { id: "profile-user" };
   for (const listener of gatewaySubscribers) {
     listener(gatewayState.snapshot);

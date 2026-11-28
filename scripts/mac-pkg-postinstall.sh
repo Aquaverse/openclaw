@@ -660,8 +660,8 @@ if [[ ! -x "$OPENCLAW_BIN" ]]; then
   exit 0
 fi
 
-# Repair active paths retained by an earlier Ask Pepio migration. Version 4
-# adds scoped SQLite rewrites for runtime-owned path fields while deliberately
+# Repair active paths retained by an earlier Ask Pepio migration. Version 5
+# covers both legacy state roots across chained migrations while deliberately
 # preserving transcript, trajectory, diagnostic, and migration-history rows.
 if [[ "$PRODUCT_IDENTITY_PREFIX" == "ai.pepio" \
   && "$APP_PROFILE" == "nexus" \

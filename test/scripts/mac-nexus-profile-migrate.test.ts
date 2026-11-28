@@ -395,7 +395,7 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     );
     expect(
       JSON.parse(readFileSync(join(target, ".nexus-profile-migration.json"), "utf8")),
-    ).toMatchObject({ version: 4, profile: "nexus", source, target });
+    ).toMatchObject({ version: 5, profile: "nexus", source, target });
 
     mkdirSync(join(target, "tools", "node-v24.22.2", "bin"), { recursive: true });
     writeFileSync(join(target, "tools", "node-v24.22.2", "bin", "node"), "new runtime\n");
@@ -426,6 +426,7 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
 
   it("repairs active SQLite paths without rewriting transcript history", () => {
     const root = mkdtempSync(join(tmpdir(), "askpepio-sqlite-path-repair-"));
+    const original = join(root, ".openclaw");
     const source = join(root, ".openclaw-nexus");
     const target = join(root, ".askpepio");
     const stateDatabasePath = join(target, "state", "openclaw.sqlite");
@@ -461,6 +462,9 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     stateDatabase
       .prepare("INSERT INTO config_machine_state VALUES (?, ?, 1)")
       .run("plugins.installedIndex", JSON.stringify({ installPath: `${source}/npm/slack` }));
+    stateDatabase
+      .prepare("INSERT INTO config_machine_state VALUES (?, ?, 1)")
+      .run("legacy.defaultState", JSON.stringify({ stateDir: original }));
     stateDatabase
       .prepare("INSERT INTO plugin_state_entries VALUES (?, ?, ?, ?, 1, NULL)")
       .run(
@@ -514,7 +518,7 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
       status: "target_repaired",
-      rewrittenDatabaseValues: 3,
+      rewrittenDatabaseValues: 4,
     });
     expect(
       stateDatabase
@@ -526,6 +530,11 @@ describe("scripts/mac-nexus-profile-migrate.mjs", () => {
         .prepare("SELECT value_json FROM plugin_state_entries WHERE entry_key = ?")
         .get("fixture"),
     ).toEqual({ value_json: JSON.stringify({ path: `${target}/workspace/memory.md` }) });
+    expect(
+      stateDatabase
+        .prepare("SELECT value_json FROM config_machine_state WHERE state_key = ?")
+        .get("legacy.defaultState"),
+    ).toEqual({ value_json: JSON.stringify({ stateDir: target }) });
     expect(
       agentDatabase
         .prepare("SELECT entry_json FROM session_nodes WHERE session_key = ?")
