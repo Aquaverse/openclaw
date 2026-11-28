@@ -318,6 +318,25 @@ export function renderChannelDetail(params: {
         <ChannelConfigFeedback channelId={params.channelId} props={params.props} />
         <openclaw-modal-actions class="oc-dialog__footer channels-detail__footer">
           <ChannelConfigStatus channelId={params.channelId} props={params.props} />
+          <Show
+            when={channelSnapshotEntryIsActive(
+              params.props.channels.channelsSnapshot,
+              params.channelId,
+            )}
+          >
+            <button
+              type="button"
+              class="btn btn--sm btn--danger"
+              disabled={
+                !params.props.canAdmin ||
+                !params.props.channels.connected ||
+                params.props.mutationBusy?.config === true
+              }
+              onClick={() => params.props.onDisconnect(params.channelId)}
+            >
+              {params.props.connectionActionCopy?.disconnect ?? t("common.remove")}
+            </button>
+          </Show>
           <a
             class="btn btn--sm"
             href={channelDocsUrl(params.channelId)}

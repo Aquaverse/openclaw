@@ -1,11 +1,12 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
-import type { JSX } from "@solidjs/web";
 import { createMemo, createSignal, For, onSettled, Show } from "solid-js";
 import type { ApplicationGatewaySnapshot } from "../app/context.ts";
 import { hasOperatorReadAccess } from "../app/operator-access.ts";
+import { showConfirmDialog } from "../components/confirm-dialog.ts";
 import "../components/modal-dialog.tsx";
 import { ChannelIcon } from "../components/solid/channel-icon.tsx";
 import { Icon } from "../components/solid/icon.tsx";
+import { InlineAlert } from "../components/solid/inline-alert.tsx";
 import { SettingsPage, SettingsPageHeader } from "../components/solid/settings-ui.tsx";
 import { createWizardLogin, WizardLogin } from "../components/wizard-login-controller.tsx";
 import { GitHubConnections } from "../features/github-connections/github-connections.tsx";
@@ -16,20 +17,28 @@ import {
   patchMcpServers,
   summarizeMcpServers,
 } from "../lib/config/mcp-servers.ts";
+import { formatUiError } from "../lib/format-error.ts";
 import { formatCompactMs } from "../lib/format.ts";
 import { canCallGatewayMethod } from "../lib/gateway-methods.ts";
 import { useApplication } from "../lib/reactive/context.ts";
 import { projectRuntimeConfig } from "../lib/reactive/domain-capabilities.ts";
 import { createGitHubIdentityView } from "../lib/reactive/domain-github-identity.ts";
+import { t } from "../lib/reactive/i18n.ts";
 import { defineSolidBridge, type SolidBridgeElement } from "../lib/solid-bridge.ts";
 import { ChannelsPage } from "../pages/channels/channels-page.tsx";
+import { resolveChannelHealth } from "../pages/channels/view.shared.tsx";
 import {
   ChannelConnectionOverlays,
   resolveChannelLabel,
   resolveChannelOrder,
 } from "../pages/channels/view.tsx";
 import type { ChannelsProps } from "../pages/channels/view.types.ts";
-import { configuredEmailAccounts, EmailAccounts } from "../pages/profile/email-accounts.tsx";
+import {
+  configuredEmailAccounts,
+  EmailAccounts,
+  removeConfiguredEmailAccount,
+} from "../pages/profile/email-accounts.tsx";
+import { ConnectedCard, ConnectionRow } from "./control-ui-apps-connections-presentation.tsx";
 import "./control-ui-apps-connections.css";
 
 export type AppsConnectionsCopy = {
@@ -40,6 +49,8 @@ export type AppsConnectionsCopy = {
   mailDescription: string;
   slack: string;
   slackDescription: string;
+  slackBotIdentity: string;
+  slackPersonalIdentity: string;
   github: string;
   githubDescription: string;
   fireflies: string;
@@ -51,6 +62,7 @@ export type AppsConnectionsCopy = {
   moreChannels: string;
   moreChannelsDescription: string;
   connected: string;
+  needsAttention: string;
   notConnected: string;
   connect: string;
   add: string;
@@ -80,6 +92,8 @@ const emptyCopy: AppsConnectionsCopy = {
   mailDescription: "",
   slack: "",
   slackDescription: "",
+  slackBotIdentity: "",
+  slackPersonalIdentity: "",
   github: "",
   githubDescription: "",
   fireflies: "",
@@ -91,6 +105,7 @@ const emptyCopy: AppsConnectionsCopy = {
   moreChannels: "",
   moreChannelsDescription: "",
   connected: "",
+  needsAttention: "",
   notConnected: "",
   connect: "",
   add: "",
@@ -120,62 +135,6 @@ type McpAuthStatusResult = {
   state: "authorized" | "requires-authorization" | "pending-authorization" | "unauthenticated";
   expiresAt?: number;
 };
-
-function ConnectionRow(props: {
-  title: string;
-  description?: string;
-  icon: JSX.Element;
-  status: string;
-  action: string;
-  onAction: () => void;
-}) {
-  return (
-    <div class="apps-connections__row">
-      <span class="apps-connections__row-icon">{props.icon}</span>
-      <span class="apps-connections__row-copy">
-        <span class="apps-connections__row-title">{props.title}</span>
-        <Show when={props.description} keyed>
-          {(description) => <span class="apps-connections__row-description">{description}</span>}
-        </Show>
-      </span>
-      <span class="apps-connections__row-control">
-        <span class="apps-connections__row-status">{props.status}</span>
-        <button type="button" class="btn btn--sm" onClick={() => props.onAction()}>
-          {props.action}
-        </button>
-      </span>
-    </div>
-  );
-}
-
-function ConnectedCard(props: {
-  title: string;
-  description?: string;
-  icon: JSX.Element;
-  status: string;
-  meta: string;
-  action: string;
-  onAction: () => void;
-}) {
-  return (
-    <article class="apps-connections__card">
-      <div class="apps-connections__card-heading">
-        <span class="apps-connections__row-icon">{props.icon}</span>
-        <span class="apps-connections__row-copy">
-          <span class="apps-connections__row-title">{props.title}</span>
-          <Show when={props.description} keyed>
-            {(description) => <span class="apps-connections__row-description">{description}</span>}
-          </Show>
-        </span>
-        <span class="apps-connections__card-status">{props.status}</span>
-      </div>
-      <p class="apps-connections__card-meta">{props.meta}</p>
-      <button type="button" class="apps-connections__card-action" onClick={() => props.onAction()}>
-        {props.action}
-      </button>
-    </article>
-  );
-}
 
 function syncPersonalGitHub(
   identity: ReturnType<typeof createGitHubIdentityView>,
@@ -213,6 +172,8 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
   const github = createGitHubIdentityView();
   const [dialog, setDialog] = createSignal<ConnectionDialog>(null);
   const [showChannelPicker, setShowChannelPicker] = createSignal(false);
+  const [disconnecting, setDisconnecting] = createSignal<string | null>(null);
+  const [disconnectError, setDisconnectError] = createSignal<string | null>(null);
   const [firefliesAuthStatus, setFirefliesAuthStatus] = createSignal<McpAuthStatusResult | null>(
     null,
   );
@@ -251,7 +212,6 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
       return;
     }
     firefliesStatusReadKey = key;
-    setFirefliesAuthStatus(null);
     const readId = ++firefliesStatusReadId;
     try {
       const result = await client.request<McpAuthStatusResult>("mcp.authStatus", {
@@ -261,9 +221,8 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
         setFirefliesAuthStatus(result);
       }
     } catch {
-      if (active && readId === firefliesStatusReadId) {
-        setFirefliesAuthStatus(null);
-      }
+      // Keep the last accepted state while a transient refresh fails. Clearing it here moves the
+      // Fireflies card between sections and makes the whole connections page visibly jump.
     }
   };
   const refreshFireflies = async () => {
@@ -321,6 +280,25 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
   const connectedChannels = createMemo(() =>
     channelOrder().filter((channel) => channelSnapshotEntryIsActive(channelSnapshot(), channel)),
   );
+  const slackUsesPersonalIdentity = createMemo(() => {
+    const slack = asOptionalRecord(asOptionalRecord(config()?.channels)?.slack);
+    if (!slack) {
+      return false;
+    }
+    const configuredForUser = (entry: Record<string, unknown>) =>
+      entry.postAs === "user" && entry.userToken !== undefined && entry.userToken !== null;
+    if (configuredForUser(slack)) {
+      return true;
+    }
+    const accounts = asOptionalRecord(slack.accounts);
+    return Boolean(
+      accounts &&
+      Object.values(accounts).some((entry) => {
+        const account = asOptionalRecord(entry);
+        return account ? configuredForUser(account) : false;
+      }),
+    );
+  });
   const githubConnected = () => github.read().personal?.state === "connected";
   const githubLogin = () => github.read().personal?.account?.login;
   const firefliesConnected = () => {
@@ -385,6 +363,36 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
       }
     });
   };
+  const confirmDisconnect = async (key: string, title: string, disconnect: () => Promise<void>) => {
+    const label = props.copy.disconnect.replace(/…$/u, "");
+    const confirmed = await showConfirmDialog({
+      title: `${label} ${title}?`,
+      message: `${label} ${title}`,
+      confirmLabel: label,
+      cancelLabel: t("common.cancel"),
+    });
+    if (!confirmed) {
+      return;
+    }
+    setDisconnecting(key);
+    setDisconnectError(null);
+    try {
+      await disconnect();
+    } catch (cause) {
+      setDisconnectError(formatUiError(cause));
+    } finally {
+      setDisconnecting(null);
+    }
+  };
+  const disconnectFireflies = async () => {
+    const server = firefliesServer();
+    const client = context.gateway.snapshot.client;
+    if (!server || !client) {
+      throw new Error(props.copy.notConnected);
+    }
+    await client.request("mcp.authLogout", { serverName: server.name });
+    await refreshFireflies();
+  };
 
   return (
     <div hidden={!props.presented}>
@@ -399,6 +407,13 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
                 {connectedCount()}
               </span>
             </div>
+            <Show when={disconnectError()} keyed>
+              {(message) => (
+                <InlineAlert tone="danger" role="alert">
+                  {message}
+                </InlineAlert>
+              )}
+            </Show>
             <Show when={connectedCount() > 0}>
               <div class="apps-connections__cards">
                 <For each={emailAccounts()} keyed={(account) => account[0]}>
@@ -419,8 +434,17 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
                         icon={<Icon name="mail" />}
                         status={props.copy.connected}
                         meta={connectionMeta()}
-                        action={props.copy.disconnect}
-                        onAction={() => setDialog("email-manage")}
+                        disconnectAction={props.copy.disconnect}
+                        manageAction={props.copy.manage}
+                        disconnectDisabled={disconnecting() !== null}
+                        onDisconnect={() => {
+                          const [id, value] = entry();
+                          const accountTitle = title();
+                          void confirmDisconnect(id, accountTitle, () =>
+                            removeConfiguredEmailAccount(context, id, value),
+                          );
+                        }}
+                        onManage={() => setDialog("email-manage")}
                       />
                     );
                   }}
@@ -432,8 +456,13 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
                     icon={<Icon name="github" />}
                     status={props.copy.connected}
                     meta={connectionMeta()}
-                    action={props.copy.disconnect}
-                    onAction={() => setDialog("github")}
+                    disconnectAction={props.copy.disconnect}
+                    manageAction={props.copy.manage}
+                    disconnectDisabled={disconnecting() !== null}
+                    onDisconnect={() =>
+                      void confirmDisconnect("github", props.copy.github, () => github.disconnect())
+                    }
+                    onManage={() => setDialog("github")}
                   />
                 </Show>
                 <Show when={firefliesConnected()}>
@@ -443,19 +472,45 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
                     icon={<Icon name="sparkles" />}
                     status={props.copy.connected}
                     meta={connectionMeta()}
-                    action={props.copy.manage}
-                    onAction={() => void connectFireflies()}
+                    disconnectAction={props.copy.disconnect}
+                    manageAction={props.copy.manage}
+                    disconnectDisabled={
+                      disconnecting() !== null ||
+                      !canCallGatewayMethod(
+                        context.gateway.snapshot,
+                        "mcp.authLogout",
+                        "operator.admin",
+                      )
+                    }
+                    onDisconnect={() =>
+                      void confirmDisconnect("fireflies", props.copy.fireflies, disconnectFireflies)
+                    }
+                    onManage={() => void connectFireflies()}
                   />
                 </Show>
                 <For each={connectedChannels()}>
                   {(channel) => (
                     <ConnectedCard
                       title={resolveChannelLabel(props.channels, channel)}
+                      description={
+                        channel === "slack"
+                          ? slackUsesPersonalIdentity()
+                            ? props.copy.slackPersonalIdentity
+                            : props.copy.slackBotIdentity
+                          : undefined
+                      }
                       icon={channelIcon(channel)}
-                      status={props.copy.connected}
+                      status={
+                        resolveChannelHealth(channel, props.channels) === "attention"
+                          ? props.copy.needsAttention
+                          : props.copy.connected
+                      }
                       meta={connectionMeta()}
-                      action={props.copy.disconnect}
-                      onAction={() => props.channels.onShowDetail(channel)}
+                      disconnectAction={props.copy.disconnect}
+                      manageAction={props.copy.manage}
+                      disconnectDisabled={disconnecting() !== null}
+                      onDisconnect={() => props.channels.onDisconnect(channel)}
+                      onManage={() => props.channels.onShowDetail(channel)}
                     />
                   )}
                 </For>
@@ -602,7 +657,10 @@ function AppsConnectionsSurface(props: AppsConnectionsProps & { channels: Channe
         )}
       </Show>
 
-      <ChannelConnectionOverlays {...props.channels} />
+      <ChannelConnectionOverlays
+        {...props.channels}
+        connectionActionCopy={{ disconnect: props.copy.disconnect }}
+      />
       <WizardLogin controller={firefliesLogin} options={{ doneMessage: props.copy.connected }} />
     </div>
   );

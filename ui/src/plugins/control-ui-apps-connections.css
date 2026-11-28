@@ -94,9 +94,14 @@ openclaw-plugin-apps-connections openclaw-channels-page {
   line-height: 1.5;
 }
 
-.apps-connections__card-action {
-  justify-self: start;
+.apps-connections__card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-top: auto;
+}
+
+.apps-connections__card-action {
   min-height: 32px;
   padding: 4px 10px;
   border: 1px solid transparent;
@@ -110,6 +115,10 @@ openclaw-plugin-apps-connections openclaw-channels-page {
   transition:
     background 120ms ease,
     border-color 120ms ease;
+}
+
+.apps-connections__card-action--danger {
+  color: var(--danger);
 }
 
 .apps-connections__card-action:hover {

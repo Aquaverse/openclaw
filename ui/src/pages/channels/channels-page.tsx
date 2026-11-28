@@ -34,6 +34,7 @@ import {
   keptChannelEdits,
   rebaseChannelConfigEdits,
 } from "./channel-config-draft.ts";
+import { createChannelDisconnect } from "./channel-disconnect.ts";
 import { ChannelsPageContent, type ChannelsPageRender } from "./channels-page-content.tsx";
 import { createChannelPluginPresentation } from "./plugin-presentation-loader.ts";
 import { resolveChannelLabel, resolveChannelOrder } from "./view.tsx";
@@ -42,7 +43,6 @@ import { createChannelSetup } from "./wizard-setup.ts";
 
 registerRouteSubtitlesEnglish();
 
-const CHANNEL_PAIRING_POLL_INTERVAL_MS = 30_000;
 export function ChannelsPage(
   pageProps: {
     render?: ChannelsPageRender;
@@ -67,15 +67,14 @@ export function ChannelsPage(
   const operations: {
     prompt: ChannelPairingPrompt | null;
   } = { prompt: null };
-  let publishOperations = () => {};
   const operationState = projectMutableSource(operations, (source) => source);
-  publishOperations = operationState.publish;
+  const publishOperations = operationState.publish;
   function updateOperations(patch: Partial<typeof operations>) {
     Object.assign(operations, patch);
     publishOperations();
   }
   let active = true;
-  const pairingPoll = useVisiblePoll(CHANNEL_PAIRING_POLL_INTERVAL_MS, pollPairing);
+  const pairingPoll = useVisiblePoll(30_000, pollPairing);
   let pairingRoot: HTMLElement | undefined;
   const gatewayProjection = projectGateway(context.gateway);
   const channelsProjection = projectChannels(channelCapability);
@@ -283,9 +282,8 @@ export function ChannelsPage(
     context.theme.refresh();
   }
 
-  function hasUnsavedConfig(channelId: string) {
-    return Boolean(channelCapability.state.configEdits[channelId]);
-  }
+  const hasUnsavedConfig = (channelId: string) =>
+    Boolean(channelCapability.state.configEdits[channelId]);
 
   /** The one place these edits reach the config. Returns whether nothing is left unsaved. */
   async function saveChannelConfig(channelId: string, retry = true): Promise<boolean> {
@@ -631,7 +629,6 @@ export function ChannelsPage(
 
   function presentWhatsApp(pending: Promise<void>) {
     void runMutation("whatsapp", pending).then(() => {
-      // Plugin views receive imperative snapshots, including the settled saving flag.
       onSettled(() => pluginPresentation.details.sync());
     });
     return pending;
@@ -640,6 +637,15 @@ export function ChannelsPage(
   function startWhatsApp(force: boolean, accountId = wizardHost.whatsappAccountId()) {
     return presentWhatsApp(channelCapability.startWhatsApp(force, accountId));
   }
+
+  const onDisconnect = createChannelDisconnect({
+    getProps: viewProps,
+    channels: channelCapability,
+    getRuntimeConfig: () => context.runtimeConfig.state,
+    save: saveChannelConfig,
+    onSaved: clearChannelDetail,
+    present: (pending) => void runMutation("config", pending),
+  });
 
   function viewProps(): ChannelsProps {
     operationState.read();
@@ -671,6 +677,7 @@ export function ChannelsPage(
         retireMutation("whatsapp");
         setSelectedChannel(channel);
       },
+      onDisconnect,
       onCloseDetail: () => void closeChannelDetail(),
       onStartSetup: (channelId) => void startChannelSetup(channelId),
       onRefresh: (probe) => void channelCapability.refresh(probe),
@@ -702,9 +709,7 @@ export function ChannelsPage(
       onConfigConflict: resolveConfigConflict,
     };
   }
-  // The application owns these services for this mounted page's lifetime.
   onSettled(() => {
-    // Gateway receipts retire plugin operations and pairing prompts synchronously.
     connection.connect();
     void context.runtimeConfig.ensureLoaded().catch(() => undefined);
     const applyChannels = () => {

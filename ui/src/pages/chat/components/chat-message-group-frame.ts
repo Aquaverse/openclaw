@@ -6,6 +6,7 @@ import { normalizeRoleForGrouping } from "../../../lib/chat/message-normalizer.t
 import { gatewayClientKind } from "../../../lib/gateway-client-kind.ts";
 import { resolveIdentityHue } from "../../../lib/identity-avatar.ts";
 import { DEFAULT_AGENT_ID } from "../../../lib/sessions/session-key.ts";
+import { brandProductText } from "../../../product-branding.ts";
 import {
   assistantMessageCanOwnTurnActions,
   isProviderVoiceTranscript,
@@ -77,7 +78,7 @@ export function prepareMessageGroupFrame(
   const sourceOnly = isSourceOnlyUserGroup(group);
   const showAvatar =
     normalizedRole !== "user" || Boolean(group.sender || group.senderLabel?.trim());
-  const assistantName = opts.assistantName ?? t("chat.messages.agentName");
+  const assistantName = brandProductText(opts.assistantName ?? t("chat.messages.agentName"));
   const isOwnGroup = isOwnSenderGroup(group, opts.userId);
   const isPeerGroup =
     normalizedRole === "user" && Boolean(opts.userId && group.sender) && !isOwnGroup;
@@ -110,7 +111,10 @@ export function prepareMessageGroupFrame(
   const visibleSources = group.sourceClients?.filter(
     (source) => gatewayClientKind(source) !== "web",
   );
-  const who = resolveMessageGroupSenderLabel(group, opts);
+  const who =
+    normalizedRole === "assistant"
+      ? brandProductText(resolveMessageGroupSenderLabel(group, opts))
+      : resolveMessageGroupSenderLabel(group, opts);
   const roleClass =
     normalizedRole === "user" || normalizedRole === "assistant" || normalizedRole === "tool"
       ? normalizedRole

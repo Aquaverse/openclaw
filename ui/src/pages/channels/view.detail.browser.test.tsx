@@ -1,5 +1,5 @@
 import { createSignal, flush } from "solid-js";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import "../../styles.css";
 import "../../styles/channels.css";
@@ -7,7 +7,7 @@ import "../../styles/settings.css";
 import { getRenderedModalDialog } from "../../test-helpers/modal-dialog.ts";
 import { mountSolid } from "../../test-helpers/mount-solid.ts";
 import { renderChannelDetail } from "./view.detail.tsx";
-import { createChannelsViewProps } from "./view.test-support.ts";
+import { channelSnapshot, createChannelsViewProps } from "./view.test-support.ts";
 
 const viewport = { width: window.innerWidth, height: window.innerHeight };
 let host: HTMLDivElement | undefined;
@@ -110,4 +110,33 @@ it("keeps channel fields and completion actions inset and reachable without visi
   }
   await userEvent.click(host.querySelector<HTMLButtonElement>(".channels-detail__footer button")!);
   expect(setups).toBe(1);
+});
+
+it("offers a real disconnect action inside connected channel settings", async () => {
+  const disconnect = vi.fn();
+  const props = createChannelsViewProps(
+    channelSnapshot({ telegram: { configured: true, running: true } }),
+    null,
+    {
+      connectionActionCopy: { disconnect: "Disconnect…" },
+      onDisconnect: disconnect,
+    },
+  );
+  host = document.body.appendChild(document.createElement("div"));
+  view = mountSolid(
+    () =>
+      renderChannelDetail({
+        channelId: "telegram",
+        label: "Telegram",
+        props,
+        onClose: () => {},
+        onSetup: () => {},
+      }),
+    { container: host },
+  );
+  await getRenderedModalDialog(host);
+
+  await userEvent.click(page.getByRole("button", { name: "Disconnect…", exact: true }));
+
+  expect(disconnect).toHaveBeenCalledWith("telegram");
 });

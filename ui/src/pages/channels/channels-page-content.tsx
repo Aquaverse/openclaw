@@ -1,4 +1,5 @@
 import type { JSX } from "@solidjs/web";
+import { Dynamic } from "@solidjs/web";
 import { LearnMoreLink, SettingsPageHeader } from "../../components/solid/settings-ui.tsx";
 import { SettingsWorkspace } from "../../components/solid/settings-workspace.tsx";
 import { t } from "../../lib/reactive/i18n.ts";
@@ -16,7 +17,7 @@ export function ChannelsPageContent(props: {
   return (
     <openclaw-channels-page>
       {props.render ? (
-        props.render(props.channels)
+        <Dynamic component={props.render} {...props.channels} />
       ) : (
         <>
           <SettingsPageHeader

@@ -19,6 +19,7 @@ import * as composerInput from "../../../lib/composer-input.ts";
 import { clearCompositionEnd, recordCompositionEnd } from "../../../lib/ime.ts";
 import { isSessionRunVisuallyActive } from "../../../lib/session-run-state.ts";
 import { detectTextDirection } from "../../../lib/text-direction.ts";
+import { brandProductText, productDisplayName } from "../../../product-branding.ts";
 import { chatGoalCreationObjective } from "../chat-goals.ts";
 import {
   hasTerminalRunStatus,
@@ -149,7 +150,9 @@ export function createChatComposerContext(
   if (state.composerTextarea?.isConnected && state.composerTextarea.value !== visibleDraft) {
     scheduleTextareaHeightAdjustment(state.composerTextarea);
   }
-  const assistantName = props.assistantName || "OpenClaw";
+  const assistantName = props.assistantName
+    ? brandProductText(props.assistantName)
+    : productDisplayName;
   const inProgressLabel = props.waitingApproval
     ? t("chat.waitingForApproval")
     : submittedProgress?.sendState === "waiting-model"

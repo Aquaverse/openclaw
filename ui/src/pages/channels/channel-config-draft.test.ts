@@ -82,6 +82,19 @@ describe("channel config draft", () => {
     });
   });
 
+  it("deletes every saved field when disconnecting a channel", () => {
+    const built = buildChannelConfigPatch({
+      base: { botToken: "stored", enabled: true },
+      channelId: "telegram",
+      edits: [{ path: ["channels", "telegram"], value: undefined }],
+      schema,
+    });
+    expect(built).toEqual({
+      patch: { channels: { telegram: { botToken: null, enabled: null } } },
+      replacePaths: [],
+    });
+  });
+
   it("has nothing to send when the edits land back on the saved value", () => {
     expect(
       buildChannelConfigPatch({

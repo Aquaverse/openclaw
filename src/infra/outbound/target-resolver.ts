@@ -343,6 +343,7 @@ export async function resolveNamedChannelTarget(params: {
   input: string;
   accountId?: string | null;
   runtime?: RuntimeEnv;
+  plugin?: ChannelPlugin;
 }): Promise<ResolveMessagingTargetResult | null> {
   const raw = params.input.trim();
   const kind: ChannelDirectoryEntryKind | undefined = raw.startsWith("#")
@@ -350,7 +351,7 @@ export async function resolveNamedChannelTarget(params: {
     : raw.startsWith("@")
       ? "user"
       : undefined;
-  const plugin = getRuntimeVisibleChannelPlugin(params.channel);
+  const plugin = params.plugin ?? getRuntimeVisibleChannelPlugin(params.channel);
   const query = raw.slice(1).trim();
   if (!kind || !query || !plugin?.directory) {
     return null;

@@ -89,6 +89,7 @@ export function createChannelsViewProps(
     showAdvancedSettings: false,
     selectedChannel: null,
     onShowDetail: () => {},
+    onDisconnect: () => {},
     onCloseDetail: () => {},
     onStartSetup: () => {},
     onRefresh: () => {},

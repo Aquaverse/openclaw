@@ -1,5 +1,6 @@
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
-import { createMemo, createSignal, For, onCleanup, onSettled, Show } from "solid-js";
+import { createMemo, createSignal, For, onSettled, Show } from "solid-js";
+import type { ApplicationContext } from "../../app/context-types.ts";
 import { hasOperatorAdminAccess } from "../../app/operator-access.ts";
 import { SensitiveInput } from "../../components/sensitive-input.tsx";
 import { InlineAlert } from "../../components/solid/inline-alert.tsx";
@@ -55,6 +56,30 @@ export function configuredEmailAccounts(config: Record<string, unknown> | null) 
 function passwordSecretName(value: unknown): string | undefined {
   const ref = asOptionalRecord(asOptionalRecord(value)?.password);
   return ref?.source === "store" && typeof ref.id === "string" ? ref.id : undefined;
+}
+
+export async function removeConfiguredEmailAccount(
+  context: Pick<ApplicationContext, "gateway" | "runtimeConfig">,
+  id: string,
+  value: unknown,
+) {
+  const client = context.gateway.snapshot.client;
+  if (!client) {
+    throw new Error(t("profilePage.email.deleteFailed"));
+  }
+  const saved = await context.runtimeConfig.patchFromSnapshot(() => ({
+    options: {
+      note: "Remove email account",
+      raw: { plugins: { entries: { imap: { config: { accounts: { [id]: null } } } } } },
+    },
+  }));
+  if (!saved) {
+    throw new Error(t("profilePage.email.deleteFailed"));
+  }
+  const secret = passwordSecretName(value);
+  if (secret) {
+    await client.request("secrets.store.delete", { name: secret }).catch(() => undefined);
+  }
 }
 
 function draftAccount(draft: Draft, password: unknown) {
@@ -125,9 +150,11 @@ export function EmailAccounts(props: { initialAction?: "add"; saveSentCopyLabel?
   const [error, setError] = createSignal<string | null>(null, { ownedWrite: true });
   const [tested, setTested] = createSignal<string | null>(null, { ownedWrite: true });
   const [passwordRevealed, setPasswordRevealed] = createSignal(false, { ownedWrite: true });
-  const stop = context.runtimeConfig.subscribe(() => setRevision((value) => value + 1));
-  onCleanup(stop);
-  onSettled(() => void context.runtimeConfig.ensureLoaded());
+  onSettled(() => {
+    const stop = context.runtimeConfig.subscribe(() => setRevision((value) => value + 1));
+    void context.runtimeConfig.ensureLoaded();
+    return stop;
+  });
 
   const config = () => {
     revision();
@@ -249,26 +276,10 @@ export function EmailAccounts(props: { initialAction?: "add"; saveSentCopyLabel?
   }
 
   async function remove(id: string, value: unknown) {
-    const client = context.gateway.snapshot.client;
-    if (!client) {
-      return;
-    }
     try {
       setBusy("delete");
       setError(null);
-      const saved = await context.runtimeConfig.patchFromSnapshot(() => ({
-        options: {
-          note: "Remove email account",
-          raw: { plugins: { entries: { imap: { config: { accounts: { [id]: null } } } } } },
-        },
-      }));
-      if (!saved) {
-        throw new Error(t("profilePage.email.deleteFailed"));
-      }
-      const secret = passwordSecretName(value);
-      if (secret) {
-        await client.request("secrets.store.delete", { name: secret }).catch(() => undefined);
-      }
+      await removeConfiguredEmailAccount(context, id, value);
     } catch (cause) {
       setError(formatUiError(cause));
     } finally {

@@ -35,7 +35,11 @@ import {
   missingMessageActionTargetError,
 } from "./target-errors.js";
 import { normalizeTargetForProvider } from "./target-normalization.js";
-import { resolveChannelTarget, type ResolvedMessagingTarget } from "./target-resolver.js";
+import {
+  resolveChannelTarget,
+  resolveNamedChannelTarget,
+  type ResolvedMessagingTarget,
+} from "./target-resolver.js";
 
 function addTargetCandidates(candidates: Set<string>, value: string, channel?: ChannelId) {
   const normalized = normalizeOptionalString(value);
@@ -372,14 +376,22 @@ export async function resolveMessageTarget(params: {
       if (!input) {
         continue;
       }
-      const resolved = await resolveChannelTarget({
-        cfg: params.cfg,
-        channel: params.channel,
-        input,
-        accountId: params.accountId ?? undefined,
-        plugin: params.plugin,
-        ...(key === "channelId" ? { preferredKind: "group" as const } : {}),
-      });
+      const resolved =
+        (await resolveNamedChannelTarget({
+          cfg: params.cfg,
+          channel: params.channel,
+          input,
+          accountId: params.accountId ?? undefined,
+          plugin: params.plugin,
+        })) ??
+        (await resolveChannelTarget({
+          cfg: params.cfg,
+          channel: params.channel,
+          input,
+          accountId: params.accountId ?? undefined,
+          plugin: params.plugin,
+          ...(key === "channelId" ? { preferredKind: "group" as const } : {}),
+        }));
       if (!resolved.ok) {
         throw resolved.error;
       }

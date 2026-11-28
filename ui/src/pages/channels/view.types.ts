@@ -48,8 +48,12 @@ export type ChannelsProps = {
   canManagePairing: boolean;
   canAdmin: boolean;
   showAdvancedSettings: boolean;
+  connectionActionCopy?: {
+    disconnect: string;
+  };
   selectedChannel: string | null;
   onShowDetail: (channelId: string) => void;
+  onDisconnect: (channelId: string) => void;
   onCloseDetail: () => void;
   onStartSetup: (channelId: string | null) => void;
   onRefresh: (probe: boolean) => void;
